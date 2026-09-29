@@ -1,5 +1,8 @@
 fastapi
 uvicorn[standard]
+gunicorn
+celery
+redis
 python-multipart
 pypdf
 python-docx

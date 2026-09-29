@@ -54,9 +54,16 @@ export default function App() {
     }
   };
 
+  const normalizeScore = (value) => {
+    const raw = Number(String(value ?? "").replace(/[% ,]/g, ""));
+    if (!Number.isFinite(raw)) return 0;
+    return Math.max(0, Math.min(100, raw));
+  };
+
   const getScoreColor = (score) => {
-    if (score >= 75) return "text-emerald-600 dark:text-emerald-400";
-    if (score >= 50) return "text-amber-600 dark:text-amber-400";
+    const normalized = normalizeScore(score);
+    if (normalized >= 75) return "text-emerald-600 dark:text-emerald-400";
+    if (normalized >= 50) return "text-amber-600 dark:text-amber-400";
     return "text-rose-600 dark:text-rose-400";
   };
 
@@ -143,19 +150,19 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
                 <div className="bg-slate-50 dark:bg-slate-950/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
                   <p className="text-slate-500 text-xs font-bold uppercase mb-2">Overall Match</p>
-                  <p className={`text-4xl font-extrabold ${getScoreColor(validationResult.match_score)}`}>{validationResult.match_score}%</p>
+                  <p className={`text-4xl font-extrabold ${getScoreColor(validationResult.match_score)}`}>{normalizeScore(validationResult.match_score)}%</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-950/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
                   <p className="text-slate-500 text-xs font-bold uppercase mb-2">Mandatory Skills</p>
-                  <p className={`text-4xl font-extrabold ${getScoreColor(validationResult.mandatory_skills_match_score)}`}>{validationResult.mandatory_skills_match_score}%</p>
+                  <p className={`text-4xl font-extrabold ${getScoreColor(validationResult.mandatory_skills_match_score)}`}>{normalizeScore(validationResult.mandatory_skills_match_score)}%</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-950/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
                   <p className="text-slate-500 text-xs font-bold uppercase mb-2">Coding Skills</p>
-                  <p className={`text-4xl font-extrabold ${getScoreColor(validationResult.coding_skills_score)}`}>{validationResult.coding_skills_score}%</p>
+                  <p className={`text-4xl font-extrabold ${getScoreColor(validationResult.coding_skills_score)}`}>{normalizeScore(validationResult.coding_skills_score)}%</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-950/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
                   <p className="text-slate-500 text-xs font-bold uppercase mb-2">Behavioral</p>
-                  <p className={`text-4xl font-extrabold ${getScoreColor(validationResult.behavioral_skills_score)}`}>{validationResult.behavioral_skills_score}%</p>
+                  <p className={`text-4xl font-extrabold ${getScoreColor(validationResult.behavioral_skills_score)}`}>{normalizeScore(validationResult.behavioral_skills_score)}%</p>
                 </div>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
