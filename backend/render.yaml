@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: bluepace-ats-backend          # Unique name for your service
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    rootDir: backend                    # Since your Dockerfile is inside the backend folder
+    healthCheckPath: /                  # Render will ping this to confirm the service is live
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false                     # You will set this value manually in the Render Dashboard
+      - key: ALLOWED_ORIGINS
+        value: http://localhost:5173    # Temporary; update after deploying the frontend
