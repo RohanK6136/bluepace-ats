@@ -8,14 +8,11 @@ from pydantic import BaseModel
 from app.services.extractor import extractor_service
 from app.services.llm_validator import llm_validator
 
-app = FastAPI(title="BluePace Tech ATS API", version="1.0.0")
-
-# Load allowed origins from environment variable (fallback to localhost for dev)
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+app = FastAPI(title="BluePace Tech ATS API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
