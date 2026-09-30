@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -17,6 +18,63 @@ class LLMValidator:
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key or "missing-key",
         )
+        self.model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct")
+        configured_fallbacks = os.getenv(
+            "OPENROUTER_FALLBACK_MODELS",
+            "meta-llama/llama-3.3-70b-instruct,google/gemini-2.5-flash",
+        )
+        self.fallback_models = list(
+            dict.fromkeys(model.strip() for model in configured_fallbacks.split(",") if model.strip())
+        )[:3]
+        try:
+            configured_retries = int(os.getenv("OPENROUTER_429_RETRIES", "1"))
+        except ValueError:
+            configured_retries = 1
+        self.rate_limit_retries = max(0, min(configured_retries, 2))
+        self.sleep = time.sleep
+
+    @staticmethod
+    def _is_rate_limited(error):
+        if getattr(error, "status_code", None) == 429:
+            return True
+        return bool(re.search(r"\b429\b", str(error)))
+
+    @staticmethod
+    def _retry_delay(error, attempt):
+        response = getattr(error, "response", None)
+        headers = getattr(response, "headers", {}) or {}
+        retry_after = headers.get("retry-after") or headers.get("Retry-After")
+        try:
+            return max(0.0, min(float(retry_after), 5.0)) if retry_after is not None else min(0.5 * (2 ** attempt), 2.0)
+        except (TypeError, ValueError):
+            return min(0.5 * (2 ** attempt), 2.0)
+
+    def _request_completion(self, prompt):
+        extra_body = {
+            "provider": {
+                "sort": "throughput",
+                "allow_fallbacks": True,
+            }
+        }
+        if self.fallback_models:
+            extra_body["models"] = self.fallback_models
+
+        for attempt in range(self.rate_limit_retries + 1):
+            try:
+                return self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.1,
+                    max_tokens=3000,
+                    extra_body=extra_body,
+                )
+            except Exception as error:
+                if not self._is_rate_limited(error) or attempt >= self.rate_limit_retries:
+                    raise
+                delay = self._retry_delay(error, attempt)
+                print(f"OpenRouter rate-limited validation; retrying after {delay:.1f}s")
+                self.sleep(delay)
 
     @staticmethod
     def _normalize_score(value, default=0):
@@ -105,25 +163,26 @@ class LLMValidator:
         }}
         """
         try:
-            print("🔄 Sending request to OpenRouter...")
-            response = self.client.chat.completions.create(
-                model="qwen/qwen-2.5-72b-instruct",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.1,
-                max_tokens=3000,
-            )
+            print("Sending resume validation request through OpenRouter")
+            response = self._request_completion(prompt)
             content = response.choices[0].message.content
-            print("✅ Received response from OpenRouter.")
+            print("Received resume validation response")
             parsed = self._parse_llm_response(content)
             return parsed
-        except Exception as e:
-            print(f"❌ LLM Error: {str(e)}")
+        except Exception as error:
+            if self._is_rate_limited(error):
+                safe_error = (
+                    "All configured AI providers are temporarily rate-limited. "
+                    "Please retry shortly or configure an OpenRouter provider key."
+                )
+            else:
+                safe_error = str(error)[:1000]
+            print(f"Resume validation unavailable: {safe_error}")
             return {
-                "error": str(e),
+                "error": safe_error,
                 "match_score": 0, "coding_skills_score": 0, "behavioral_skills_score": 0,
                 "mandatory_skills_match_score": 0, "mandatory_skills_met": [], "mandatory_skills_missed": [],
-                "summary": f"Validation failed: {str(e)}", "missing_skills": [], "recommendation": "Error",
+                "summary": f"Validation unavailable: {safe_error}", "missing_skills": [], "recommendation": "Manual Review",
                 "is_fresher": False, "highest_education": "N/A",
                 "extracted_experience": [], "extracted_education": [],
                 "extracted_hobbies": [], "extracted_university_projects": []

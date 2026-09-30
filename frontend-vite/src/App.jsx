@@ -147,6 +147,16 @@ export default function App() {
               )}
             </div>
             <div className="p-8">
+              {validationResult.error ? (
+                <div role="alert" className="border-l-2 border-amber-500 bg-amber-50 p-5 text-amber-950 dark:bg-amber-500/10 dark:text-amber-100">
+                  <h3 className="font-semibold">Screening unavailable</h3>
+                  <p className="mt-1 text-sm">{validationResult.summary || validationResult.error}</p>
+                  <p className="mt-2 text-xs">No match score was produced. Review this candidate manually or retry screening.</p>
+                  <button onClick={handleValidate} disabled={validating} className="mt-4 rounded-md border border-amber-700/30 bg-white px-3 py-2 text-sm font-semibold text-amber-950 disabled:opacity-50 dark:bg-transparent dark:text-amber-100">
+                    {validating ? "Retrying..." : "Retry screening"}
+                  </button>
+                </div>
+              ) : <>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
                 <div className="bg-slate-50 dark:bg-slate-950/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
                   <p className="text-slate-500 text-xs font-bold uppercase mb-2">Overall Match</p>
@@ -245,6 +255,7 @@ export default function App() {
                   {validationResult.recommendation || "N/A"}
                 </span>
               </div>
+              </>}
             </div>
           </div>
         )}
