@@ -743,6 +743,109 @@ def delete_job(
     db.commit()
 
 
+@app.post("/candidates/from-resume", response_model=CandidateRead, status_code=status.HTTP_201_CREATED)
+async def create_candidate_from_resume(
+    file: UploadFile = File(...),
+    job_id: int | None = Form(default=None),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    suffix, content = await _read_resume_upload(file)
+    try:
+        parsed = extractor_service.extract_to_json(content, f"resume{suffix}")
+    except DocumentExtractionError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+
+    first_name, last_name = _split_candidate_name(parsed.get("name"))
+    candidate_email = str(parsed.get("email") or "").strip().lower()
+    if not candidate_email:
+        raise HTTPException(
+            status_code=422,
+            detail="The uploaded resume must contain an email address for automatic candidate creation.",
+        )
+
+    candidate = db.scalar(
+        select(Candidate).where(
+            Candidate.organization_id == user.organization_id,
+            Candidate.email == candidate_email,
+        )
+    )
+    if candidate is None:
+        candidate = Candidate(
+            organization_id=user.organization_id,
+            created_by_id=user.id,
+            first_name=first_name,
+            last_name=last_name,
+            email=candidate_email,
+            phone=parsed.get("phone"),
+            linkedin_url=parsed.get("linkedin"),
+            source="Admin Resume Upload",
+        )
+        db.add(candidate)
+        db.flush()
+    else:
+        candidate.first_name = first_name
+        candidate.last_name = last_name
+        candidate.phone = parsed.get("phone") or candidate.phone
+        candidate.linkedin_url = parsed.get("linkedin") or candidate.linkedin_url
+        candidate.source = candidate.source or "Admin Resume Upload"
+
+    candidate.resume_data = {
+        key: value for key, value in parsed.items() if key != "raw_text"
+    }
+
+    storage_key = f"{user.organization_id}/{candidate.id}/{os.urandom(16).hex()}{suffix}"
+    storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
+    storage_path = storage_dir / storage_key
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage_path.write_bytes(content)
+    candidate.resume_storage_key = storage_key
+
+    if job_id is not None:
+        job = _get_org_record(db, Job, job_id, user.organization_id)
+        if job.status != "open":
+            raise HTTPException(status_code=409, detail="The selected job is not open")
+
+        existing_application = db.scalar(
+            select(Application.id).where(
+                Application.job_id == job.id,
+                Application.candidate_id == candidate.id,
+            )
+        )
+        if existing_application is None:
+            stages = ensure_job_stages(db, job)
+            application = Application(
+                organization_id=user.organization_id,
+                job_id=job.id,
+                candidate_id=candidate.id,
+                stage_id=stages["Applied"].id,
+                status="active",
+            )
+            db.add(application)
+            db.flush()
+
+            if not job.jd_analysis:
+                job.jd_analysis = matching_service.analyze_job(job)
+            score = matching_service.score_candidate(job, candidate)
+            db.add(
+                CandidateJobMatch(
+                    organization_id=user.organization_id,
+                    job_id=job.id,
+                    candidate_id=candidate.id,
+                    model_score=score["model_score"],
+                    score_breakdown=score["score_breakdown"],
+                    matched_skills=score["matched_skills"],
+                    skill_gaps=score["skill_gaps"],
+                    explanations=score["explanations"],
+                    semantic_mode=score["semantic_mode"],
+                )
+            )
+
+    db.commit()
+    db.refresh(candidate)
+    return candidate
+
+
 @app.post("/candidates", response_model=CandidateRead, status_code=status.HTTP_201_CREATED)
 def create_candidate(
     request: CandidateCreate,
