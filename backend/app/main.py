@@ -1319,7 +1319,13 @@ async def validate_resume(request: ValidationRequest):
     job = SimpleNamespace(
         title="Resume Lab Validation",
         description=request.job_description,
+        department=None,
         location=None,
+        employment_type=None,
+        status="open",
+        required_skills=analysis.get("required_skills", []),
+        minimum_experience_years=analysis.get("minimum_experience_years"),
+        fresher_allowed=bool(analysis.get("fresher_allowed")),
         jd_analysis=analysis,
         embedding=None,
     )
