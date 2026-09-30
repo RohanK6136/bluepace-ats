@@ -300,6 +300,7 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
     if "html" not in content_type:
         raise HTTPException(status_code=422, detail="The supplied URL did not return an HTML job page.")
 
+    final_url = _validate_public_job_url(final_url)
     parser = _JobPageParser()
     try:
         parser.feed(payload.decode("utf-8", errors="replace"))
@@ -710,8 +711,9 @@ async def create_job_from_url(
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
-    source_url, markdown_title, page = _fetch_job_page(_clean_job_link(url)[0] or url)
-    effective_title = (title or markdown_title or page.get("title") or "Imported job").strip()[:200]
+    input_url, markdown_title = _clean_job_link(url)
+    source_url, page_title, page = _fetch_job_page(input_url or url)
+    effective_title = (title or markdown_title or page_title or "Imported job").strip()[:200]
     analysis = matching_service.parse_job_description(effective_title, page["description"], location or page.get("location"), use_llm=False)
     job = Job(
         organization_id=user.organization_id,
