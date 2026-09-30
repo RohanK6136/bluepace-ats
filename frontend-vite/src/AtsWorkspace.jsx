@@ -669,7 +669,6 @@ export default function AtsWorkspace() {
       setPublicSuccess(response.data?.message || "Application submitted successfully. A confirmation email has been queued to your application email.");
       setPublicResume(null);
       setPublicForm({ full_name: "", email: "", phone: "" });
-      setPublicApplyJob(null);
     } catch (requestError) {
       setPublicError(errorText(requestError));
     } finally {
