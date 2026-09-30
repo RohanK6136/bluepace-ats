@@ -578,7 +578,7 @@ def public_jobs(db: Session = Depends(get_db)):
 async def public_apply(
     job_id: int,
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = None,
+    background_tasks: BackgroundTasks,
     full_name: str | None = Form(default=None),
     email: str | None = Form(default=None),
     phone: str | None = Form(default=None),
