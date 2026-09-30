@@ -102,6 +102,7 @@ allowed_origins = get_allowed_origins()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"^https://[a-z0-9-]+\.onrender\.com$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1036,6 +1037,10 @@ async def get_task_status(task_id: str):
         "status": result.state,
         "result": result.result if result.ready() else None,
     }
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 @app.get("/")
 async def root():
