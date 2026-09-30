@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -75,6 +75,46 @@ app = FastAPI(title="BluePace Tech ATS API", version="0.3.0", lifespan=lifespan)
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
 MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024
+
+def _public_organization(db: Session) -> Organization:
+    configured_id = os.getenv("PUBLIC_ORGANIZATION_ID", "").strip()
+    if not configured_id:
+        raise HTTPException(
+            status_code=503,
+            detail="Public applicant portal is not configured. Set PUBLIC_ORGANIZATION_ID.",
+        )
+    try:
+        organization_id = int(configured_id)
+    except ValueError:
+        raise HTTPException(status_code=503, detail="PUBLIC_ORGANIZATION_ID must be an integer")
+    organization = db.get(Organization, organization_id)
+    if organization is None:
+        raise HTTPException(status_code=503, detail="Configured public organization was not found")
+    return organization
+
+
+def _split_candidate_name(name: str | None) -> tuple[str, str]:
+    cleaned = " ".join((name or "").split()).strip()
+    parts = cleaned.split(" ", 1)
+    if not parts or not parts[0]:
+        return "Applicant", "Candidate"
+    return parts[0], parts[1] if len(parts) > 1 and parts[1] else "Candidate"
+
+
+def _public_admin_id(db: Session, organization_id: int) -> int:
+    admin_id = db.scalar(
+        select(User.id)
+        .where(
+            User.organization_id == organization_id,
+            User.role == Role.admin,
+            User.is_active.is_(True),
+        )
+        .order_by(User.id.asc())
+        .limit(1)
+    )
+    if admin_id is None:
+        raise HTTPException(status_code=503, detail="No active administrator is configured for this portal")
+    return admin_id
 
 
 def get_allowed_origins(configured_origins: str | None = None) -> list[str]:
@@ -220,6 +260,147 @@ def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
         "explanations": match.explanations or [],
         "semantic_mode": match.semantic_mode,
         "cv_summary": match.candidate.cv_summary or [],
+    }
+
+
+@app.get("/public/jobs")
+def public_jobs(db: Session = Depends(get_db)):
+    organization = _public_organization(db)
+    jobs = db.scalars(
+        select(Job)
+        .where(Job.organization_id == organization.id, Job.status == "open")
+        .order_by(Job.created_at.desc())
+        .limit(100)
+    ).all()
+    return [
+        {
+            "id": job.id,
+            "title": job.title,
+            "description": job.description,
+            "department": job.department,
+            "location": job.location,
+            "employment_type": job.employment_type,
+            "required_skills": job.required_skills or [],
+            "minimum_experience_years": job.minimum_experience_years,
+            "fresher_allowed": job.fresher_allowed,
+        }
+        for job in jobs
+    ]
+
+
+@app.post("/public/jobs/{job_id}/apply")
+async def public_apply(
+    job_id: int,
+    file: UploadFile = File(...),
+    full_name: str | None = Form(default=None),
+    email: str | None = Form(default=None),
+    phone: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    organization = _public_organization(db)
+    job = db.scalar(
+        select(Job).where(
+            Job.id == job_id,
+            Job.organization_id == organization.id,
+            Job.status == "open",
+        )
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Open job not found")
+
+    suffix, content = await _read_resume_upload(file)
+    try:
+        parsed = extractor_service.extract_to_json(content, f"resume{suffix}")
+    except DocumentExtractionError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+
+    candidate_name = full_name or parsed.get("name")
+    first_name, last_name = _split_candidate_name(candidate_name)
+    candidate_email = (email or parsed.get("email") or "").strip().lower()
+    if not candidate_email:
+        raise HTTPException(status_code=422, detail="Email is required either in the form or the resume")
+    candidate_phone = (phone or parsed.get("phone") or "").strip() or None
+
+    # This application path is deliberately local-only for speed: no LLM parsing,
+    # no embeddings, and no AI summary generation are placed on the request path.
+    admin_id = _public_admin_id(db, organization.id)
+    candidate = db.scalar(
+        select(Candidate).where(
+            Candidate.organization_id == organization.id,
+            Candidate.email == candidate_email,
+        )
+    )
+    if candidate is None:
+        candidate = Candidate(
+            organization_id=organization.id,
+            created_by_id=admin_id,
+            first_name=first_name,
+            last_name=last_name,
+            email=candidate_email,
+            phone=candidate_phone,
+            source="Public Career Portal",
+        )
+        db.add(candidate)
+        db.flush()
+    else:
+        candidate.first_name = first_name
+        candidate.last_name = last_name
+        candidate.phone = candidate_phone or candidate.phone
+        candidate.source = candidate.source or "Public Career Portal"
+
+    candidate.resume_data = {
+        key: value for key, value in parsed.items() if key != "raw_text"
+    }
+
+    existing_application = db.scalar(
+        select(Application.id).where(
+            Application.job_id == job.id,
+            Application.candidate_id == candidate.id,
+        )
+    )
+    if existing_application is not None:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="You have already applied for this position")
+
+    storage_key = f"{organization.id}/public/{candidate.id}/{os.urandom(16).hex()}{suffix}"
+    storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
+    storage_path = storage_dir / storage_key
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage_path.write_bytes(content)
+    candidate.resume_storage_key = storage_key
+
+    stages = ensure_job_stages(db, job)
+    application = Application(
+        organization_id=organization.id,
+        job_id=job.id,
+        candidate_id=candidate.id,
+        stage_id=stages["Applied"].id,
+        status="active",
+    )
+    db.add(application)
+    db.flush()
+
+    if not job.jd_analysis:
+        job.jd_analysis = matching_service.analyze_job(job)
+    score = matching_service.score_candidate(job, candidate)
+    match = CandidateJobMatch(
+        organization_id=organization.id,
+        job_id=job.id,
+        candidate_id=candidate.id,
+        model_score=score["model_score"],
+        score_breakdown=score["score_breakdown"],
+        matched_skills=score["matched_skills"],
+        skill_gaps=score["skill_gaps"],
+        explanations=score["explanations"],
+        semantic_mode=score["semantic_mode"],
+    )
+    db.add(match)
+    db.commit()
+
+    return {
+        "status": "success",
+        "application_id": application.id,
+        "message": f"Application submitted for {job.title}.",
     }
 
 
