@@ -43,6 +43,9 @@ class JobCreate(BaseModel):
     location: Optional[str] = Field(default=None, max_length=200)
     employment_type: Optional[str] = Field(default=None, max_length=50)
     status: str = Field(default="draft", pattern="^(draft|open|paused|closed|archived)$")
+    required_skills: list[str] = Field(default_factory=list, max_length=100)
+    minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
+    fresher_allowed: bool = False
 
 
 class JobUpdate(BaseModel):
@@ -52,6 +55,9 @@ class JobUpdate(BaseModel):
     location: Optional[str] = Field(default=None, max_length=200)
     employment_type: Optional[str] = Field(default=None, max_length=50)
     status: Optional[str] = Field(default=None, pattern="^(draft|open|paused|closed|archived)$")
+    required_skills: Optional[list[str]] = Field(default=None, max_length=100)
+    minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
+    fresher_allowed: Optional[bool] = None
 
 
 class JobRead(BaseModel):
@@ -66,6 +72,9 @@ class JobRead(BaseModel):
     location: Optional[str]
     employment_type: Optional[str]
     status: str
+    required_skills: Optional[list[str]]
+    minimum_experience_years: Optional[int]
+    fresher_allowed: bool
     jd_analysis: Optional[dict]
     created_at: datetime
     updated_at: datetime

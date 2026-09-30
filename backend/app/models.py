@@ -2,7 +2,7 @@ import enum
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -55,6 +55,9 @@ class Job(Base):
     location: Mapped[str | None] = mapped_column(String(200), nullable=True)
     employment_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
+    required_skills: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    minimum_experience_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fresher_allowed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     jd_analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536).with_variant(JSON(), "sqlite"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

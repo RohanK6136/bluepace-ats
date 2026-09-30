@@ -78,7 +78,17 @@ export default function AtsWorkspace() {
   const [filters, setFilters] = useState({ search: "", skill: "", stage_name: "", source: "", applied_after: "", applied_before: "" });
   const [jobFormOpen, setJobFormOpen] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
-  const [jobForm, setJobForm] = useState({ title: "", description: "", department: "", location: "", employment_type: "Full-time", status: "open" });
+  const [jobForm, setJobForm] = useState({
+    title: "",
+    description: "",
+    department: "",
+    location: "",
+    employment_type: "Full-time",
+    status: "open",
+    required_skills: "",
+    minimum_experience_years: "",
+    fresher_allowed: false,
+  });
   const [candidateFormOpen, setCandidateFormOpen] = useState(false);
   const [candidateForm, setCandidateForm] = useState({ first_name: "", last_name: "", email: "", phone: "", source: "Direct" });
   const [resumeFile, setResumeFile] = useState(null);
@@ -196,19 +206,37 @@ export default function AtsWorkspace() {
       location: job.location || "",
       employment_type: job.employment_type || "Full-time",
       status: job.status,
-    } : { title: "", description: "", department: "", location: "", employment_type: "Full-time", status: "open" });
+      required_skills: (job.required_skills || []).join(", "),
+      minimum_experience_years: job.minimum_experience_years ?? "",
+      fresher_allowed: Boolean(job.fresher_allowed),
+    } : {
+      title: "",
+      description: "",
+      department: "",
+      location: "",
+      employment_type: "Full-time",
+      status: "open",
+      required_skills: "",
+      minimum_experience_years: "",
+      fresher_allowed: false,
+    });
     setJobFormOpen(true);
   }
 
   async function saveJob(event) {
     event.preventDefault();
     setError("");
+    const jobPayload = {
+      ...jobForm,
+      required_skills: [...new Set(jobForm.required_skills.split(/[;,\n]/).map((skill) => skill.trim()).filter(Boolean))],
+      minimum_experience_years: jobForm.minimum_experience_years === "" ? null : Number(jobForm.minimum_experience_years),
+    };
     try {
       if (editingJob) {
-        await apiRequest(token, "patch", `/jobs/${editingJob.id}`, { data: jobForm });
+        await apiRequest(token, "patch", `/jobs/${editingJob.id}`, { data: jobPayload });
         setNotice("Job updated");
       } else {
-        await apiRequest(token, "post", "/jobs", { data: jobForm });
+        await apiRequest(token, "post", "/jobs", { data: jobPayload });
         setNotice("Job created");
       }
       setJobFormOpen(false);
@@ -519,6 +547,12 @@ export default function AtsWorkspace() {
                 <Field label="Location" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
                 <SelectField label="Employment type" value={jobForm.employment_type} onChange={(event) => setJobForm({ ...jobForm, employment_type: event.target.value })}>{["Full-time", "Part-time", "Contract", "Temporary", "Internship"].map((type) => <option key={type}>{type}</option>)}</SelectField>
                 <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
+                <Field label="Required skills" placeholder="Python, PostgreSQL, AWS" value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
+                <Field label="Minimum experience (years)" type="number" min="0" max="60" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
+                <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700">
+                  <input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />
+                  Open to freshers
+                </label>
                 <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Description<textarea className={`${inputStyle} min-h-28 resize-y`} required value={jobForm.description} onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })} /></label>
               </div>
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => setJobFormOpen(false)}>Cancel</button></div>
@@ -527,7 +561,7 @@ export default function AtsWorkspace() {
             <div className="border-y border-ink-100 bg-white">
               <div className="grid grid-cols-[minmax(180px,2fr)_1fr_1fr_100px] gap-3 border-b border-ink-100 bg-[#fafaf8] px-4 py-3 text-[11px] font-semibold uppercase text-ink-500"><span>Role</span><span>Location</span><span>Created</span><span>Status</span></div>
               {jobs.map((job) => <div key={job.id} className="grid grid-cols-1 gap-2 border-b border-ink-50 px-4 py-4 last:border-0 sm:grid-cols-[minmax(180px,2fr)_1fr_1fr_100px] sm:items-center sm:gap-3">
-                <div><button className="font-semibold hover:underline" onClick={() => resetJobForm(job)}>{job.title}</button><p className="mt-0.5 text-xs text-ink-500">{job.department || "Unassigned department"} · {job.employment_type || "Employment type not set"}</p></div>
+                <div><button className="font-semibold hover:underline" onClick={() => resetJobForm(job)}>{job.title}</button><p className="mt-0.5 text-xs text-ink-500">{job.department || "Unassigned department"} · {job.employment_type || "Employment type not set"}</p><p className="mt-1 text-xs text-ink-500">{job.minimum_experience_years === null ? "Experience unspecified" : `${job.minimum_experience_years}+ years`}{job.fresher_allowed ? " · Freshers welcome" : ""}{job.required_skills?.length ? ` · ${job.required_skills.join(", ")}` : ""}</p></div>
                 <span className="text-sm text-ink-600">{job.location || "Remote / unspecified"}</span>
                 <span className="text-xs text-ink-500">{new Date(job.created_at).toLocaleDateString()}</span>
                 <div className="flex items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${job.status === "open" ? "bg-emerald-50 text-emerald-800" : job.status === "archived" ? "bg-ink-100 text-ink-500" : "bg-gold-50 text-ink-700"}`}>{job.status}</span>{canWrite && job.status !== "archived" && <button className="text-xs font-medium text-ink-500 underline underline-offset-2" onClick={() => archiveJob(job)}>Archive</button>}</div>
@@ -557,6 +591,7 @@ export default function AtsWorkspace() {
                 <div><p className="text-[11px] font-semibold uppercase text-ink-500">Seniority</p><p className="mt-1 capitalize">{matchAnalysis.seniority || "Unspecified"}</p></div>
                 <div><p className="text-[11px] font-semibold uppercase text-ink-500">Location</p><p className="mt-1">{matchAnalysis.location || "Unspecified"}</p></div>
                 <div><p className="text-[11px] font-semibold uppercase text-ink-500">Minimum experience</p><p className="mt-1">{matchAnalysis.minimum_experience_years ? `${matchAnalysis.minimum_experience_years}+ years` : "Unspecified"}</p></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Freshers</p><p className="mt-1">{matchAnalysis.fresher_allowed ? "Eligible" : "Experience preferred"}</p></div>
                 <div className="min-w-56 flex-1"><p className="text-[11px] font-semibold uppercase text-ink-500">Education</p><p className="mt-1">{matchAnalysis.education || "No degree requirement extracted"}</p></div>
               </div>
               <div className="mt-4 grid gap-3 border-t border-ink-50 pt-3 sm:grid-cols-2">

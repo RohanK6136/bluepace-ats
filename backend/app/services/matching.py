@@ -114,6 +114,15 @@ class CandidateMatcher:
         if self.llm_client is None:
             return fallback
 
+    def analyze_job(self, job) -> dict:
+        analysis = self.parse_job_description(job.title, job.description, job.location)
+        if job.required_skills:
+            analysis["required_skills"] = list(dict.fromkeys(job.required_skills))
+        if job.minimum_experience_years is not None:
+            analysis["minimum_experience_years"] = job.minimum_experience_years
+        analysis["fresher_allowed"] = job.fresher_allowed
+        return analysis
+
         prompt = (
             "Extract job requirements without inventing criteria. Return JSON with required_skills, "
             "preferred_skills, seniority, location, education, minimum_experience_years.\n\n"
@@ -161,6 +170,8 @@ class CandidateMatcher:
                 "Preferred skills: " + ", ".join(analysis.get("preferred_skills", [])),
                 "Seniority: " + str(analysis.get("seniority", "")),
                 "Education: " + str(analysis.get("education", "")),
+                "Minimum experience: " + str(analysis.get("minimum_experience_years", "")),
+                "Freshers allowed: " + str(analysis.get("fresher_allowed", False)),
             ]
         )
 
@@ -284,7 +295,7 @@ class CandidateMatcher:
         return total
 
     def score_candidate(self, job, candidate) -> dict:
-        analysis = job.jd_analysis or self.parse_job_description(job.title, job.description, job.location)
+        analysis = job.jd_analysis or self.analyze_job(job)
         profile = candidate.resume_data or {}
         candidate_skills = {str(skill).casefold(): str(skill) for skill in profile.get("skills", [])}
         required_skills = analysis.get("required_skills", [])
@@ -308,9 +319,11 @@ class CandidateMatcher:
 
         experience = profile.get("experience") or []
         minimum_years = analysis.get("minimum_experience_years")
-        if minimum_years:
+        if analysis.get("fresher_allowed") and not experience:
+            experience_score = 100
+        elif minimum_years is not None:
             years = self._estimate_experience_years(experience)
-            experience_score = round(min(100, years / minimum_years * 100))
+            experience_score = 100 if minimum_years == 0 else round(min(100, years / minimum_years * 100))
         else:
             experience_score = 100 if experience else 50
 
@@ -357,6 +370,8 @@ class CandidateMatcher:
             role = first_experience.get("title") or first_experience.get("company")
             if role:
                 explanations.append(f"Parsed experience includes {role}.")
+        elif analysis.get("fresher_allowed"):
+            explanations.append("This role is open to freshers; lack of work history is not penalized.")
         if required_education:
             explanations.append(
                 "Education requirement is represented in the parsed profile."

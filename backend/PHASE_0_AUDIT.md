@@ -64,5 +64,6 @@ Before production use, add versioned Alembic migrations, invitation/email verifi
 - Job-description analysis extracts required/preferred skills, seniority, location, education, and minimum experience. OpenRouter is used for structured extraction when configured; deterministic parsing remains the fallback.
 - Candidate and job embeddings use `text-embedding-3-small` (1536 dimensions) when `OPENAI_API_KEY` is configured. PostgreSQL ranks through pgvector cosine distance; local SQLite uses an explicitly labeled text-overlap fallback.
 - Match scores use fixed, visible weights: skills 30%, semantic similarity 30%, experience 15%, education 10%, and location 15%. Responses expose component scores, matched skills, gaps, and explanation bullets.
+- Job creation and editing now accept explicit required skills, minimum years of experience, and fresher eligibility; explicit criteria take precedence over JD inference.
 - CV summaries are 3-5 factual bullets. Recruiters can override the effective score and add a note without changing the stored model score; overrides and analysis actions are audited.
 - The embedding/summarization features require valid `OPENAI_API_KEY` and/or `OPENROUTER_API_KEY` secrets. Precision@10 and shortlist-time reduction remain unmeasured until a labeled relevance set and usage telemetry are available.

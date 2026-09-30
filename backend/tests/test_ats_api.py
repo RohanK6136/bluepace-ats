@@ -8,7 +8,13 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.main as api
-from app.database import Base, get_db, upgrade_phase1_columns, upgrade_phase2_columns
+from app.database import (
+    Base,
+    get_db,
+    upgrade_phase1_columns,
+    upgrade_phase2_columns,
+    upgrade_phase3_columns,
+)
 from app.models import Email
 from app.services.extractor import extractor_service
 
@@ -117,6 +123,37 @@ def test_job_crud_requires_auth_and_round_trips(client):
     assert client.get(f"/jobs/{job_id}", headers=headers).status_code == 404
 
 
+def test_job_persists_experience_fresher_and_required_skills(client):
+    headers = register_and_login(client)
+    created = client.post(
+        "/jobs",
+        json={
+            "title": "Backend Engineer",
+            "description": "Build APIs",
+            "required_skills": ["Python", "PostgreSQL"],
+            "minimum_experience_years": 3,
+            "fresher_allowed": True,
+        },
+        headers=headers,
+    )
+
+    assert created.status_code == 201
+    job_id = created.json()["id"]
+    assert created.json()["required_skills"] == ["Python", "PostgreSQL"]
+    assert created.json()["minimum_experience_years"] == 3
+    assert created.json()["fresher_allowed"] is True
+
+    updated = client.patch(
+        f"/jobs/{job_id}",
+        json={"required_skills": ["Python"], "minimum_experience_years": 0, "fresher_allowed": False},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["required_skills"] == ["Python"]
+    assert updated.json()["minimum_experience_years"] == 0
+    assert updated.json()["fresher_allowed"] is False
+
+
 def test_job_analysis_returns_structured_requirements(client, monkeypatch):
     from app.services.matching import matching_service
 
@@ -143,6 +180,34 @@ def test_job_analysis_returns_structured_requirements(client, monkeypatch):
     assert analysis["education"]
 
 
+def test_explicit_job_requirements_override_jd_inference(client, monkeypatch):
+    from app.services.matching import matching_service
+
+    monkeypatch.setattr(matching_service, "llm_client", None)
+    monkeypatch.setattr(matching_service, "embedding_client", None)
+    headers = register_and_login(client)
+    job = client.post(
+        "/jobs",
+        json={
+            "title": "Backend Engineer",
+            "description": "Python engineer with 2 years experience based in Seattle.",
+            "required_skills": ["Kubernetes"],
+            "minimum_experience_years": 7,
+            "fresher_allowed": True,
+            "status": "open",
+        },
+        headers=headers,
+    ).json()
+
+    response = client.post(f"/jobs/{job['id']}/analyze", headers=headers)
+
+    assert response.status_code == 200
+    analysis = response.json()["jd_analysis"]
+    assert analysis["required_skills"] == ["Kubernetes"]
+    assert analysis["minimum_experience_years"] == 7
+    assert analysis["fresher_allowed"] is True
+
+
 def test_matching_explanations_and_recruiter_override(client, monkeypatch):
     from app.services.matching import matching_service
 
@@ -154,6 +219,9 @@ def test_matching_explanations_and_recruiter_override(client, monkeypatch):
         json={
             "title": "Senior Python Engineer",
             "description": "Required: Python and PostgreSQL. 5+ years experience. Bachelor's degree. Based in Seattle.",
+            "required_skills": ["Python", "PostgreSQL"],
+            "minimum_experience_years": 5,
+            "fresher_allowed": True,
             "status": "open",
         },
         headers=headers,
@@ -191,6 +259,8 @@ def test_matching_explanations_and_recruiter_override(client, monkeypatch):
     matches = ranked.json()
     assert [match["candidate_id"] for match in matches] == [strong_candidate["id"], weak_candidate["id"]]
     assert matches[0]["model_score"] > matches[1]["model_score"]
+    assert matches[1]["score_breakdown"]["experience"] == 100
+    assert any("open to freshers" in item for item in matches[1]["explanations"])
     assert matches[0]["score_breakdown"].keys() == {"skills", "semantic", "experience", "education", "location"}
     assert matches[0]["semantic_mode"] == "lexical_fallback"
     assert {"Python", "PostgreSQL"}.issubset(matches[0]["matched_skills"])
@@ -465,6 +535,18 @@ def test_phase2_schema_upgrade_adds_jd_and_summary_columns():
     candidate_columns = {column["name"] for column in inspect(engine).get_columns("candidates")}
     assert {"jd_analysis", "embedding"}.issubset(job_columns)
     assert "cv_summary" in candidate_columns
+    engine.dispose()
+
+
+def test_phase3_schema_upgrade_adds_job_requirement_columns():
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE jobs (id INTEGER PRIMARY KEY)"))
+
+    upgrade_phase3_columns(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("jobs")}
+    assert {"required_skills", "minimum_experience_years", "fresher_allowed"}.issubset(columns)
     engine.dispose()
 
 

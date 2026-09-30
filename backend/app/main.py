@@ -127,6 +127,9 @@ def _audit_job(job: Job) -> dict:
         "location": job.location,
         "employment_type": job.employment_type,
         "status": job.status,
+        "required_skills": job.required_skills,
+        "minimum_experience_years": job.minimum_experience_years,
+        "fresher_allowed": job.fresher_allowed,
     }
 
 
@@ -326,8 +329,14 @@ def update_job(
 ):
     job = _get_org_record(db, Job, job_id, user.organization_id)
     before = _audit_job(job)
-    for field, value in request.model_dump(exclude_unset=True).items():
+    updates = request.model_dump(exclude_unset=True)
+    for field, value in updates.items():
         setattr(job, field, value)
+    if set(updates) & {
+        "title", "description", "location", "required_skills", "minimum_experience_years", "fresher_allowed"
+    }:
+        job.jd_analysis = None
+        job.embedding = None
     record_audit(
         db,
         user,
@@ -364,7 +373,7 @@ def analyze_job_description(
     db: Session = Depends(get_db),
 ):
     job = _get_org_record(db, Job, job_id, user.organization_id)
-    analysis = matching_service.parse_job_description(job.title, job.description, job.location)
+    analysis = matching_service.analyze_job(job)
     job.jd_analysis = analysis
     vector = matching_service.embed_texts([matching_service.job_embedding_text(job)])[0]
     if vector is not None:
@@ -389,7 +398,7 @@ def rank_job_candidates(
 ):
     job = _get_org_record(db, Job, job_id, user.organization_id)
     if not job.jd_analysis:
-        job.jd_analysis = matching_service.parse_job_description(job.title, job.description, job.location)
+        job.jd_analysis = matching_service.analyze_job(job)
     if job.embedding is None:
         vector = matching_service.embed_texts([matching_service.job_embedding_text(job)])[0]
         if vector is not None:
