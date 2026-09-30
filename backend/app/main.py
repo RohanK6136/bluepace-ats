@@ -592,13 +592,16 @@ def rank_job_candidates(
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
+    """
+    Fast ranking path.
+
+    Candidate/job scoring is deterministic and local. External embeddings and
+    LLM summaries are intentionally excluded from the request path so the ATS
+    remains responsive under normal public/admin use.
+    """
     job = _get_org_record(db, Job, job_id, user.organization_id)
     if not job.jd_analysis:
         job.jd_analysis = matching_service.analyze_job(job)
-    if job.embedding is None:
-        vector = matching_service.embed_texts([matching_service.job_embedding_text(job)])[0]
-        if vector is not None:
-            job.embedding = vector
 
     candidates = list(
         db.scalars(
@@ -608,35 +611,7 @@ def rank_job_candidates(
             .limit(200)
         ).all()
     )
-    missing_embeddings = [candidate for candidate in candidates if candidate.embedding is None]
-    new_vectors = matching_service.embed_texts(
-        [matching_service.candidate_embedding_text(candidate) for candidate in missing_embeddings]
-    )
-    for candidate, vector in zip(missing_embeddings, new_vectors):
-        if vector is not None:
-            candidate.embedding = vector
-    matching_service.summarize_candidates(candidates)
-    db.flush()
 
-    if job.embedding is not None and db.get_bind().dialect.name == "postgresql":
-        original_candidates = candidates
-        vector_candidates = list(
-            db.scalars(
-                select(Candidate)
-                .where(
-                    Candidate.organization_id == user.organization_id,
-                    Candidate.embedding.is_not(None),
-                )
-                .order_by(Candidate.embedding.cosine_distance(job.embedding))
-                .limit(200)
-            ).all()
-        )
-        vector_candidate_ids = {candidate.id for candidate in vector_candidates}
-        candidates = vector_candidates + [
-            candidate for candidate in original_candidates if candidate.id not in vector_candidate_ids
-        ]
-
-    matching_service.summarize_candidates(candidates)
     results = []
     for candidate in candidates:
         score = matching_service.score_candidate(job, candidate)
@@ -669,9 +644,10 @@ def rank_job_candidates(
         "job.candidates_ranked",
         "job",
         job.id,
-        after={"candidate_count": len(results), "embedding_ready": job.embedding is not None},
+        after={"candidate_count": len(results), "mode": "fast_local"},
     )
     db.commit()
+
     for match in results:
         db.refresh(match)
     results.sort(
