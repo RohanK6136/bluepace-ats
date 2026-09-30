@@ -22,9 +22,14 @@ function apiRequest(token, method, path, options = {}) {
 }
 
 function errorText(error) {
-  const detail = error.response?.data?.detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join("; ");
+  const response = error.response;
+  if (response) {
+    const detail = response.data?.detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join("; ");
+    if (typeof response.data === "string") return `API returned HTTP ${response.status}: ${response.data}`;
+    return `API returned HTTP ${response.status}.`;
+  }
   if (error.request) return `Cannot reach the ATS API at ${API_URL}. Check that the backend is running and VITE_API_URL is correct.`;
   return error.message || "The request could not be completed.";
 }
