@@ -2,6 +2,7 @@ import base64
 import csv
 import io
 import os
+import re
 import traceback
 from contextlib import asynccontextmanager
 from time import perf_counter
@@ -162,6 +163,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Process-Time-ms"],
 )
 
 class ValidationRequest(BaseModel):
