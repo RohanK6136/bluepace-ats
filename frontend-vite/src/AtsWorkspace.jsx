@@ -1062,7 +1062,6 @@ export default function AtsWorkspace() {
 
           {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab /></section>}
         </main>
-      </div>
 
       {applicationFormOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setApplicationFormOpen(false); setApplicationResumeFile(null); } }}>
         <form onSubmit={createApplication} className="w-full max-w-lg bg-white p-5 shadow-xl">
