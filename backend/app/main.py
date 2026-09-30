@@ -258,7 +258,7 @@ def _jsonld_jobposting(blocks: list[str]) -> dict:
             continue
         candidates = payload if isinstance(payload, list) else [payload]
         for candidate in candidates:
-            if isinstance(candidate, dict) and candidate.get("@type") in {"JobPosting", ["JobPosting"]}:
+            if isinstance(candidate, dict) and candidate.get("@type") == "JobPosting":
                 return candidate
             if isinstance(candidate, dict) and isinstance(candidate.get("@graph"), list):
                 for node in candidate["@graph"]:
