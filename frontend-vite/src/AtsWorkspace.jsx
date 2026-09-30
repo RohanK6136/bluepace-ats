@@ -97,6 +97,13 @@ export default function AtsWorkspace() {
   const [accessMode, setAccessMode] = useState(() => (
     new URLSearchParams(window.location.search).get("mode") === "admin" ? "admin" : "public"
   ));
+  const [publicJobs, setPublicJobs] = useState([]);
+  const [publicLoading, setPublicLoading] = useState(false);
+  const [publicApplyJob, setPublicApplyJob] = useState(null);
+  const [publicResume, setPublicResume] = useState(null);
+  const [publicForm, setPublicForm] = useState({ full_name: "", email: "", phone: "" });
+  const [publicError, setPublicError] = useState("");
+  const [publicSuccess, setPublicSuccess] = useState("");
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ organization_name: "", full_name: "", email: "", password: "" });
   const [authError, setAuthError] = useState("");
@@ -136,6 +143,25 @@ export default function AtsWorkspace() {
   const [matchFeedback, setMatchFeedback] = useState({});
 
   const canWrite = user && ["admin", "recruiter"].includes(user.role);
+
+  useEffect(() => {
+    if (token || accessMode !== "public") return undefined;
+    let active = true;
+    async function loadPublicJobs() {
+      setPublicLoading(true);
+      setPublicError("");
+      try {
+        const response = await apiRequest(null, "get", "/public/jobs");
+        if (active) setPublicJobs(Array.isArray(response.data) ? response.data : []);
+      } catch (requestError) {
+        if (active) setPublicError(errorText(requestError));
+      } finally {
+        if (active) setPublicLoading(false);
+      }
+    }
+    loadPublicJobs();
+    return () => { active = false; };
+  }, [token, accessMode]);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -437,6 +463,42 @@ export default function AtsWorkspace() {
     setFilters((current) => ({ ...current, [field]: value }));
   }
 
+  async function submitPublicApplication(event) {
+    event.preventDefault();
+    setPublicError("");
+    setPublicSuccess("");
+
+    if (!publicApplyJob || !publicResume) {
+      setPublicError("Select a PDF or DOCX resume.");
+      return;
+    }
+    if (!publicForm.full_name.trim() || !publicForm.email.trim()) {
+      setPublicError("Name and email are required.");
+      return;
+    }
+
+    const body = new FormData();
+    body.append("file", publicResume);
+    body.append("full_name", publicForm.full_name.trim());
+    body.append("email", publicForm.email.trim());
+    if (publicForm.phone.trim()) body.append("phone", publicForm.phone.trim());
+
+    setPublicLoading(true);
+    try {
+      const response = await apiRequest(null, "post", `/public/jobs/${publicApplyJob.id}/apply`, {
+        data: body,
+      });
+      setPublicSuccess(response.data?.message || "Application submitted successfully.");
+      setPublicResume(null);
+      setPublicForm({ full_name: "", email: "", phone: "" });
+      setPublicApplyJob(null);
+    } catch (requestError) {
+      setPublicError(errorText(requestError));
+    } finally {
+      setPublicLoading(false);
+    }
+  }
+
   function switchAccessMode(mode) {
     setAccessMode(mode);
     window.history.replaceState({}, "", mode === "admin" ? "?mode=admin" : window.location.pathname);
@@ -455,58 +517,142 @@ export default function AtsWorkspace() {
                 <p className="text-xs text-ink-500">Candidate Application Portal</p>
               </div>
             </div>
-            <button
-              className={buttonSecondary}
-              onClick={() => switchAccessMode("admin")}
-            >
+            <button className={buttonSecondary} onClick={() => switchAccessMode("admin")}>
               Admin / Recruiter Login
             </button>
           </div>
         </header>
 
-        <section className="mx-auto grid min-h-[calc(100vh-73px)] max-w-6xl items-center gap-12 px-5 py-16 lg:grid-cols-2">
-          <div>
+        <section className="mx-auto max-w-6xl px-5 py-12">
+          <div className="max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">BluePace Careers</p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
-              Apply for your next opportunity.
-            </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-ink-500">
-              Browse open positions, upload your resume, and submit your application through the public candidate portal.
+            <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">Find your next opportunity.</h1>
+            <p className="mt-4 text-base leading-7 text-ink-500">
+              Browse open positions and submit your resume without creating an account.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <button
-                className={buttonPrimary}
-                onClick={() => window.location.hash = "jobs"}
-              >
-                View Open Positions
-              </button>
-              <button
-                className={buttonSecondary}
-                onClick={() => window.location.hash = "apply"}
-              >
-                Apply with Resume
-              </button>
-            </div>
           </div>
 
-          <div className="rounded-2xl border border-ink-100 bg-white p-7 shadow-sm">
-            <h2 className="text-xl font-semibold">Candidate Portal</h2>
-            <div className="mt-6 grid gap-4">
-              <div className="rounded-xl border border-ink-100 bg-[#f8f8f5] p-5">
-                <p className="font-medium">Public access</p>
-                <p className="mt-1 text-sm text-ink-500">No account is required to apply for an open position.</p>
+          <div id="jobs" className="mt-10">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold">Open Positions</h2>
+              {publicJobs.length > 0 && <span className="text-sm text-ink-500">{publicJobs.length} position(s)</span>}
+            </div>
+
+            {publicLoading && !publicApplyJob && (
+              <div className="mt-5 rounded-xl border border-ink-100 bg-white p-8 text-center text-sm text-ink-500">
+                Loading open positions…
               </div>
-              <div className="rounded-xl border border-ink-100 bg-[#f8f8f5] p-5">
-                <p className="font-medium">Resume upload</p>
-                <p className="mt-1 text-sm text-ink-500">PDF and DOCX resumes will be processed automatically.</p>
+            )}
+
+            {publicError && !publicApplyJob && (
+              <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
+                {publicError}
               </div>
-              <div className="rounded-xl border border-ink-100 bg-[#f8f8f5] p-5">
-                <p className="font-medium">Application matching</p>
-                <p className="mt-1 text-sm text-ink-500">The submitted profile will be checked against the selected job requirements.</p>
+            )}
+
+            {!publicLoading && !publicError && publicJobs.length === 0 && (
+              <div className="mt-5 rounded-xl border border-ink-100 bg-white p-10 text-center">
+                <p className="font-medium">No open positions are available right now.</p>
+                <p className="mt-1 text-sm text-ink-500">Please check again later.</p>
               </div>
+            )}
+
+            <div className="mt-5 grid gap-5 md:grid-cols-2">
+              {publicJobs.map((job) => (
+                <article key={job.id} className="rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold">{job.title}</h3>
+                      <p className="mt-1 text-sm text-ink-500">
+                        {[job.department, job.location, job.employment_type].filter(Boolean).join(" · ")}
+                      </p>
+                    </div>
+                    {job.fresher_allowed && (
+                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Fresher friendly</span>
+                    )}
+                  </div>
+                  <p className="mt-4 line-clamp-4 whitespace-pre-line text-sm leading-6 text-ink-600">{job.description}</p>
+                  {job.required_skills?.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {job.required_skills.slice(0, 8).map((skill) => (
+                        <span key={skill} className="rounded-full border border-ink-100 bg-[#f8f8f5] px-2.5 py-1 text-xs text-ink-600">{skill}</span>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    className={`${buttonPrimary} mt-6 w-full`}
+                    onClick={() => {
+                      setPublicApplyJob(job);
+                      setPublicError("");
+                      setPublicSuccess("");
+                    }}
+                  >
+                    Apply for this position
+                  </button>
+                </article>
+              ))}
             </div>
           </div>
         </section>
+
+        {publicApplyJob && (
+          <div id="apply" className="fixed inset-0 z-50 overflow-y-auto bg-black/40 px-4 py-8">
+            <div className="mx-auto max-w-lg rounded-2xl bg-white p-7 shadow-xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gold-700">Apply</p>
+                  <h2 className="mt-1 text-xl font-semibold">{publicApplyJob.title}</h2>
+                </div>
+                <button className="text-xl text-ink-400 hover:text-ink-800" onClick={() => setPublicApplyJob(null)} aria-label="Close">×</button>
+              </div>
+
+              <form onSubmit={submitPublicApplication} className="mt-6 grid gap-4">
+                <Field
+                  label="Full name"
+                  required
+                  value={publicForm.full_name}
+                  onChange={(event) => setPublicForm({ ...publicForm, full_name: event.target.value })}
+                />
+                <Field
+                  label="Email"
+                  type="email"
+                  required
+                  value={publicForm.email}
+                  onChange={(event) => setPublicForm({ ...publicForm, email: event.target.value })}
+                />
+                <Field
+                  label="Phone"
+                  value={publicForm.phone}
+                  onChange={(event) => setPublicForm({ ...publicForm, phone: event.target.value })}
+                />
+
+                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
+                  Resume
+                  <input
+                    type="file"
+                    accept=".pdf,.docx"
+                    required
+                    onChange={(event) => setPublicResume(event.target.files?.[0] || null)}
+                    className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
+                  />
+                  <span className="text-[11px] font-normal text-ink-400">PDF or DOCX, up to 10MB.</span>
+                </label>
+
+                {publicError && <p role="alert" className="text-sm text-rose-700">{publicError}</p>}
+                {publicSuccess && <p role="status" className="text-sm text-emerald-700">{publicSuccess}</p>}
+
+                <div className="mt-2 flex gap-3">
+                  <button type="button" className={`${buttonSecondary} flex-1`} onClick={() => setPublicApplyJob(null)}>
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={publicLoading} className={`${buttonPrimary} flex-1`}>
+                    {publicLoading ? "Submitting…" : "Submit Application"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </main>
     );
   }
