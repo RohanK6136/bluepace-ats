@@ -147,6 +147,11 @@ export default function AtsWorkspace() {
   const [matches, setMatches] = useState([]);
   const [matching, setMatching] = useState(false);
   const [matchFeedback, setMatchFeedback] = useState({});
+  const [fitAnalysis, setFitAnalysis] = useState(null);
+  const [fitJobId, setFitJobId] = useState("");
+  const [fitLoading, setFitLoading] = useState(false);
+  const [interviewDialogApplication, setInterviewDialogApplication] = useState(null);
+  const [interviewForm, setInterviewForm] = useState({ starts_at: "", duration_minutes: "60", meeting_url: "" });
 
   const canWrite = user && ["admin", "recruiter"].includes(user.role);
 
@@ -445,14 +450,75 @@ export default function AtsWorkspace() {
     }
   }
 
+  function openInterviewDialog(application) {
+    const start = new Date(Date.now() + 60 * 60 * 1000);
+    const local = new Date(start.getTime() - start.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    setInterviewDialogApplication(application);
+    setInterviewForm({ starts_at: local, duration_minutes: "60", meeting_url: "" });
+    setError("");
+  }
+
+  async function scheduleInterviewAndChangeStage(event) {
+    event.preventDefault();
+    if (!interviewDialogApplication || !interviewForm.starts_at) return;
+    try {
+      const startsAt = new Date(interviewForm.starts_at);
+      if (Number.isNaN(startsAt.getTime())) {
+        setError("Enter a valid interview date and time.");
+        return;
+      }
+      await apiRequest(token, "post", `/applications/${interviewDialogApplication.id}/stage`, {
+        data: {
+          stage_name: "Interview",
+          interview_starts_at: startsAt.toISOString(),
+          interview_duration_minutes: Number(interviewForm.duration_minutes || 60),
+          interview_meeting_url: interviewForm.meeting_url.trim() || null,
+        },
+      });
+      setInterviewDialogApplication(null);
+      setNotice(`Interview scheduled and invitation sent to ${interviewDialogApplication.candidate.email}`);
+      await refreshWorkspace();
+    } catch (requestError) {
+      setError(errorText(requestError));
+    }
+  }
+
   async function changeStage(applicationId, stageName) {
+    const application = applications.find((item) => item.id === applicationId);
+    if (stageName === "Interview" && application) {
+      openInterviewDialog(application);
+      return;
+    }
     try {
       await apiRequest(token, "post", `/applications/${applicationId}/stage`, { data: { stage_name: stageName } });
-      setNotice(`Application moved to ${stageName}`);
+      const emailStage = stageName === "Offer" ? "Offer email sent" : stageName === "Hired" ? "Selection email sent" : stageName === "Rejected" ? "Rejection email sent" : `Application moved to ${stageName}`;
+      setNotice(emailStage);
       await refreshWorkspace();
     } catch (requestError) {
       setError(errorText(requestError));
       await refreshWorkspace();
+    }
+  }
+
+  async function loadFitAnalysis() {
+    if (!selectedCandidate || !fitJobId) return;
+    const application = applications.find(
+      (item) => item.candidate_id === selectedCandidate && item.job_id === Number(fitJobId)
+    );
+    if (!application) {
+      setError("This candidate is not currently attached to the selected job.");
+      return;
+    }
+    setFitLoading(true);
+    setFitAnalysis(null);
+    setError("");
+    try {
+      const response = await apiRequest(token, "get", `/applications/${application.id}/fit-analysis`);
+      setFitAnalysis(response.data);
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setFitLoading(false);
     }
   }
 
@@ -1068,11 +1134,57 @@ export default function AtsWorkspace() {
               if (!candidate) return null;
               const profile = candidate.resume_data || {};
               return <section className="mt-5 border-y border-ink-100 bg-white p-4 sm:p-5">
-                <div className="flex items-start justify-between"><div><p className="text-xs uppercase text-ink-500">Candidate profile</p><h3 className="mt-1 text-lg font-semibold">{candidate.first_name} {candidate.last_name}</h3><p className="text-sm text-ink-500">{candidate.email} {candidate.phone && `· ${candidate.phone}`}</p></div><button aria-label="Close profile" onClick={() => setSelectedCandidate(null)}>×</button></div>
+                <div className="flex items-start justify-between"><div><p className="text-xs uppercase text-ink-500">Candidate profile</p><h3 className="mt-1 text-lg font-semibold">{candidate.first_name} {candidate.last_name}</h3><p className="text-sm text-ink-500">{candidate.email} {candidate.phone && `· ${candidate.phone}`}</p></div><button aria-label="Close profile" onClick={() => { setSelectedCandidate(null); setFitAnalysis(null); }}>×</button></div>
                 <div className="mt-5 grid gap-5 md:grid-cols-3">
                   <div><h4 className="text-xs font-semibold uppercase text-ink-500">Skills</h4><p className="mt-2 text-sm">{(profile.skills || []).join(", ") || "Not available"}</p></div>
                   <div><h4 className="text-xs font-semibold uppercase text-ink-500">Experience</h4><ul className="mt-2 grid gap-2 text-sm">{(profile.experience || []).map((item, index) => <li key={index}><strong>{item.title || item.company || "Experience"}</strong><span className="block text-xs text-ink-500">{item.company} · {item.duration}</span><span className="block text-xs text-ink-600">{item.description}</span></li>)}</ul></div>
                   <div><h4 className="text-xs font-semibold uppercase text-ink-500">Education</h4><ul className="mt-2 grid gap-2 text-sm">{(profile.education || []).map((item, index) => <li key={index}><strong>{item.degree}</strong><span className="block text-xs text-ink-500">{item.university} · {item.graduation_year}</span></li>)}</ul></div>
+                </div>
+                <div className="mt-6 border-t border-ink-100 pt-5">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Role fit</p>
+                      <h4 className="mt-1 font-semibold">Experience & project evidence</h4>
+                    </div>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <SelectField label="Job" value={fitJobId} onChange={(event) => { setFitJobId(event.target.value); setFitAnalysis(null); }}>
+                        <option value="">Choose an applied job</option>
+                        {applications.filter((item) => item.candidate_id === candidate.id).map((item) => <option key={item.id} value={item.job_id}>{item.job_title}</option>)}
+                      </SelectField>
+                      <button type="button" className={buttonPrimary} disabled={!fitJobId || fitLoading} onClick={loadFitAnalysis}>
+                        {fitLoading ? "Checking…" : "Check role fit"}
+                      </button>
+                    </div>
+                  </div>
+                  {fitAnalysis && (
+                    <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                      <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 lg:col-span-1">
+                        <p className="text-xs font-semibold uppercase text-blue-700">Screening evidence</p>
+                        <p className="mt-2 text-2xl font-bold text-ink-900">{fitAnalysis.match_score}%</p>
+                        <p className="mt-1 text-sm font-semibold text-blue-800">{fitAnalysis.alignment}</p>
+                        <p className="mt-3 text-xs text-ink-600">{fitAnalysis.explanations?.join(" ")}</p>
+                      </div>
+                      <div className="rounded-xl border border-ink-100 p-4">
+                        <p className="text-xs font-semibold uppercase text-ink-500">Relevant experience</p>
+                        <div className="mt-2 grid gap-2 text-sm">{fitAnalysis.experience?.length ? fitAnalysis.experience.map((item, index) => <div key={index}><p className="font-semibold">{item.title}</p><p className="text-xs text-ink-500">{item.details || "Experience evidence extracted from resume."}</p></div>) : <p className="text-sm text-ink-500">No parsed experience evidence.</p>}</div>
+                      </div>
+                      <div className="rounded-xl border border-ink-100 p-4">
+                        <p className="text-xs font-semibold uppercase text-ink-500">Projects relevant to this role</p>
+                        <ul className="mt-2 grid gap-2 text-sm">{fitAnalysis.projects?.length ? fitAnalysis.projects.map((project, index) => <li key={index}>• {project}</li>) : <li className="text-ink-500">No parsed project evidence.</li>}</ul>
+                      </div>
+                      <div className="rounded-xl border border-ink-100 p-4 lg:col-span-2">
+                        <p className="text-xs font-semibold uppercase text-ink-500">Matched vs. missing skills</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {(fitAnalysis.matched_skills || []).map((skill) => <span key={skill} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{skill}</span>)}
+                          {(fitAnalysis.skill_gaps || []).map((skill) => <span key={`gap-${skill}`} className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-800">{skill}</span>)}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-ink-100 p-4">
+                        <p className="text-xs font-semibold uppercase text-ink-500">Recruiter note</p>
+                        <p className="mt-2 text-xs leading-5 text-ink-600">{fitAnalysis.note}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </section>;
             })()}
@@ -1081,6 +1193,22 @@ export default function AtsWorkspace() {
           {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab /></section>}
         </main>
       </div>
+
+      {interviewDialogApplication && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setInterviewDialogApplication(null); }}>
+        <form onSubmit={scheduleInterviewAndChangeStage} className="w-full max-w-lg bg-white p-5 shadow-xl">
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Interview scheduling</p><h2 className="mt-1 text-lg font-semibold">{interviewDialogApplication.candidate.first_name} {interviewDialogApplication.candidate.last_name}</h2><p className="text-sm text-ink-500">{interviewDialogApplication.job_title} · {interviewDialogApplication.candidate.email}</p></div>
+            <button type="button" aria-label="Close dialog" onClick={() => setInterviewDialogApplication(null)}>×</button>
+          </div>
+          <div className="grid gap-4">
+            <Field label="Interview date & time" type="datetime-local" required value={interviewForm.starts_at} onChange={(event) => setInterviewForm({ ...interviewForm, starts_at: event.target.value })} />
+            <Field label="Duration (minutes)" type="number" min="15" max="480" value={interviewForm.duration_minutes} onChange={(event) => setInterviewForm({ ...interviewForm, duration_minutes: event.target.value })} />
+            <Field label="Meeting link (optional)" placeholder="https://teams.microsoft.com/..." value={interviewForm.meeting_url} onChange={(event) => setInterviewForm({ ...interviewForm, meeting_url: event.target.value })} />
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">The candidate will be moved to <strong>Interview</strong> and an email will be sent to the email address used on the application. The message includes the scheduled date, time, duration and meeting link.</div>
+          </div>
+          <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => setInterviewDialogApplication(null)}>Cancel</button><button type="submit" className={buttonPrimary}>Schedule & send email</button></div>
+        </form>
+      </div>}
 
       {applicationFormOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setApplicationFormOpen(false); setApplicationResumeFile(null); } }}>
         <form onSubmit={createApplication} className="w-full max-w-lg bg-white p-5 shadow-xl">
