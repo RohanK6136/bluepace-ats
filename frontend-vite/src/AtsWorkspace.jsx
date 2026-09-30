@@ -313,8 +313,7 @@ export default function AtsWorkspace() {
       } else {
         const jobPayload = {
           ...jobForm,
-          required_skills: [...new Set(jobForm.required_skills.split(/[;,
-]/).map((skill) => skill.trim()).filter(Boolean))],
+          required_skills: [...new Set(jobForm.required_skills.split(/[;,\n]/).map((skill) => skill.trim()).filter(Boolean))],
           minimum_experience_years: jobForm.minimum_experience_years === "" ? null : Number(jobForm.minimum_experience_years),
         };
         if (editingJob) {
