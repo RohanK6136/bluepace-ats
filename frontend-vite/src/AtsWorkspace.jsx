@@ -3,23 +3,42 @@ import axios from "axios";
 import ResumeLab from "./App.jsx";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const REQUEST_TIMEOUT_MS = 15_000;
+const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
 const MATCH_WEIGHTS = { skills: 30, semantic: 30, experience: 15, education: 10, location: 15 };
 const buttonPrimary = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2 text-sm font-semibold text-[#10131c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const buttonSecondary = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
 const inputStyle = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
 
-function apiRequest(token, method, path, options = {}) {
-  return axios.request({
-    baseURL: API_URL,
-    method,
-    url: path,
-    ...options,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function shouldRetry(error) {
+  if (!error.response) return true;
+  return [502, 503, 504].includes(error.response.status);
+}
+
+async function apiRequest(token, method, path, options = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await axios.request({
+        baseURL: API_URL,
+        method,
+        url: path,
+        timeout: REQUEST_TIMEOUT_MS,
+        ...options,
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...options.headers,
+        },
+      });
+    } catch (error) {
+      if (attempt >= RETRY_DELAYS_MS.length || !shouldRetry(error)) throw error;
+      await wait(RETRY_DELAYS_MS[attempt]);
+    }
+  }
 }
 
 function errorText(error) {
@@ -155,12 +174,13 @@ export default function AtsWorkspace() {
     setAuthError("");
     try {
       if (authMode === "register") {
-        await axios.post(`${API_URL}/auth/register`, authForm);
+        await apiRequest(null, "post", "/auth/register", { data: authForm });
       }
       const credentials = new URLSearchParams();
       credentials.set("username", authForm.email);
       credentials.set("password", authForm.password);
-      const response = await axios.post(`${API_URL}/auth/token`, credentials, {
+      const response = await apiRequest(null, "post", "/auth/token", {
+        data: credentials,
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
       sessionStorage.setItem("bluepace_token", response.data.access_token);

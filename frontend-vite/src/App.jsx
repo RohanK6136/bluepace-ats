@@ -2,6 +2,23 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function postToApi(path, data, config = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await axios.post(`${API_URL}${path}`, data, { timeout: 15_000, ...config });
+    } catch (error) {
+      const retryableStatus = error.response?.status;
+      if (attempt >= RETRY_DELAYS_MS.length || (error.response && ![502, 503, 504].includes(retryableStatus))) throw error;
+      await wait(RETRY_DELAYS_MS[attempt]);
+    }
+  }
+}
 
 export default function App() {
   const [file, setFile] = useState(null);
@@ -26,7 +43,7 @@ export default function App() {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const response = await axios.post(`${API_URL}/extract/`, formData);
+      const response = await postToApi("/extract/", formData);
       setJsonData(response.data.data);
     } catch (error) {
       console.error(error);
@@ -41,7 +58,7 @@ export default function App() {
     setValidating(true);
     setValidationResult(null);
     try {
-      const response = await axios.post(`${API_URL}/validate/`, {
+      const response = await postToApi("/validate/", {
         resume_json: jsonData,
         job_description: jobDescription,
       });
