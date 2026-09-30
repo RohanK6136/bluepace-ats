@@ -20,6 +20,20 @@ async function postToApi(path, data, config = {}) {
   }
 }
 
+function apiErrorMessage(error, fallback) {
+  const detail = error.response?.data?.detail;
+  if (error.response) {
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join("; ");
+    return `The ATS API returned HTTP ${error.response.status}.`;
+  }
+  if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
+    return `The ATS API at ${API_URL} took too long to respond. Please try again.`;
+  }
+  if (error.request) return `Cannot reach the ATS API at ${API_URL}. Check the API service and try again.`;
+  return error.message || fallback;
+}
+
 export default function App() {
   const [file, setFile] = useState(null);
   const [jsonData, setJsonData] = useState(null);
@@ -47,7 +61,7 @@ export default function App() {
       setJsonData(response.data.data);
     } catch (error) {
       console.error(error);
-      alert("Failed to extract document.");
+      alert(`Failed to extract document: ${apiErrorMessage(error, "Please try again.")}`);
     } finally {
       setLoading(false);
     }
@@ -65,7 +79,7 @@ export default function App() {
       setValidationResult(response.data.validation);
     } catch (error) {
       console.error(error);
-      alert("Failed to validate resume.");
+      alert(`Failed to validate resume: ${apiErrorMessage(error, "Please try again.")}`);
     } finally {
       setValidating(false);
     }

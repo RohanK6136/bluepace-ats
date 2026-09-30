@@ -20,7 +20,12 @@ class DocumentExtractor:
         ]
         api_key = os.getenv("OPENROUTER_API_KEY")
         self.client = (
-            OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+            OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+                timeout=8.0,
+                max_retries=0,
+            )
             if api_key
             else None
         )
@@ -170,8 +175,9 @@ Resume text:
                 from pypdf import PdfReader
                 reader = PdfReader(io.BytesIO(file_content))
                 for page in reader.pages:
-                    if page.extract_text():
-                        raw_text += page.extract_text() + "\n"
+                    page_text = page.extract_text()
+                    if page_text:
+                        raw_text += page_text + "\n"
             elif filename.lower().endswith(".docx"):
                 from docx import Document
                 doc = Document(io.BytesIO(file_content))
