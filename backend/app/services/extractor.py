@@ -213,7 +213,7 @@ Resume text:
                 "upload a text-based PDF or DOCX file."
             )
         parsed = self._fallback_parse(raw_text)
-        llm_data = self._llm_parse(raw_text)
+        llm_data = self._llm_parse(raw_text) if os.getenv("ENABLE_LLM_RESUME_ENRICHMENT", "false").lower() == "true" else None
         if llm_data:
             for field in ("name", "email", "phone", "linkedin", "github", "highest_education"):
                 if llm_data.get(field):
