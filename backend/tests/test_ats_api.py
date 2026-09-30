@@ -105,6 +105,81 @@ def test_cors_keeps_configured_deployment_origins():
     ]
 
 
+def test_health_endpoint(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert float(response.headers["x-process-time-ms"]) >= 0
+
+
+def test_fast_resume_validation_does_not_require_auth(client):
+    response = client.post(
+        "/validate/",
+        json={
+            "resume_json": {
+                "name": "Jane Doe",
+                "email": "jane@example.com",
+                "skills": ["Python", "SQL"],
+                "experience": [],
+                "education": [{"degree": "BCA", "university": "Example University"}],
+                "is_fresher": True,
+            },
+            "job_description": "Python SQL developer. Entry-level role.",
+        },
+    )
+    assert response.status_code == 200
+    validation = response.json()["validation"]
+    assert 0 <= validation["match_score"] <= 100
+    assert validation["semantic_mode"] == "lexical_fallback"
+    assert float(response.headers["x-process-time-ms"]) >= 0
+
+
+def test_public_jobs_and_resume_application(client, monkeypatch):
+    monkeypatch.setenv("PUBLIC_ORGANIZATION_ID", "1")
+    headers = register_and_login(client, email="public-owner@example.com", organization="Public ATS")
+
+    created = client.post(
+        "/jobs",
+        json={
+            "title": "Python Developer",
+            "description": "Entry-level Python and SQL developer.",
+            "status": "open",
+            "required_skills": ["Python", "SQL"],
+            "minimum_experience_years": 0,
+            "fresher_allowed": True,
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    job_id = created.json()["id"]
+
+    public_jobs = client.get("/public/jobs")
+    assert public_jobs.status_code == 200
+    assert any(job["id"] == job_id for job in public_jobs.json())
+
+    doc = Document()
+    doc.add_paragraph("Jane Doe")
+    doc.add_paragraph("jane@example.com")
+    doc.add_paragraph("Python, SQL")
+    doc.add_paragraph("BCA | Example University | 2026")
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    applied = client.post(
+        f"/public/jobs/{job_id}/apply",
+        data={"full_name": "Jane Doe", "email": "jane@example.com"},
+        files={"file": ("jane.docx", buffer.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert applied.status_code == 200
+    assert applied.json()["status"] == "success"
+
+    matches = client.get(f"/jobs/{job_id}/matches", headers=headers)
+    assert matches.status_code == 200
+    assert len(matches.json()) == 1
+    assert 0 <= matches.json()[0]["model_score"] <= 100
+
+
 def test_job_crud_requires_auth_and_round_trips(client):
     assert client.get("/jobs").status_code == 401
     headers = register_and_login(client)
