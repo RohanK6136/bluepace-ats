@@ -35,6 +35,7 @@ from app.models import (
     Candidate,
     CandidateJobMatch,
     Email,
+    Interview,
     Job,
     Organization,
     Role,
@@ -451,6 +452,82 @@ def _safe_csv_value(value):
     return f"'{text}" if text.startswith(("=", "+", "-", "@", "\t", "\r")) else text
 
 
+def _format_interview_datetime(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    moment = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return moment.strftime("%d %B %Y, %I:%M %p %z")
+
+
+def _stage_email(application: Application, stage_name: str, *, interview_starts_at: datetime | None = None, interview_duration_minutes: int = 60, interview_meeting_url: str | None = None) -> tuple[str, str]:
+    candidate = application.candidate
+    job_title = application.job.title
+    first_name = candidate.first_name or "Candidate"
+
+    if stage_name == "Interview":
+        subject = f"Interview invitation — {job_title}"
+        body = (
+            f"Hello {first_name},\n\n"
+            f"Thank you for your application for {job_title} with Blupace Tech. "
+            "We would like to invite you to the next stage of the selection process.\n\n"
+        )
+        if interview_starts_at is not None:
+            body += f"Interview date and time: {_format_interview_datetime(interview_starts_at)}\n"
+            body += f"Duration: {interview_duration_minutes} minutes\n"
+        if interview_meeting_url:
+            body += f"Meeting link: {interview_meeting_url}\n"
+        body += (
+            "\nPlease keep this time available and reply to this email if you need to discuss the schedule.\n\n"
+            "Regards,\nBlupace Tech Talent Team"
+        )
+        return subject, body
+
+    if stage_name == "Offer":
+        return (
+            f"Position offer — {job_title}",
+            f"Hello {first_name},\n\n"
+            f"We are pleased to inform you that Blupace Tech would like to offer you the position of {job_title}. "
+            "Our Talent Team will share the formal offer and joining details with you.\n\n"
+            "Regards,\nBlupace Tech Talent Team",
+        )
+
+    if stage_name == "Hired":
+        return (
+            f"Selected for {job_title}",
+            f"Hello {first_name},\n\n"
+            f"Congratulations. You have been selected for the position of {job_title} at Blupace Tech. "
+            "Our Talent Team will contact you with the next steps and joining formalities.\n\n"
+            "Regards,\nBlupace Tech Talent Team",
+        )
+
+    if stage_name == "Rejected":
+        return (
+            f"Application update — {job_title}",
+            f"Hello {first_name},\n\n"
+            f"Thank you for taking the time to apply for {job_title} at Blupace Tech. "
+            "After reviewing your application, we will not be progressing with your application for this position at this time. "
+            "We appreciate your interest and wish you success in your career.\n\n"
+            "Regards,\nBlupace Tech Talent Team",
+        )
+
+    if stage_name == "Screening":
+        return (
+            f"Application update — {job_title}",
+            f"Hello {first_name},\n\n"
+            f"Your application for {job_title} has moved to our screening stage. "
+            "We will contact you with the next update.\n\n"
+            "Regards,\nBlupace Tech Talent Team",
+        )
+
+    return (
+        f"Application received — {job_title}",
+        f"Hello {first_name},\n\n"
+        f"Your application for {job_title} has been received by Blupace Tech. "
+        "We will review your profile and share the next update by email.\n\n"
+        "Regards,\nBlupace Tech Talent Team",
+    )
+
+
 def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
     return {
         "id": match.id,
@@ -501,6 +578,7 @@ def public_jobs(db: Session = Depends(get_db)):
 async def public_apply(
     job_id: int,
     file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
     full_name: str | None = Form(default=None),
     email: str | None = Form(default=None),
     phone: str | None = Form(default=None),
@@ -604,7 +682,11 @@ async def public_apply(
         semantic_mode=score["semantic_mode"],
     )
     db.add(match)
+    subject, body = _stage_email(application, "Applied")
+    email_id = queue_application_email(db, application, subject, body)
     db.commit()
+    if background_tasks is not None:
+        background_tasks.add_task(deliver_outbox_email, email_id)
 
     return {
         "status": "success",
@@ -1018,6 +1100,82 @@ def list_job_matches(
         reverse=True,
     )
     return [_serialize_candidate_match(match) for match in results]
+
+
+@app.get("/applications/{application_id}/fit-analysis")
+def application_fit_analysis(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = db.scalar(
+        select(Application)
+        .where(
+            Application.id == application_id,
+            Application.organization_id == user.organization_id,
+        )
+        .options(selectinload(Application.job), selectinload(Application.candidate)),
+    )
+    if application is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    job = application.job
+    candidate = application.candidate
+    if not job.jd_analysis:
+        job.jd_analysis = matching_service.analyze_job(job)
+
+    score = matching_service.score_candidate(job, candidate)
+    profile = candidate.resume_data or {}
+    experience = profile.get("experience") or []
+    projects = profile.get("university_projects") or profile.get("projects") or []
+
+    evidence = []
+    for item in experience[:8]:
+        if not isinstance(item, dict):
+            continue
+        role = " · ".join(str(item.get(key)).strip() for key in ("title", "company", "duration") if item.get(key))
+        description = str(item.get("description") or "").strip()
+        if role or description:
+            evidence.append({
+                "type": "experience",
+                "title": role or "Experience",
+                "details": description,
+            })
+    for project in projects[:10]:
+        text_value = str(project).strip()
+        if text_value:
+            evidence.append({"type": "project", "title": text_value, "details": ""})
+
+    required_skills = job.jd_analysis.get("required_skills", []) if job.jd_analysis else []
+    project_text = " ".join(str(project) for project in projects).casefold()
+    project_skill_matches = [
+        skill for skill in required_skills
+        if skill.casefold() in project_text
+    ]
+
+    alignment = (
+        "Strong role alignment" if score["model_score"] >= 75
+        else "Partial role alignment" if score["model_score"] >= 50
+        else "Limited role alignment"
+    )
+    return {
+        "application_id": application.id,
+        "candidate_id": candidate.id,
+        "candidate_name": f"{candidate.first_name} {candidate.last_name}".strip(),
+        "job_id": job.id,
+        "job_title": job.title,
+        "match_score": score["model_score"],
+        "alignment": alignment,
+        "matched_skills": score["matched_skills"],
+        "skill_gaps": score["skill_gaps"],
+        "experience_years_estimate": matching_service._estimate_experience_years(experience),
+        "experience": evidence,
+        "projects": [str(project).strip() for project in projects[:10] if str(project).strip()],
+        "project_skill_matches": list(dict.fromkeys(project_skill_matches)),
+        "education": profile.get("education") or [],
+        "explanations": score["explanations"],
+        "note": "Job-related screening evidence only. Final hiring decisions remain with the recruiting team.",
+    }
 
 
 @app.patch("/candidate-matches/{match_id}/feedback", response_model=CandidateMatchRead)
@@ -1500,11 +1658,42 @@ def update_application_stage(
     application = _get_org_record(db, Application, application_id, user.organization_id)
     if application.status in TERMINAL_STAGES.values() and application.stage.name != request.stage_name:
         raise HTTPException(status_code=409, detail="A completed application cannot be moved")
+
     stages = ensure_job_stages(db, application.job)
     stage = stages[request.stage_name]
     previous_name = application.stage.name if application.stage else None
-    if previous_name == request.stage_name:
+    if previous_name == request.stage_name and request.stage_name != "Interview":
         return serialize_application(application)
+
+    if request.stage_name == "Interview":
+        if request.interview_starts_at is None:
+            raise HTTPException(status_code=422, detail="Interview date and time are required.")
+        if request.interview_starts_at.tzinfo is None:
+            raise HTTPException(status_code=422, detail="Interview date and time must include a timezone.")
+
+        interview = db.scalar(
+            select(Interview)
+            .where(Interview.application_id == application.id)
+            .order_by(Interview.starts_at.desc())
+            .limit(1)
+        )
+        if interview is None:
+            interview = Interview(
+                application_id=application.id,
+                interviewer_id=user.id,
+                starts_at=request.interview_starts_at,
+                duration_minutes=request.interview_duration_minutes,
+                status="scheduled",
+                meeting_url=request.interview_meeting_url,
+            )
+            db.add(interview)
+        else:
+            interview.interviewer_id = user.id
+            interview.starts_at = request.interview_starts_at
+            interview.duration_minutes = request.interview_duration_minutes
+            interview.status = "scheduled"
+            interview.meeting_url = request.interview_meeting_url
+
     application.stage_id = stage.id
     application.status = TERMINAL_STAGES.get(stage.name, "active")
     record_audit(
@@ -1514,14 +1703,21 @@ def update_application_stage(
         "application",
         application.id,
         before={"stage_name": previous_name, "status": "active"},
-        after={"stage_name": stage.name, "status": application.status},
+        after={
+            "stage_name": stage.name,
+            "status": application.status,
+            "interview_starts_at": request.interview_starts_at.isoformat() if request.interview_starts_at else None,
+        },
     )
-    email_id = queue_application_email(
-        db,
+
+    subject, body = _stage_email(
         application,
-        f"Application update: {application.job.title}",
-        f"Hello {application.candidate.first_name},\n\nYour application status is now {stage.name}.",
+        stage.name,
+        interview_starts_at=request.interview_starts_at,
+        interview_duration_minutes=request.interview_duration_minutes,
+        interview_meeting_url=request.interview_meeting_url,
     )
+    email_id = queue_application_email(db, application, subject, body)
     db.commit()
     db.refresh(application)
     background_tasks.add_task(deliver_outbox_email, email_id)
