@@ -51,6 +51,8 @@ export default function App() {
   const [validating, setValidating] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [validationError, setValidationError] = useState("");
+  const [uploadTiming, setUploadTiming] = useState(null);
+  const [validationTiming, setValidationTiming] = useState(null);
 
   const [theme, setTheme] = useState("dark");
   useEffect(() => {
@@ -94,6 +96,8 @@ export default function App() {
     setJsonData(null);
     setValidationResult(null);
     setUploadError("");
+    setUploadTiming(null);
+    const startedAt = performance.now();
     const formData = new FormData();
     formData.append("file", file);
     try {
@@ -102,6 +106,10 @@ export default function App() {
         throw new Error("The ATS API returned an invalid extraction response.");
       }
       setJsonData(response.data.data);
+      setUploadTiming({
+        totalMs: Math.round(performance.now() - startedAt),
+        serverMs: Number(response.headers.get("X-Process-Time-ms") || 0),
+      });
     } catch (error) {
       console.error(error);
       setUploadError(apiErrorMessage(error, "Please try again."));
@@ -118,12 +126,18 @@ export default function App() {
     setValidating(true);
     setValidationResult(null);
     setValidationError("");
+    setValidationTiming(null);
+    const startedAt = performance.now();
     try {
       const response = await postToApi("/validate/", {
         resume_json: jsonData,
         job_description: jobDescription,
       });
       setValidationResult(response.data.validation);
+      setValidationTiming({
+        totalMs: Math.round(performance.now() - startedAt),
+        serverMs: Number(response.headers.get("X-Process-Time-ms") || 0),
+      });
     } catch (error) {
       console.error(error);
       setValidationError(apiErrorMessage(error, "Please try again."));
@@ -217,8 +231,13 @@ export default function App() {
           <div className="bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
             <div className="bg-slate-50 dark:bg-slate-950/80 px-8 py-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold">LLM Validation Results</h2>
-                <p className="text-indigo-600 dark:text-indigo-400 text-sm mt-1">Generated via OpenRouter API</p>
+                <h2 className="text-2xl font-bold">Resume Validation Results</h2>
+                <p className="text-indigo-600 dark:text-indigo-400 text-sm mt-1">Fast local deterministic matching — no LLM call in the critical path</p>
+                {validationTiming && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                    Server: {validationTiming.serverMs.toFixed(2)} ms · Total round trip: {validationTiming.totalMs} ms
+                  </p>
+                )}
               </div>
               {validationResult.is_fresher && (
                 <span className="bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 px-4 py-2 rounded-full text-sm font-bold border border-blue-200 dark:border-blue-500/30">
