@@ -931,7 +931,7 @@ export default function AtsWorkspace() {
                   <Field label="Source" value={candidateForm.source} onChange={(event) => setCandidateForm({ ...candidateForm, source: event.target.value })} />
                 </> : (
                   <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4 text-sm text-ink-600 sm:col-span-2 lg:col-span-3">
-                    Upload a resume and the ATS will automatically extract the candidate name, email, phone, skills, education, and experience.
+                    Upload a resume and the ATS will extract the candidate details automatically.
                   </div>
                 )}
                 <SelectField label="Match to job (optional)" value={candidateForm.job_id} onChange={(event) => setCandidateForm({ ...candidateForm, job_id: event.target.value })}>
@@ -941,21 +941,7 @@ export default function AtsWorkspace() {
                 <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2 lg:col-span-2">
                   Resume (PDF or DOCX)
                   <input className={`${inputStyle} p-2`} type="file" accept=".pdf,.docx" onChange={(event) => setResumeFile(event.target.files?.[0] || null)} />
-                  <span className="text-[11px] font-normal text-ink-400">{candidateEntryMode === "resume" ? "Required for upload mode. The file is parsed locally." : "Optional for manual mode. The file is parsed locally."}</span>
-                </label>
-              </div>
-                <Field label="First name" required value={candidateForm.first_name} onChange={(event) => setCandidateForm({ ...candidateForm, first_name: event.target.value })} />
-                <Field label="Last name" required value={candidateForm.last_name} onChange={(event) => setCandidateForm({ ...candidateForm, last_name: event.target.value })} />
-                <Field label="Email" type="email" required value={candidateForm.email} onChange={(event) => setCandidateForm({ ...candidateForm, email: event.target.value })} />
-                <Field label="Phone" value={candidateForm.phone} onChange={(event) => setCandidateForm({ ...candidateForm, phone: event.target.value })} />
-                <Field label="Source" value={candidateForm.source} onChange={(event) => setCandidateForm({ ...candidateForm, source: event.target.value })} />
-                <SelectField label="Match to job (optional)" value={candidateForm.job_id} onChange={(event) => setCandidateForm({ ...candidateForm, job_id: event.target.value })}>
-                  <option value="">Save profile only</option>
-                  {jobs.filter((job) => job.status === "open").map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
-                </SelectField>
-                <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2 lg:col-span-1">
-                  Resume (PDF or DOCX)
-                  <input className={`${inputStyle} p-2`} type="file" accept=".pdf,.docx" onChange={(event) => setResumeFile(event.target.files?.[0] || null)} />
+                  <span className="text-[11px] font-normal text-ink-400">{candidateEntryMode === "resume" ? "Required in upload mode." : "Optional in manual mode."}</span>
                 </label>
               </div>
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">Add candidate</button><button className={buttonSecondary} type="button" onClick={() => setCandidateFormOpen(false)}>Cancel</button></div>
