@@ -109,6 +109,24 @@ class DocumentExtractor:
             )
         return entries
 
+    @staticmethod
+    def _fallback_projects(lines):
+        headings = [
+            r"projects", r"academic projects", r"university projects",
+            r"personal projects", r"key projects", r"project experience",
+        ]
+        all_headings = [
+            r"experience", r"work experience", r"professional experience",
+            r"employment history", r"education", r"skills", r"projects",
+            r"academic projects", r"university projects", r"personal projects",
+            r"key projects", r"project experience", r"certifications", r"hobbies",
+        ]
+        for pattern in headings:
+            section = DocumentExtractor._section(lines, pattern, all_headings)
+            if section:
+                return [line.strip(" -•") for line in section if line.strip(" -•")][:20]
+        return []
+
     def _fallback_parse(self, raw_text):
         email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", raw_text)
         phone_match = re.search(r"\+?\d{0,2}[\s.-]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", raw_text)
@@ -130,6 +148,7 @@ class DocumentExtractor:
         ]
         experience = self._fallback_experience(lines)
         education = self._fallback_education(lines)
+        projects = self._fallback_projects(lines)
         return {
             "name": possible_name,
             "email": email_match.group(0) if email_match else None,
@@ -140,7 +159,7 @@ class DocumentExtractor:
             "experience": experience,
             "education": education,
             "hobbies": [],
-            "university_projects": [],
+            "university_projects": projects,
             "highest_education": education[0]["degree"] if education else None,
             "is_fresher": not bool(experience),
         }
