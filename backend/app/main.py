@@ -3,7 +3,15 @@ import csv
 import io
 import os
 import re
+import socket
+import ipaddress
+import json
 import traceback
+import urllib.error
+import urllib.parse
+import urllib.request
+from html import unescape
+from html.parser import HTMLParser
 from contextlib import asynccontextmanager
 from time import perf_counter
 from datetime import date, datetime, time, timezone
@@ -154,6 +162,187 @@ async def _read_resume_upload(file: UploadFile) -> tuple[str, bytes]:
     return suffix, content
 
 
+class _JobPageParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.title_parts = []
+        self.visible_parts = []
+        self.meta = {}
+        self.jsonld_blocks = []
+        self._capture_title = False
+        self._capture_script = False
+        self._script_type = ""
+        self._script_parts = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        attrs_map = dict(attrs)
+        if tag == "title":
+            self._capture_title = True
+        elif tag == "meta":
+            key = attrs_map.get("name") or attrs_map.get("property")
+            value = attrs_map.get("content")
+            if key and value:
+                self.meta[key.casefold()] = value.strip()
+        elif tag == "script":
+            self._capture_script = True
+            self._script_type = (attrs_map.get("type") or "").casefold()
+            self._script_parts = []
+        elif tag in {"style", "noscript"}:
+            self._skip_depth += 1
+        elif self._skip_depth == 0 and tag in {"br", "p", "div", "li", "section", "article", "h1", "h2", "h3", "h4", "h5"}:
+            self.visible_parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._capture_title = False
+        elif tag == "script":
+            if self._capture_script and "ld+json" in self._script_type:
+                self.jsonld_blocks.append("".join(self._script_parts))
+            self._capture_script = False
+            self._script_type = ""
+            self._script_parts = []
+        elif tag in {"style", "noscript"} and self._skip_depth:
+            self._skip_depth -= 1
+
+    def handle_data(self, data):
+        if self._capture_title:
+            self.title_parts.append(data)
+        if self._capture_script:
+            self._script_parts.append(data)
+        if self._skip_depth == 0 and not self._capture_script and data.strip():
+            self.visible_parts.append(data.strip())
+
+    def visible_text(self):
+        return re.sub(r"\s+", " ", " ".join(self.visible_parts)).strip()
+
+    def title(self):
+        return re.sub(r"\s+", " ", " ".join(self.title_parts)).strip()
+
+
+def _clean_job_link(value: str) -> tuple[str | None, str]:
+    cleaned = (value or "").strip()
+    markdown = re.match(r"^\s*\[([^\]]+)\]\((https?://[^)\s]+)\)\s*$", cleaned)
+    if markdown:
+        return markdown.group(2), markdown.group(1).strip()
+    return cleaned or None, ""
+
+
+def _validate_public_job_url(raw_url: str) -> str:
+    parsed = urllib.parse.urlparse(raw_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Enter a valid public HTTP/HTTPS job URL.")
+    if parsed.port not in {None, 80, 443}:
+        raise HTTPException(status_code=400, detail="Only standard HTTP/HTTPS job URLs are supported.")
+
+    try:
+        addresses = {
+            info[4][0]
+            for info in socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+        }
+    except socket.gaierror as error:
+        raise HTTPException(status_code=422, detail=f"Could not resolve the job URL host: {parsed.hostname}") from error
+
+    for address in addresses:
+        ip = ipaddress.ip_address(address)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            raise HTTPException(status_code=400, detail="The job URL must point to a public internet host.")
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", parsed.query, ""))
+
+
+def _jsonld_jobposting(blocks: list[str]) -> dict:
+    for block in blocks:
+        try:
+            payload = json.loads(unescape(block))
+        except Exception:
+            continue
+        candidates = payload if isinstance(payload, list) else [payload]
+        for candidate in candidates:
+            if isinstance(candidate, dict) and candidate.get("@type") in {"JobPosting", ["JobPosting"]}:
+                return candidate
+            if isinstance(candidate, dict) and isinstance(candidate.get("@graph"), list):
+                for node in candidate["@graph"]:
+                    if isinstance(node, dict) and node.get("@type") == "JobPosting":
+                        return node
+    return {}
+
+
+def _html_to_plain_text(value) -> str:
+    if not value:
+        return ""
+    parser = HTMLParser()
+    try:
+        parser.feed(str(value))
+        parser.close()
+        return re.sub(r"\s+", " ", " ".join(parser.visible_parts)).strip() if hasattr(parser, "visible_parts") else re.sub(r"<[^>]+>", " ", unescape(str(value)))
+    except Exception:
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", unescape(str(value)))).strip()
+
+
+def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
+    url = _validate_public_job_url(raw_url)
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 BluePace-ATS Job Importer/1.0",
+            "Accept": "text/html,application/xhtml+xml",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            content_type = (response.headers.get("Content-Type") or "").casefold()
+            payload = response.read(3_000_000)
+            final_url = response.geturl()
+    except (urllib.error.URLError, TimeoutError) as error:
+        raise HTTPException(status_code=422, detail=f"Could not fetch the job page: {error}") from error
+
+    if "html" not in content_type:
+        raise HTTPException(status_code=422, detail="The supplied URL did not return an HTML job page.")
+
+    parser = _JobPageParser()
+    try:
+        parser.feed(payload.decode("utf-8", errors="replace"))
+        parser.close()
+    except Exception as error:
+        raise HTTPException(status_code=422, detail="The job page could not be parsed.") from error
+
+    posting = _jsonld_jobposting(parser.jsonld_blocks)
+    description = _html_to_plain_text(posting.get("description")) if posting else ""
+    if not description:
+        description = parser.visible_text()
+    description = re.sub(r"\s+", " ", description).strip()
+    if len(description) < 40:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not extract a usable job description from that page. Use the PDF/DOCX upload instead.",
+        )
+
+    title = str(posting.get("title") or parser.title() or "").strip()
+    if " | " in title:
+        title = title.split(" | ", 1)[0].strip()
+    location = None
+    if posting:
+        job_location = posting.get("jobLocation")
+        if isinstance(job_location, dict):
+            address = job_location.get("address") if isinstance(job_location.get("address"), dict) else {}
+            location = address.get("addressLocality") or address.get("addressRegion") or job_location.get("name")
+        elif isinstance(job_location, list) and job_location:
+            first = job_location[0] if isinstance(job_location[0], dict) else {}
+            address = first.get("address") if isinstance(first.get("address"), dict) else {}
+            location = address.get("addressLocality") or address.get("addressRegion") or first.get("name")
+    if not location:
+        location = parser.meta.get("location")
+
+    return final_url, title, {
+        "description": description,
+        "location": location,
+        "employment_type": posting.get("employmentType") if posting else None,
+        "source_url": final_url,
+        "source": "Job URL import",
+    }
+
+
 allowed_origins = get_allowed_origins()
 
 app.add_middleware(
@@ -301,6 +490,7 @@ def public_jobs(db: Session = Depends(get_db)):
             "required_skills": job.required_skills or [],
             "minimum_experience_years": job.minimum_experience_years,
             "fresher_allowed": job.fresher_allowed,
+            "source_url": (job.jd_analysis or {}).get("source_url"),
         }
         for job in jobs
     ]
@@ -502,6 +692,58 @@ def create_job(
     db.flush()
     ensure_job_stages(db, job)
     record_audit(db, user, "job.created", "job", job.id, after={"title": job.title, "status": job.status})
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+@app.post("/jobs/from-url", response_model=JobRead, status_code=status.HTTP_201_CREATED)
+async def create_job_from_url(
+    url: str = Form(...),
+    title: str | None = Form(default=None),
+    department: str | None = Form(default=None),
+    location: str | None = Form(default=None),
+    employment_type: str | None = Form(default=None),
+    status_value: str = Form(default="open"),
+    minimum_experience_years: int | None = Form(default=None),
+    fresher_allowed: bool | None = Form(default=None),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    source_url, markdown_title, page = _fetch_job_page(_clean_job_link(url)[0] or url)
+    effective_title = (title or markdown_title or page.get("title") or "Imported job").strip()[:200]
+    analysis = matching_service.parse_job_description(effective_title, page["description"], location or page.get("location"), use_llm=False)
+    job = Job(
+        organization_id=user.organization_id,
+        created_by_id=user.id,
+        title=effective_title,
+        description=page["description"],
+        department=department.strip() if department else None,
+        location=(location.strip() if location else page.get("location")),
+        employment_type=(employment_type.strip() if employment_type else page.get("employment_type")),
+        status=status_value if status_value in {"draft", "open", "paused", "closed"} else "open",
+        required_skills=list(dict.fromkeys(analysis.get("required_skills", []))),
+        minimum_experience_years=(
+            minimum_experience_years if minimum_experience_years is not None else analysis.get("minimum_experience_years")
+        ),
+        fresher_allowed=bool(fresher_allowed) if fresher_allowed is not None else bool(
+            re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", page["description"], re.IGNORECASE)
+            or re.search(r"\b0\s*(?:years?|yrs?)\b", page["description"], re.IGNORECASE)
+        ),
+        jd_analysis={**analysis, "source_url": source_url, "source": "Job URL import"},
+        embedding=None,
+    )
+    db.add(job)
+    db.flush()
+    ensure_job_stages(db, job)
+    record_audit(
+        db,
+        user,
+        "job.created_from_url",
+        "job",
+        job.id,
+        after={"title": job.title, "status": job.status, "source_url": source_url},
+    )
     db.commit()
     db.refresh(job)
     return job
