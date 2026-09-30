@@ -8,6 +8,8 @@ from openai import OpenAI
 # Load environment variables from .env file
 load_dotenv()
 
+OPENROUTER_TIMEOUT_SECONDS = 20.0
+
 class LLMValidator:
     def __init__(self):
         api_key = os.getenv("OPENROUTER_API_KEY")
@@ -17,6 +19,8 @@ class LLMValidator:
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key or "missing-key",
+            timeout=OPENROUTER_TIMEOUT_SECONDS,
+            max_retries=0,
         )
         self.model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct")
         configured_fallbacks = os.getenv(

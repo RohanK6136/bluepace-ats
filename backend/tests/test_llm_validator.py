@@ -111,3 +111,24 @@ def test_exhausted_rate_limit_returns_safe_manual_review(monkeypatch):
     assert result["recommendation"] == "Manual Review"
     assert "temporarily rate-limited" in result["error"]
     assert "user_id" not in result["error"]
+
+
+def test_validator_bounds_upstream_requests_and_does_not_retry_timeouts(monkeypatch):
+    class TimedOut:
+        def __init__(self):
+            self.calls = 0
+
+        def create(self, **_kwargs):
+            self.calls += 1
+            raise TimeoutError("upstream request timed out")
+
+    monkeypatch.setenv("OPENROUTER_429_RETRIES", "2")
+    validator = LLMValidator()
+    completions = TimedOut()
+    validator.client = FakeClient(completions)
+
+    result = validator.validate_resume({"skills": ["Python"]}, "Python engineer")
+
+    assert result["recommendation"] == "Manual Review"
+    assert result["error"] == "upstream request timed out"
+    assert completions.calls == 1

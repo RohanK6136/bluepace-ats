@@ -3,7 +3,7 @@ import axios from "axios";
 import ResumeLab from "./App.jsx";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 90_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
 const MATCH_WEIGHTS = { skills: 30, semantic: 30, experience: 15, education: 10, location: 15 };
@@ -16,6 +16,7 @@ function wait(milliseconds) {
 }
 
 function shouldRetry(error) {
+  if (["ECONNABORTED", "ETIMEDOUT"].includes(error.code)) return false;
   if (!error.response) return true;
   return [502, 503, 504].includes(error.response.status);
 }
@@ -49,6 +50,9 @@ function errorText(error) {
     if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join("; ");
     if (typeof response.data === "string") return `API returned HTTP ${response.status}: ${response.data}`;
     return `API returned HTTP ${response.status}.`;
+  }
+  if (["ECONNABORTED", "ETIMEDOUT"].includes(error.code)) {
+    return `The ATS API at ${API_URL} did not respond in time. It may be waking from sleep or overloaded; wait briefly and retry.`;
   }
   if (error.request) return `Cannot reach the ATS API at ${API_URL}. Check that the backend is running and VITE_API_URL is correct.`;
   return error.message || "The request could not be completed.";

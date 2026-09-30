@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const REQUEST_TIMEOUT_MS = 90_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
 function wait(milliseconds) {
@@ -11,10 +12,11 @@ function wait(milliseconds) {
 async function postToApi(path, data, config = {}) {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await axios.post(`${API_URL}${path}`, data, { timeout: 15_000, ...config });
+      return await axios.post(`${API_URL}${path}`, data, { timeout: REQUEST_TIMEOUT_MS, ...config });
     } catch (error) {
       const retryableStatus = error.response?.status;
-      if (attempt >= RETRY_DELAYS_MS.length || (error.response && ![502, 503, 504].includes(retryableStatus))) throw error;
+      const timedOut = ["ECONNABORTED", "ETIMEDOUT"].includes(error.code);
+      if (timedOut || attempt >= RETRY_DELAYS_MS.length || (error.response && ![502, 503, 504].includes(retryableStatus))) throw error;
       await wait(RETRY_DELAYS_MS[attempt]);
     }
   }
@@ -28,7 +30,7 @@ function apiErrorMessage(error, fallback) {
     return `The ATS API returned HTTP ${error.response.status}.`;
   }
   if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
-    return `The ATS API at ${API_URL} took too long to respond. Please try again.`;
+    return `The ATS API at ${API_URL} is taking longer than usual, possibly waking from sleep. Wait a moment and retry.`;
   }
   if (error.request) return `Cannot reach the ATS API at ${API_URL}. Check the API service and try again.`;
   return error.message || fallback;
