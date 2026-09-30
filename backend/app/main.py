@@ -1185,12 +1185,76 @@ async def extract_document(file: UploadFile = File(...)):
 
 @app.post("/validate/", response_class=JSONResponse)
 async def validate_resume(request: ValidationRequest):
+    """
+    Fast deterministic validation for Resume Lab.
+
+    Uses the same local requirement parser and candidate scorer as the ATS
+    pipeline. No network/LLM call is required.
+    """
+    from types import SimpleNamespace
+
+    analysis = matching_service.parse_job_description(
+        "Resume Lab Validation",
+        request.job_description,
+    )
+    job = SimpleNamespace(
+        title="Resume Lab Validation",
+        description=request.job_description,
+        location=None,
+        jd_analysis=analysis,
+        embedding=None,
+    )
+    resume = request.resume_json or {}
+    candidate = SimpleNamespace(
+        first_name=str(resume.get("name") or "").split(" ")[0] or "Applicant",
+        last_name=" ".join(str(resume.get("name") or "").split(" ")[1:]) or "Candidate",
+        email=resume.get("email") or "",
+        resume_data=resume,
+        embedding=None,
+        cv_summary=[],
+    )
+
+    score = matching_service.score_candidate(job, candidate)
+    required_skills = analysis.get("required_skills", [])
+    matched_skills = score["matched_skills"]
+    missed_skills = score["skill_gaps"]
+    coding_catalog = {"python", "java", "javascript", "typescript", "c++", "c#", "sql", "react", "node.js", "django", "fastapi", "rest api"}
+    required_coding = [skill for skill in required_skills if skill.casefold() in coding_catalog]
+    matched_coding = [skill for skill in required_coding if skill in matched_skills]
+    coding_score = round(len(matched_coding) / len(required_coding) * 100) if required_coding else score["score_breakdown"]["skills"]
+    recommendation = "Yes" if score["model_score"] >= 75 else "Maybe" if score["model_score"] >= 50 else "No"
+
+    return {
+        "status": "success",
+        "validation": {
+            "match_score": score["model_score"],
+            "mandatory_skills_match_score": score["score_breakdown"]["skills"],
+            "coding_skills_score": coding_score,
+            "behavioral_skills_score": score["score_breakdown"]["experience"],
+            "mandatory_skills_met": matched_skills,
+            "mandatory_skills_missed": missed_skills,
+            "missing_skills": missed_skills,
+            "summary": f"Fast local validation completed. Overall match: {score['model_score']}%.",
+            "highest_education": resume.get("highest_education"),
+            "extracted_education": resume.get("education") or [],
+            "is_fresher": bool(resume.get("is_fresher")),
+            "extracted_university_projects": resume.get("university_projects") or [],
+            "extracted_hobbies": resume.get("hobbies") or [],
+            "recommendation": recommendation,
+            "semantic_mode": score["semantic_mode"],
+        },
+    }
+
+
+@app.post("/validate/ai", response_class=JSONResponse)
+async def validate_resume_ai(request: ValidationRequest):
     try:
         result = llm_validator.validate_resume(request.resume_json, request.job_description)
         return {"status": "success", "validation": result}
-    except Exception as e:
+    except Exception as error:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(error))
+
 
 @app.post("/extract/async/", response_class=JSONResponse)
 async def extract_document_async(file: UploadFile = File(...)):
