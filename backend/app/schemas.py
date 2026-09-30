@@ -113,7 +113,7 @@ class CandidateRead(BaseModel):
     created_by_id: int
     first_name: str
     last_name: str
-    email: EmailStr
+    email: str
     phone: Optional[str]
     linkedin_url: Optional[str]
     source: Optional[str]
@@ -133,7 +133,7 @@ class CandidateSummary(BaseModel):
     id: int
     first_name: str
     last_name: str
-    email: EmailStr
+    email: str
     source: Optional[str]
     resume_data: Optional[dict]
 
@@ -175,7 +175,7 @@ class CandidateMatchRead(BaseModel):
     job_id: int
     candidate_id: int
     candidate_name: str
-    candidate_email: EmailStr
+    candidate_email: str
     model_score: int
     effective_score: int
     recruiter_override: Optional[int]
