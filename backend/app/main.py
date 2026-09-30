@@ -945,13 +945,44 @@ def create_application(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="This candidate already applied to this job")
+    # Fast local candidate-to-job match on application creation.
+    # No external LLM or embedding call is made on this request path.
+    if not job.jd_analysis:
+        job.jd_analysis = matching_service.analyze_job(job)
+    score = matching_service.score_candidate(job, candidate)
+    match = db.scalar(
+        select(CandidateJobMatch).where(
+            CandidateJobMatch.organization_id == user.organization_id,
+            CandidateJobMatch.job_id == job.id,
+            CandidateJobMatch.candidate_id == candidate.id,
+        )
+    )
+    if match is None:
+        match = CandidateJobMatch(
+            organization_id=user.organization_id,
+            job_id=job.id,
+            candidate_id=candidate.id,
+        )
+        db.add(match)
+    match.model_score = score["model_score"]
+    match.score_breakdown = score["score_breakdown"]
+    match.matched_skills = score["matched_skills"]
+    match.skill_gaps = score["skill_gaps"]
+    match.explanations = score["explanations"]
+    match.semantic_mode = score["semantic_mode"]
+
     record_audit(
         db,
         user,
         "application.created",
         "application",
         application.id,
-        after={"job_id": job.id, "candidate_id": candidate.id, "stage_name": "Applied"},
+        after={
+            "job_id": job.id,
+            "candidate_id": candidate.id,
+            "stage_name": "Applied",
+            "match_score": score["model_score"],
+        },
     )
     email_id = queue_application_email(
         db,
