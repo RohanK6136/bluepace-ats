@@ -1,22 +1,30 @@
-import os
 import base64
+import csv
+import io
+import os
 import traceback
 from contextlib import asynccontextmanager
+from datetime import date, datetime, time, timezone
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from celery.result import AsyncResult
-from sqlalchemy import select
+from sqlalchemy import String, cast, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from celery_app import celery_app
 from app.database import get_db, initialize_database
-from app.models import Application, Candidate, Job, Organization, Role, User
+from app.models import Application, AuditLog, Candidate, Email, Job, Organization, Role, Stage, User
 from app.schemas import (
+    ApplicationCreate,
+    ApplicationRead,
+    ApplicationStageUpdate,
+    BulkApplicationUpdate,
     CandidateCreate,
     CandidateRead,
     CandidateUpdate,
@@ -30,7 +38,16 @@ from app.schemas import (
 )
 from app.security import create_access_token, get_current_user, password_hash, require_roles
 from app.services.extractor import extractor_service
+from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
+from app.services.workflow import (
+    PIPELINE_STAGES,
+    TERMINAL_STAGES,
+    ensure_job_stages,
+    queue_application_email,
+    record_audit,
+    serialize_application,
+)
 
 
 @asynccontextmanager
@@ -67,6 +84,84 @@ def _get_org_record(db: Session, model, record_id: int, organization_id: int):
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     return record
+
+
+def _audit_candidate(candidate: Candidate) -> dict:
+    return {
+        "first_name": candidate.first_name,
+        "last_name": candidate.last_name,
+        "email": candidate.email,
+        "phone": candidate.phone,
+        "linkedin_url": candidate.linkedin_url,
+        "source": candidate.source,
+        "resume_storage_key": candidate.resume_storage_key,
+    }
+
+
+def _audit_job(job: Job) -> dict:
+    return {
+        "title": job.title,
+        "description": job.description,
+        "department": job.department,
+        "location": job.location,
+        "employment_type": job.employment_type,
+        "status": job.status,
+    }
+
+
+def _application_query(
+    organization_id: int,
+    *,
+    job_id: int | None = None,
+    stage_name: str | None = None,
+    source: str | None = None,
+    skill: str | None = None,
+    search: str | None = None,
+    applied_after: date | None = None,
+    applied_before: date | None = None,
+):
+    statement = (
+        select(Application)
+        .options(
+            selectinload(Application.job),
+            selectinload(Application.candidate),
+            selectinload(Application.stage),
+        )
+        .join(Application.job)
+        .join(Application.candidate)
+        .outerjoin(Application.stage)
+        .where(Application.organization_id == organization_id)
+    )
+    if job_id is not None:
+        statement = statement.where(Application.job_id == job_id)
+    if stage_name:
+        statement = statement.where(Stage.name == stage_name)
+    if source:
+        statement = statement.where(Candidate.source.ilike(source))
+    if skill:
+        statement = statement.where(cast(Candidate.resume_data, String).ilike(f"%{skill}%"))
+    if search:
+        pattern = f"%{search.strip()}%"
+        statement = statement.where(
+            Candidate.first_name.ilike(pattern)
+            | Candidate.last_name.ilike(pattern)
+            | Candidate.email.ilike(pattern)
+            | Job.title.ilike(pattern)
+        )
+    if applied_after:
+        statement = statement.where(
+            Application.applied_at >= datetime.combine(applied_after, time.min, tzinfo=timezone.utc)
+        )
+    if applied_before:
+        statement = statement.where(
+            Application.applied_at <= datetime.combine(applied_before, time.max, tzinfo=timezone.utc)
+        )
+    return statement.order_by(Application.applied_at.desc())
+
+
+def _safe_csv_value(value):
+    text = "" if value is None else str(value)
+    return f"'{text}" if text.startswith(("=", "+", "-", "@", "\t", "\r")) else text
 
 
 @app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -146,6 +241,9 @@ def create_job(
 ):
     job = Job(**request.model_dump(), organization_id=user.organization_id, created_by_id=user.id)
     db.add(job)
+    db.flush()
+    ensure_job_stages(db, job)
+    record_audit(db, user, "job.created", "job", job.id, after={"title": job.title, "status": job.status})
     db.commit()
     db.refresh(job)
     return job
@@ -186,8 +284,33 @@ def update_job(
     db: Session = Depends(get_db),
 ):
     job = _get_org_record(db, Job, job_id, user.organization_id)
+    before = _audit_job(job)
     for field, value in request.model_dump(exclude_unset=True).items():
         setattr(job, field, value)
+    record_audit(
+        db,
+        user,
+        "job.updated",
+        "job",
+        job.id,
+        before=before,
+        after=_audit_job(job),
+    )
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+@app.post("/jobs/{job_id}/archive", response_model=JobRead)
+def archive_job(
+    job_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = _get_org_record(db, Job, job_id, user.organization_id)
+    before = _audit_job(job)
+    job.status = "archived"
+    record_audit(db, user, "job.archived", "job", job.id, before=before, after=_audit_job(job))
     db.commit()
     db.refresh(job)
     return job
@@ -203,6 +326,7 @@ def delete_job(
     has_applications = db.scalar(select(Application.id).where(Application.job_id == job_id).limit(1))
     if has_applications:
         raise HTTPException(status_code=409, detail="A job with applications cannot be deleted")
+    record_audit(db, user, "job.deleted", "job", job.id, before=_audit_job(job))
     db.delete(job)
     db.commit()
 
@@ -215,9 +339,15 @@ def create_candidate(
 ):
     values = request.model_dump()
     values["email"] = str(request.email).lower()
+    if values.get("resume_data"):
+        values["resume_data"] = {
+            key: value for key, value in values["resume_data"].items() if key != "raw_text"
+        }
     candidate = Candidate(**values, organization_id=user.organization_id, created_by_id=user.id)
     db.add(candidate)
     try:
+        db.flush()
+        record_audit(db, user, "candidate.created", "candidate", candidate.id, after=_audit_candidate(candidate))
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -261,11 +391,25 @@ def update_candidate(
     db: Session = Depends(get_db),
 ):
     candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    before = _audit_candidate(candidate)
     updates = request.model_dump(exclude_unset=True)
     if "email" in updates and updates["email"] is not None:
         updates["email"] = str(updates["email"]).lower()
+    if updates.get("resume_data"):
+        updates["resume_data"] = {
+            key: value for key, value in updates["resume_data"].items() if key != "raw_text"
+        }
     for field, value in updates.items():
         setattr(candidate, field, value)
+    record_audit(
+        db,
+        user,
+        "candidate.updated",
+        "candidate",
+        candidate.id,
+        before=before,
+        after=_audit_candidate(candidate),
+    )
     try:
         db.commit()
     except IntegrityError:
@@ -287,8 +431,313 @@ def delete_candidate(
     )
     if has_applications:
         raise HTTPException(status_code=409, detail="A candidate with applications cannot be deleted")
+    record_audit(db, user, "candidate.deleted", "candidate", candidate.id, before=_audit_candidate(candidate))
     db.delete(candidate)
     db.commit()
+
+
+@app.get("/jobs/{job_id}/stages")
+def list_job_stages(
+    job_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = _get_org_record(db, Job, job_id, user.organization_id)
+    stages = ensure_job_stages(db, job)
+    db.commit()
+    return [
+        {"id": stage.id, "name": name, "position": stage.position}
+        for name, stage in sorted(stages.items(), key=lambda item: item[1].position)
+    ]
+
+
+@app.post("/candidates/{candidate_id}/resume", response_model=CandidateRead)
+async def upload_candidate_resume(
+    candidate_id: int,
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".pdf", ".docx"}:
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX resumes are supported")
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Resume must be 10MB or smaller")
+
+    storage_key = f"{user.organization_id}/{candidate.id}/{os.urandom(16).hex()}{suffix}"
+    storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
+    storage_path = storage_dir / storage_key
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage_path.write_bytes(content)
+    try:
+        parsed = extractor_service.extract_to_json(content, f"resume{suffix}")
+    except Exception as error:
+        storage_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=f"Resume could not be parsed: {error}")
+
+    before = {"resume_storage_key": candidate.resume_storage_key}
+    candidate.resume_storage_key = storage_key
+    candidate.resume_data = {key: value for key, value in parsed.items() if key != "raw_text"}
+    if not candidate.phone and parsed.get("phone"):
+        candidate.phone = parsed["phone"][:50]
+    if not candidate.linkedin_url and parsed.get("linkedin"):
+        candidate.linkedin_url = parsed["linkedin"][:500]
+    record_audit(
+        db,
+        user,
+        "candidate.resume_uploaded",
+        "candidate",
+        candidate.id,
+        before=before,
+        after={"resume_storage_key": storage_key, "parsed_fields": sorted(parsed.keys())},
+    )
+    db.commit()
+    db.refresh(candidate)
+    return candidate
+
+
+@app.post("/applications", response_model=ApplicationRead, status_code=status.HTTP_201_CREATED)
+def create_application(
+    request: ApplicationCreate,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = _get_org_record(db, Job, request.job_id, user.organization_id)
+    candidate = _get_org_record(db, Candidate, request.candidate_id, user.organization_id)
+    if job.status != "open":
+        raise HTTPException(status_code=409, detail="Applications can only be created for open jobs")
+
+    stages = ensure_job_stages(db, job)
+    application = Application(
+        organization_id=user.organization_id,
+        job_id=job.id,
+        candidate_id=candidate.id,
+        stage_id=stages["Applied"].id,
+        status="active",
+    )
+    db.add(application)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="This candidate already applied to this job")
+    record_audit(
+        db,
+        user,
+        "application.created",
+        "application",
+        application.id,
+        after={"job_id": job.id, "candidate_id": candidate.id, "stage_name": "Applied"},
+    )
+    email_id = queue_application_email(
+        db,
+        application,
+        f"Application received: {job.title}",
+        f"Hello {candidate.first_name},\n\nYour application for {job.title} has been received.",
+    )
+    db.commit()
+    db.refresh(application)
+    background_tasks.add_task(deliver_outbox_email, email_id)
+    return serialize_application(application)
+
+
+@app.get("/applications", response_model=list[ApplicationRead])
+def list_applications(
+    job_id: int | None = None,
+    stage_name: str | None = None,
+    source: str | None = None,
+    skill: str | None = None,
+    search: str | None = None,
+    applied_after: date | None = None,
+    applied_before: date | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    statement = _application_query(
+        user.organization_id,
+        job_id=job_id,
+        stage_name=stage_name,
+        source=source,
+        skill=skill,
+        search=search,
+        applied_after=applied_after,
+        applied_before=applied_before,
+    ).offset(offset).limit(limit)
+    return [serialize_application(application) for application in db.scalars(statement).all()]
+
+
+@app.get("/applications/export.csv")
+def export_applications_csv(
+    job_id: int | None = None,
+    stage_name: str | None = None,
+    source: str | None = None,
+    skill: str | None = None,
+    search: str | None = None,
+    applied_after: date | None = None,
+    applied_before: date | None = None,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    statement = _application_query(
+        user.organization_id,
+        job_id=job_id,
+        stage_name=stage_name,
+        source=source,
+        skill=skill,
+        search=search,
+        applied_after=applied_after,
+        applied_before=applied_before,
+    ).limit(10000)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Application ID", "Job", "Candidate", "Email", "Source", "Stage", "Applied At", "Skills"])
+    for application in db.scalars(statement):
+        candidate = application.candidate
+        skills = (candidate.resume_data or {}).get("skills", [])
+        writer.writerow(
+            [
+                _safe_csv_value(application.id),
+                _safe_csv_value(application.job.title),
+                _safe_csv_value(f"{candidate.first_name} {candidate.last_name}"),
+                _safe_csv_value(candidate.email),
+                _safe_csv_value(candidate.source),
+                _safe_csv_value(application.stage.name if application.stage else ""),
+                _safe_csv_value(application.applied_at.isoformat()),
+                _safe_csv_value(", ".join(skills)),
+            ]
+        )
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=applications.csv"},
+    )
+
+
+@app.post("/applications/{application_id}/stage", response_model=ApplicationRead)
+def update_application_stage(
+    application_id: int,
+    request: ApplicationStageUpdate,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    if application.status in TERMINAL_STAGES.values() and application.stage.name != request.stage_name:
+        raise HTTPException(status_code=409, detail="A completed application cannot be moved")
+    stages = ensure_job_stages(db, application.job)
+    stage = stages[request.stage_name]
+    previous_name = application.stage.name if application.stage else None
+    if previous_name == request.stage_name:
+        return serialize_application(application)
+    application.stage_id = stage.id
+    application.status = TERMINAL_STAGES.get(stage.name, "active")
+    record_audit(
+        db,
+        user,
+        "application.stage_changed",
+        "application",
+        application.id,
+        before={"stage_name": previous_name, "status": "active"},
+        after={"stage_name": stage.name, "status": application.status},
+    )
+    email_id = queue_application_email(
+        db,
+        application,
+        f"Application update: {application.job.title}",
+        f"Hello {application.candidate.first_name},\n\nYour application status is now {stage.name}.",
+    )
+    db.commit()
+    db.refresh(application)
+    background_tasks.add_task(deliver_outbox_email, email_id)
+    return serialize_application(application)
+
+
+@app.post("/applications/bulk-stage", response_model=list[ApplicationRead])
+def bulk_update_application_stage(
+    request: BulkApplicationUpdate,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    applications = list(
+        db.scalars(
+            select(Application).where(
+                Application.organization_id == user.organization_id,
+                Application.id.in_(set(request.application_ids)),
+            )
+        ).all()
+    )
+    if len(applications) != len(set(request.application_ids)):
+        raise HTTPException(status_code=404, detail="One or more applications were not found")
+
+    email_ids = []
+    for application in applications:
+        if application.status in TERMINAL_STAGES.values() and application.stage.name != request.stage_name:
+            raise HTTPException(status_code=409, detail="Completed applications cannot be moved")
+        stages = ensure_job_stages(db, application.job)
+        previous_name = application.stage.name if application.stage else None
+        stage = stages[request.stage_name]
+        if previous_name == stage.name:
+            continue
+        previous_status = application.status
+        application.stage_id = stage.id
+        application.status = TERMINAL_STAGES.get(stage.name, "active")
+        record_audit(
+            db,
+            user,
+            "application.stage_changed",
+            "application",
+            application.id,
+            before={"stage_name": previous_name, "status": previous_status},
+            after={"stage_name": stage.name, "status": application.status},
+        )
+        email_ids.append(
+            queue_application_email(
+                db,
+                application,
+                f"Application update: {application.job.title}",
+                f"Hello {application.candidate.first_name},\n\nYour application status is now {stage.name}.",
+            )
+        )
+    db.commit()
+    for email_id in email_ids:
+        background_tasks.add_task(deliver_outbox_email, email_id)
+    refreshed = [db.get(Application, application.id) for application in applications]
+    return [serialize_application(application) for application in refreshed]
+
+
+@app.get("/audit-logs")
+def list_audit_logs(
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    statement = select(AuditLog).where(AuditLog.organization_id == user.organization_id)
+    if entity_type:
+        statement = statement.where(AuditLog.entity_type == entity_type)
+    if entity_id is not None:
+        statement = statement.where(AuditLog.entity_id == entity_id)
+    entries = db.scalars(statement.order_by(AuditLog.created_at.desc()).limit(limit)).all()
+    return [
+        {
+            "id": entry.id,
+            "actor_id": entry.actor_id,
+            "action": entry.action,
+            "entity_type": entry.entity_type,
+            "entity_id": entry.entity_id,
+            "before": entry.before_data,
+            "after": entry.after_data,
+            "created_at": entry.created_at,
+        }
+        for entry in entries
+    ]
 
 @app.post("/extract/", response_class=JSONResponse)
 async def extract_document(file: UploadFile = File(...)):

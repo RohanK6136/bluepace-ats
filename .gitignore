@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 node_modules/
 .env
+backend/private_uploads/
 .DS_Store

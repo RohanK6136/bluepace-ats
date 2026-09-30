@@ -42,7 +42,7 @@ class JobCreate(BaseModel):
     department: Optional[str] = Field(default=None, max_length=200)
     location: Optional[str] = Field(default=None, max_length=200)
     employment_type: Optional[str] = Field(default=None, max_length=50)
-    status: str = Field(default="draft", pattern="^(draft|open|paused|closed)$")
+    status: str = Field(default="draft", pattern="^(draft|open|paused|closed|archived)$")
 
 
 class JobUpdate(BaseModel):
@@ -51,7 +51,7 @@ class JobUpdate(BaseModel):
     department: Optional[str] = Field(default=None, max_length=200)
     location: Optional[str] = Field(default=None, max_length=200)
     employment_type: Optional[str] = Field(default=None, max_length=50)
-    status: Optional[str] = Field(default=None, pattern="^(draft|open|paused|closed)$")
+    status: Optional[str] = Field(default=None, pattern="^(draft|open|paused|closed|archived)$")
 
 
 class JobRead(BaseModel):
@@ -78,6 +78,7 @@ class CandidateCreate(BaseModel):
     linkedin_url: Optional[str] = Field(default=None, max_length=500)
     source: Optional[str] = Field(default=None, max_length=100)
     resume_storage_key: Optional[str] = Field(default=None, max_length=1000)
+    resume_data: Optional[dict] = None
 
 
 class CandidateUpdate(BaseModel):
@@ -88,6 +89,7 @@ class CandidateUpdate(BaseModel):
     linkedin_url: Optional[str] = Field(default=None, max_length=500)
     source: Optional[str] = Field(default=None, max_length=100)
     resume_storage_key: Optional[str] = Field(default=None, max_length=1000)
+    resume_data: Optional[dict] = None
 
 
 class CandidateRead(BaseModel):
@@ -103,8 +105,45 @@ class CandidateRead(BaseModel):
     linkedin_url: Optional[str]
     source: Optional[str]
     resume_storage_key: Optional[str]
+    resume_data: Optional[dict]
     created_at: datetime
     updated_at: datetime
+
+
+class ApplicationCreate(BaseModel):
+    job_id: int
+    candidate_id: int
+
+
+class CandidateSummary(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    email: EmailStr
+    source: Optional[str]
+    resume_data: Optional[dict]
+
+
+class ApplicationRead(BaseModel):
+    id: int
+    job_id: int
+    candidate_id: int
+    job_title: str
+    stage_id: Optional[int]
+    stage_name: Optional[str]
+    status: str
+    applied_at: datetime
+    updated_at: Optional[datetime]
+    candidate: CandidateSummary
+
+
+class ApplicationStageUpdate(BaseModel):
+    stage_name: str = Field(pattern="^(Applied|Screening|Interview|Offer|Hired|Rejected)$")
+
+
+class BulkApplicationUpdate(BaseModel):
+    application_ids: list[int] = Field(min_length=1, max_length=100)
+    stage_name: str = Field(pattern="^(Applied|Screening|Interview|Offer|Hired|Rejected)$")
 
 class Experience(BaseModel):
     company: Optional[str] = None
