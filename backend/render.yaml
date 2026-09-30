@@ -3,7 +3,7 @@ services:
     name: bluepace-ats-backend
     runtime: docker
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /
+    healthCheckPath: /health
     envVars:
       - key: APP_ENV
         value: staging
