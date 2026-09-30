@@ -4,6 +4,7 @@ import io
 import os
 import traceback
 from contextlib import asynccontextmanager
+from time import perf_counter
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
@@ -71,6 +72,15 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.3.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def add_process_time_header(request, call_next):
+    started = perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (perf_counter() - started) * 1000
+    response.headers["X-Process-Time-ms"] = f"{elapsed_ms:.2f}"
+    return response
 
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
