@@ -94,6 +94,9 @@ function EmptyState({ title, detail }) {
 export default function AtsWorkspace() {
   const [token, setToken] = useState(() => sessionStorage.getItem("bluepace_token"));
   const [user, setUser] = useState(null);
+  const [accessMode, setAccessMode] = useState(() => (
+    new URLSearchParams(window.location.search).get("mode") === "admin" ? "admin" : "public"
+  ));
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ organization_name: "", full_name: "", email: "", password: "" });
   const [authError, setAuthError] = useState("");
@@ -434,16 +437,95 @@ export default function AtsWorkspace() {
     setFilters((current) => ({ ...current, [field]: value }));
   }
 
+  function switchAccessMode(mode) {
+    setAccessMode(mode);
+    window.history.replaceState({}, "", mode === "admin" ? "?mode=admin" : window.location.pathname);
+    setAuthError("");
+  }
+
+  if (!token && accessMode === "public") {
+    return (
+      <main className="min-h-screen bg-[#f3f4f1] text-ink-900">
+        <header className="border-b border-ink-100 bg-white/95 px-5 py-4">
+          <div className="mx-auto flex max-w-6xl items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-md bg-ink-950 text-xs font-bold text-gold-300">BP</div>
+              <div>
+                <p className="font-semibold">BluePace Tech</p>
+                <p className="text-xs text-ink-500">Candidate Application Portal</p>
+              </div>
+            </div>
+            <button
+              className={buttonSecondary}
+              onClick={() => switchAccessMode("admin")}
+            >
+              Admin / Recruiter Login
+            </button>
+          </div>
+        </header>
+
+        <section className="mx-auto grid min-h-[calc(100vh-73px)] max-w-6xl items-center gap-12 px-5 py-16 lg:grid-cols-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">BluePace Careers</p>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
+              Apply for your next opportunity.
+            </h1>
+            <p className="mt-5 max-w-xl text-base leading-7 text-ink-500">
+              Browse open positions, upload your resume, and submit your application through the public candidate portal.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <button
+                className={buttonPrimary}
+                onClick={() => window.location.hash = "jobs"}
+              >
+                View Open Positions
+              </button>
+              <button
+                className={buttonSecondary}
+                onClick={() => window.location.hash = "apply"}
+              >
+                Apply with Resume
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-ink-100 bg-white p-7 shadow-sm">
+            <h2 className="text-xl font-semibold">Candidate Portal</h2>
+            <div className="mt-6 grid gap-4">
+              <div className="rounded-xl border border-ink-100 bg-[#f8f8f5] p-5">
+                <p className="font-medium">Public access</p>
+                <p className="mt-1 text-sm text-ink-500">No account is required to apply for an open position.</p>
+              </div>
+              <div className="rounded-xl border border-ink-100 bg-[#f8f8f5] p-5">
+                <p className="font-medium">Resume upload</p>
+                <p className="mt-1 text-sm text-ink-500">PDF and DOCX resumes will be processed automatically.</p>
+              </div>
+              <div className="rounded-xl border border-ink-100 bg-[#f8f8f5] p-5">
+                <p className="font-medium">Application matching</p>
+                <p className="mt-1 text-sm text-ink-500">The submitted profile will be checked against the selected job requirements.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   if (!token) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f3f4f1] px-5 py-12 text-ink-900">
         <section className="w-full max-w-md">
-          <div className="mb-8 flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-md bg-ink-950 text-sm font-bold text-gold-300">BP</div>
-            <div>
-              <p className="font-semibold">BluePace</p>
-              <p className="text-xs text-ink-500">Recruiting workspace</p>
+          <div className="mb-8 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-md bg-ink-950 text-sm font-bold text-gold-300">BP</div>
+              <div>
+                <p className="font-semibold">BluePace</p>
+                <p className="text-xs text-ink-500">Recruiting workspace</p>
+              </div>
             </div>
+            <button className={buttonSecondary} onClick={() => switchAccessMode("public")}>
+              Public Portal
+            </button>
           </div>
           <h1 className="text-2xl font-semibold">{authMode === "login" ? "Sign in" : "Create your workspace"}</h1>
           <p className="mt-1 text-sm text-ink-500">
