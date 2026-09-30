@@ -82,6 +82,14 @@ function SelectField({ label, children, ...props }) {
   );
 }
 
+function workModeLabel(mode) {
+  return mode === "remote" ? "Remote" : mode === "hybrid" ? "Hybrid" : "On-site";
+}
+
+function interviewModeLabel(mode) {
+  return mode === "offline" ? "Offline / On-site" : "Online";
+}
+
 function EmptyState({ title, detail }) {
   return (
     <div className="border-t border-ink-100 py-16 text-center">
@@ -126,6 +134,7 @@ export default function AtsWorkspace() {
     department: "",
     location: "",
     employment_type: "Full-time",
+    work_mode: "onsite",
     status: "open",
     required_skills: "",
     minimum_experience_years: "",
@@ -151,7 +160,7 @@ export default function AtsWorkspace() {
   const [fitJobId, setFitJobId] = useState("");
   const [fitLoading, setFitLoading] = useState(false);
   const [interviewDialogApplication, setInterviewDialogApplication] = useState(null);
-  const [interviewForm, setInterviewForm] = useState({ starts_at: "", duration_minutes: "60", meeting_url: "" });
+  const [interviewForm, setInterviewForm] = useState({ starts_at: "", duration_minutes: "60", mode: "online", location: "", meeting_url: "" });
 
   const canWrite = user && ["admin", "recruiter"].includes(user.role);
 
@@ -278,6 +287,7 @@ export default function AtsWorkspace() {
       department: job.department || "",
       location: job.location || "",
       employment_type: job.employment_type || "Full-time",
+      work_mode: job.work_mode || "onsite",
       status: job.status,
       required_skills: (job.required_skills || []).join(", "),
       minimum_experience_years: job.minimum_experience_years ?? "",
@@ -288,6 +298,7 @@ export default function AtsWorkspace() {
       department: "",
       location: "",
       employment_type: "Full-time",
+      work_mode: "onsite",
       status: "open",
       required_skills: "",
       minimum_experience_years: "",
@@ -309,6 +320,7 @@ export default function AtsWorkspace() {
         body.append("url", jobLinkInput.trim());
         if (jobForm.title.trim()) body.append("title", jobForm.title.trim());
         if (jobForm.location.trim()) body.append("location", jobForm.location.trim());
+        body.append("work_mode", jobForm.work_mode);
         body.append("status_value", jobForm.status);
         if (jobForm.minimum_experience_years !== "") body.append("minimum_experience_years", String(Number(jobForm.minimum_experience_years)));
         body.append("fresher_allowed", String(Boolean(jobForm.fresher_allowed)));
@@ -325,6 +337,7 @@ export default function AtsWorkspace() {
         if (jobForm.department.trim()) body.append("department", jobForm.department.trim());
         if (jobForm.location.trim()) body.append("location", jobForm.location.trim());
         if (jobForm.employment_type.trim()) body.append("employment_type", jobForm.employment_type.trim());
+        body.append("work_mode", jobForm.work_mode);
         body.append("status_value", jobForm.status);
         if (jobForm.minimum_experience_years !== "") body.append("minimum_experience_years", String(Number(jobForm.minimum_experience_years)));
         body.append("fresher_allowed", String(Boolean(jobForm.fresher_allowed)));
@@ -454,7 +467,8 @@ export default function AtsWorkspace() {
     const start = new Date(Date.now() + 60 * 60 * 1000);
     const local = new Date(start.getTime() - start.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     setInterviewDialogApplication(application);
-    setInterviewForm({ starts_at: local, duration_minutes: "60", meeting_url: "" });
+    const defaultMode = application.job_work_mode === "onsite" ? "offline" : "online";
+    setInterviewForm({ starts_at: local, duration_minutes: "60", mode: defaultMode, location: "", meeting_url: "" });
     setError("");
   }
 
@@ -472,7 +486,9 @@ export default function AtsWorkspace() {
           stage_name: "Interview",
           interview_starts_at: startsAt.toISOString(),
           interview_duration_minutes: Number(interviewForm.duration_minutes || 60),
-          interview_meeting_url: interviewForm.meeting_url.trim() || null,
+          interview_mode: interviewForm.mode,
+          interview_location: interviewForm.mode === "offline" ? interviewForm.location.trim() : null,
+          interview_meeting_url: interviewForm.mode === "online" ? interviewForm.meeting_url.trim() : null,
         },
       });
       setInterviewDialogApplication(null);
@@ -485,8 +501,9 @@ export default function AtsWorkspace() {
 
   async function changeStage(applicationId, stageName) {
     const application = applications.find((item) => item.id === applicationId);
-    if (stageName === "Interview" && application) {
-      openInterviewDialog(application);
+    const enrichedApplication = application ? { ...application, job_work_mode: jobs.find((job) => job.id === application.job_id)?.work_mode || "onsite" } : null;
+    if (stageName === "Interview" && enrichedApplication) {
+      openInterviewDialog(enrichedApplication);
       return;
     }
     try {
@@ -649,7 +666,7 @@ export default function AtsWorkspace() {
       const response = await apiRequest(null, "post", `/public/jobs/${publicApplyJob.id}/apply`, {
         data: body,
       });
-      setPublicSuccess(response.data?.message || "Application submitted successfully.");
+      setPublicSuccess(response.data?.message || "Application submitted successfully. A confirmation email has been queued to your application email.");
       setPublicResume(null);
       setPublicForm({ full_name: "", email: "", phone: "" });
       setPublicApplyJob(null);
@@ -725,7 +742,7 @@ export default function AtsWorkspace() {
                     <div>
                       <h3 className="text-lg font-semibold">{job.title}</h3>
                       <p className="mt-1 text-sm text-ink-500">
-                        {[job.department, job.location, job.employment_type].filter(Boolean).join(" · ")}
+                        {[job.department, job.location, job.employment_type, workModeLabel(job.work_mode)].filter(Boolean).join(" · ")}
                       </p>
                     </div>
                     {job.fresher_allowed && (
@@ -733,6 +750,7 @@ export default function AtsWorkspace() {
                     )}
                   </div>
                   <p className="mt-4 line-clamp-4 whitespace-pre-line text-sm leading-6 text-ink-600">{job.description}</p>
+              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Work mode: <span className="normal-case tracking-normal text-ink-700">{workModeLabel(job.work_mode)}</span></p>
                   {job.required_skills?.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
                       {job.required_skills.slice(0, 8).map((skill) => (
@@ -976,6 +994,9 @@ export default function AtsWorkspace() {
                   <div className="grid gap-3 sm:grid-cols-3">
                     <Field label="Title override (optional)" placeholder="AI Infrastructure Engineer, pAGI" value={jobForm.title} onChange={(event) => setJobForm({ ...jobForm, title: event.target.value })} />
                     <Field label="Location override (optional)" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
+                    <SelectField label="Work mode" value={jobForm.work_mode} onChange={(event) => setJobForm({ ...jobForm, work_mode: event.target.value })}>
+                      <option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site / Offline</option>
+                    </SelectField>
                     <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
                   </div>
                 </div>
@@ -991,6 +1012,7 @@ export default function AtsWorkspace() {
                     <Field label="Department override (optional)" value={jobForm.department} onChange={(event) => setJobForm({ ...jobForm, department: event.target.value })} />
                     <Field label="Location override (optional)" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
                     <SelectField label="Employment type" value={jobForm.employment_type} onChange={(event) => setJobForm({ ...jobForm, employment_type: event.target.value })}>{["Full-time", "Part-time", "Contract", "Temporary", "Internship"].map((type) => <option key={type}>{type}</option>)}</SelectField>
+                    <SelectField label="Work mode" value={jobForm.work_mode} onChange={(event) => setJobForm({ ...jobForm, work_mode: event.target.value })}><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site / Offline</option></SelectField>
                     <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
                     <Field label="Minimum experience override" type="number" min="0" max="60" placeholder="Auto-detect" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
                   </div>
@@ -1002,6 +1024,7 @@ export default function AtsWorkspace() {
                   <Field label="Department" value={jobForm.department} onChange={(event) => setJobForm({ ...jobForm, department: event.target.value })} />
                   <Field label="Location" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
                   <SelectField label="Employment type" value={jobForm.employment_type} onChange={(event) => setJobForm({ ...jobForm, employment_type: event.target.value })}>{["Full-time", "Part-time", "Contract", "Temporary", "Internship"].map((type) => <option key={type}>{type}</option>)}</SelectField>
+                  <SelectField label="Work mode" value={jobForm.work_mode} onChange={(event) => setJobForm({ ...jobForm, work_mode: event.target.value })}><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site / Offline</option></SelectField>
                   <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
                   <Field label="Required skills" placeholder="Python, PostgreSQL, AWS" value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
                   <Field label="Minimum experience (years)" type="number" min="0" max="60" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
@@ -1015,7 +1038,7 @@ export default function AtsWorkspace() {
             <div className="border-y border-ink-100 bg-white">
               <div className="grid grid-cols-[minmax(180px,2fr)_1fr_1fr_100px] gap-3 border-b border-ink-100 bg-[#fafaf8] px-4 py-3 text-[11px] font-semibold uppercase text-ink-500"><span>Role</span><span>Location</span><span>Created</span><span>Status</span></div>
               {jobs.map((job) => <div key={job.id} className="grid grid-cols-1 gap-2 border-b border-ink-50 px-4 py-4 last:border-0 sm:grid-cols-[minmax(180px,2fr)_1fr_1fr_100px] sm:items-center sm:gap-3">
-                <div>{job.jd_analysis?.source_url ? <a className="font-semibold underline decoration-ink-200 underline-offset-4 hover:decoration-ink-700" href={job.jd_analysis.source_url} target="_blank" rel="noreferrer">{job.title}</a> : <button className="font-semibold hover:underline" onClick={() => resetJobForm(job)}>{job.title}</button>}<p className="mt-0.5 text-xs text-ink-500">{job.department || "Unassigned department"} · {job.employment_type || "Employment type not set"}</p><p className="mt-1 text-xs text-ink-500">{job.minimum_experience_years === null ? "Experience unspecified" : `${job.minimum_experience_years}+ years`}{job.fresher_allowed ? " · Freshers welcome" : ""}{job.required_skills?.length ? ` · ${job.required_skills.join(", ")}` : ""}</p>{job.jd_analysis?.source_url && <p className="mt-1 text-[11px] text-ink-400">Imported from job link</p>}</div>
+                <div>{job.jd_analysis?.source_url ? <a className="font-semibold underline decoration-ink-200 underline-offset-4 hover:decoration-ink-700" href={job.jd_analysis.source_url} target="_blank" rel="noreferrer">{job.title}</a> : <button className="font-semibold hover:underline" onClick={() => resetJobForm(job)}>{job.title}</button>}<p className="mt-0.5 text-xs text-ink-500">{job.department || "Unassigned department"} · {job.employment_type || "Employment type not set"} · {workModeLabel(job.work_mode)}</p><p className="mt-1 text-xs text-ink-500">{job.minimum_experience_years === null ? "Experience unspecified" : `${job.minimum_experience_years}+ years`}{job.fresher_allowed ? " · Freshers welcome" : ""}{job.required_skills?.length ? ` · ${job.required_skills.join(", ")}` : ""}</p>{job.jd_analysis?.source_url && <p className="mt-1 text-[11px] text-ink-400">Imported from job link</p>}</div>
                 <span className="text-sm text-ink-600">{job.location || "Remote / unspecified"}</span>
                 <span className="text-xs text-ink-500">{new Date(job.created_at).toLocaleDateString()}</span>
                 <div className="flex items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${job.status === "open" ? "bg-emerald-50 text-emerald-800" : job.status === "archived" ? "bg-ink-100 text-ink-500" : "bg-gold-50 text-ink-700"}`}>{job.status}</span>{canWrite && job.status !== "archived" && <button className="text-xs font-medium text-ink-500 underline underline-offset-2" onClick={() => archiveJob(job)}>Archive</button>}</div>
@@ -1202,9 +1225,19 @@ export default function AtsWorkspace() {
           </div>
           <div className="grid gap-4">
             <Field label="Interview date & time" type="datetime-local" required value={interviewForm.starts_at} onChange={(event) => setInterviewForm({ ...interviewForm, starts_at: event.target.value })} />
+            <SelectField label="Interview mode" value={interviewForm.mode} onChange={(event) => setInterviewForm({ ...interviewForm, mode: event.target.value, location: "", meeting_url: "" })}>
+              <option value="online">Online</option>
+              <option value="offline">Offline / On-site</option>
+            </SelectField>
             <Field label="Duration (minutes)" type="number" min="15" max="480" value={interviewForm.duration_minutes} onChange={(event) => setInterviewForm({ ...interviewForm, duration_minutes: event.target.value })} />
-            <Field label="Meeting link (optional)" placeholder="https://teams.microsoft.com/..." value={interviewForm.meeting_url} onChange={(event) => setInterviewForm({ ...interviewForm, meeting_url: event.target.value })} />
-            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">The candidate will be moved to <strong>Interview</strong> and an email will be sent to the email address used on the application. The message includes the scheduled date, time, duration and meeting link.</div>
+            {interviewForm.mode === "online" ? (
+              <Field label="Meeting link" required placeholder="https://teams.microsoft.com/..." value={interviewForm.meeting_url} onChange={(event) => setInterviewForm({ ...interviewForm, meeting_url: event.target.value })} />
+            ) : (
+              <Field label="Interview location / address" required placeholder="Blupace Tech office, Hyderabad..." value={interviewForm.location} onChange={(event) => setInterviewForm({ ...interviewForm, location: event.target.value })} />
+            )}
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+              The candidate will be moved to <strong>Interview</strong> and an email will be sent to <strong>{interviewDialogApplication.candidate.email}</strong>. It will include the date, time, duration and {interviewModeLabel(interviewForm.mode).toLowerCase()} details.
+            </div>
           </div>
           <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => setInterviewDialogApplication(null)}>Cancel</button><button type="submit" className={buttonPrimary}>Schedule & send email</button></div>
         </form>
