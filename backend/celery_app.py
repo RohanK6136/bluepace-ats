@@ -1,7 +1,11 @@
 import os
 from celery import Celery
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+APP_ENV = os.getenv("APP_ENV", "development")
+REDIS_URL = os.getenv("REDIS_URL")
+if not REDIS_URL and APP_ENV not in {"development", "test"}:
+    raise RuntimeError("REDIS_URL must be configured outside development and test environments")
+REDIS_URL = REDIS_URL or "redis://localhost:6379/0"
 
 celery_app = Celery(
     "bluepace_ats",

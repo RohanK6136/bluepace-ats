@@ -1,5 +1,110 @@
-from pydantic import BaseModel, Field
+from datetime import datetime
 from typing import List, Optional
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.models import Role
+
+
+class OrganizationRegistration(BaseModel):
+    organization_name: str = Field(min_length=2, max_length=200)
+    full_name: str = Field(min_length=1, max_length=200)
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=128)
+
+
+class UserCreate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=200)
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=128)
+    role: Role = Role.recruiter
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    full_name: str
+    email: EmailStr
+    role: Role
+    is_active: bool
+
+
+class TokenRead(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class JobCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1)
+    department: Optional[str] = Field(default=None, max_length=200)
+    location: Optional[str] = Field(default=None, max_length=200)
+    employment_type: Optional[str] = Field(default=None, max_length=50)
+    status: str = Field(default="draft", pattern="^(draft|open|paused|closed)$")
+
+
+class JobUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, min_length=1)
+    department: Optional[str] = Field(default=None, max_length=200)
+    location: Optional[str] = Field(default=None, max_length=200)
+    employment_type: Optional[str] = Field(default=None, max_length=50)
+    status: Optional[str] = Field(default=None, pattern="^(draft|open|paused|closed)$")
+
+
+class JobRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    created_by_id: int
+    title: str
+    description: str
+    department: Optional[str]
+    location: Optional[str]
+    employment_type: Optional[str]
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CandidateCreate(BaseModel):
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    email: EmailStr
+    phone: Optional[str] = Field(default=None, max_length=50)
+    linkedin_url: Optional[str] = Field(default=None, max_length=500)
+    source: Optional[str] = Field(default=None, max_length=100)
+    resume_storage_key: Optional[str] = Field(default=None, max_length=1000)
+
+
+class CandidateUpdate(BaseModel):
+    first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(default=None, max_length=50)
+    linkedin_url: Optional[str] = Field(default=None, max_length=500)
+    source: Optional[str] = Field(default=None, max_length=100)
+    resume_storage_key: Optional[str] = Field(default=None, max_length=1000)
+
+
+class CandidateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    created_by_id: int
+    first_name: str
+    last_name: str
+    email: EmailStr
+    phone: Optional[str]
+    linkedin_url: Optional[str]
+    source: Optional[str]
+    resume_storage_key: Optional[str]
+    created_at: datetime
+    updated_at: datetime
 
 class Experience(BaseModel):
     company: Optional[str] = None
