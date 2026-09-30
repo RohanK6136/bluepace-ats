@@ -65,7 +65,7 @@ class CandidateMatcher:
             normalized["minimum_experience_years"] = int(minimum)
         return normalized
 
-    def parse_job_description(self, title: str, description: str, location: str | None = None):
+    def parse_job_description(self, title: str, description: str, location: str | None = None, *, use_llm: bool = False):
         text = f"{title}\n{description}"
         lower_text = text.lower()
         preferred_start = min(
@@ -111,17 +111,8 @@ class CandidateMatcher:
             "education": education_match.group(0).strip() if education_match else None,
             "minimum_experience_years": int(years_match.group(1)) if years_match else None,
         }
-        if self.llm_client is None:
+        if not use_llm or self.llm_client is None:
             return fallback
-
-    def analyze_job(self, job) -> dict:
-        analysis = self.parse_job_description(job.title, job.description, job.location)
-        if job.required_skills:
-            analysis["required_skills"] = list(dict.fromkeys(job.required_skills))
-        if job.minimum_experience_years is not None:
-            analysis["minimum_experience_years"] = job.minimum_experience_years
-        analysis["fresher_allowed"] = job.fresher_allowed
-        return analysis
 
         prompt = (
             "Extract job requirements without inventing criteria. Return JSON with required_skills, "
@@ -140,6 +131,15 @@ class CandidateMatcher:
             return self._normalize_analysis(parsed, fallback)
         except Exception:
             return fallback
+
+    def analyze_job(self, job) -> dict:
+        analysis = self.parse_job_description(job.title, job.description, job.location, use_llm=False)
+        if job.required_skills:
+            analysis["required_skills"] = list(dict.fromkeys(job.required_skills))
+        if job.minimum_experience_years is not None:
+            analysis["minimum_experience_years"] = job.minimum_experience_years
+        analysis["fresher_allowed"] = job.fresher_allowed
+        return analysis
 
     def embed_texts(self, texts: list[str]) -> list[list[float] | None]:
         if not texts:
