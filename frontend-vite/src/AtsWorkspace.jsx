@@ -1092,3 +1092,6 @@ export default function AtsWorkspace() {
           <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => { setApplicationFormOpen(false); setApplicationResumeFile(null); }}>Cancel</button><button type="submit" className={buttonPrimary}>{applicationEntryMode === "upload" ? "Upload & add application" : "Add application"}</button></div>
         </form>
       </div>
+    </div>
+  );
+}
