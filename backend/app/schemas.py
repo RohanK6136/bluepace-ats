@@ -42,6 +42,7 @@ class JobCreate(BaseModel):
     department: Optional[str] = Field(default=None, max_length=200)
     location: Optional[str] = Field(default=None, max_length=200)
     employment_type: Optional[str] = Field(default=None, max_length=50)
+    work_mode: str = Field(default="onsite", pattern="^(remote|hybrid|onsite)$")
     status: str = Field(default="draft", pattern="^(draft|open|paused|closed|archived)$")
     required_skills: list[str] = Field(default_factory=list, max_length=100)
     minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
@@ -54,6 +55,7 @@ class JobUpdate(BaseModel):
     department: Optional[str] = Field(default=None, max_length=200)
     location: Optional[str] = Field(default=None, max_length=200)
     employment_type: Optional[str] = Field(default=None, max_length=50)
+    work_mode: Optional[str] = Field(default=None, pattern="^(remote|hybrid|onsite)$")
     status: Optional[str] = Field(default=None, pattern="^(draft|open|paused|closed|archived)$")
     required_skills: Optional[list[str]] = Field(default=None, max_length=100)
     minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
@@ -71,6 +73,7 @@ class JobRead(BaseModel):
     department: Optional[str]
     location: Optional[str]
     employment_type: Optional[str]
+    work_mode: str
     status: str
     required_skills: Optional[list[str]]
     minimum_experience_years: Optional[int]
@@ -152,6 +155,8 @@ class ApplicationStageUpdate(BaseModel):
     stage_name: str = Field(pattern="^(Applied|Screening|Interview|Offer|Hired|Rejected)$")
     interview_starts_at: Optional[datetime] = None
     interview_duration_minutes: int = Field(default=60, ge=15, le=480)
+    interview_mode: str = Field(default="online", pattern="^(online|offline)$")
+    interview_location: Optional[str] = Field(default=None, max_length=500)
     interview_meeting_url: Optional[str] = Field(default=None, max_length=1000)
 
 
