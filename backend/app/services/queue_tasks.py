@@ -3,17 +3,36 @@ import base64
 from celery_app import celery_app
 from app.services.extractor import extractor_service
 from app.services.llm_validator import llm_validator
+from app.services.slm_service import slm_service
+
+
+def enrich_extracted_with_slm(extracted: dict) -> dict:
+    if not slm_service.enabled:
+        return extracted
+    enrichment = slm_service.enrich_resume(extracted)
+    if enrichment:
+        enriched = dict(extracted)
+        enriched["slm_enrichment"] = enrichment
+        return enriched
+    return extracted
 
 
 @celery_app.task(name="ats.extract_resume_task")
 def extract_resume_task(file_name: str, file_content_b64: str, content_type: str = "application/pdf"):
     file_content = base64.b64decode(file_content_b64)
-    return extractor_service.extract_to_json(file_content, file_name)
+    extracted = extractor_service.extract_to_json(file_content, file_name)
+    return enrich_extracted_with_slm(extracted)
 
 
 @celery_app.task(name="ats.validate_resume_task")
 def validate_resume_task(resume_json: dict, job_description: str):
     return llm_validator.validate_resume(resume_json, job_description)
+
+
+@celery_app.task(name="ats.enrich_resume_slm_task")
+def enrich_resume_slm_task(resume_json: dict):
+    enrichment = slm_service.enrich_resume(resume_json)
+    return {"status": "success", "slm_enrichment": enrichment}
 
 
 @celery_app.task(name="ats.process_resume_batch")
