@@ -55,6 +55,8 @@ class Job(Base):
     location: Mapped[str | None] = mapped_column(String(200), nullable=True)
     employment_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
+    jd_analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536).with_variant(JSON(), "sqlite"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
@@ -74,6 +76,7 @@ class Candidate(Base):
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     resume_storage_key: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     resume_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    cv_summary: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536).with_variant(JSON(), "sqlite"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
@@ -104,6 +107,28 @@ class Application(Base):
     job: Mapped[Job] = relationship()
     candidate: Mapped[Candidate] = relationship()
     stage: Mapped[Stage | None] = relationship()
+
+
+class CandidateJobMatch(Base):
+    __tablename__ = "candidate_job_matches"
+    __table_args__ = (UniqueConstraint("job_id", "candidate_id", name="uq_candidate_job_match"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"), index=True)
+    model_score: Mapped[int] = mapped_column(Integer)
+    score_breakdown: Mapped[dict] = mapped_column(JSON, default=dict)
+    matched_skills: Mapped[list] = mapped_column(JSON, default=list)
+    skill_gaps: Mapped[list] = mapped_column(JSON, default=list)
+    explanations: Mapped[list] = mapped_column(JSON, default=list)
+    semantic_mode: Mapped[str] = mapped_column(String(30), default="lexical_fallback")
+    recruiter_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recruiter_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    feedback_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    job: Mapped[Job] = relationship()
+    candidate: Mapped[Candidate] = relationship()
 
 
 class AuditLog(Base):

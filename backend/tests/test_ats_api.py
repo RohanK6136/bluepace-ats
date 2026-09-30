@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.main as api
-from app.database import Base, get_db, upgrade_phase1_columns
+from app.database import Base, get_db, upgrade_phase1_columns, upgrade_phase2_columns
 from app.models import Email
 from app.services.extractor import extractor_service
 
@@ -115,6 +115,108 @@ def test_job_crud_requires_auth_and_round_trips(client):
     assert updated.json()["status"] == "open"
     assert client.delete(f"/jobs/{job_id}", headers=headers).status_code == 204
     assert client.get(f"/jobs/{job_id}", headers=headers).status_code == 404
+
+
+def test_job_analysis_returns_structured_requirements(client, monkeypatch):
+    from app.services.matching import matching_service
+
+    monkeypatch.setattr(matching_service, "llm_client", None)
+    monkeypatch.setattr(matching_service, "embedding_client", None)
+    headers = register_and_login(client)
+    job = client.post(
+        "/jobs",
+        json={
+            "title": "Senior Python Engineer",
+            "description": "We need a senior Python engineer in Seattle with PostgreSQL experience and a bachelor's degree.",
+            "status": "open",
+        },
+        headers=headers,
+    ).json()
+
+    response = client.post(f"/jobs/{job['id']}/analyze", headers=headers)
+
+    assert response.status_code == 200
+    analysis = response.json()["jd_analysis"]
+    assert "Python" in analysis["required_skills"]
+    assert analysis["seniority"] == "senior"
+    assert analysis["location"] == "Seattle"
+    assert analysis["education"]
+
+
+def test_matching_explanations_and_recruiter_override(client, monkeypatch):
+    from app.services.matching import matching_service
+
+    monkeypatch.setattr(matching_service, "llm_client", None)
+    monkeypatch.setattr(matching_service, "embedding_client", None)
+    headers = register_and_login(client)
+    job = client.post(
+        "/jobs",
+        json={
+            "title": "Senior Python Engineer",
+            "description": "Required: Python and PostgreSQL. 5+ years experience. Bachelor's degree. Based in Seattle.",
+            "status": "open",
+        },
+        headers=headers,
+    ).json()
+    strong_candidate = client.post(
+        "/candidates",
+        json={
+            "first_name": "Jordan",
+            "last_name": "Strong",
+            "email": "jordan.strong@example.com",
+            "resume_data": {
+                "skills": ["Python", "PostgreSQL", "Docker"],
+                "location": "Seattle",
+                "experience": [{"title": "Backend Engineer", "company": "Acme", "duration": "6 years"}],
+                "education": [{"degree": "Bachelor's degree in Computer Science", "university": "State University"}],
+            },
+        },
+        headers=headers,
+    ).json()
+    weak_candidate = client.post(
+        "/candidates",
+        json={
+            "first_name": "Taylor",
+            "last_name": "Weak",
+            "email": "taylor.weak@example.com",
+            "resume_data": {"skills": ["JavaScript"], "location": "Portland", "experience": [], "education": []},
+        },
+        headers=headers,
+    ).json()
+
+    analyzed = client.post(f"/jobs/{job['id']}/analyze", headers=headers)
+    assert analyzed.status_code == 200
+    ranked = client.post(f"/jobs/{job['id']}/matches", headers=headers)
+    assert ranked.status_code == 200
+    matches = ranked.json()
+    assert [match["candidate_id"] for match in matches] == [strong_candidate["id"], weak_candidate["id"]]
+    assert matches[0]["model_score"] > matches[1]["model_score"]
+    assert matches[0]["score_breakdown"].keys() == {"skills", "semantic", "experience", "education", "location"}
+    assert matches[0]["semantic_mode"] == "lexical_fallback"
+    assert {"Python", "PostgreSQL"}.issubset(matches[0]["matched_skills"])
+    assert len(matches[0]["cv_summary"]) in {3, 4, 5}
+    assert any("Required skills matched" in explanation for explanation in matches[0]["explanations"])
+
+    original_score = matches[0]["model_score"]
+    feedback = client.patch(
+        f"/candidate-matches/{matches[0]['id']}/feedback",
+        json={"recruiter_override": 42, "recruiter_note": "Recruiter reviewed portfolio"},
+        headers=headers,
+    )
+    assert feedback.status_code == 200
+    assert feedback.json()["model_score"] == original_score
+    assert feedback.json()["effective_score"] == 42
+    assert feedback.json()["recruiter_note"] == "Recruiter reviewed portfolio"
+    persisted = client.get(f"/jobs/{job['id']}/matches", headers=headers).json()
+    assert next(match for match in persisted if match["id"] == matches[0]["id"])["effective_score"] == 42
+
+    other_org_headers = register_and_login(client, "other@example.com", "Other Org")
+    assert client.get(f"/jobs/{job['id']}/matches", headers=other_org_headers).status_code == 404
+    assert client.patch(
+        f"/candidate-matches/{matches[0]['id']}/feedback",
+        json={"recruiter_override": 90},
+        headers=other_org_headers,
+    ).status_code == 404
 
 
 def test_candidate_crud_is_organization_scoped(client):
@@ -349,6 +451,48 @@ def test_phase1_schema_upgrade_adds_columns_to_phase0_database():
     assert application_columns["updated_at"]["nullable"] is True
     assert "error_message" in {column["name"] for column in inspect(engine).get_columns("emails")}
     engine.dispose()
+
+
+def test_phase2_schema_upgrade_adds_jd_and_summary_columns():
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE jobs (id INTEGER PRIMARY KEY)"))
+        connection.execute(text("CREATE TABLE candidates (id INTEGER PRIMARY KEY)"))
+
+    upgrade_phase2_columns(engine)
+
+    job_columns = {column["name"] for column in inspect(engine).get_columns("jobs")}
+    candidate_columns = {column["name"] for column in inspect(engine).get_columns("candidates")}
+    assert {"jd_analysis", "embedding"}.issubset(job_columns)
+    assert "cv_summary" in candidate_columns
+    engine.dispose()
+
+
+def test_embedding_cosine_similarity_drives_semantic_component():
+    from types import SimpleNamespace
+
+    from app.services.matching import CandidateMatcher
+
+    matcher = CandidateMatcher()
+    job = SimpleNamespace(
+        title="Python Engineer",
+        description="Build APIs",
+        location=None,
+        jd_analysis={"required_skills": ["Python"], "preferred_skills": [], "seniority": "unspecified"},
+        embedding=[1.0, 0.0],
+    )
+    candidate = SimpleNamespace(
+        first_name="Alex",
+        last_name="Vector",
+        resume_data={"skills": ["Python"], "experience": [], "education": []},
+        embedding=[1.0, 0.0],
+        cv_summary=["A", "B", "C"],
+    )
+
+    result = matcher.score_candidate(job, candidate)
+
+    assert result["semantic_mode"] == "embedding"
+    assert result["score_breakdown"]["semantic"] == 100
 
 
 def test_candidate_resume_upload_persists_structured_profile(client, monkeypatch, tmp_path):

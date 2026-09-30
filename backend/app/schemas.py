@@ -66,6 +66,7 @@ class JobRead(BaseModel):
     location: Optional[str]
     employment_type: Optional[str]
     status: str
+    jd_analysis: Optional[dict]
     created_at: datetime
     updated_at: datetime
 
@@ -106,6 +107,7 @@ class CandidateRead(BaseModel):
     source: Optional[str]
     resume_storage_key: Optional[str]
     resume_data: Optional[dict]
+    cv_summary: Optional[list[str]]
     created_at: datetime
     updated_at: datetime
 
@@ -144,6 +146,29 @@ class ApplicationStageUpdate(BaseModel):
 class BulkApplicationUpdate(BaseModel):
     application_ids: list[int] = Field(min_length=1, max_length=100)
     stage_name: str = Field(pattern="^(Applied|Screening|Interview|Offer|Hired|Rejected)$")
+
+
+class MatchFeedbackUpdate(BaseModel):
+    recruiter_override: Optional[int] = Field(default=None, ge=0, le=100)
+    recruiter_note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class CandidateMatchRead(BaseModel):
+    id: int
+    job_id: int
+    candidate_id: int
+    candidate_name: str
+    candidate_email: EmailStr
+    model_score: int
+    effective_score: int
+    recruiter_override: Optional[int]
+    recruiter_note: Optional[str]
+    score_breakdown: dict
+    matched_skills: list[str]
+    skill_gaps: list[str]
+    explanations: list[str]
+    semantic_mode: str
+    cv_summary: list[str]
 
 class Experience(BaseModel):
     company: Optional[str] = None

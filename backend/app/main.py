@@ -19,18 +19,31 @@ from sqlalchemy.orm import Session, selectinload
 
 from celery_app import celery_app
 from app.database import get_db, initialize_database
-from app.models import Application, AuditLog, Candidate, Email, Job, Organization, Role, Stage, User
+from app.models import (
+    Application,
+    AuditLog,
+    Candidate,
+    CandidateJobMatch,
+    Email,
+    Job,
+    Organization,
+    Role,
+    Stage,
+    User,
+)
 from app.schemas import (
     ApplicationCreate,
     ApplicationRead,
     ApplicationStageUpdate,
     BulkApplicationUpdate,
+    CandidateMatchRead,
     CandidateCreate,
     CandidateRead,
     CandidateUpdate,
     JobCreate,
     JobRead,
     JobUpdate,
+    MatchFeedbackUpdate,
     OrganizationRegistration,
     TokenRead,
     UserCreate,
@@ -40,6 +53,7 @@ from app.security import create_access_token, get_current_user, password_hash, r
 from app.services.extractor import extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
+from app.services.matching import matching_service
 from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
@@ -169,6 +183,26 @@ def _application_query(
 def _safe_csv_value(value):
     text = "" if value is None else str(value)
     return f"'{text}" if text.startswith(("=", "+", "-", "@", "\t", "\r")) else text
+
+
+def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
+    return {
+        "id": match.id,
+        "job_id": match.job_id,
+        "candidate_id": match.candidate_id,
+        "candidate_name": f"{match.candidate.first_name} {match.candidate.last_name}".strip(),
+        "candidate_email": match.candidate.email,
+        "model_score": match.model_score,
+        "effective_score": match.recruiter_override if match.recruiter_override is not None else match.model_score,
+        "recruiter_override": match.recruiter_override,
+        "recruiter_note": match.recruiter_note,
+        "score_breakdown": match.score_breakdown or {},
+        "matched_skills": match.matched_skills or [],
+        "skill_gaps": match.skill_gaps or [],
+        "explanations": match.explanations or [],
+        "semantic_mode": match.semantic_mode,
+        "cv_summary": match.candidate.cv_summary or [],
+    }
 
 
 @app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -321,6 +355,186 @@ def archive_job(
     db.commit()
     db.refresh(job)
     return job
+
+
+@app.post("/jobs/{job_id}/analyze")
+def analyze_job_description(
+    job_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = _get_org_record(db, Job, job_id, user.organization_id)
+    analysis = matching_service.parse_job_description(job.title, job.description, job.location)
+    job.jd_analysis = analysis
+    vector = matching_service.embed_texts([matching_service.job_embedding_text(job)])[0]
+    if vector is not None:
+        job.embedding = vector
+    record_audit(
+        db,
+        user,
+        "job.jd_analyzed",
+        "job",
+        job.id,
+        after={"jd_analysis": analysis, "embedding_ready": job.embedding is not None},
+    )
+    db.commit()
+    return {"job_id": job.id, "jd_analysis": analysis, "embedding_ready": job.embedding is not None}
+
+
+@app.post("/jobs/{job_id}/matches", response_model=list[CandidateMatchRead])
+def rank_job_candidates(
+    job_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = _get_org_record(db, Job, job_id, user.organization_id)
+    if not job.jd_analysis:
+        job.jd_analysis = matching_service.parse_job_description(job.title, job.description, job.location)
+    if job.embedding is None:
+        vector = matching_service.embed_texts([matching_service.job_embedding_text(job)])[0]
+        if vector is not None:
+            job.embedding = vector
+
+    candidates = list(
+        db.scalars(
+            select(Candidate)
+            .where(Candidate.organization_id == user.organization_id)
+            .order_by(Candidate.created_at.desc())
+            .limit(200)
+        ).all()
+    )
+    missing_embeddings = [candidate for candidate in candidates if candidate.embedding is None]
+    new_vectors = matching_service.embed_texts(
+        [matching_service.candidate_embedding_text(candidate) for candidate in missing_embeddings]
+    )
+    for candidate, vector in zip(missing_embeddings, new_vectors):
+        if vector is not None:
+            candidate.embedding = vector
+    matching_service.summarize_candidates(candidates)
+    db.flush()
+
+    if job.embedding is not None and db.get_bind().dialect.name == "postgresql":
+        original_candidates = candidates
+        vector_candidates = list(
+            db.scalars(
+                select(Candidate)
+                .where(
+                    Candidate.organization_id == user.organization_id,
+                    Candidate.embedding.is_not(None),
+                )
+                .order_by(Candidate.embedding.cosine_distance(job.embedding))
+                .limit(200)
+            ).all()
+        )
+        vector_candidate_ids = {candidate.id for candidate in vector_candidates}
+        candidates = vector_candidates + [
+            candidate for candidate in original_candidates if candidate.id not in vector_candidate_ids
+        ]
+
+    matching_service.summarize_candidates(candidates)
+    results = []
+    for candidate in candidates:
+        score = matching_service.score_candidate(job, candidate)
+        match = db.scalar(
+            select(CandidateJobMatch).where(
+                CandidateJobMatch.organization_id == user.organization_id,
+                CandidateJobMatch.job_id == job.id,
+                CandidateJobMatch.candidate_id == candidate.id,
+            )
+        )
+        if match is None:
+            match = CandidateJobMatch(
+                organization_id=user.organization_id,
+                job_id=job.id,
+                candidate_id=candidate.id,
+            )
+            db.add(match)
+        match.model_score = score["model_score"]
+        match.score_breakdown = score["score_breakdown"]
+        match.matched_skills = score["matched_skills"]
+        match.skill_gaps = score["skill_gaps"]
+        match.explanations = score["explanations"]
+        match.semantic_mode = score["semantic_mode"]
+        results.append(match)
+
+    db.flush()
+    record_audit(
+        db,
+        user,
+        "job.candidates_ranked",
+        "job",
+        job.id,
+        after={"candidate_count": len(results), "embedding_ready": job.embedding is not None},
+    )
+    db.commit()
+    for match in results:
+        db.refresh(match)
+    results.sort(
+        key=lambda match: match.recruiter_override if match.recruiter_override is not None else match.model_score,
+        reverse=True,
+    )
+    return [_serialize_candidate_match(match) for match in results]
+
+
+@app.get("/jobs/{job_id}/matches", response_model=list[CandidateMatchRead])
+def list_job_matches(
+    job_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    _get_org_record(db, Job, job_id, user.organization_id)
+    matches = db.scalars(
+        select(CandidateJobMatch)
+        .where(
+            CandidateJobMatch.organization_id == user.organization_id,
+            CandidateJobMatch.job_id == job_id,
+        )
+        .options(selectinload(CandidateJobMatch.candidate))
+    ).all()
+    results = list(matches)
+    results.sort(
+        key=lambda match: match.recruiter_override if match.recruiter_override is not None else match.model_score,
+        reverse=True,
+    )
+    return [_serialize_candidate_match(match) for match in results]
+
+
+@app.patch("/candidate-matches/{match_id}/feedback", response_model=CandidateMatchRead)
+def update_candidate_match_feedback(
+    match_id: int,
+    request: MatchFeedbackUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    match = db.scalar(
+        select(CandidateJobMatch)
+        .where(
+            CandidateJobMatch.id == match_id,
+            CandidateJobMatch.organization_id == user.organization_id,
+        )
+        .options(selectinload(CandidateJobMatch.candidate))
+    )
+    if match is None:
+        raise HTTPException(status_code=404, detail="Match not found")
+    before = {"recruiter_override": match.recruiter_override, "recruiter_note": match.recruiter_note}
+    updates = request.model_dump(exclude_unset=True)
+    if "recruiter_override" in updates:
+        match.recruiter_override = updates["recruiter_override"]
+        match.feedback_by_id = user.id if updates["recruiter_override"] is not None else None
+    if "recruiter_note" in updates:
+        match.recruiter_note = updates["recruiter_note"]
+    record_audit(
+        db,
+        user,
+        "candidate_match.feedback_updated",
+        "candidate_job_match",
+        match.id,
+        before=before,
+        after={"recruiter_override": match.recruiter_override, "recruiter_note": match.recruiter_note},
+    )
+    db.commit()
+    db.refresh(match)
+    return _serialize_candidate_match(match)
 
 
 @app.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)

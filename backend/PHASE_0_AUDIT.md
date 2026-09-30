@@ -58,3 +58,11 @@ Before production use, add versioned Alembic migrations, invitation/email verifi
 - The hybrid parser uses OpenRouter when `OPENROUTER_API_KEY` is configured and falls back to local regex/section parsing. The 90% accuracy target has not been measured; it needs a labeled resume set and human-reviewed evaluation before being treated as achieved.
 - Resume uploads currently go to the private local `RESUME_STORAGE_DIR` (default `backend/private_uploads`) and parsed structured JSON is stored on the candidate. Use durable private object storage before relying on deployed uploads.
 - Application notifications are queued in the email table and sent through SMTP when configured (`SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, and optionally `SMTP_USER`/`SMTP_PASSWORD`). Delivery failures are retained in the outbox.
+
+## Phase 2 Notes
+
+- Job-description analysis extracts required/preferred skills, seniority, location, education, and minimum experience. OpenRouter is used for structured extraction when configured; deterministic parsing remains the fallback.
+- Candidate and job embeddings use `text-embedding-3-small` (1536 dimensions) when `OPENAI_API_KEY` is configured. PostgreSQL ranks through pgvector cosine distance; local SQLite uses an explicitly labeled text-overlap fallback.
+- Match scores use fixed, visible weights: skills 30%, semantic similarity 30%, experience 15%, education 10%, and location 15%. Responses expose component scores, matched skills, gaps, and explanation bullets.
+- CV summaries are 3-5 factual bullets. Recruiters can override the effective score and add a note without changing the stored model score; overrides and analysis actions are audited.
+- The embedding/summarization features require valid `OPENAI_API_KEY` and/or `OPENROUTER_API_KEY` secrets. Precision@10 and shortlist-time reduction remain unmeasured until a labeled relevance set and usage telemetry are available.

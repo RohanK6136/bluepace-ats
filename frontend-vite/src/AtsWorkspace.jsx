@@ -4,6 +4,7 @@ import ResumeLab from "./App.jsx";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
+const MATCH_WEIGHTS = { skills: 30, semantic: 30, experience: 15, education: 10, location: 15 };
 const buttonPrimary = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2 text-sm font-semibold text-[#10131c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const buttonSecondary = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
 const inputStyle = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
@@ -86,6 +87,11 @@ export default function AtsWorkspace() {
   const [applicationForm, setApplicationForm] = useState({ job_id: "", candidate_id: "" });
   const [selectedApplications, setSelectedApplications] = useState([]);
   const [bulkStage, setBulkStage] = useState("Screening");
+  const [matchJobId, setMatchJobId] = useState("");
+  const [matchAnalysis, setMatchAnalysis] = useState(null);
+  const [matches, setMatches] = useState([]);
+  const [matching, setMatching] = useState(false);
+  const [matchFeedback, setMatchFeedback] = useState({});
 
   const canWrite = user && ["admin", "recruiter"].includes(user.role);
 
@@ -104,6 +110,7 @@ export default function AtsWorkspace() {
         if (!active) return;
         setUser(userResponse.data);
         setJobs(jobsResponse.data);
+        setMatchJobId((current) => current || String(jobsResponse.data.find((job) => job.status === "open")?.id || jobsResponse.data[0]?.id || ""));
         setCandidates(candidateResponse.data);
         setApplications(applicationResponse.data);
         setError("");
@@ -296,6 +303,69 @@ export default function AtsWorkspace() {
     }
   }
 
+  async function selectMatchJob(jobId) {
+    setMatchJobId(jobId);
+    setMatchAnalysis(null);
+    setMatches([]);
+    setMatchFeedback({});
+    if (!jobId) return;
+    try {
+      const [jobResponse, matchResponse] = await Promise.all([
+        apiRequest(token, "get", `/jobs/${jobId}`),
+        apiRequest(token, "get", `/jobs/${jobId}/matches`),
+      ]);
+      setMatchAnalysis(jobResponse.data.jd_analysis);
+      setMatches(matchResponse.data);
+    } catch (requestError) {
+      setError(errorText(requestError));
+    }
+  }
+
+  async function analyzeAndRank() {
+    if (!matchJobId) return;
+    setMatching(true);
+    setError("");
+    try {
+      const analysis = await apiRequest(token, "post", `/jobs/${matchJobId}/analyze`);
+      setMatchAnalysis(analysis.data.jd_analysis);
+      const ranked = await apiRequest(token, "post", `/jobs/${matchJobId}/matches`);
+      setMatches(ranked.data);
+      setMatchFeedback({});
+      setNotice(`Ranked ${ranked.data.length} candidate profile(s)`);
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setMatching(false);
+    }
+  }
+
+  function changeMatchFeedback(matchId, field, value) {
+    setMatchFeedback((current) => ({
+      ...current,
+      [matchId]: { ...current[matchId], [field]: value },
+    }));
+  }
+
+  async function saveMatchFeedback(match) {
+    const form = matchFeedback[match.id] || {};
+    const overrideValue = form.recruiter_override ?? (match.recruiter_override === null ? "" : String(match.recruiter_override ?? ""));
+    try {
+      const response = await apiRequest(token, "patch", `/candidate-matches/${match.id}/feedback`, {
+        data: {
+          recruiter_override: overrideValue === "" ? null : Number(overrideValue),
+          recruiter_note: form.recruiter_note ?? match.recruiter_note ?? null,
+        },
+      });
+      setMatches((current) => current
+        .map((item) => item.id === match.id ? response.data : item)
+        .sort((left, right) => right.effective_score - left.effective_score));
+      setMatchFeedback((current) => ({ ...current, [match.id]: undefined }));
+      setNotice(response.data.recruiter_override === null ? "Recruiter override cleared" : "Recruiter score saved");
+    } catch (requestError) {
+      setError(errorText(requestError));
+    }
+  }
+
   function toggleApplication(id) {
     setSelectedApplications((current) => current.includes(id)
       ? current.filter((selectedId) => selectedId !== id)
@@ -345,6 +415,7 @@ export default function AtsWorkspace() {
     { id: "pipeline", label: "Applications", count: applications.length },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
+    { id: "matching", label: "AI Match" },
     { id: "resume", label: "Resume Lab" },
   ];
 
@@ -462,6 +533,64 @@ export default function AtsWorkspace() {
                 <div className="flex items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${job.status === "open" ? "bg-emerald-50 text-emerald-800" : job.status === "archived" ? "bg-ink-100 text-ink-500" : "bg-gold-50 text-ink-700"}`}>{job.status}</span>{canWrite && job.status !== "archived" && <button className="text-xs font-medium text-ink-500 underline underline-offset-2" onClick={() => archiveJob(job)}>Archive</button>}</div>
               </div>)}
               {!jobs.length && <EmptyState title="No jobs yet" detail="Create a job to begin building your pipeline." />}
+            </div>
+          </>}
+
+          {view === "matching" && <>
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-sm text-ink-500">Explainable ranking with recruiter review</p>
+                <h2 className="mt-1 text-xl font-semibold">Candidate matching</h2>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <SelectField label="Job" value={matchJobId} onChange={(event) => selectMatchJob(event.target.value)}>
+                  <option value="">Choose a job</option>
+                  {jobs.filter((job) => job.status !== "archived").map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
+                </SelectField>
+                {canWrite && <button className={buttonPrimary} disabled={!matchJobId || matching} onClick={analyzeAndRank}>
+                  {matching ? "Analyzing…" : "Analyze and rank"}
+                </button>}
+              </div>
+            </div>
+            {matchAnalysis && <section className="mb-5 border-y border-ink-100 bg-white px-4 py-4 sm:px-5">
+              <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Seniority</p><p className="mt-1 capitalize">{matchAnalysis.seniority || "Unspecified"}</p></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Location</p><p className="mt-1">{matchAnalysis.location || "Unspecified"}</p></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Minimum experience</p><p className="mt-1">{matchAnalysis.minimum_experience_years ? `${matchAnalysis.minimum_experience_years}+ years` : "Unspecified"}</p></div>
+                <div className="min-w-56 flex-1"><p className="text-[11px] font-semibold uppercase text-ink-500">Education</p><p className="mt-1">{matchAnalysis.education || "No degree requirement extracted"}</p></div>
+              </div>
+              <div className="mt-4 grid gap-3 border-t border-ink-50 pt-3 sm:grid-cols-2">
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Required skills</p><p className="mt-1 text-sm">{(matchAnalysis.required_skills || []).join(", ") || "None extracted"}</p></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Preferred skills</p><p className="mt-1 text-sm">{(matchAnalysis.preferred_skills || []).join(", ") || "None extracted"}</p></div>
+              </div>
+            </section>}
+            {matches.length > 0 && <div className="mb-3 flex items-center justify-between text-xs text-ink-500">
+              <span>{matches.length} ranked candidate profiles</span>
+              <span>{matches.some((match) => match.semantic_mode === "embedding") ? "Vector similarity active" : "Text-overlap fallback · configure OPENAI_API_KEY for vector embeddings"}</span>
+            </div>}
+            <div className="overflow-x-auto border-y border-ink-100 bg-white">
+              <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
+                <thead className="border-b border-ink-100 bg-[#fafaf8] text-[11px] uppercase text-ink-500">
+                  <tr><th className="px-3 py-3">Rank / candidate</th><th className="px-3 py-3">Fit</th><th className="px-3 py-3">Matched skills</th><th className="px-3 py-3">Skill gaps</th><th className="px-3 py-3">Why this candidate</th><th className="px-3 py-3">CV summary</th><th className="px-3 py-3">Recruiter review</th></tr>
+                </thead>
+                <tbody className="divide-y divide-ink-50">
+                  {matches.map((match, index) => {
+                    const feedback = matchFeedback[match.id] || {};
+                    const overrideValue = feedback.recruiter_override ?? (match.recruiter_override === null ? "" : String(match.recruiter_override ?? ""));
+                    const noteValue = feedback.recruiter_note ?? match.recruiter_note ?? "";
+                    return <tr key={match.id} className="align-top hover:bg-[#fcfcfa]">
+                      <td className="whitespace-nowrap px-3 py-4"><div className="flex items-start gap-2"><span className="mt-0.5 text-xs text-ink-400">{String(index + 1).padStart(2, "0")}</span><div><p className="font-semibold">{match.candidate_name}</p><p className="text-xs text-ink-500">{match.candidate_email}</p></div></div></td>
+                      <td className="min-w-32 px-3 py-4"><p className="text-lg font-semibold tabular-nums">{match.effective_score}<span className="text-xs font-normal text-ink-500"> / 100</span></p>{match.recruiter_override !== null && <p className="text-[11px] text-gold-600">Model: {match.model_score}</p>}<div className="mt-1 h-1.5 w-24 bg-ink-100"><div className="h-full bg-gold-500" style={{ width: `${match.effective_score}%` }} /></div><p className="mt-2 text-[10px] text-ink-500">{Object.entries(match.score_breakdown).map(([key, value]) => `${key} ${value}·${MATCH_WEIGHTS[key]}%`).join(" · ")}</p></td>
+                      <td className="max-w-48 px-3 py-4 text-xs text-emerald-800">{match.matched_skills.join(", ") || "No direct skill matches"}</td>
+                      <td className="max-w-48 px-3 py-4 text-xs text-rose-800">{match.skill_gaps.join(", ") || "No required skill gaps"}</td>
+                      <td className="max-w-64 px-3 py-4"><ul className="grid gap-1 text-xs text-ink-600">{match.explanations.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul></td>
+                      <td className="min-w-64 px-3 py-4"><ul className="grid gap-1 text-xs text-ink-600">{match.cv_summary.map((item, itemIndex) => <li key={itemIndex}>• {item}</li>)}</ul></td>
+                      <td className="min-w-56 px-3 py-4"><div className="grid gap-2"><label className="grid gap-1 text-[11px] font-medium text-ink-500">Override score<input className={`${inputStyle} py-1.5`} type="number" min="0" max="100" value={overrideValue} placeholder={String(match.model_score)} disabled={!canWrite} onChange={(event) => changeMatchFeedback(match.id, "recruiter_override", event.target.value)} /></label><label className="grid gap-1 text-[11px] font-medium text-ink-500">Review note<input className={`${inputStyle} py-1.5`} value={noteValue} placeholder="Optional rationale" disabled={!canWrite} onChange={(event) => changeMatchFeedback(match.id, "recruiter_note", event.target.value)} /></label>{canWrite && <button className={buttonSecondary} onClick={() => saveMatchFeedback(match)}>Save review</button>}</div></td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+              {!matches.length && <EmptyState title="No ranking yet" detail={matchJobId ? "Analyze this job to extract criteria and rank candidate profiles." : "Choose a job to analyze its candidate fit."} />}
             </div>
           </>}
 
