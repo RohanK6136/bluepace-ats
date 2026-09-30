@@ -136,7 +136,9 @@ export default function AtsWorkspace() {
   const [resumeFile, setResumeFile] = useState(null);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [applicationFormOpen, setApplicationFormOpen] = useState(false);
+  const [applicationEntryMode, setApplicationEntryMode] = useState("existing");
   const [applicationForm, setApplicationForm] = useState({ job_id: "", candidate_id: "" });
+  const [applicationResumeFile, setApplicationResumeFile] = useState(null);
   const [selectedApplications, setSelectedApplications] = useState([]);
   const [bulkStage, setBulkStage] = useState("Screening");
   const [matchJobId, setMatchJobId] = useState("");
@@ -390,12 +392,38 @@ export default function AtsWorkspace() {
 
   async function createApplication(event) {
     event.preventDefault();
+    setError("");
     try {
-      await apiRequest(token, "post", "/applications", {
-        data: { job_id: Number(applicationForm.job_id), candidate_id: Number(applicationForm.candidate_id) },
-      });
+      if (!applicationForm.job_id) {
+        setError("Choose an open job.");
+        return;
+      }
+
+      if (applicationEntryMode === "upload") {
+        if (!applicationResumeFile) {
+          setError("Select a PDF or DOCX resume.");
+          return;
+        }
+        const body = new FormData();
+        body.append("file", applicationResumeFile);
+        body.append("job_id", String(Number(applicationForm.job_id)));
+        await apiRequest(token, "post", "/candidates/from-resume", { data: body });
+        setNotice("Resume parsed, application added to Applied, and candidate matched to the selected job");
+      } else {
+        if (!applicationForm.candidate_id) {
+          setError("Choose a candidate.");
+          return;
+        }
+        await apiRequest(token, "post", "/applications", {
+          data: { job_id: Number(applicationForm.job_id), candidate_id: Number(applicationForm.candidate_id) },
+        });
+        setNotice("Application added to Applied and matched to the selected job");
+      }
+
       setApplicationFormOpen(false);
-      setNotice("Application added to Applied");
+      setApplicationEntryMode("existing");
+      setApplicationResumeFile(null);
+      setApplicationForm({ job_id: "", candidate_id: "" });
       await refreshWorkspace();
     } catch (requestError) {
       setError(errorText(requestError));
@@ -1036,16 +1064,31 @@ export default function AtsWorkspace() {
         </main>
       </div>
 
-      {applicationFormOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setApplicationFormOpen(false); }}>
+      {applicationFormOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setApplicationFormOpen(false); setApplicationResumeFile(null); } }}>
         <form onSubmit={createApplication} className="w-full max-w-lg bg-white p-5 shadow-xl">
-          <div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold">Add to pipeline</h2><button type="button" aria-label="Close dialog" onClick={() => setApplicationFormOpen(false)}>×</button></div>
-          <div className="grid gap-4">
-            <SelectField label="Open job" required value={applicationForm.job_id} onChange={(event) => setApplicationForm({ ...applicationForm, job_id: event.target.value })}><option value="">Choose a job</option>{jobs.filter((job) => job.status === "open").map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}</SelectField>
-            <SelectField label="Candidate" required value={applicationForm.candidate_id} onChange={(event) => setApplicationForm({ ...applicationForm, candidate_id: event.target.value })}><option value="">Choose a candidate</option>{candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.first_name} {candidate.last_name} · {candidate.email}</option>)}</SelectField>
+          <div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold">Add to pipeline</h2><button type="button" aria-label="Close dialog" onClick={() => { setApplicationFormOpen(false); setApplicationResumeFile(null); }}>×</button></div>
+          <div className="mb-5 flex gap-2 border-b border-ink-100 pb-3">
+            <button type="button" onClick={() => setApplicationEntryMode("existing")} className={applicationEntryMode === "existing" ? buttonPrimary : buttonSecondary}>Select candidate</button>
+            <button type="button" onClick={() => setApplicationEntryMode("upload")} className={applicationEntryMode === "upload" ? buttonPrimary : buttonSecondary}>Upload resume</button>
           </div>
-          <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => setApplicationFormOpen(false)}>Cancel</button><button type="submit" className={buttonPrimary}>Add application</button></div>
+          <div className="grid gap-4">
+            <SelectField label="Open job" required value={applicationForm.job_id} onChange={(event) => setApplicationForm({ ...applicationForm, job_id: event.target.value })}>
+              <option value="">Choose a job</option>
+              {jobs.filter((job) => job.status === "open").map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
+            </SelectField>
+            {applicationEntryMode === "existing" ? (
+              <SelectField label="Candidate" required value={applicationForm.candidate_id} onChange={(event) => setApplicationForm({ ...applicationForm, candidate_id: event.target.value })}>
+                <option value="">Choose a candidate</option>
+                {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.first_name} {candidate.last_name} · {candidate.email}</option>)}
+              </SelectField>
+            ) : (
+              <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
+                Resume (PDF or DOCX)
+                <input className={inputStyle + " p-2"} type="file" accept=".pdf,.docx" required onChange={(event) => setApplicationResumeFile(event.target.files?.[0] || null)} />
+                <span className="text-[11px] font-normal text-ink-400">{applicationResumeFile ? applicationResumeFile.name : "Upload the candidate resume. Details are extracted automatically and the application is matched to the selected job."}</span>
+              </label>
+            )}
+          </div>
+          <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => { setApplicationFormOpen(false); setApplicationResumeFile(null); }}>Cancel</button><button type="submit" className={buttonPrimary}>{applicationEntryMode === "upload" ? "Upload & add application" : "Add application"}</button></div>
         </form>
-      </div>}
-    </div>
-  );
-}
+      </div>
