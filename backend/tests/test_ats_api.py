@@ -59,6 +59,31 @@ def register_and_login(client, email="owner@example.com", organization="Acme Rec
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
+def test_loopback_vite_origin_is_allowed_by_cors(client):
+    response = client.options(
+        "/auth/register",
+        headers={
+            "Origin": "http://127.0.0.1:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
+
+
+def test_cors_keeps_configured_deployment_origins():
+    origins = api.get_allowed_origins("https://bluepace.example.com, https://preview.example.com")
+
+    assert origins == [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://bluepace.example.com",
+        "https://preview.example.com",
+    ]
+
+
 def test_job_crud_requires_auth_and_round_trips(client):
     assert client.get("/jobs").status_code == 401
     headers = register_and_login(client)
