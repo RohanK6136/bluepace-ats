@@ -1,0 +1,66 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1136 >>
+stream
+BT
+54 760 Td
+/F1 22 Tf (NOAH PATEL) Tj
+0 -34 Td
+/F1 13 Tf (Frontend Engineer) Tj
+0 -24 Td
+/F1 9 Tf (noah.patel@example.test) Tj
+0 -15 Td
+/F1 9 Tf (Austin, TX) Tj
+0 -15 Td
+/F1 11 Tf (PROFILE) Tj
+0 -22 Td
+/F1 9 Tf (Frontend engineer with 5 years delivering responsive web applications. Focused on performance, maintainable React architecture, and inclusive interfaces.) Tj
+0 -15 Td
+/F1 11 Tf (EXPERIENCE) Tj
+0 -22 Td
+/F1 9 Tf (Frontend Engineer | Cedar Cloud | 2021-Present) Tj
+0 -15 Td
+/F1 9 Tf (Built customer-facing React and TypeScript dashboards supporting 40,000 monthly users.) Tj
+0 -15 Td
+/F1 9 Tf (Reduced largest contentful paint by 34%; introduced component testing with Vitest.) Tj
+0 -15 Td
+/F1 9 Tf (Software Engineer | BrightCart | 2019-2021) Tj
+0 -15 Td
+/F1 9 Tf (Developed reusable checkout components and collaborated with product design on accessibility.) Tj
+0 -15 Td
+/F1 11 Tf (SKILLS) Tj
+0 -22 Td
+/F1 9 Tf (JavaScript, TypeScript, React, CSS, HTML, Vite, REST APIs, Jest, accessibility) Tj
+0 -15 Td
+/F1 11 Tf (EDUCATION) Tj
+0 -22 Td
+/F1 9 Tf (BS, Computer Science | University of Texas at Austin | 2019) Tj
+0 -15 Td
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1499
+%%EOF
