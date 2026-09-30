@@ -150,6 +150,9 @@ class ApplicationRead(BaseModel):
 
 class ApplicationStageUpdate(BaseModel):
     stage_name: str = Field(pattern="^(Applied|Screening|Interview|Offer|Hired|Rejected)$")
+    interview_starts_at: Optional[datetime] = None
+    interview_duration_minutes: int = Field(default=60, ge=15, le=480)
+    interview_meeting_url: Optional[str] = Field(default=None, max_length=1000)
 
 
 class BulkApplicationUpdate(BaseModel):
