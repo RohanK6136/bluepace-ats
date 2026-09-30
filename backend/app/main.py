@@ -505,6 +505,84 @@ def create_job(
     return job
 
 
+@app.post("/jobs/from-document", response_model=JobRead, status_code=status.HTTP_201_CREATED)
+async def create_job_from_document(
+    file: UploadFile = File(...),
+    title: str | None = Form(default=None),
+    department: str | None = Form(default=None),
+    location: str | None = Form(default=None),
+    employment_type: str | None = Form(default="Full-time"),
+    status_value: str = Form(default="open"),
+    minimum_experience_years: int | None = Form(default=None),
+    fresher_allowed: bool | None = Form(default=None),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    if status_value not in {"draft", "open", "paused", "closed"}:
+        raise HTTPException(status_code=400, detail="Invalid job status.")
+
+    suffix, content = await _read_resume_upload(file)
+    try:
+        parsed = extractor_service.extract_to_json(content, f"job{suffix}")
+    except DocumentExtractionError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    raw_text = str(parsed.get("raw_text") or "").strip()
+    if not raw_text:
+        raise HTTPException(status_code=422, detail="No readable job description text was found.")
+
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    inferred_title = next(
+        (
+            line[:200]
+            for line in lines
+            if len(line) <= 200 and line.casefold() not in {"job description", "job description:", "jd", "job profile"}
+        ),
+        Path(file.filename or "Job opening").stem.replace("_", " ").replace("-", " ").strip()[:200] or "Job opening",
+    )
+    effective_title = (title or inferred_title).strip()[:200]
+    analysis = matching_service.parse_job_description(effective_title, raw_text, location)
+    inferred_fresher = bool(
+        re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", raw_text, re.IGNORECASE)
+        or re.search(r"\b0\s*(?:years?|yrs?)\b", raw_text, re.IGNORECASE)
+    )
+
+    job = Job(
+        organization_id=user.organization_id,
+        created_by_id=user.id,
+        title=effective_title,
+        description=raw_text,
+        department=department.strip() if department else None,
+        location=(location.strip() if location else analysis.get("location")),
+        employment_type=employment_type.strip() if employment_type else None,
+        status=status_value,
+        required_skills=list(dict.fromkeys(analysis.get("required_skills", []))),
+        minimum_experience_years=(
+            minimum_experience_years
+            if minimum_experience_years is not None
+            else analysis.get("minimum_experience_years")
+        ),
+        fresher_allowed=inferred_fresher if fresher_allowed is None else bool(fresher_allowed),
+        jd_analysis=analysis,
+        embedding=None,
+    )
+    analysis["fresher_allowed"] = job.fresher_allowed
+    db.add(job)
+    db.flush()
+    ensure_job_stages(db, job)
+    record_audit(
+        db,
+        user,
+        "job.created_from_document",
+        "job",
+        job.id,
+        after={"title": job.title, "status": job.status, "source_file": file.filename},
+    )
+    db.commit()
+    db.refresh(job)
+    return job
+
+
 @app.get("/jobs", response_model=list[JobRead])
 def list_jobs(
     limit: int = Query(default=50, ge=1, le=100),
