@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import ResumeLab from "./App.jsx";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
+const API_URL = (
+  configuredApiUrl ||
+  (import.meta.env.PROD
+    ? "https://bluepace-ats-11.onrender.com"
+    : "http://localhost:8000")
+).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 90_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
