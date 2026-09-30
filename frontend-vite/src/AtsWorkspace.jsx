@@ -116,6 +116,8 @@ export default function AtsWorkspace() {
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({ search: "", skill: "", stage_name: "", source: "", applied_after: "", applied_before: "" });
   const [jobFormOpen, setJobFormOpen] = useState(false);
+  const [jobEntryMode, setJobEntryMode] = useState("manual");
+  const [jobDocumentFile, setJobDocumentFile] = useState(null);
   const [editingJob, setEditingJob] = useState(null);
   const [jobForm, setJobForm] = useState({
     title: "",
@@ -259,6 +261,8 @@ export default function AtsWorkspace() {
 
   function resetJobForm(job = null) {
     setEditingJob(job);
+    setJobEntryMode(job ? "manual" : "manual");
+    setJobDocumentFile(null);
     setJobForm(job ? {
       title: job.title,
       description: job.description,
@@ -283,23 +287,47 @@ export default function AtsWorkspace() {
     setJobFormOpen(true);
   }
 
+   setJobFormOpen(true);
+  }
+
   async function saveJob(event) {
     event.preventDefault();
     setError("");
-    const jobPayload = {
-      ...jobForm,
-      required_skills: [...new Set(jobForm.required_skills.split(/[;,\n]/).map((skill) => skill.trim()).filter(Boolean))],
-      minimum_experience_years: jobForm.minimum_experience_years === "" ? null : Number(jobForm.minimum_experience_years),
-    };
     try {
-      if (editingJob) {
-        await apiRequest(token, "patch", `/jobs/${editingJob.id}`, { data: jobPayload });
-        setNotice("Job updated");
+      if (!editingJob && jobEntryMode === "upload") {
+        if (!jobDocumentFile) {
+          setError("Select a PDF or DOCX job description.");
+          return;
+        }
+        const body = new FormData();
+        body.append("file", jobDocumentFile);
+        if (jobForm.title.trim()) body.append("title", jobForm.title.trim());
+        if (jobForm.department.trim()) body.append("department", jobForm.department.trim());
+        if (jobForm.location.trim()) body.append("location", jobForm.location.trim());
+        if (jobForm.employment_type.trim()) body.append("employment_type", jobForm.employment_type.trim());
+        body.append("status_value", jobForm.status);
+        if (jobForm.minimum_experience_years !== "") body.append("minimum_experience_years", String(Number(jobForm.minimum_experience_years)));
+        body.append("fresher_allowed", String(Boolean(jobForm.fresher_allowed)));
+        await apiRequest(token, "post", "/jobs/from-document", { data: body });
+        setNotice("Job document parsed, job created, and JD requirements extracted");
       } else {
-        await apiRequest(token, "post", "/jobs", { data: jobPayload });
-        setNotice("Job created");
+        const jobPayload = {
+          ...jobForm,
+          required_skills: [...new Set(jobForm.required_skills.split(/[;,
+]/).map((skill) => skill.trim()).filter(Boolean))],
+          minimum_experience_years: jobForm.minimum_experience_years === "" ? null : Number(jobForm.minimum_experience_years),
+        };
+        if (editingJob) {
+          await apiRequest(token, "patch", `/jobs/${editingJob.id}`, { data: jobPayload });
+          setNotice("Job updated");
+        } else {
+          await apiRequest(token, "post", "/jobs", { data: jobPayload });
+          setNotice("Job created");
+        }
       }
       setJobFormOpen(false);
+      setJobDocumentFile(null);
+      setJobEntryMode("manual");
       await refreshWorkspace();
     } catch (requestError) {
       setError(errorText(requestError));
@@ -826,22 +854,54 @@ export default function AtsWorkspace() {
 
           {view === "jobs" && <>
             {jobFormOpen && <form onSubmit={saveJob} className="mb-6 border-y border-ink-100 bg-white p-4 sm:p-5">
-              <div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">{editingJob ? "Edit job" : "New job"}</h2><button type="button" aria-label="Close form" onClick={() => setJobFormOpen(false)}>×</button></div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Job title" required value={jobForm.title} onChange={(event) => setJobForm({ ...jobForm, title: event.target.value })} />
-                <Field label="Department" value={jobForm.department} onChange={(event) => setJobForm({ ...jobForm, department: event.target.value })} />
-                <Field label="Location" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
-                <SelectField label="Employment type" value={jobForm.employment_type} onChange={(event) => setJobForm({ ...jobForm, employment_type: event.target.value })}>{["Full-time", "Part-time", "Contract", "Temporary", "Internship"].map((type) => <option key={type}>{type}</option>)}</SelectField>
-                <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
-                <Field label="Required skills" placeholder="Python, PostgreSQL, AWS" value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
-                <Field label="Minimum experience (years)" type="number" min="0" max="60" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
-                <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700">
-                  <input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />
-                  Open to freshers
-                </label>
-                <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Description<textarea className={`${inputStyle} min-h-28 resize-y`} required value={jobForm.description} onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })} /></label>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="font-semibold">{editingJob ? "Edit job" : "New job"}</h2>
+                <button type="button" aria-label="Close form" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); }}>×</button>
               </div>
-              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => setJobFormOpen(false)}>Cancel</button></div>
+              {!editingJob && <div className="mb-5 flex gap-2 border-b border-ink-100 pb-3">
+                <button type="button" onClick={() => setJobEntryMode("manual")} className={jobEntryMode === "manual" ? buttonPrimary : buttonSecondary}>Manual entry</button>
+                <button type="button" onClick={() => setJobEntryMode("upload")} className={jobEntryMode === "upload" ? buttonPrimary : buttonSecondary}>Upload JD</button>
+              </div>}
+              {jobEntryMode === "upload" && !editingJob ? (
+                <div className="grid gap-4">
+                  <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4 text-sm text-ink-700">
+                    Upload the job description as PDF or DOCX. BluePace will extract the text, required skills, experience, location and education requirements automatically, then use the same matching engine for applicants.
+                  </div>
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
+                    Job description document
+                    <input className={`${inputStyle} p-2`} type="file" accept=".pdf,.docx" required onChange={(event) => setJobDocumentFile(event.target.files?.[0] || null)} />
+                    <span className="text-[11px] font-normal text-ink-400">{jobDocumentFile ? jobDocumentFile.name : "PDF or DOCX, up to 10MB."}</span>
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Field label="Job title override (optional)" placeholder="AI Infrastructure Engineer, pAGI" value={jobForm.title} onChange={(event) => setJobForm({ ...jobForm, title: event.target.value })} />
+                    <Field label="Department override (optional)" value={jobForm.department} onChange={(event) => setJobForm({ ...jobForm, department: event.target.value })} />
+                    <Field label="Location override (optional)" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
+                    <SelectField label="Employment type" value={jobForm.employment_type} onChange={(event) => setJobForm({ ...jobForm, employment_type: event.target.value })}>{["Full-time", "Part-time", "Contract", "Temporary", "Internship"].map((type) => <option key={type}>{type}</option>)}</SelectField>
+                    <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
+                    <Field label="Minimum experience override" type="number" min="0" max="60" placeholder="Auto-detect" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
+                  </div>
+                  <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700">
+                    <input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />
+                    Open to freshers (override)
+                  </label>
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Job title" required value={jobForm.title} onChange={(event) => setJobForm({ ...jobForm, title: event.target.value })} />
+                  <Field label="Department" value={jobForm.department} onChange={(event) => setJobForm({ ...jobForm, department: event.target.value })} />
+                  <Field label="Location" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
+                  <SelectField label="Employment type" value={jobForm.employment_type} onChange={(event) => setJobForm({ ...jobForm, employment_type: event.target.value })}>{["Full-time", "Part-time", "Contract", "Temporary", "Internship"].map((type) => <option key={type}>{type}</option>)}</SelectField>
+                  <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
+                  <Field label="Required skills" placeholder="Python, PostgreSQL, AWS" value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
+                  <Field label="Minimum experience (years)" type="number" min="0" max="60" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
+                  <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700">
+                    <input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />
+                    Open to freshers
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Description<textarea className={`${inputStyle} min-h-28 resize-y`} required value={jobForm.description} onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })} /></label>
+                </div>
+              )}
+              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Upload & create job" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); }}>Cancel</button></div>
             </form>}
             <div className="mb-5"><p className="text-sm text-ink-500">{jobs.length} total jobs</p><h2 className="mt-1 text-xl font-semibold">Job openings</h2></div>
             <div className="border-y border-ink-100 bg-white">
