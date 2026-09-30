@@ -9,6 +9,10 @@ from openai import OpenAI
 load_dotenv()
 
 
+class DocumentExtractionError(ValueError):
+    pass
+
+
 class DocumentExtractor:
     def __init__(self):
         self.common_skills = [
@@ -168,8 +172,21 @@ Resume text:
         except Exception:
             return None
 
+    @staticmethod
+    def _docx_container_text(container):
+        lines = []
+        for block in container.iter_inner_content():
+            if hasattr(block, "rows"):
+                for row in block.rows:
+                    cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if cells:
+                        lines.append(" | ".join(cells))
+            elif block.text.strip():
+                lines.append(block.text.strip())
+        return lines
+
     def extract_to_json(self, file_content: bytes, filename: str) -> dict:
-        raw_text = ""
+        text_parts = []
         try:
             if filename.lower().endswith(".pdf"):
                 from pypdf import PdfReader
@@ -177,17 +194,24 @@ Resume text:
                 for page in reader.pages:
                     page_text = page.extract_text()
                     if page_text:
-                        raw_text += page_text + "\n"
+                        text_parts.append(page_text)
             elif filename.lower().endswith(".docx"):
                 from docx import Document
                 doc = Document(io.BytesIO(file_content))
-                for para in doc.paragraphs:
-                    if para.text:
-                        raw_text += para.text + "\n"
+                text_parts.extend(self._docx_container_text(doc))
+                for section in doc.sections:
+                    text_parts.extend(self._docx_container_text(section.header))
+                    text_parts.extend(self._docx_container_text(section.footer))
             else:
                 raise ValueError("Unsupported resume format")
         except Exception as e:
-            raise Exception(f"Failed to extract text: {str(e)}")
+            raise DocumentExtractionError(f"Failed to extract text: {str(e)}") from e
+        raw_text = "\n".join(text_parts).strip()
+        if not raw_text:
+            raise DocumentExtractionError(
+                "No readable text was found. The document may be scanned or image-only; "
+                "upload a text-based PDF or DOCX file."
+            )
         parsed = self._fallback_parse(raw_text)
         llm_data = self._llm_parse(raw_text)
         if llm_data:

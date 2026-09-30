@@ -50,7 +50,7 @@ from app.schemas import (
     UserRead,
 )
 from app.security import create_access_token, get_current_user, password_hash, require_roles
-from app.services.extractor import extractor_service
+from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
@@ -74,6 +74,7 @@ app = FastAPI(title="BluePace Tech ATS API", version="0.3.0", lifespan=lifespan)
 
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
+MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024
 
 
 def get_allowed_origins(configured_origins: str | None = None) -> list[str]:
@@ -81,6 +82,19 @@ def get_allowed_origins(configured_origins: str | None = None) -> list[str]:
     origins = [*LOCAL_FRONTEND_ORIGINS, DEPLOYED_FRONTEND_ORIGIN]
     origins.extend(origin.strip() for origin in configured.split(",") if origin.strip())
     return list(dict.fromkeys(origins))
+
+
+async def _read_resume_upload(file: UploadFile) -> tuple[str, bytes]:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".pdf", ".docx"}:
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX resumes are supported.")
+
+    content = await file.read(MAX_RESUME_SIZE_BYTES + 1)
+    if len(content) > MAX_RESUME_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="Resume must be 10MB or smaller.")
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded resume is empty.")
+    return suffix, content
 
 
 allowed_origins = get_allowed_origins()
@@ -689,12 +703,7 @@ async def upload_candidate_resume(
     db: Session = Depends(get_db),
 ):
     candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".pdf", ".docx"}:
-        raise HTTPException(status_code=400, detail="Only PDF and DOCX resumes are supported")
-    content = await file.read(10 * 1024 * 1024 + 1)
-    if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Resume must be 10MB or smaller")
+    suffix, content = await _read_resume_upload(file)
 
     storage_key = f"{user.organization_id}/{candidate.id}/{os.urandom(16).hex()}{suffix}"
     storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
@@ -971,12 +980,14 @@ def list_audit_logs(
 
 @app.post("/extract/", response_class=JSONResponse)
 async def extract_document(file: UploadFile = File(...)):
-    if file.content_type not in ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
-        raise HTTPException(status_code=400, detail="Unsupported file type.")
     try:
-        content = await file.read()
-        structured_data = extractor_service.extract_to_json(content, file.filename)
+        suffix, content = await _read_resume_upload(file)
+        structured_data = extractor_service.extract_to_json(content, f"resume{suffix}")
         return {"filename": file.filename, "status": "success", "data": structured_data}
+    except HTTPException:
+        raise
+    except DocumentExtractionError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         print("\n" + "="*60)
         traceback.print_exc()
@@ -994,15 +1005,12 @@ async def validate_resume(request: ValidationRequest):
 
 @app.post("/extract/async/", response_class=JSONResponse)
 async def extract_document_async(file: UploadFile = File(...)):
-    if file.content_type not in ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
-        raise HTTPException(status_code=400, detail="Unsupported file type.")
-
-    content = await file.read()
+    suffix, content = await _read_resume_upload(file)
     payload = base64.b64encode(content).decode("utf-8")
     task = celery_app.send_task(
         "ats.extract_resume_task",
         kwargs={
-            "file_name": file.filename,
+            "file_name": f"resume{suffix}",
             "file_content_b64": payload,
             "content_type": file.content_type,
         },

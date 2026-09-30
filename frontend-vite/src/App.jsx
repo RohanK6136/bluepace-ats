@@ -41,6 +41,8 @@ export default function App() {
   const [validationResult, setValidationResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [validationError, setValidationError] = useState("");
 
   const [theme, setTheme] = useState("dark");
   useEffect(() => {
@@ -49,28 +51,65 @@ export default function App() {
   }, [theme]);
   const toggleTheme = () => setTheme(theme === "light" ? "dark" : "light");
 
+  const handleFileChange = (event) => {
+    const selectedFile = event.target.files?.[0] || null;
+    setJsonData(null);
+    setValidationResult(null);
+    setValidationError("");
+    if (!selectedFile) {
+      setFile(null);
+      setUploadError("");
+      return;
+    }
+    if (!/\.(pdf|docx)$/i.test(selectedFile.name)) {
+      setFile(null);
+      setUploadError("Choose a PDF or DOCX resume.");
+      event.target.value = "";
+      return;
+    }
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setFile(null);
+      setUploadError("Resume must be 10MB or smaller.");
+      event.target.value = "";
+      return;
+    }
+    setFile(selectedFile);
+    setUploadError("");
+  };
+
   const handleUpload = async () => {
-    if (!file) return alert("Please select a file first!");
+    if (!file) {
+      setUploadError("Choose a PDF or DOCX resume first.");
+      return;
+    }
     setLoading(true);
     setJsonData(null);
     setValidationResult(null);
+    setUploadError("");
     const formData = new FormData();
     formData.append("file", file);
     try {
       const response = await postToApi("/extract/", formData);
+      if (!response.data?.data || typeof response.data.data !== "object") {
+        throw new Error("The ATS API returned an invalid extraction response.");
+      }
       setJsonData(response.data.data);
     } catch (error) {
       console.error(error);
-      alert(`Failed to extract document: ${apiErrorMessage(error, "Please try again.")}`);
+      setUploadError(apiErrorMessage(error, "Please try again."));
     } finally {
       setLoading(false);
     }
   };
 
   const handleValidate = async () => {
-    if (!jsonData || !jobDescription) return alert("Please extract a resume and enter a JD first!");
+    if (!jsonData || !jobDescription) {
+      setValidationError("Extract a resume and enter a job description first.");
+      return;
+    }
     setValidating(true);
     setValidationResult(null);
+    setValidationError("");
     try {
       const response = await postToApi("/validate/", {
         resume_json: jsonData,
@@ -79,7 +118,7 @@ export default function App() {
       setValidationResult(response.data.validation);
     } catch (error) {
       console.error(error);
-      alert(`Failed to validate resume: ${apiErrorMessage(error, "Please try again.")}`);
+      setValidationError(apiErrorMessage(error, "Please try again."));
     } finally {
       setValidating(false);
     }
@@ -127,7 +166,7 @@ export default function App() {
             <h2 className="text-2xl font-bold mb-2">1. Upload Resume</h2>
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Upload a PDF or DOCX file to extract structured data.</p>
             <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-950/50 p-10">
-              <input type="file" accept=".pdf,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} className="hidden" id="file-upload" />
+              <input type="file" accept=".pdf,.docx" onChange={handleFileChange} className="hidden" id="file-upload" />
               <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
                 <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl flex items-center justify-center mb-5 border border-slate-200 dark:border-slate-700 shadow-sm">
                   <span className="text-3xl">📄</span>
@@ -140,6 +179,7 @@ export default function App() {
             <button onClick={handleUpload} disabled={loading || !file} className="mt-8 w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-6 py-4 rounded-xl font-semibold disabled:from-slate-300 disabled:to-slate-300 disabled:text-slate-500 dark:disabled:from-slate-800 dark:disabled:to-slate-800">
               {loading ? "Extracting..." : "Upload & Extract JSON"}
             </button>
+            {uploadError && <p role="alert" className="mt-3 text-sm text-rose-700 dark:text-rose-300">{uploadError}</p>}
           </section>
 
           <section className={`bg-white/90 dark:bg-slate-900/60 backdrop-blur-xl p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl flex flex-col relative overflow-hidden ${!jsonData ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
@@ -150,6 +190,7 @@ export default function App() {
             <button onClick={handleValidate} disabled={validating || !jobDescription || !jsonData} className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-6 py-4 rounded-xl font-semibold disabled:from-slate-300 disabled:to-slate-300 disabled:text-slate-500 dark:disabled:from-slate-800 dark:disabled:to-slate-800">
               {validating ? "Validating..." : "Validate Against Job Description"}
             </button>
+            {validationError && <p role="alert" className="mt-3 text-sm text-rose-700 dark:text-rose-300">{validationError}</p>}
           </section>
         </div>
 

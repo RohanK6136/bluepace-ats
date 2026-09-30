@@ -410,6 +410,50 @@ def test_resume_fallback_parses_contact_skills_experience_and_education(monkeypa
     assert parsed["education"][0]["university"] == "State University"
 
 
+def test_resume_lab_extracts_docx_tables_with_generic_mime(client, monkeypatch):
+    monkeypatch.setattr(extractor_service, "client", None, raising=False)
+    document = Document()
+    table = document.add_table(rows=3, cols=1)
+    table.cell(0, 0).text = "Jane Doe"
+    table.cell(1, 0).text = "jane@example.com"
+    table.cell(2, 0).text = "Skills: Python, React"
+    content = BytesIO()
+    document.save(content)
+
+    response = client.post(
+        "/extract/",
+        files={"file": ("jane.docx", content.getvalue(), "application/octet-stream")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["email"] == "jane@example.com"
+    assert {"Python", "React"}.issubset(response.json()["data"]["skills"])
+
+
+def test_resume_lab_rejects_oversized_files(client):
+    response = client.post(
+        "/extract/",
+        files={"file": ("large.pdf", b"x" * (10 * 1024 * 1024 + 1), "application/pdf")},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "Resume must be 10MB or smaller."
+
+
+def test_resume_lab_reports_empty_documents_as_unprocessable(client):
+    document = Document()
+    content = BytesIO()
+    document.save(content)
+
+    response = client.post(
+        "/extract/",
+        files={"file": ("empty.docx", content.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+
+    assert response.status_code == 422
+    assert "No readable text was found" in response.json()["detail"]
+
+
 def test_pipeline_filters_bulk_actions_csv_and_audit_logs(client):
     headers = register_and_login(client)
     job = client.post(
