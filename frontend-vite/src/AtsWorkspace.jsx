@@ -287,9 +287,6 @@ export default function AtsWorkspace() {
     setJobFormOpen(true);
   }
 
-   setJobFormOpen(true);
-  }
-
   async function saveJob(event) {
     event.preventDefault();
     setError("");
