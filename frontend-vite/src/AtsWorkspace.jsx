@@ -129,7 +129,7 @@ export default function AtsWorkspace() {
     fresher_allowed: false,
   });
   const [candidateFormOpen, setCandidateFormOpen] = useState(false);
-  const [candidateForm, setCandidateForm] = useState({ first_name: "", last_name: "", email: "", phone: "", source: "Direct" });
+  const [candidateForm, setCandidateForm] = useState({ first_name: "", last_name: "", email: "", phone: "", source: "Direct", job_id: "" });
   const [resumeFile, setResumeFile] = useState(null);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [applicationFormOpen, setApplicationFormOpen] = useState(false);
@@ -326,10 +326,19 @@ export default function AtsWorkspace() {
         body.append("file", resumeFile);
         await apiRequest(token, "post", `/candidates/${response.data.id}/resume`, { data: body });
       }
-      setCandidateForm({ first_name: "", last_name: "", email: "", phone: "", source: "Direct" });
+      if (candidateForm.job_id) {
+        await apiRequest(token, "post", "/applications", {
+          data: { job_id: Number(candidateForm.job_id), candidate_id: response.data.id },
+        });
+      }
+      setCandidateForm({ first_name: "", last_name: "", email: "", phone: "", source: "Direct", job_id: "" });
       setResumeFile(null);
       setCandidateFormOpen(false);
-      setNotice(resumeFile ? "Candidate added and resume parsed" : "Candidate added");
+      setNotice(
+        candidateForm.job_id
+          ? (resumeFile ? "Candidate added, resume parsed, and matched to the selected job" : "Candidate added and matched to the selected job")
+          : (resumeFile ? "Candidate added and resume parsed" : "Candidate added")
+      );
       await refreshWorkspace();
     } catch (requestError) {
       setError(errorText(requestError));
@@ -896,7 +905,14 @@ export default function AtsWorkspace() {
                 <Field label="Email" type="email" required value={candidateForm.email} onChange={(event) => setCandidateForm({ ...candidateForm, email: event.target.value })} />
                 <Field label="Phone" value={candidateForm.phone} onChange={(event) => setCandidateForm({ ...candidateForm, phone: event.target.value })} />
                 <Field label="Source" value={candidateForm.source} onChange={(event) => setCandidateForm({ ...candidateForm, source: event.target.value })} />
-                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Resume (PDF or DOCX)<input className={`${inputStyle} p-2`} type="file" accept=".pdf,.docx" onChange={(event) => setResumeFile(event.target.files?.[0] || null)} /></label>
+                <SelectField label="Match to job (optional)" value={candidateForm.job_id} onChange={(event) => setCandidateForm({ ...candidateForm, job_id: event.target.value })}>
+                  <option value="">Save profile only</option>
+                  {jobs.filter((job) => job.status === "open").map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
+                </SelectField>
+                <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2 lg:col-span-1">
+                  Resume (PDF or DOCX)
+                  <input className={`${inputStyle} p-2`} type="file" accept=".pdf,.docx" onChange={(event) => setResumeFile(event.target.files?.[0] || null)} />
+                </label>
               </div>
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">Add candidate</button><button className={buttonSecondary} type="button" onClick={() => setCandidateFormOpen(false)}>Cancel</button></div>
             </form>}
