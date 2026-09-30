@@ -88,19 +88,25 @@ MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024
 
 def _public_organization(db: Session) -> Organization:
     configured_id = os.getenv("PUBLIC_ORGANIZATION_ID", "").strip()
-    if not configured_id:
-        raise HTTPException(
-            status_code=503,
-            detail="Public applicant portal is not configured. Set PUBLIC_ORGANIZATION_ID.",
-        )
-    try:
-        organization_id = int(configured_id)
-    except ValueError:
-        raise HTTPException(status_code=503, detail="PUBLIC_ORGANIZATION_ID must be an integer")
-    organization = db.get(Organization, organization_id)
-    if organization is None:
-        raise HTTPException(status_code=503, detail="Configured public organization was not found")
-    return organization
+    if configured_id:
+        try:
+            organization_id = int(configured_id)
+        except ValueError:
+            raise HTTPException(status_code=503, detail="PUBLIC_ORGANIZATION_ID must be an integer")
+        organization = db.get(Organization, organization_id)
+        if organization is None:
+            raise HTTPException(status_code=503, detail="Configured public organization was not found")
+        return organization
+
+    organizations = db.scalars(select(Organization).order_by(Organization.id.asc()).limit(2)).all()
+    if len(organizations) == 1:
+        return organizations[0]
+    if not organizations:
+        raise HTTPException(status_code=503, detail="Create an organization before enabling the public portal")
+    raise HTTPException(
+        status_code=503,
+        detail="Multiple organizations exist. Set PUBLIC_ORGANIZATION_ID for the public portal.",
+    )
 
 
 def _split_candidate_name(name: str | None) -> tuple[str, str]:
