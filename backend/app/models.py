@@ -54,6 +54,7 @@ class Job(Base):
     department: Mapped[str | None] = mapped_column(String(200), nullable=True)
     location: Mapped[str | None] = mapped_column(String(200), nullable=True)
     employment_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    work_mode: Mapped[str] = mapped_column(String(20), default="onsite", server_default="onsite")
     status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
     required_skills: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     minimum_experience_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -179,6 +180,8 @@ class Interview(Base):
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     duration_minutes: Mapped[int] = mapped_column(Integer, default=60)
     status: Mapped[str] = mapped_column(String(30), default="scheduled")
+    mode: Mapped[str] = mapped_column(String(20), default="online", server_default="online")
+    location: Mapped[str | None] = mapped_column(String(500), nullable=True)
     meeting_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
 
