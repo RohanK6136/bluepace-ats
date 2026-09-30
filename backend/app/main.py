@@ -127,6 +127,15 @@ def _split_candidate_name(name: str | None) -> tuple[str, str]:
     return parts[0], parts[1] if len(parts) > 1 and parts[1] else "Candidate"
 
 
+def _infer_work_mode(text: str | None) -> str:
+    content = str(text or "")
+    if re.search(r"\b(remote|work from home|wfh|fully remote)\b", content, re.IGNORECASE):
+        return "remote"
+    if re.search(r"\b(hybrid|flexible work|hybrid work)\b", content, re.IGNORECASE):
+        return "hybrid"
+    return "onsite"
+
+
 def _public_admin_id(db: Session, organization_id: int) -> int:
     admin_id = db.scalar(
         select(User.id)
@@ -390,6 +399,7 @@ def _audit_job(job: Job) -> dict:
         "department": job.department,
         "location": job.location,
         "employment_type": job.employment_type,
+        "work_mode": job.work_mode,
         "status": job.status,
         "required_skills": job.required_skills,
         "minimum_experience_years": job.minimum_experience_years,
@@ -459,7 +469,7 @@ def _format_interview_datetime(value: datetime | None) -> str:
     return moment.strftime("%d %B %Y, %I:%M %p %z")
 
 
-def _stage_email(application: Application, stage_name: str, *, interview_starts_at: datetime | None = None, interview_duration_minutes: int = 60, interview_meeting_url: str | None = None) -> tuple[str, str]:
+def _stage_email(application: Application, stage_name: str, *, interview_starts_at: datetime | None = None, interview_duration_minutes: int = 60, interview_mode: str = "online", interview_location: str | None = None, interview_meeting_url: str | None = None) -> tuple[str, str]:
     candidate = application.candidate
     job_title = application.job.title
     first_name = candidate.first_name or "Candidate"
@@ -474,8 +484,14 @@ def _stage_email(application: Application, stage_name: str, *, interview_starts_
         if interview_starts_at is not None:
             body += f"Interview date and time: {_format_interview_datetime(interview_starts_at)}\n"
             body += f"Duration: {interview_duration_minutes} minutes\n"
-        if interview_meeting_url:
-            body += f"Meeting link: {interview_meeting_url}\n"
+        if interview_mode == "online":
+            body += "Interview mode: Online\n"
+            if interview_meeting_url:
+                body += f"Meeting link: {interview_meeting_url}\n"
+        else:
+            body += "Interview mode: Offline / On-site\n"
+            if interview_location:
+                body += f"Interview location: {interview_location}\n"
         body += (
             "\nPlease keep this time available and reply to this email if you need to discuss the schedule.\n\n"
             "Regards,\nBlupace Tech Talent Team"
@@ -565,6 +581,7 @@ def public_jobs(db: Session = Depends(get_db)):
             "department": job.department,
             "location": job.location,
             "employment_type": job.employment_type,
+            "work_mode": job.work_mode,
             "required_skills": job.required_skills or [],
             "minimum_experience_years": job.minimum_experience_years,
             "fresher_allowed": job.fresher_allowed,
@@ -787,6 +804,7 @@ async def create_job_from_url(
     department: str | None = Form(default=None),
     location: str | None = Form(default=None),
     employment_type: str | None = Form(default=None),
+    work_mode: str | None = Form(default=None),
     status_value: str = Form(default="open"),
     minimum_experience_years: int | None = Form(default=None),
     fresher_allowed: bool | None = Form(default=None),
@@ -805,6 +823,7 @@ async def create_job_from_url(
         department=department.strip() if department else None,
         location=(location.strip() if location else page.get("location")),
         employment_type=(employment_type.strip() if employment_type else page.get("employment_type")),
+        work_mode=work_mode if work_mode in {"remote", "hybrid", "onsite"} else _infer_work_mode(page["description"]),
         status=status_value if status_value in {"draft", "open", "paused", "closed"} else "open",
         required_skills=list(dict.fromkeys(analysis.get("required_skills", []))),
         minimum_experience_years=(
@@ -840,6 +859,7 @@ async def create_job_from_document(
     department: str | None = Form(default=None),
     location: str | None = Form(default=None),
     employment_type: str | None = Form(default="Full-time"),
+    work_mode: str | None = Form(default=None),
     status_value: str = Form(default="open"),
     minimum_experience_years: int | None = Form(default=None),
     fresher_allowed: bool | None = Form(default=None),
@@ -883,6 +903,7 @@ async def create_job_from_document(
         department=department.strip() if department else None,
         location=(location.strip() if location else analysis.get("location")),
         employment_type=employment_type.strip() if employment_type else None,
+        work_mode=work_mode if work_mode in {"remote", "hybrid", "onsite"} else _infer_work_mode(raw_text),
         status=status_value,
         required_skills=list(dict.fromkeys(analysis.get("required_skills", []))),
         minimum_experience_years=(
@@ -1235,6 +1256,7 @@ def delete_job(
 async def create_candidate_from_resume(
     file: UploadFile = File(...),
     job_id: int | None = Form(default=None),
+    background_tasks: BackgroundTasks = None,
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -1328,8 +1350,12 @@ async def create_candidate_from_resume(
                     semantic_mode=score["semantic_mode"],
                 )
             )
+            subject, body = _stage_email(application, "Applied")
+            email_id = queue_application_email(db, application, subject, body)
 
     db.commit()
+    if job_id is not None and "email_id" in locals() and background_tasks is not None:
+        background_tasks.add_task(deliver_outbox_email, email_id)
     db.refresh(candidate)
     return candidate
 
@@ -1561,12 +1587,8 @@ def create_application(
             "match_score": score["model_score"],
         },
     )
-    email_id = queue_application_email(
-        db,
-        application,
-        f"Application received: {job.title}",
-        f"Hello {candidate.first_name},\n\nYour application for {job.title} has been received.",
-    )
+    subject, body = _stage_email(application, "Applied")
+    email_id = queue_application_email(db, application, subject, body)
     db.commit()
     db.refresh(application)
     background_tasks.add_task(deliver_outbox_email, email_id)
@@ -1671,6 +1693,11 @@ def update_application_stage(
         if request.interview_starts_at.tzinfo is None:
             raise HTTPException(status_code=422, detail="Interview date and time must include a timezone.")
 
+        if request.interview_mode == "offline" and not request.interview_location:
+            raise HTTPException(status_code=422, detail="Interview location is required for an offline interview.")
+        if request.interview_mode == "online" and not request.interview_meeting_url:
+            raise HTTPException(status_code=422, detail="Meeting link is required for an online interview.")
+
         interview = db.scalar(
             select(Interview)
             .where(Interview.application_id == application.id)
@@ -1684,6 +1711,8 @@ def update_application_stage(
                 starts_at=request.interview_starts_at,
                 duration_minutes=request.interview_duration_minutes,
                 status="scheduled",
+                mode=request.interview_mode,
+                location=request.interview_location,
                 meeting_url=request.interview_meeting_url,
             )
             db.add(interview)
@@ -1692,6 +1721,8 @@ def update_application_stage(
             interview.starts_at = request.interview_starts_at
             interview.duration_minutes = request.interview_duration_minutes
             interview.status = "scheduled"
+            interview.mode = request.interview_mode
+            interview.location = request.interview_location
             interview.meeting_url = request.interview_meeting_url
 
     application.stage_id = stage.id
@@ -1707,6 +1738,8 @@ def update_application_stage(
             "stage_name": stage.name,
             "status": application.status,
             "interview_starts_at": request.interview_starts_at.isoformat() if request.interview_starts_at else None,
+            "interview_mode": request.interview_mode if stage.name == "Interview" else None,
+            "interview_location": request.interview_location if stage.name == "Interview" else None,
         },
     )
 
@@ -1715,6 +1748,8 @@ def update_application_stage(
         stage.name,
         interview_starts_at=request.interview_starts_at,
         interview_duration_minutes=request.interview_duration_minutes,
+        interview_mode=request.interview_mode,
+        interview_location=request.interview_location,
         interview_meeting_url=request.interview_meeting_url,
     )
     email_id = queue_application_email(db, application, subject, body)
@@ -1741,6 +1776,11 @@ def bulk_update_application_stage(
     )
     if len(applications) != len(set(request.application_ids)):
         raise HTTPException(status_code=404, detail="One or more applications were not found")
+    if request.stage_name == "Interview":
+        raise HTTPException(
+            status_code=422,
+            detail="Schedule interviews individually so each candidate receives the correct date, time, mode and location/link.",
+        )
 
     email_ids = []
     for application in applications:
@@ -1763,14 +1803,8 @@ def bulk_update_application_stage(
             before={"stage_name": previous_name, "status": previous_status},
             after={"stage_name": stage.name, "status": application.status},
         )
-        email_ids.append(
-            queue_application_email(
-                db,
-                application,
-                f"Application update: {application.job.title}",
-                f"Hello {application.candidate.first_name},\n\nYour application status is now {stage.name}.",
-            )
-        )
+        subject, body = _stage_email(application, stage.name)
+        email_ids.append(queue_application_email(db, application, subject, body))
     db.commit()
     for email_id in email_ids:
         background_tasks.add_task(deliver_outbox_email, email_id)
