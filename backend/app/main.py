@@ -59,11 +59,12 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="BluePace Tech ATS API", version="0.3.0", lifespan=lifespan)
 
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
 
 
 def get_allowed_origins(configured_origins: str | None = None) -> list[str]:
     configured = configured_origins if configured_origins is not None else os.getenv("ALLOWED_ORIGINS", "")
-    origins = [*LOCAL_FRONTEND_ORIGINS]
+    origins = [*LOCAL_FRONTEND_ORIGINS, DEPLOYED_FRONTEND_ORIGIN]
     origins.extend(origin.strip() for origin in configured.split(",") if origin.strip())
     return list(dict.fromkeys(origins))
 

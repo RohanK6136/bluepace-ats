@@ -73,12 +73,27 @@ def test_loopback_vite_origin_is_allowed_by_cors(client):
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
 
 
+def test_render_frontend_origin_is_allowed_by_cors(client):
+    response = client.options(
+        "/auth/register",
+        headers={
+            "Origin": "https://bluepace-ats-frontend.onrender.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://bluepace-ats-frontend.onrender.com"
+
+
 def test_cors_keeps_configured_deployment_origins():
     origins = api.get_allowed_origins("https://bluepace.example.com, https://preview.example.com")
 
     assert origins == [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://bluepace-ats-frontend.onrender.com",
         "https://bluepace.example.com",
         "https://preview.example.com",
     ]

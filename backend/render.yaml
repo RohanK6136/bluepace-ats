@@ -26,4 +26,4 @@ services:
       - key: SMTP_PASSWORD
         sync: false
       - key: ALLOWED_ORIGINS
-        sync: false
+        value: https://bluepace-ats-frontend.onrender.com
