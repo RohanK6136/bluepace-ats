@@ -1438,6 +1438,84 @@ def list_candidates(
 
 
 
+@app.get("/email-templates")
+def get_email_templates(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    organization = db.get(Organization, user.organization_id)
+    custom = organization.email_templates if organization and organization.email_templates else {}
+    labels = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected", "Interview Reminder 24h", "Interview Reminder 1h"]
+    merged = dict(DEFAULT_EMAIL_TEMPLATES)
+    merged["Interview Reminder 24h"] = REMINDER_EMAIL_TEMPLATES["24h"]
+    merged["Interview Reminder 1h"] = REMINDER_EMAIL_TEMPLATES["1h"]
+    return {
+        label: custom.get(label) or merged.get(label) or {}
+        for label in labels
+    }
+
+
+@app.patch("/email-templates")
+def update_email_templates(
+    request: EmailTemplateUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    organization = db.get(Organization, user.organization_id)
+    if organization is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    allowed = {"Applied", "Screening", "Interview", "Offer", "Hired", "Rejected", "Interview Reminder 24h", "Interview Reminder 1h"}
+    current = organization.email_templates if organization.email_templates else {}
+    merged = dict(current)
+    for name, template in request.templates.items():
+        if name in allowed:
+            merged[name] = {"subject": template.subject, "body": template.body}
+    organization.email_templates = merged
+    record_audit(db, user, "email.templates_updated", "organization", organization.id, after={"templates": sorted(request.templates.keys())})
+    db.commit()
+    return get_email_templates(user=user, db=db)
+
+
+@app.get("/public/application/{token}")
+def public_application_status(token: str, db: Session = Depends(get_db)):
+    try:
+        application_id = decode_candidate_portal_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="This candidate portal link is invalid or expired.")
+    application = db.scalar(
+        select(Application)
+        .where(Application.id == application_id)
+        .options(selectinload(Application.job), selectinload(Application.candidate), selectinload(Application.stage))
+    )
+    if application is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    interviews = db.scalars(
+        select(Interview)
+        .where(Interview.application_id == application.id)
+        .order_by(Interview.starts_at.desc())
+    ).all()
+    return {
+        "application_id": application.id,
+        "candidate_name": f"{application.candidate.first_name} {application.candidate.last_name}".strip(),
+        "job_title": application.job.title,
+        "stage_name": application.stage.name if application.stage else "Applied",
+        "status": application.status,
+        "applied_at": application.applied_at,
+        "interviews": [
+            {
+                "id": interview.id,
+                "starts_at": interview.starts_at,
+                "duration_minutes": interview.duration_minutes,
+                "mode": interview.mode,
+                "location": interview.location,
+                "meeting_url": interview.meeting_url,
+                "status": interview.status,
+            }
+            for interview in interviews
+        ],
+    }
+
+
 @app.get("/dashboard")
 def dashboard_summary(
     user: User = Depends(require_roles(*READ_ROLES)),
