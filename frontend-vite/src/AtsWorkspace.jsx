@@ -12,6 +12,7 @@ import InterviewPanel from "./InterviewPanel.jsx";
 import AutomationPanel from "./AutomationPanel.jsx";
 import CommandCenterPanel from "./CommandCenterPanel.jsx";
 import CandidateMergeCenter from "./CandidateMergeCenter.jsx";
+import InterviewManagement2 from "./InterviewManagement2.jsx";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -1058,6 +1059,7 @@ export default function AtsWorkspace() {
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
     { id: "merge-center", label: "Merge Center" },
+    { id: "interviews-2", label: "Interview Management" },
     { id: "matching", label: "AI Match" },
     { id: "emails", label: "Email Center" },
     { id: "templates", label: "Email Templates" },
@@ -1120,6 +1122,8 @@ export default function AtsWorkspace() {
             onNotice={setNotice}
             onError={(requestError) => setError(errorText(requestError))}
           />}
+
+          {view === "interviews-2" && <InterviewManagement2 token={token} apiRequest={apiRequest} applications={applications} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
           {view === "merge-center" && <CandidateMergeCenter token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 

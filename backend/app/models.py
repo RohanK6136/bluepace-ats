@@ -268,6 +268,7 @@ class Interview(Base):
     reminder_24_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     reminder_1h_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     round_name: Mapped[str] = mapped_column(String(100), default="Interview", server_default="Interview")
+    round_type: Mapped[str] = mapped_column(String(30), default="technical", server_default="technical")
     round_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     feedback_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancellation_reason: Mapped[str | None] = mapped_column(String(1000), nullable=True)
@@ -281,6 +282,19 @@ class InterviewParticipant(Base):
     interview_id: Mapped[int] = mapped_column(ForeignKey("interviews.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class InterviewAvailability(Base):
+    __tablename__ = "interview_availability"
+    __table_args__ = (UniqueConstraint("user_id", "starts_at", name="uq_interviewer_availability_slot"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(30), default="available")
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class TalentPool(Base):
