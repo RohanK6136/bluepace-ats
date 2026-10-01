@@ -4,6 +4,9 @@ import ResumeLab from "./App.jsx";
 import CandidatePortal from "./CandidatePortal.jsx";
 import EmailTemplatesPanel from "./EmailTemplatesPanel.jsx";
 import ScorecardPanel from "./ScorecardPanel.jsx";
+import TalentPoolsPanel from "./TalentPoolsPanel.jsx";
+import AnalyticsPanel from "./AnalyticsPanel.jsx";
+import ApplicationEnhancements from "./ApplicationEnhancements.jsx";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -954,6 +957,8 @@ export default function AtsWorkspace() {
     { id: "matching", label: "AI Match" },
     { id: "emails", label: "Email Center" },
     { id: "templates", label: "Email Templates" },
+    { id: "talent", label: "Talent Pools" },
+    { id: "analytics", label: "Analytics" },
     { id: "resume", label: "Resume Lab" },
   ];
 
@@ -1093,6 +1098,20 @@ export default function AtsWorkspace() {
               </div>
             </>}
           </>}
+
+          {view === "analytics" && <AnalyticsPanel
+            token={token}
+            apiRequest={apiRequest}
+            onError={(requestError) => setError(errorText(requestError))}
+          />}
+
+          {view === "talent" && <TalentPoolsPanel
+            token={token}
+            candidates={candidates}
+            apiRequest={apiRequest}
+            onNotice={setNotice}
+            onError={(requestError) => setError(errorText(requestError))}
+          />}
 
           {view === "templates" && <EmailTemplatesPanel
             token={token}
@@ -1445,6 +1464,14 @@ export default function AtsWorkspace() {
                   token={token}
                   applicationId={applications.find((item) => item.candidate_id === candidate.id && (fitJobId ? item.job_id === Number(fitJobId) : item.stage_name === "Interview"))?.id || applications.find((item) => item.candidate_id === candidate.id)?.id}
                   candidateName={candidate.first_name + " " + candidate.last_name}
+                  apiRequest={apiRequest}
+                  onNotice={setNotice}
+                  onError={(requestError) => setError(errorText(requestError))}
+                />
+                <ApplicationEnhancements
+                  token={token}
+                  applications={applications}
+                  candidateId={candidate.id}
                   apiRequest={apiRequest}
                   onNotice={setNotice}
                   onError={(requestError) => setError(errorText(requestError))}
