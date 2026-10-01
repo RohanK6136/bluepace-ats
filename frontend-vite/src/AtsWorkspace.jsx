@@ -138,7 +138,12 @@ export default function AtsWorkspace() {
   const [candidateActivity, setCandidateActivity] = useState(null);
   const [emails, setEmails] = useState([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
-  const [candidateFilters, setCandidateFilters] = useState({ search: "", skill: "", source: "", location: "", tags: "", stage_name: "", min_experience_years: "", max_experience_years: "" });
+  const [candidateFilters, setCandidateFilters] = useState({
+    search: "", skill: "", source: "", location: "", tags: "", stage_name: "",
+    min_experience_years: "", max_experience_years: "", notice_period: "", education: "",
+    job_history: "", availability: "", preferred_location: "", work_authorization: "",
+    has_applied_job_id: "",
+  });
   const [portalToken] = useState(() => new URLSearchParams(window.location.search).get("portal") || "");
   const [portalLink, setPortalLink] = useState("");
   const [portalLinkLoading, setPortalLinkLoading] = useState(false);
@@ -1358,23 +1363,38 @@ export default function AtsWorkspace() {
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">Add candidate</button><button className={buttonSecondary} type="button" onClick={() => setCandidateFormOpen(false)}>Cancel</button></div>
             </form>}
             <form onSubmit={searchCandidates} className="mb-5 rounded-xl border border-ink-100 bg-white p-4">
-              <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
-                <Field label="Search" placeholder="Python AND SQL NOT Java" value={candidateFilters.search} onChange={(event) => setCandidateFilters({ ...candidateFilters, search: event.target.value })} />
-                <Field label="Skill" placeholder="Python, React, SQL..." value={candidateFilters.skill} onChange={(event) => setCandidateFilters({ ...candidateFilters, skill: event.target.value })} />
-                <Field label="Tags" placeholder="Immediate, React" value={candidateFilters.tags} onChange={(event) => setCandidateFilters({ ...candidateFilters, tags: event.target.value })} />
+              <div className="flex items-start justify-between gap-3">
+                <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Advanced candidate search</p><p className="mt-1 text-sm text-ink-500">Combine structured filters with Boolean search across the candidate profile and resume.</p></div>
+                <span className="rounded-full bg-ink-50 px-2.5 py-1 text-[11px] font-semibold text-ink-600">Recruiter search</span>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <Field label="Boolean search" placeholder="Python AND SQL NOT Java" value={candidateFilters.search} onChange={(event) => setCandidateFilters({ ...candidateFilters, search: event.target.value })} />
+                <Field label="Skills (all required)" placeholder="Python, SQL, React" value={candidateFilters.skill} onChange={(event) => setCandidateFilters({ ...candidateFilters, skill: event.target.value })} />
                 <Field label="Location" placeholder="Hyderabad" value={candidateFilters.location} onChange={(event) => setCandidateFilters({ ...candidateFilters, location: event.target.value })} />
+                <Field label="Preferred location" placeholder="Bengaluru" value={candidateFilters.preferred_location} onChange={(event) => setCandidateFilters({ ...candidateFilters, preferred_location: event.target.value })} />
                 <Field label="Min experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.min_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, min_experience_years: event.target.value })} />
                 <Field label="Max experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.max_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, max_experience_years: event.target.value })} />
+                <Field label="Notice period" placeholder="30 days" value={candidateFilters.notice_period} onChange={(event) => setCandidateFilters({ ...candidateFilters, notice_period: event.target.value })} />
+                <Field label="Availability" placeholder="Immediate / 2026-10-15" value={candidateFilters.availability} onChange={(event) => setCandidateFilters({ ...candidateFilters, availability: event.target.value })} />
+                <Field label="Education" placeholder="B.Tech / Computer Science" value={candidateFilters.education} onChange={(event) => setCandidateFilters({ ...candidateFilters, education: event.target.value })} />
+                <Field label="Job history" placeholder="Infosys / Backend Engineer" value={candidateFilters.job_history} onChange={(event) => setCandidateFilters({ ...candidateFilters, job_history: event.target.value })} />
+                <Field label="Tags (all required)" placeholder="Immediate, React" value={candidateFilters.tags} onChange={(event) => setCandidateFilters({ ...candidateFilters, tags: event.target.value })} />
                 <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Stage<select className={inputStyle} value={candidateFilters.stage_name} onChange={(event) => setCandidateFilters({ ...candidateFilters, stage_name: event.target.value })}><option value="">Any stage</option>{["Applied","Screening","Interview","Offer","Hired","Rejected","withdrawn"].map((stage) => <option key={stage}>{stage}</option>)}</select></label>
+                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Source<select className={inputStyle} value={candidateFilters.source} onChange={(event) => setCandidateFilters({ ...candidateFilters, source: event.target.value })}><option value="">All sources</option>{[...new Set(candidates.map((candidate) => candidate.source).filter(Boolean))].map((source) => <option key={source}>{source}</option>)}</select></label>
+                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Has applied to job<select className={inputStyle} value={candidateFilters.has_applied_job_id} onChange={(event) => setCandidateFilters({ ...candidateFilters, has_applied_job_id: event.target.value })}><option value="">Any job</option>{jobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}</select></label>
+                <Field label="Work authorization" placeholder="Authorized / visa" value={candidateFilters.work_authorization} onChange={(event) => setCandidateFilters({ ...candidateFilters, work_authorization: event.target.value })} />
               </div>
-              <div className="mt-3 flex flex-wrap gap-2 items-end">
-                <label className="grid gap-1.5 text-xs font-semibold text-ink-700"><span>Source</span><select className={inputStyle + " min-w-44"} value={candidateFilters.source} onChange={(event) => setCandidateFilters({ ...candidateFilters, source: event.target.value })}><option value="">All sources</option>{[...new Set(candidates.map((candidate) => candidate.source).filter(Boolean))].map((source) => <option key={source}>{source}</option>)}</select></label>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button className={buttonPrimary} type="submit">Search candidates</button>
-                <button className={buttonSecondary} type="button" onClick={() => { const cleared = { search: "", skill: "", source: "", location: "", tags: "", stage_name: "", min_experience_years: "", max_experience_years: "" }; setCandidateFilters(cleared); apiRequest(token, "get", "/candidates", { params: { limit: 100 } }).then((response) => setCandidates(response.data)).catch((requestError) => setError(errorText(requestError))); }}>Clear</button>
-                <span className="text-[11px] text-ink-500">Search supports AND / OR / NOT.</span>
+                <button className={buttonSecondary} type="button" onClick={() => {
+                  const cleared = { search: "", skill: "", source: "", location: "", tags: "", stage_name: "", min_experience_years: "", max_experience_years: "", notice_period: "", education: "", job_history: "", availability: "", preferred_location: "", work_authorization: "", has_applied_job_id: "" };
+                  setCandidateFilters(cleared);
+                  apiRequest(token, "get", "/candidates", { params: { limit: 100 } }).then((response) => setCandidates(response.data)).catch((requestError) => setError(errorText(requestError)));
+                }}>Clear</button>
+                <span className="text-[11px] text-ink-500">Boolean: AND · OR · NOT · parentheses · quoted phrases</span>
               </div>
             </form>
-            <div className="mb-5"><p className="text-sm text-ink-500">{candidates.length} profiles</p><h2 className="mt-1 text-xl font-semibold">Candidate directory</h2></div>
+
             <div className="overflow-x-auto border-y border-ink-100 bg-white">
               <table className="w-full min-w-[650px] border-collapse text-left text-sm">
                 <thead className="border-b border-ink-100 bg-[#fafaf8] text-[11px] uppercase text-ink-500"><tr><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Source</th><th className="px-4 py-3">Skills</th><th className="px-4 py-3">Resume</th></tr></thead>
