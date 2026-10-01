@@ -129,7 +129,8 @@ def merge_candidates(request: CandidateMergeRequest, user=Depends(require_roles(
         merged.email = f"merged-{merged.id}-{survivor.id}@invalid.local"
     db.flush()
     summary = {"moved_applications": moved_apps, "collapsed_applications": collapsed_apps, "employment_items": len(combined.get("experience") or []), "project_items": len(combined.get("projects") or combined.get("university_projects") or []), "notes_merged": len(db.scalars(select(Note).where(Note.application_id.in_([a.id for a in survivor_apps]))).all()) if survivor_apps else 0}
-    audit = CandidateMergeAudit(organization_id=user.organization_id, actor_id=user.id, survivor_candidate_id=survivor.id, merged_candidate_id=merged.id, field_choices=request.field_choices, before_survivor=before_survivor, before_merged=before_merged, merge_summary=summary)
+    after_survivor = {field: deepcopy(getattr(survivor, field)) for field in allowed}
+    audit = CandidateMergeAudit(organization_id=user.organization_id, actor_id=user.id, survivor_candidate_id=survivor.id, merged_candidate_id=merged.id, field_choices=request.field_choices, before_survivor=before_survivor, before_merged=before_merged, after_survivor=after_survivor, merge_summary=summary)
     db.add(audit)
     db.commit()
     return {"success": True, "survivor_id": survivor.id, "merged_id": merged.id, "summary": summary, "audit_id": audit.id}
