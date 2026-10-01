@@ -36,7 +36,6 @@ from app.security import (
     require_roles,
 )
 from app.services.email_notifications import deliver_outbox_email
-from app.services.calendar import sync_interview_calendar
 from app.services.workflow import (
     PIPELINE_STAGES,
     queue_application_email,
@@ -495,7 +494,16 @@ def reschedule_interview(
         "Please use the secure candidate portal for the latest application details.\n\n"
         "Blupace Tech Recruiting"
     )
-    email_id = queue_application_email(db, application, subject, body)
+    calendar_bytes = _interview_ics(interview, application).encode("utf-8")
+    email_id = queue_application_email(
+        db,
+        application,
+        subject,
+        body,
+        attachment_filename=f"blupace-interview-{interview.id}.ics",
+        attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
+        attachment_content_type="text/calendar",
+    )
     record_audit(
         db,
         user,
@@ -515,7 +523,6 @@ def reschedule_interview(
     db.commit()
     db.refresh(interview)
     background_tasks.add_task(deliver_outbox_email, email_id)
-    background_tasks.add_task(sync_interview_calendar, interview.id, user.organization_id, user.id, "upsert")
     return {
         "id": interview.id,
         "application_id": application.id,
@@ -567,7 +574,6 @@ def cancel_interview(
     record_audit(db, user, "interview.cancelled", "interview", interview.id, after={"status": "cancelled", "reason": interview.cancellation_reason})
     db.commit()
     background_tasks.add_task(deliver_outbox_email, email_id)
-    background_tasks.add_task(sync_interview_calendar, interview.id, user.organization_id, user.id, "delete")
     return {"id": interview.id, "status": interview.status, "email_id": email_id}
 
 
@@ -1437,21 +1443,6 @@ def interviewer_dashboard(
             "scorecard_submitted": bool(submitted),
         })
     return {"user_id": user.id, "interviews": rows, "pending_scorecards": sum(1 for row in rows if not row["scorecard_submitted"] and row["status"] == "completed")}
-
-
-@router.get("/integrations/calendar/status")
-def calendar_integration_status(
-    user: User = Depends(require_roles(*READ_ROLES)),
-):
-    import os
-    google_ready = bool(os.getenv("GOOGLE_CALENDAR_CLIENT_ID") and os.getenv("GOOGLE_CALENDAR_CLIENT_SECRET"))
-    microsoft_ready = bool(os.getenv("MICROSOFT_CLIENT_ID") and os.getenv("MICROSOFT_CLIENT_SECRET"))
-    return {
-        "google": {"configured": google_ready, "mode": "oauth" if google_ready else "ics_fallback"},
-        "microsoft": {"configured": microsoft_ready, "mode": "oauth" if microsoft_ready else "ics_fallback"},
-        "ics_available": True,
-        "message": "OAuth sync becomes active after the provider client credentials are configured; ICS remains available as a universal calendar fallback.",
-    }
 
 
 @router.get("/applications/{application_id}/offer/letter", response_class=HTMLResponse)
