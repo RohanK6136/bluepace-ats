@@ -24,6 +24,7 @@ export default function RecruiterToolsPanel({
   const [assistantQuestion, setAssistantQuestion] = useState("Give me a factual summary of this application.");
   const [assistantResult, setAssistantResult] = useState(null);
   const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantError, setAssistantError] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
   const [recruitingUsers, setRecruitingUsers] = useState([]);
   const [collaboration, setCollaboration] = useState({ owner_id: "", starred: false, needs_review: false, priority: "normal" });
@@ -119,13 +120,22 @@ export default function RecruiterToolsPanel({
     event.preventDefault();
     if (!assistantApplicationId) return;
     setAssistantLoading(true);
+    setAssistantError("");
+    setAssistantResult(null);
     try {
       const response = await apiRequest(token, "post", "/candidate-tools/applications/" + assistantApplicationId + "/assistant", {
         data: { question: assistantQuestion.trim() || "Give me a factual summary of this application." },
       });
-      setAssistantResult(response.data);
-    } catch (error) { onError(error); }
-    finally { setAssistantLoading(false); }
+      setAssistantResult(response.data || null);
+      if (!response.data) setAssistantError("The assistant returned an empty response.");
+    } catch (error) {
+      setAssistantError(
+        error?.response?.data?.detail ||
+        error?.message ||
+        "The recruiter assistant could not complete this request."
+      );
+      onError(error);
+    } finally { setAssistantLoading(false); }
   }
 
   async function downloadReport() {
@@ -251,13 +261,75 @@ export default function RecruiterToolsPanel({
             <textarea className={input + " min-h-20"} value={assistantQuestion} onChange={(event) => setAssistantQuestion(event.target.value)} placeholder="Ask for skills, experience, projects, education, interviews or offer status." />
             <button className={primary} disabled={!assistantApplicationId || assistantLoading}>{assistantLoading ? "Reviewing…" : "Ask assistant"}</button>
           </form>
+          {assistantError && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              {assistantError}
+            </div>
+          )}
           {assistantResult && (
-            <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
-              <p className="text-sm font-semibold">{assistantResult.summary}</p>
-              <ul className="mt-3 grid gap-2 text-sm text-blue-950">
-                {(assistantResult.key_facts || []).map((fact, index) => <li key={index}>• {fact}</li>)}
-              </ul>
-              <p className="mt-3 text-[11px] text-blue-700">Evidence-only assistant. It does not make a hiring decision.</p>
+            <div className="mt-4 grid gap-4">
+              <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Assistant answer</p>
+                    <p className="mt-1 text-sm font-semibold text-blue-950">{assistantResult.summary || "No summary was returned."}</p>
+                  </div>
+                  {assistantResult.intent && <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-blue-700">{assistantResult.intent.replaceAll("_", " ")}</span>}
+                </div>
+                {assistantResult.answer && assistantResult.answer !== assistantResult.summary && (
+                  <div className="mt-3 rounded-md border border-blue-100 bg-white p-3 text-sm text-ink-900 whitespace-pre-wrap">
+                    {assistantResult.answer}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-ink-100 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Required skills</p>
+                  <p className="mt-2 text-sm font-semibold text-ink-900">Matched</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(assistantResult.matched_required_skills || []).map((skill) => (
+                      <span key={skill} className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">{skill}</span>
+                    ))}
+                    {!(assistantResult.matched_required_skills || []).length && <span className="text-xs text-ink-500">None explicitly matched.</span>}
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-ink-900">Not explicitly evidenced</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(assistantResult.missing_required_skills || []).map((skill) => (
+                      <span key={skill} className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">{skill}</span>
+                    ))}
+                    {!(assistantResult.missing_required_skills || []).length && <span className="text-xs text-ink-500">No required-skill gaps were identified from the parsed resume.</span>}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-ink-100 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Requirement explanation</p>
+                  <p className="mt-2 text-sm whitespace-pre-wrap text-ink-800">{assistantResult.requirement_explanation || "No requirement explanation was returned."}</p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-ink-100 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Interview questions</p>
+                <ol className="mt-2 grid gap-2 text-sm text-ink-800">
+                  {(assistantResult.interview_questions || []).map((question, index) => <li key={index}>{index + 1}. {question}</li>)}
+                </ol>
+                {!(assistantResult.interview_questions || []).length && <p className="mt-2 text-sm text-ink-500">No interview questions were returned.</p>}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-ink-100 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Screening email draft</p>
+                  <div className="mt-2 whitespace-pre-wrap rounded-md bg-[#fafaf8] p-3 text-sm text-ink-800">{assistantResult.screening_email || "No screening email draft was returned."}</div>
+                </div>
+                <div className="rounded-lg border border-ink-100 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Interview feedback</p>
+                  <p className="mt-2 text-sm whitespace-pre-wrap text-ink-800">{assistantResult.interview_feedback_summary || "No interview feedback is available."}</p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-[11px] text-blue-800">
+                Evidence is limited to the stored JD, parsed resume, and submitted scorecards. "Not explicitly evidenced" does not prove the candidate lacks a skill. The assistant does not make a hiring decision or move candidates between stages.
+              </div>
             </div>
           )}
         </section>
