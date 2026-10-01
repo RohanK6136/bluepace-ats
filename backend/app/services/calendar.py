@@ -225,9 +225,18 @@ def save_oauth_connection(db: Session, user_id: int, organization_id: int, provi
     connection.scopes = token_data.get("scope") or (GOOGLE_SCOPES if provider == "google" else MICROSOFT_SCOPES)
     connection.is_active = True
     connection.last_error = None
-    if is_first:
+    has_default = db.scalar(
+        select(CalendarConnection.id).where(
+            CalendarConnection.user_id == user_id,
+            CalendarConnection.organization_id == organization_id,
+            CalendarConnection.is_active.is_(True),
+            CalendarConnection.is_default.is_(True),
+            CalendarConnection.id != (connection.id or -1),
+        ).limit(1)
+    )
+    if is_first or not has_default:
         connection.is_default = True
-        db.add(connection)
+    db.add(connection)
     db.commit()
     db.refresh(connection)
     return connection
