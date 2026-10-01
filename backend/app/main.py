@@ -43,6 +43,8 @@ from app.models import (
     CandidateDocument,
     Email,
     Interview,
+    InterviewParticipant,
+    InterviewAvailability,
     Job,
     Organization,
     Role,
@@ -90,6 +92,8 @@ from app.schemas import (
     InterviewCreate,
     InterviewStatusUpdate,
     InterviewRead,
+    InterviewAvailabilityCreate,
+    InterviewAvailabilityRead,
     CandidateComparisonRead,
     OrganizationRegistration,
     TokenRead,
@@ -2549,6 +2553,31 @@ def list_interview_rounds(
 ):
     application = _get_org_record(db, Application, application_id, user.organization_id)
     return db.scalars(select(Interview).where(Interview.application_id == application.id).order_by(Interview.round_number.asc(), Interview.starts_at.asc())).all()
+
+
+@app.patch("/interviews/{interview_id}", response_model=InterviewRead)
+def reschedule_interview_legacy(
+    interview_id: int,
+    request: InterviewCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _get_org_record(db, Interview, interview_id, user.organization_id)
+    if interview.status == "cancelled": raise HTTPException(409, "Cancelled interviews cannot be rescheduled")
+    interview.starts_at = request.starts_at
+    interview.duration_minutes = request.duration_minutes
+    interview.mode = request.mode
+    interview.location = request.location
+    interview.meeting_url = request.meeting_url
+    interview.round_name = request.round_name
+    interview.round_type = request.round_type
+    if request.feedback_deadline is not None: interview.feedback_deadline = request.feedback_deadline
+    interview.status = "scheduled"
+    interview.reminder_24_sent = False
+    interview.reminder_1h_sent = False
+    record_audit(db, user, "interview.rescheduled", "interview", interview.id, after={"starts_at": request.starts_at.isoformat(), "round_type": request.round_type})
+    db.commit(); db.refresh(interview)
+    return interview
 
 
 @app.patch("/interviews/{interview_id}/status")
