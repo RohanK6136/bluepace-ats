@@ -2294,6 +2294,7 @@ def create_interview_round(
         meeting_url=request.meeting_url,
         round_name=request.round_name,
         round_number=round_number,
+        feedback_deadline=request.feedback_deadline,
     )
     db.add(interview)
     application.stage_id = ensure_job_stages(db, application.job)["Interview"].id
@@ -2376,6 +2377,10 @@ def create_or_update_offer(
             joining_date=request.joining_date,
             offer_letter_url=request.offer_letter_url,
             notes=request.notes,
+            ctc_breakdown=request.ctc_breakdown,
+            benefits=request.benefits,
+            probation_period=request.probation_period,
+            expires_at=request.expires_at,
             status="draft",
             created_by_id=user.id,
         )
@@ -2387,6 +2392,11 @@ def create_or_update_offer(
         offer.joining_date = request.joining_date
         offer.offer_letter_url = request.offer_letter_url
         offer.notes = request.notes
+        offer.ctc_breakdown = request.ctc_breakdown
+        offer.benefits = request.benefits
+        offer.probation_period = request.probation_period
+        offer.expires_at = request.expires_at
+        offer.revision = int(offer.revision or 1) + 1
     db.commit()
     db.refresh(offer)
     return offer
@@ -2403,8 +2413,13 @@ def update_offer(
     offer = db.scalar(select(Offer).where(Offer.application_id == application.id))
     if offer is None:
         raise HTTPException(status_code=404, detail="No offer created for this application")
-    for field, value in request.model_dump(exclude_unset=True).items():
+    values = request.model_dump(exclude_unset=True)
+    for field, value in values.items():
+        if field == "status":
+            continue
         setattr(offer, field, value)
+    if values:
+        offer.revision = int(offer.revision or 1) + 1
     record_audit(db, user, "offer.updated", "application", application.id, after=request.model_dump(exclude_unset=True))
     db.commit()
     db.refresh(offer)
