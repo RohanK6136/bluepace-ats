@@ -280,10 +280,17 @@ class CandidateMatchRead(BaseModel):
     recruiter_override: Optional[int]
     recruiter_note: Optional[str]
     score_breakdown: dict
+    score_weights: dict = Field(default_factory=dict)
     matched_skills: list[str]
+    matched_required_skills: list[str] = Field(default_factory=list)
+    matched_preferred_skills: list[str] = Field(default_factory=list)
     skill_gaps: list[str]
+    experience_years: float = 0
+    required_experience_years: Optional[int] = None
+    project_evidence: dict = Field(default_factory=dict)
     explanations: list[str]
     semantic_mode: str
+    decision_support_only: bool = True
     cv_summary: list[str]
 
 class Experience(BaseModel):
