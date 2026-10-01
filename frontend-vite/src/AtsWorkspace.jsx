@@ -539,6 +539,14 @@ export default function AtsWorkspace() {
     }
   }
 
+  async function analyzeJob(job) {
+    try {
+      const response = await apiRequest(token, "post", "/jobs/" + job.id + "/analyze");
+      setJobs((current) => current.map((item) => item.id === job.id ? { ...item, jd_analysis: response.data.jd_analysis } : item));
+      setNotice("JD intelligence refreshed");
+    } catch (requestError) { setError(errorText(requestError)); }
+  }
+
   async function archiveJob(job) {
     if (!window.confirm(`Archive ${job.title}?`)) return;
     try {
@@ -1372,10 +1380,22 @@ export default function AtsWorkspace() {
             <div className="border-y border-ink-100 bg-white">
               <div className="grid grid-cols-[minmax(180px,2fr)_1fr_1fr_100px] gap-3 border-b border-ink-100 bg-[#fafaf8] px-4 py-3 text-[11px] font-semibold uppercase text-ink-500"><span>Role</span><span>Location</span><span>Created</span><span>Status</span></div>
               {jobs.map((job) => <div key={job.id} className="grid grid-cols-1 gap-2 border-b border-ink-50 px-4 py-4 last:border-0 sm:grid-cols-[minmax(180px,2fr)_1fr_1fr_100px] sm:items-center sm:gap-3">
-                <div>{job.jd_analysis?.source_url ? <a className="font-semibold underline decoration-ink-200 underline-offset-4 hover:decoration-ink-700" href={job.jd_analysis.source_url} target="_blank" rel="noreferrer">{job.title}</a> : <button className="font-semibold hover:underline" onClick={() => resetJobForm(job)}>{job.title}</button>}<p className="mt-0.5 text-xs text-ink-500">{job.department || "Unassigned department"} · {job.employment_type || "Employment type not set"} · {workModeLabel(job.work_mode)}</p><p className="mt-1 text-xs text-ink-500">{job.minimum_experience_years === null ? "Experience unspecified" : `${job.minimum_experience_years}+ years`}{job.fresher_allowed ? " · Freshers welcome" : ""}{job.required_skills?.length ? ` · ${job.required_skills.join(", ")}` : ""}</p>{job.jd_analysis?.source_url && <p className="mt-1 text-[11px] text-ink-400">Imported from job link</p>}</div>
+                <div>{job.jd_analysis?.source_url ? <a className="font-semibold underline decoration-ink-200 underline-offset-4 hover:decoration-ink-700" href={job.jd_analysis.source_url} target="_blank" rel="noreferrer">{job.title}</a> : <button className="font-semibold hover:underline" onClick={() => resetJobForm(job)}>{job.title}</button>}<p className="mt-0.5 text-xs text-ink-500">{job.department || "Unassigned department"} · {job.employment_type || "Employment type not set"} · {workModeLabel(job.work_mode)}</p><p className="mt-1 text-xs text-ink-500">{job.minimum_experience_years === null ? "Experience unspecified" : `${job.minimum_experience_years}+ years`}{job.fresher_allowed ? " · Freshers welcome" : ""}{job.required_skills?.length ? ` · ${job.required_skills.join(", ")}` : ""}</p>
+                {job.jd_analysis && <div className="mt-2 rounded-lg bg-ink-50 p-3 text-xs text-ink-600">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    <span><b>Seniority:</b> {job.jd_analysis.seniority || "Unspecified"}</span>
+                    <span><b>Experience:</b> {job.jd_analysis.minimum_experience_years != null ? String(job.jd_analysis.minimum_experience_years) + "+" + (job.jd_analysis.maximum_experience_years ? "–" + job.jd_analysis.maximum_experience_years : "") + " years" : "Unspecified"}</span>
+                    <span><b>Education:</b> {job.jd_analysis.education || "Unspecified"}</span>
+                    <span><b>Mode:</b> {workModeLabel(job.jd_analysis.work_mode || job.work_mode)}</span>
+                  </div>
+                  <div className="mt-2"><b>Required:</b> {(job.jd_analysis.required_skills || []).join(", ") || "None"} · <b>Preferred:</b> {(job.jd_analysis.preferred_skills || []).join(", ") || "None"}</div>
+                  {job.jd_analysis.responsibilities?.length > 0 && <div className="mt-2"><b>Responsibilities:</b> {job.jd_analysis.responsibilities.slice(0, 3).join(" · ")}</div>}
+                  {job.jd_analysis.interview_topics?.length > 0 && <div className="mt-2"><b>Interview topics:</b> {job.jd_analysis.interview_topics.join(", ")}</div>}
+                </div>}
+                {job.jd_analysis?.source_url && <p className="mt-1 text-[11px] text-ink-400">Imported from job link</p>}</div>
                 <span className="text-sm text-ink-600">{job.location || "Remote / unspecified"}</span>
                 <span className="text-xs text-ink-500">{new Date(job.created_at).toLocaleDateString()}</span>
-                <div className="flex items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${job.status === "open" ? "bg-emerald-50 text-emerald-800" : job.status === "archived" ? "bg-ink-100 text-ink-500" : "bg-gold-50 text-ink-700"}`}>{job.status}</span>{canWrite && job.status !== "archived" && <button className="text-xs font-medium text-ink-500 underline underline-offset-2" onClick={() => archiveJob(job)}>Archive</button>}</div>
+                <div className="flex items-center justify-between gap-2"><button className="text-xs font-medium text-blue-700 underline underline-offset-2" onClick={() => analyzeJob(job)}>Refresh JD intelligence</button><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${job.status === "open" ? "bg-emerald-50 text-emerald-800" : job.status === "archived" ? "bg-ink-100 text-ink-500" : "bg-gold-50 text-ink-700"}`}>{job.status}</span>{canWrite && job.status !== "archived" && <button className="text-xs font-medium text-ink-500 underline underline-offset-2" onClick={() => archiveJob(job)}>Archive</button>}</div>
               </div>)}
               {!jobs.length && <EmptyState title="No jobs yet" detail="Create a job to begin building your pipeline." />}
             </div>
