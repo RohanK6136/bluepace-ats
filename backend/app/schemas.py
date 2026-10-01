@@ -132,6 +132,55 @@ class CandidateRead(BaseModel):
     updated_at: datetime
 
 
+class CandidateTagRead(BaseModel):
+    id: int
+    name: str
+    color: str
+
+
+class CandidateTagUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class CandidateCommentCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=5000)
+
+
+class CandidateCommentRead(BaseModel):
+    id: int
+    body: str
+    mentions: list[dict] = Field(default_factory=list)
+    author_id: int
+    author_name: str
+    created_at: datetime
+
+
+class CandidateFollowerRead(BaseModel):
+    user_id: int
+    user_name: str
+    following: bool
+
+
+class CandidateCollaborationRead(BaseModel):
+    tags: list[CandidateTagRead] = Field(default_factory=list)
+    comments: list[CandidateCommentRead] = Field(default_factory=list)
+    followers: list[CandidateFollowerRead] = Field(default_factory=list)
+    following: bool = False
+    owner_id: int | None = None
+    owner_name: str | None = None
+    starred: bool = False
+    needs_review: bool = False
+    priority: str = "normal"
+
+
+class CandidateCollaborationUpdate(BaseModel):
+    owner_id: int | None = None
+    starred: bool | None = None
+    needs_review: bool | None = None
+    priority: str | None = Field(default=None, pattern="^(normal|high)$")
+
+
 class ApplicationCreate(BaseModel):
     job_id: int
     candidate_id: int
