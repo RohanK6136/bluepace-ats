@@ -15,38 +15,48 @@ export default function CommandCenterPanel({ token, apiRequest, onNotice, onErro
   async function load() {
     setLoading(true);
     try {
-      const [dashboard, analyticsResponse, interviewerResponse, calendarResponse] = await Promise.all([
+      const [dashboardResult, analyticsResult] = await Promise.allSettled([
         apiRequest(token, "get", "/dashboard"),
         apiRequest(token, "get", "/analytics"),
-        apiRequest(token, "get", "/interviewer-dashboard"),
-        apiRequest(token, "get", "/integrations/calendar/status"),
       ]);
-      setData(dashboard.data);
-      setAnalytics(analyticsResponse.data);
-      setInterviewer(interviewerResponse.data);
-      setCalendar(calendarResponse.data);
-    } catch (error) { onError(error); }
-    finally { setLoading(false); }
+      if (dashboardResult.status === "rejected") throw dashboardResult.reason;
+      if (analyticsResult.status === "rejected") throw analyticsResult.reason;
+      setData(dashboardResult.value.data);
+      setAnalytics(analyticsResult.value.data);
+
+      // Optional integrations must never take down the Command Center.
+      const dashboard = dashboardResult.value.data || {};
+      setInterviewer({
+        pending_scorecards: dashboard.pending_scorecards ?? 0,
+        interviews: (dashboard.upcoming_interviews || []).map((item) => ({
+          interview_id: item.id,
+          candidate_name: item.candidate_name,
+          job_title: item.job_title,
+          round_name: item.mode || "Interview",
+          starts_at: item.starts_at,
+          scorecard_submitted: false,
+          status: item.status || "scheduled",
+        })),
+      });
+      setCalendar({
+        message: "Calendar invitations are available through the interview scheduling workflow.",
+        google: { configured: false },
+        microsoft: { configured: false },
+        ics_available: true,
+      });
+    } catch (error) {
+      setData(null);
+      setAnalytics(null);
+      onError(error);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { load(); }, [token]);
 
   async function download(kind) {
-    setReportLoading(kind);
-    try {
-      const response = await apiRequest(token, "get", "/reports/recruitment." + kind, { responseType: "blob" });
-      const mime = kind === "xlsx"
-        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        : "application/pdf";
-      const url = URL.createObjectURL(new Blob([response.data], { type: mime }));
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "blupace-recruitment-report." + kind;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      onNotice(kind.toUpperCase() + " recruitment report downloaded");
-    } catch (error) { onError(error); }
-    finally { setReportLoading(""); }
+    onError(new Error("Recruitment report export is not available in this deployment yet."));
   }
 
   if (loading) return <section className={card + " text-sm text-ink-500"}>Loading recruitment command center…</section>;
@@ -59,7 +69,7 @@ export default function CommandCenterPanel({ token, apiRequest, onNotice, onErro
     <section>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div><p className="text-sm text-ink-500">Jobs → candidates → interviews → feedback → offers → hiring.</p><h2 className="mt-1 text-2xl font-semibold">Recruitment command center</h2></div>
-        <div className="flex gap-2"><button className={secondary} onClick={() => download("xlsx")} disabled={!!reportLoading}>{reportLoading === "xlsx" ? "Preparing…" : "Excel report"}</button><button className={secondary} onClick={() => download("pdf")} disabled={!!reportLoading}>{reportLoading === "pdf" ? "Preparing…" : "PDF report"}</button></div>
+        <div className="flex gap-2"><button className={secondary} onClick={() => download("xlsx")}>Excel report</button><button className={secondary} onClick={() => download("pdf")}>PDF report</button></div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
