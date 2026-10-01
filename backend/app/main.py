@@ -3001,7 +3001,7 @@ def update_application_stage(
             )
             db.add(interview)
         else:
-            interview.interviewer_id = user.id
+            interview.interviewer_id = application.assigned_interviewer_id or user.id
             interview.starts_at = request.interview_starts_at
             interview.duration_minutes = request.interview_duration_minutes
             interview.status = "scheduled"
@@ -3036,12 +3036,12 @@ def update_application_stage(
         subject, body = _stage_email(
             application,
             stage.name,
-        db=db,
-        interview_starts_at=request.interview_starts_at,
-        interview_duration_minutes=request.interview_duration_minutes,
-        interview_mode=request.interview_mode,
-        interview_location=request.interview_location,
-        interview_meeting_url=request.interview_meeting_url,
+            db=db,
+            interview_starts_at=request.interview_starts_at,
+            interview_duration_minutes=request.interview_duration_minutes,
+            interview_mode=request.interview_mode,
+            interview_location=request.interview_location,
+            interview_meeting_url=request.interview_meeting_url,
             interview_id=interview.id if request.stage_name == "Interview" else None,
         )
         email_id = queue_application_email(db, application, subject, body)
