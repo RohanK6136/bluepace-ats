@@ -122,6 +122,11 @@ export default function AtsWorkspace() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [dashboardData, setDashboardData] = useState(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [candidateActivity, setCandidateActivity] = useState(null);
+  const [emails, setEmails] = useState([]);
+  const [emailsLoading, setEmailsLoading] = useState(false);
   const [filters, setFilters] = useState({ search: "", skill: "", stage_name: "", source: "", applied_after: "", applied_before: "" });
   const [jobFormOpen, setJobFormOpen] = useState(false);
   const [jobEntryMode, setJobEntryMode] = useState("manual");
@@ -275,6 +280,41 @@ export default function AtsWorkspace() {
       setLoading(false);
     }
   }
+
+
+  useEffect(() => {
+    if (!token || view !== "dashboard") return undefined;
+    let active = true;
+    setDashboardLoading(true);
+    apiRequest(token, "get", "/dashboard")
+      .then((response) => { if (active) setDashboardData(response.data); })
+      .catch((requestError) => { if (active) setError(errorText(requestError)); })
+      .finally(() => { if (active) setDashboardLoading(false); });
+    return () => { active = false; };
+  }, [token, view]);
+
+  useEffect(() => {
+    if (!token || view !== "emails") return undefined;
+    let active = true;
+    setEmailsLoading(true);
+    apiRequest(token, "get", "/emails", { params: { limit: 200 } })
+      .then((response) => { if (active) setEmails(Array.isArray(response.data) ? response.data : []); })
+      .catch((requestError) => { if (active) setError(errorText(requestError)); })
+      .finally(() => { if (active) setEmailsLoading(false); });
+    return () => { active = false; };
+  }, [token, view]);
+
+  useEffect(() => {
+    if (!token || !selectedCandidate) {
+      setCandidateActivity(null);
+      return undefined;
+    }
+    let active = true;
+    apiRequest(token, "get", "/candidates/" + selectedCandidate + "/activity")
+      .then((response) => { if (active) setCandidateActivity(response.data); })
+      .catch(() => { if (active) setCandidateActivity(null); });
+    return () => { active = false; };
+  }, [token, selectedCandidate]);
 
   function resetJobForm(job = null) {
     setEditingJob(job);
@@ -867,10 +907,12 @@ export default function AtsWorkspace() {
   }
 
   const navItems = [
+    { id: "dashboard", label: "Dashboard" },
     { id: "pipeline", label: "Applications", count: applications.length },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
     { id: "matching", label: "AI Match" },
+    { id: "emails", label: "Email Center" },
     { id: "resume", label: "Resume Lab" },
   ];
 
@@ -920,6 +962,72 @@ export default function AtsWorkspace() {
           {notice && <div role="status" className="mb-4 flex items-center justify-between border-l-2 border-emerald-600 bg-white px-4 py-3 text-sm text-ink-700"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice("")}>×</button></div>}
           {error && <div role="alert" className="mb-4 flex items-center justify-between border-l-2 border-rose-600 bg-white px-4 py-3 text-sm text-rose-800"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
           {loading && <div className="mb-3 text-xs text-ink-500">Loading workspace…</div>}
+
+
+          {view === "dashboard" && <>
+            <div className="mb-6"><p className="text-sm text-ink-500">Recruitment overview</p><h2 className="mt-1 text-2xl font-semibold">Recruiter dashboard</h2></div>
+            {dashboardLoading && <div className="mb-5 rounded-xl border border-ink-100 bg-white p-5 text-sm text-ink-500">Loading dashboard…</div>}
+            {dashboardData && <>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+                {[
+                  ["Open jobs", dashboardData.metrics.open_jobs],
+                  ["Applicants", dashboardData.metrics.total_applications],
+                  ["Screening", dashboardData.metrics.screening],
+                  ["Interviews", dashboardData.metrics.interviews],
+                  ["Offers", dashboardData.metrics.offers],
+                  ["Hired", dashboardData.metrics.hired],
+                ].map(([label, value]) => <div key={label} className="rounded-xl border border-ink-100 bg-white p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-500">{label}</p><p className="mt-2 text-3xl font-bold text-ink-900">{value}</p></div>)}
+              </div>
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-3">
+                <section className="rounded-xl border border-ink-100 bg-white p-5">
+                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Pipeline</p><h3 className="mt-1 font-semibold">Applications by stage</h3></div><button className={buttonSecondary} onClick={() => setView("pipeline")}>Open pipeline</button></div>
+                  <div className="mt-5 grid gap-3">
+                    {STAGES.map((stage) => {
+                      const value = dashboardData.stage_counts?.[stage] || 0;
+                      const total = Math.max(dashboardData.metrics.total_applications, 1);
+                      return <div key={stage}><div className="mb-1 flex justify-between text-xs"><span>{stage}</span><span className="font-semibold">{value}</span></div><div className="h-2 overflow-hidden rounded-full bg-ink-50"><div className="h-full rounded-full bg-[#1769d3]" style={{ width: String(Math.min(100, (value / total) * 100)) + "%" }} /></div></div>;
+                    })}
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-ink-100 bg-white p-5">
+                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Hiring demand</p><h3 className="mt-1 font-semibold">Applications by job</h3></div><button className={buttonSecondary} onClick={() => setView("jobs")}>Jobs</button></div>
+                  <div className="mt-5 grid gap-3">
+                    {(dashboardData.job_counts || []).slice(0, 7).map((item) => <div key={item.name} className="flex items-center justify-between gap-3 border-b border-ink-50 pb-2 text-sm last:border-0"><span className="truncate">{item.name}</span><span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800">{item.count}</span></div>)}
+                    {!dashboardData.job_counts?.length && <p className="text-sm text-ink-500">No application data yet.</p>}
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-ink-100 bg-white p-5">
+                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Communication</p><h3 className="mt-1 font-semibold">Email delivery</h3></div><button className={buttonSecondary} onClick={() => setView("emails")}>Email center</button></div>
+                  <div className="mt-5 grid grid-cols-3 gap-3">
+                    <div className="rounded-xl bg-emerald-50 p-3 text-emerald-800"><p className="text-[11px] uppercase">Sent</p><p className="mt-1 text-2xl font-bold">{dashboardData.email_counts?.sent || 0}</p></div>
+                    <div className="rounded-xl bg-amber-50 p-3 text-amber-800"><p className="text-[11px] uppercase">Pending</p><p className="mt-1 text-2xl font-bold">{dashboardData.email_counts?.pending || 0}</p></div>
+                    <div className="rounded-xl bg-rose-50 p-3 text-rose-800"><p className="text-[11px] uppercase">Failed</p><p className="mt-1 text-2xl font-bold">{dashboardData.email_counts?.failed || 0}</p></div>
+                  </div>
+                </section>
+              </div>
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-2">
+                <section className="rounded-xl border border-ink-100 bg-white p-5">
+                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Calendar</p><h3 className="mt-1 font-semibold">Upcoming interviews</h3></div><button className={buttonSecondary} onClick={() => setView("pipeline")}>Manage</button></div>
+                  <div className="mt-4 grid gap-3">
+                    {(dashboardData.upcoming_interviews || []).slice(0, 6).map((interview) => <div key={interview.id} className="rounded-lg border border-ink-100 p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{interview.candidate_name}</p><p className="text-xs text-ink-500">{interview.job_title}</p></div><span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800">{interview.mode === "offline" ? "Offline" : "Online"}</span></div><p className="mt-2 text-sm">{new Date(interview.starts_at).toLocaleString()} · {interview.duration_minutes} min</p><p className="mt-1 text-xs text-ink-500">{interview.mode === "offline" ? interview.location : interview.meeting_url}</p></div>)}
+                    {!dashboardData.upcoming_interviews?.length && <p className="text-sm text-ink-500">No upcoming scheduled interviews.</p>}
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-ink-100 bg-white p-5">
+                  <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Recent</p><h3 className="mt-1 font-semibold">Latest applications</h3></div>
+                  <div className="mt-4 divide-y divide-ink-50">
+                    {(dashboardData.recent_applications || []).map((application) => <button key={application.id} className="flex w-full items-center justify-between gap-3 py-3 text-left hover:bg-ink-50" onClick={() => { setSelectedCandidate(application.candidate_id); setView("candidates"); }}><div><p className="font-medium">{application.candidate_name}</p><p className="text-xs text-ink-500">{application.job_title} · {new Date(application.applied_at).toLocaleDateString()}</p></div><span className="rounded-full bg-ink-50 px-2 py-1 text-[11px] font-semibold text-ink-700">{application.stage_name}</span></button>)}
+                    {!dashboardData.recent_applications?.length && <p className="py-5 text-sm text-ink-500">No applications yet.</p>}
+                  </div>
+                </section>
+              </div>
+            </>}
+          </>}
 
           {view === "pipeline" && <>
             <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
@@ -1154,6 +1262,29 @@ export default function AtsWorkspace() {
                   <div><h4 className="text-xs font-semibold uppercase text-ink-500">Education</h4><ul className="mt-2 grid gap-2 text-sm">{(profile.education || []).map((item, index) => <li key={index}><strong>{item.degree}</strong><span className="block text-xs text-ink-500">{item.university} · {item.graduation_year}</span></li>)}</ul></div>
                 </div>
                 <div className="mt-6 border-t border-ink-100 pt-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Candidate 360°</p><h4 className="mt-1 font-semibold">Application history & communication</h4></div>
+                    {candidateActivity?.candidate && <span className="text-xs text-ink-500">{candidateActivity.applications?.length || 0} application(s)</span>}
+                  </div>
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4">
+                      <p className="text-xs font-semibold uppercase text-ink-500">Applied roles</p>
+                      <div className="mt-3 grid gap-2">
+                        {(candidateActivity?.applications || []).map((item) => <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 bg-white p-3"><div><p className="text-sm font-semibold">{item.job_title}</p><p className="text-xs text-ink-500">{new Date(item.applied_at).toLocaleDateString()}</p></div><span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800">{item.stage_name}</span></div>)}
+                        {!candidateActivity?.applications?.length && <p className="text-sm text-ink-500">No applications found.</p>}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4">
+                      <p className="text-xs font-semibold uppercase text-ink-500">Activity timeline</p>
+                      <div className="mt-3 max-h-80 overflow-auto pr-1">
+                        <div className="grid gap-3">
+                          {(candidateActivity?.events || []).map((event, index) => <div key={index} className="rounded-lg border border-ink-100 bg-white p-3"><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{event.type}</span><span className="text-[11px] text-ink-400">{event.created_at && typeof event.created_at === "string" ? new Date(event.created_at).toLocaleString() : ""}</span></div><p className="mt-1 text-sm font-medium">{event.title}</p>{event.details?.status && <p className="mt-1 text-xs text-ink-500">Status: {event.details.status}</p>}{event.details?.meeting_url && <a className="mt-1 block text-xs underline" href={event.details.meeting_url} target="_blank" rel="noreferrer">Open meeting link</a>}{event.details?.location && <p className="mt-1 text-xs text-ink-500">{event.details.location}</p>}</div>)}
+                          {!candidateActivity?.events?.length && <p className="text-sm text-ink-500">No activity recorded yet.</p>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Role fit</p>
@@ -1203,6 +1334,20 @@ export default function AtsWorkspace() {
             })()}
           </>}
 
+
+          {view === "emails" && <>
+            <div className="mb-5 flex items-end justify-between gap-3"><div><p className="text-sm text-ink-500">Candidate communication audit</p><h2 className="mt-1 text-xl font-semibold">Email center</h2></div><button className={buttonSecondary} onClick={() => setView("dashboard")}>Back to dashboard</button></div>
+            {emailsLoading && <div className="mb-4 rounded-xl border border-ink-100 bg-white p-5 text-sm text-ink-500">Loading email history…</div>}
+            <div className="overflow-x-auto border-y border-ink-100 bg-white">
+              <table className="w-full min-w-[850px] border-collapse text-left text-sm">
+                <thead className="border-b border-ink-100 bg-[#fafaf8] text-[11px] uppercase text-ink-500"><tr><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Event</th><th className="px-4 py-3">Recipient</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Sent</th><th className="px-4 py-3">Error</th></tr></thead>
+                <tbody className="divide-y divide-ink-50">
+                  {emails.map((email) => <tr key={email.id} className="hover:bg-[#fcfcfa]"><td className="px-4 py-3"><button className="font-semibold hover:underline" onClick={() => { if (email.application_id) { const application = applications.find((item) => item.id === email.application_id); if (application) { setSelectedCandidate(application.candidate_id); setView("candidates"); } } }}>{email.candidate_name}</button><p className="text-xs text-ink-500">{email.job_title || "—"}</p></td><td className="px-4 py-3 text-xs">{email.subject}</td><td className="px-4 py-3 text-xs text-ink-600">{email.recipient}</td><td className="px-4 py-3 text-xs font-semibold">{email.status}</td><td className="px-4 py-3 text-xs text-ink-500">{email.sent_at ? new Date(email.sent_at).toLocaleString() : "—"}</td><td className="max-w-72 px-4 py-3 text-xs text-rose-700">{email.error_message || "—"}</td></tr>)}
+                </tbody>
+              </table>
+              {!emails.length && <EmptyState title="No email events yet" detail="Application and pipeline notifications will appear here." />}
+            </div>
+          </>}
           {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab /></section>}
         </main>
       </div>
