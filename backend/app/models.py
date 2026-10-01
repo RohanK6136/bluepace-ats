@@ -186,6 +186,8 @@ class Interview(Base):
     meeting_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     reminder_24_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     reminder_1h_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    round_name: Mapped[str] = mapped_column(String(100), default="Interview", server_default="Interview")
+    round_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
 
 class TalentPool(Base):
