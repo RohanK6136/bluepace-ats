@@ -750,13 +750,25 @@ def _stage_email(
     return _render_email_template(template, values)
 
 def _serialize_candidate_match(match: CandidateJobMatch, job: Job | None = None) -> dict:
-    matched_skills = match.matched_skills or []
-    matched_set = {str(skill).casefold() for skill in matched_skills}
+    profile = match.candidate.resume_data or {}
+    candidate_skill_lookup = {
+        str(skill).casefold().strip()
+        for skill in (profile.get("skills") or [])
+        if str(skill).strip()
+    }
+    matched_skills = [str(skill).strip() for skill in (match.matched_skills or []) if str(skill).strip()]
+    matched_set = {str(skill).casefold().strip() for skill in matched_skills}
     analysis = (job.jd_analysis if job is not None else {}) or {}
     required_skills = [str(skill) for skill in analysis.get("required_skills", []) if str(skill).strip()]
     preferred_skills = [str(skill) for skill in analysis.get("preferred_skills", []) if str(skill).strip()]
-    matched_required = [skill for skill in required_skills if skill.casefold() in matched_set]
-    matched_preferred = [skill for skill in preferred_skills if skill.casefold() in matched_set]
+    matched_required = [
+        skill for skill in required_skills
+        if skill.casefold().strip() in candidate_skill_lookup or skill.casefold().strip() in matched_set
+    ]
+    matched_preferred = [
+        skill for skill in preferred_skills
+        if skill.casefold().strip() in candidate_skill_lookup or skill.casefold().strip() in matched_set
+    ]
     breakdown = match.score_breakdown or {}
     return {
         "id": match.id,
@@ -1502,7 +1514,7 @@ def list_job_matches(
         key=lambda match: match.recruiter_override if match.recruiter_override is not None else match.model_score,
         reverse=True,
     )
-    return [_serialize_candidate_match(match) for match in results]
+    return [_serialize_candidate_match(match, job) for match in results]
 
 
 @app.get("/applications/{application_id}/fit-analysis")
