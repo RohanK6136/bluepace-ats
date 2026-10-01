@@ -317,6 +317,13 @@ def create_calendar_event(db: Session, connection: CalendarConnection, interview
         url = f"{GOOGLE_API}/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all"
     else:
         url = f"{MICROSOFT_API}/me/events"
+        if interview.mode == "online" and not interview.meeting_url:
+            calendar = _api_request(f"{MICROSOFT_API}/me/calendar", access, "GET")
+            allowed = calendar.get("allowedOnlineMeetingProviders") or []
+            default_provider = calendar.get("defaultOnlineMeetingProvider")
+            if "teamsForBusiness" not in allowed and default_provider != "teamsForBusiness":
+                payload.pop("isOnlineMeeting", None)
+                payload.pop("onlineMeetingProvider", None)
     response = _api_request(url, access, "POST", payload)
     event_id = response.get("id")
     if not event_id:
