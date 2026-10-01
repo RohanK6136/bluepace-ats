@@ -712,26 +712,12 @@ async def public_apply(
     }
 
 
-@app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def register_organization(request: OrganizationRegistration, db: Session = Depends(get_db)):
-    organization = Organization(name=request.organization_name)
-    db.add(organization)
-    db.flush()
-    user = User(
-        organization_id=organization.id,
-        email=str(request.email).lower(),
-        full_name=request.full_name,
-        password_hash=password_hash.hash(request.password),
-        role=Role.admin,
+@app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_403_FORBIDDEN)
+def register_organization():
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Organization registration is disabled. Contact the system administrator for access.",
     )
-    db.add(user)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="An account with this email already exists")
-    db.refresh(user)
-    return user
 
 
 @app.post("/auth/token", response_model=TokenRead)
