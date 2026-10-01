@@ -268,6 +268,7 @@ class Interview(Base):
     reminder_24_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     reminder_1h_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     round_name: Mapped[str] = mapped_column(String(100), default="Interview", server_default="Interview")
+    round_type: Mapped[str] = mapped_column(String(30), default="technical", server_default="technical")
     round_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     feedback_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancellation_reason: Mapped[str | None] = mapped_column(String(1000), nullable=True)
