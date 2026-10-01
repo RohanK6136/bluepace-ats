@@ -132,6 +132,8 @@ export default function AtsWorkspace() {
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [candidateFilters, setCandidateFilters] = useState({ search: "", skill: "", source: "", location: "", min_experience_years: "" });
   const [portalToken] = useState(() => new URLSearchParams(window.location.search).get("portal") || "");
+  const [portalLink, setPortalLink] = useState("");
+  const [portalLinkLoading, setPortalLinkLoading] = useState(false);
   const [filters, setFilters] = useState({ search: "", skill: "", stage_name: "", source: "", applied_after: "", applied_before: "" });
   const [jobFormOpen, setJobFormOpen] = useState(false);
   const [jobEntryMode, setJobEntryMode] = useState("manual");
@@ -320,6 +322,20 @@ export default function AtsWorkspace() {
       .catch(() => { if (active) setCandidateActivity(null); });
     return () => { active = false; };
   }, [token, selectedCandidate]);
+
+  async function generatePortalLink(applicationId) {
+    if (!applicationId) return;
+    setPortalLinkLoading(true);
+    setError("");
+    try {
+      const response = await apiRequest(token, "get", "/applications/" + applicationId + "/portal-link");
+      setPortalLink(response.data?.url || "");
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setPortalLinkLoading(false);
+    }
+  }
 
   function resetJobForm(job = null) {
     setEditingJob(job);
@@ -1036,6 +1052,30 @@ export default function AtsWorkspace() {
 
               <div className="mt-5 grid gap-5 xl:grid-cols-2">
                 <section className="rounded-xl border border-ink-100 bg-white p-5">
+                  <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Recruitment analytics</p><h3 className="mt-1 font-semibold">Funnel visibility</h3></div>
+                  <div className="mt-4 grid gap-2">
+                    {STAGES.map((stage, index) => {
+                      const value = dashboardData.stage_counts?.[stage] || 0;
+                      const previous = index === 0 ? dashboardData.metrics.total_applications : (dashboardData.stage_counts?.[STAGES[index - 1]] || 0);
+                      const rate = previous > 0 ? Math.round((value / previous) * 100) : 0;
+                      return <div key={stage} className="flex items-center justify-between gap-4 border-b border-ink-50 py-2 text-sm last:border-0"><span>{stage}</span><span className="text-xs text-ink-500">{value} · {rate}% vs prior stage</span></div>;
+                    })}
+                  </div>
+                </section>
+                <section className="rounded-xl border border-ink-100 bg-white p-5">
+                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Source tracking</p><h3 className="mt-1 font-semibold">Applications by source</h3></div><span className="text-xs text-ink-400">Top sources</span></div>
+                  <div className="mt-4 grid gap-3">
+                    {(dashboardData.source_counts || []).slice(0, 8).map((item) => {
+                      const total = Math.max(dashboardData.metrics.total_applications, 1);
+                      return <div key={item.name} className="grid gap-1"><div className="flex justify-between text-sm"><span>{item.name}</span><span className="font-semibold">{item.count}</span></div><div className="h-2 rounded-full bg-ink-50"><div className="h-full rounded-full bg-[#1769d3]" style={{ width: String(Math.min(100, (item.count / total) * 100)) + "%" }} /></div></div>;
+                    })}
+                    {!dashboardData.source_counts?.length && <p className="text-sm text-ink-500">No source data yet.</p>}
+                  </div>
+                </section>
+              </div>
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-2">
+                <section className="rounded-xl border border-ink-100 bg-white p-5">
                   <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Calendar</p><h3 className="mt-1 font-semibold">Upcoming interviews</h3></div><button className={buttonSecondary} onClick={() => setView("pipeline")}>Manage</button></div>
                   <div className="mt-4 grid gap-3">
                     {(dashboardData.upcoming_interviews || []).slice(0, 6).map((interview) => <div key={interview.id} className="rounded-lg border border-ink-100 p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{interview.candidate_name}</p><p className="text-xs text-ink-500">{interview.job_title}</p></div><span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800">{interview.mode === "offline" ? "Offline" : "Online"}</span></div><p className="mt-2 text-sm">{new Date(interview.starts_at).toLocaleString()} · {interview.duration_minutes} min</p><p className="mt-1 text-xs text-ink-500">{interview.mode === "offline" ? interview.location : interview.meeting_url}</p></div>)}
@@ -1305,8 +1345,12 @@ export default function AtsWorkspace() {
                     <p className="text-xs uppercase text-ink-500">Candidate profile</p>
                     <h3 className="mt-1 text-lg font-semibold">{candidate.first_name} {candidate.last_name}</h3>
                     <p className="text-sm text-ink-500">{candidate.email}{candidate.phone && " · " + candidate.phone}</p>
+                    {candidateActivity?.applications?.[0] && <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" className={buttonSecondary} disabled={portalLinkLoading} onClick={() => generatePortalLink(candidateActivity.applications[0].id)}>{portalLinkLoading ? "Generating…" : "Candidate portal link"}</button>
+                      {portalLink && <button type="button" className={buttonSecondary} onClick={() => navigator.clipboard?.writeText(portalLink).then(() => setNotice("Candidate portal link copied")).catch(() => setNotice(portalLink))}>Copy portal link</button>}
+                    </div>}
                   </div>
-                  <button aria-label="Close profile" onClick={() => { setSelectedCandidate(null); setFitAnalysis(null); setCandidateActivity(null); }}>×</button>
+                  <button aria-label="Close profile" onClick={() => { setSelectedCandidate(null); setFitAnalysis(null); setCandidateActivity(null); setPortalLink(""); }}>×</button>
                 </div>
 
                 <div className="mt-5 grid gap-5 md:grid-cols-3">
