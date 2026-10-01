@@ -163,6 +163,8 @@ class CandidateMatcher:
             analysis["minimum_experience_years"] = job.minimum_experience_years
         analysis["fresher_allowed"] = job.fresher_allowed
         analysis["work_mode"] = job.work_mode or analysis.get("work_mode")
+        analysis["location"] = job.location or analysis.get("location")
+        analysis["work_mode"] = job.work_mode or analysis.get("work_mode")
         if job.location:
             analysis["location"] = job.location
         return analysis
