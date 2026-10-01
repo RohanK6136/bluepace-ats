@@ -2414,6 +2414,987 @@ def create_interview_round(
         calendar_connected = db.scalar(select(CalendarConnection.id).where(CalendarConnection.user_id == user.id, CalendarConnection.organization_id == user.organization_id, CalendarConnection.is_active.is_(True), CalendarConnection.is_default.is_(True)).limit(1)) is not None
         if not calendar_connected:
             raise HTTPException(status_code=422, detail="Enter a meeting URL or connect a default Google Calendar / Outlook calendar to generate one automatically.")
+    round_number = (db.scalar(select(func.max(Interview.round_number)).where(Interview.application_id == application.id)) or 0) + 1
+    interviewer_ids = list(dict.fromkeys(request.interviewer_ids or [application.assigned_interviewer_id or user.id]))
+    if not interviewer_ids: interviewer_ids = [user.id]
+    members = db.scalars(select(User).where(User.id.in_(interviewer_ids), User.organization_id == user.organization_id, User.is_active.is_(True))).all()
+    if len(members) != len(interviewer_ids): raise HTTPException(422, "One or more interviewers are not active members of this organization")
+    round_type = request.round_type
+    interview = Interview(
+        application_id=application.id,
+        interviewer_id=interviewer_ids[0],
+        starts_at=request.starts_at,
+        duration_minutes=request.duration_minutes,
+        status="scheduled",
+        mode=request.mode,
+        location=request.location,
+        meeting_url=request.meeting_url,
+        round_name=request.round_name,
+        round_type=request.round_type,
+        round_number=request.round_number if request.round_number else round_number,
+        feedback_deadline=request.feedback_deadline,
+    )
+    db.add(interview)
+    db.flush()
+    for interviewer_id in interviewer_ids:
+        db.add(InterviewParticipant(interview_id=interview.id, user_id=interviewer_id))
+        if not db.scalar(select(Scorecard).where(Scorecard.application_id == application.id, Scorecard.interviewer_id == interviewer_id)):
+            db.add(Scorecard(application_id=application.id, interviewer_id=interviewer_id))
+    application.stage_id = ensure_job_stages(db, application.job)["Interview"].id
+    application.status = "active"
+    db.flush()
+    subject, body = _stage_email(
+        application,
+        "Interview",
+        db=db,
+        interview_starts_at=request.starts_at,
+        interview_duration_minutes=request.duration_minutes,
+        interview_mode=request.mode,
+        interview_location=request.location,
+        interview_meeting_url=request.meeting_url,
+        interview_id=interview.id,
+    )
+    email_id = queue_application_email(db, application, subject, body)
+    record_audit(db, user, "interview.round_scheduled", "application", application.id, after={"round_name": request.round_name, "round_type": request.round_type, "round_number": request.round_number if request.round_number else round_number, "interviewer_ids": interviewer_ids})
+    db.commit()
+    db.refresh(interview)
+    background_tasks.add_task(deliver_outbox_email, email_id)
+    background_tasks.add_task(sync_interview_calendar, interview.id, user.organization_id, user.id, "upsert")
+    return interview
+
+
+@app.get("/interviewers/availability", response_model=list[InterviewAvailabilityRead])
+def list_interviewer_availability(
+    user_id: int | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    stmt = select(InterviewAvailability).where(InterviewAvailability.organization_id == user.organization_id)
+    if user_id is not None: stmt = stmt.where(InterviewAvailability.user_id == user_id)
+    if start is not None: stmt = stmt.where(InterviewAvailability.starts_at >= start)
+    if end is not None: stmt = stmt.where(InterviewAvailability.ends_at <= end)
+    return db.scalars(stmt.order_by(InterviewAvailability.starts_at.asc())).all()
+
+
+@app.post("/interviewers/availability", response_model=InterviewAvailabilityRead)
+def create_interviewer_availability(
+    request: InterviewAvailabilityCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    if request.ends_at <= request.starts_at: raise HTTPException(422, "Availability end must be after start")
+    slot = InterviewAvailability(organization_id=user.organization_id, user_id=user.id, starts_at=request.starts_at, ends_at=request.ends_at, note=request.note)
+    db.add(slot); db.commit(); db.refresh(slot)
+    return slot
+
+
+@app.get("/interviewer-dashboard")
+def interviewer_dashboard(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    participant_ids = select(InterviewParticipant.interview_id).where(InterviewParticipant.user_id == user.id)
+    assigned = db.scalars(select(Interview).where(Interview.id.in_(participant_ids), Interview.status == "scheduled").order_by(Interview.starts_at.asc())).all()
+    legacy = db.scalars(select(Interview).where(Interview.interviewer_id == user.id, Interview.status == "scheduled")).all()
+    seen = {item.id for item in assigned}
+    interviews = assigned + [item for item in legacy if item.id not in seen]
+    scorecards = db.scalars(select(Scorecard).where(Scorecard.interviewer_id == user.id)).all()
+    pending = [s for s in scorecards if s.submitted_at is None]
+    overdue = [i for i in interviews if i.feedback_deadline and i.feedback_deadline < datetime.now(timezone.utc)]
+    return {
+        "interviews": [{"id": i.id, "application_id": i.application_id, "starts_at": i.starts_at, "duration_minutes": i.duration_minutes, "round_name": i.round_name, "round_type": getattr(i, "round_type", "technical"), "round_number": i.round_number, "status": i.status, "feedback_deadline": i.feedback_deadline} for i in interviews],
+        "scorecards_pending": len(pending),
+        "scorecards_overdue": len(overdue),
+        "completed_scorecards": len([s for s in scorecards if s.submitted_at is not None]),
+    }
+
+
+@app.patch("/interviews/{interview_id}/reschedule", response_model=InterviewRead)
+def reschedule_interview(
+    interview_id: int,
+    request: InterviewCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _get_org_record(db, Interview, interview_id, user.organization_id)
+    if interview.status == "cancelled": raise HTTPException(409, "Cancelled interviews cannot be rescheduled")
+    interview.starts_at = request.starts_at
+    interview.duration_minutes = request.duration_minutes
+    interview.mode = request.mode
+    interview.location = request.location
+    interview.meeting_url = request.meeting_url
+    if request.feedback_deadline: interview.feedback_deadline = request.feedback_deadline
+    interview.status = "scheduled"
+    interview.reminder_24_sent = False
+    interview.reminder_1h_sent = False
+    record_audit(db, user, "interview.rescheduled", "interview", interview.id, after={"starts_at": request.starts_at.isoformat()})
+    db.commit(); db.refresh(interview)
+    return interview
+
+
+@app.post("/interviews/{interview_id}/cancel")
+def cancel_interview(
+    interview_id: int,
+    reason: str,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _get_org_record(db, Interview, interview_id, user.organization_id)
+    if not reason.strip(): raise HTTPException(422, "Cancellation reason is required")
+    interview.status = "cancelled"
+    interview.cancellation_reason = reason.strip()
+    interview.reminder_24_sent = True
+    interview.reminder_1h_sent = True
+    record_audit(db, user, "interview.cancelled", "interview", interview.id, after={"reason": interview.cancellation_reason})
+    db.commit()
+    return {"id": interview.id, "status": interview.status, "cancellation_reason": interview.cancellation_reason}
+
+
+@app.get("/applications/{application_id}/interviews", response_model=list[InterviewRead])
+def list_interview_rounds(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    return db.scalars(select(Interview).where(Interview.application_id == application.id).order_by(Interview.round_number.asc(), Interview.starts_at.asc())).all()
+
+
+@app.patch("/interviews/{interview_id}", response_model=InterviewRead)
+def reschedule_interview_legacy(
+    interview_id: int,
+    request: InterviewCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _get_org_record(db, Interview, interview_id, user.organization_id)
+    if interview.status == "cancelled": raise HTTPException(409, "Cancelled interviews cannot be rescheduled")
+    interview.starts_at = request.starts_at
+    interview.duration_minutes = request.duration_minutes
+    interview.mode = request.mode
+    interview.location = request.location
+    interview.meeting_url = request.meeting_url
+    interview.round_name = request.round_name
+    interview.round_type = request.round_type
+    if request.feedback_deadline is not None: interview.feedback_deadline = request.feedback_deadline
+    interview.status = "scheduled"
+    interview.reminder_24_sent = False
+    interview.reminder_1h_sent = False
+    record_audit(db, user, "interview.rescheduled", "interview", interview.id, after={"starts_at": request.starts_at.isoformat(), "round_type": request.round_type})
+    db.commit(); db.refresh(interview)
+    return interview
+
+
+@app.patch("/interviews/{interview_id}/status")
+def update_interview_status(
+    interview_id: int,
+    request: InterviewStatusUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _get_org_record(db, Interview, interview_id, user.organization_id)
+    interview.status = request.status
+    interview.reminder_24_sent = True
+    interview.reminder_1h_sent = True
+    application = _get_org_record(db, Application, interview.application_id, user.organization_id)
+    record_audit(db, user, "interview.status_changed", "interview", interview.id, after={"status": request.status})
+    db.commit()
+    return {"id": interview.id, "status": interview.status, "application_id": application.id}
+
+
+@app.get("/applications/{application_id}/offer", response_model=OfferRead)
+def get_offer(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    offer = db.scalar(select(Offer).where(Offer.application_id == application.id))
+    if offer is None:
+        raise HTTPException(status_code=404, detail="No offer created for this application")
+    return offer
+
+
+@app.post("/applications/{application_id}/offer", response_model=OfferRead)
+def create_or_update_offer(
+    application_id: int,
+    request: OfferCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    offer = db.scalar(select(Offer).where(Offer.application_id == application.id))
+    if offer is None:
+        offer = Offer(
+            organization_id=user.organization_id,
+            application_id=application.id,
+            position_title=request.position_title.strip(),
+            annual_ctc=request.annual_ctc,
+            currency=request.currency,
+            joining_date=request.joining_date,
+            offer_letter_url=request.offer_letter_url,
+            notes=request.notes,
+            ctc_breakdown=request.ctc_breakdown,
+            benefits=request.benefits,
+            probation_period=request.probation_period,
+            expires_at=request.expires_at,
+            status="draft",
+            created_by_id=user.id,
+        )
+        db.add(offer)
+    else:
+        offer.position_title = request.position_title.strip()
+        offer.annual_ctc = request.annual_ctc
+        offer.currency = request.currency
+        offer.joining_date = request.joining_date
+        offer.offer_letter_url = request.offer_letter_url
+        offer.notes = request.notes
+        offer.ctc_breakdown = request.ctc_breakdown
+        offer.benefits = request.benefits
+        offer.probation_period = request.probation_period
+        offer.expires_at = request.expires_at
+        offer.revision = int(offer.revision or 1) + 1
+    db.commit()
+    db.refresh(offer)
+    return offer
+
+
+@app.patch("/applications/{application_id}/offer", response_model=OfferRead)
+def update_offer(
+    application_id: int,
+    request: OfferUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    offer = db.scalar(select(Offer).where(Offer.application_id == application.id))
+    if offer is None:
+        raise HTTPException(status_code=404, detail="No offer created for this application")
+    values = request.model_dump(exclude_unset=True)
+    for field, value in values.items():
+        if field == "status":
+            continue
+        setattr(offer, field, value)
+    if values:
+        offer.revision = int(offer.revision or 1) + 1
+    record_audit(db, user, "offer.updated", "application", application.id, after=request.model_dump(exclude_unset=True))
+    db.commit()
+    db.refresh(offer)
+    return offer
+
+
+@app.get("/dashboard")
+def dashboard_summary(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    jobs = db.scalars(select(Job).where(Job.organization_id == user.organization_id)).all()
+    applications = db.scalars(
+        select(Application)
+        .where(Application.organization_id == user.organization_id)
+        .options(selectinload(Application.job), selectinload(Application.candidate), selectinload(Application.stage))
+        .order_by(Application.applied_at.desc())
+    ).all()
+    stage_counts = {stage: 0 for stage in PIPELINE_STAGES}
+    job_counts = {}
+    source_counts = {}
+    for application in applications:
+        stage_name = application.stage.name if application.stage else "Applied"
+        stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
+        job_name = application.job.title
+        job_counts[job_name] = job_counts.get(job_name, 0) + 1
+        source = application.candidate.source or "Unknown"
+        source_counts[source] = source_counts.get(source, 0) + 1
+
+    application_ids = [application.id for application in applications]
+    email_counts = {"pending": 0, "sent": 0, "failed": 0, "other": 0}
+    if application_ids:
+        for status_value, count in db.execute(
+            select(Email.status, func.count(Email.id))
+            .where(
+                Email.organization_id == user.organization_id,
+                Email.application_id.in_(application_ids),
+            )
+            .group_by(Email.status)
+        ).all():
+            email_counts[status_value if status_value in email_counts else "other"] = count
+
+    now = datetime.now(timezone.utc)
+    upcoming = []
+    if application_ids:
+        interviews = db.scalars(
+            select(Interview)
+            .where(
+                Interview.application_id.in_(application_ids),
+                Interview.starts_at >= now,
+                Interview.status == "scheduled",
+            )
+            .order_by(Interview.starts_at.asc())
+            .limit(12)
+        ).all()
+        applications_by_id = {application.id: application for application in applications}
+        for interview in interviews:
+            application = applications_by_id.get(interview.application_id)
+            if application is not None:
+                upcoming.append({
+                    "id": interview.id,
+                    "application_id": application.id,
+                    "candidate_id": application.candidate_id,
+                    "candidate_name": f"{application.candidate.first_name} {application.candidate.last_name}".strip(),
+                    "candidate_email": application.candidate.email,
+                    "job_title": application.job.title,
+                    "starts_at": interview.starts_at,
+                    "duration_minutes": interview.duration_minutes,
+                    "mode": interview.mode,
+                    "location": interview.location,
+                    "meeting_url": interview.meeting_url,
+                    "status": interview.status,
+                })
+
+    return {
+        "metrics": {
+            "open_jobs": sum(1 for job in jobs if job.status == "open"),
+            "total_jobs": len(jobs),
+            "total_applications": len(applications),
+            "screening": stage_counts.get("Screening", 0),
+            "interviews": stage_counts.get("Interview", 0),
+            "offers": stage_counts.get("Offer", 0),
+            "hired": stage_counts.get("Hired", 0),
+            "rejected": stage_counts.get("Rejected", 0),
+        },
+        "stage_counts": stage_counts,
+        "job_counts": [{"name": name, "count": count} for name, count in sorted(job_counts.items(), key=lambda item: item[1], reverse=True)[:10]],
+        "source_counts": [{"name": name, "count": count} for name, count in sorted(source_counts.items(), key=lambda item: item[1], reverse=True)[:10]],
+        "email_counts": email_counts,
+        "upcoming_interviews": upcoming,
+        "recent_applications": [
+            {
+                "id": application.id,
+                "candidate_id": application.candidate_id,
+                "candidate_name": f"{application.candidate.first_name} {application.candidate.last_name}".strip(),
+                "job_title": application.job.title,
+                "stage_name": application.stage.name if application.stage else "Applied",
+                "applied_at": application.applied_at,
+            }
+            for application in applications[:10]
+        ],
+    }
+
+
+@app.get("/emails")
+def list_emails(
+    limit: int = Query(default=100, ge=1, le=500),
+    status_value: str | None = None,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    statement = select(Email).where(Email.organization_id == user.organization_id)
+    if status_value:
+        statement = statement.where(Email.status == status_value)
+    emails = db.scalars(statement.order_by(Email.id.desc()).limit(limit)).all()
+    application_ids = {email.application_id for email in emails if email.application_id is not None}
+    applications = {}
+    if application_ids:
+        applications = {
+            application.id: application
+            for application in db.scalars(
+                select(Application)
+                .where(
+                    Application.id.in_(application_ids),
+                    Application.organization_id == user.organization_id,
+                )
+                .options(selectinload(Application.job), selectinload(Application.candidate))
+            ).all()
+        }
+    return [
+        {
+            "id": email.id,
+            "application_id": email.application_id,
+            "candidate_name": (
+                f"{applications[email.application_id].candidate.first_name} {applications[email.application_id].candidate.last_name}".strip()
+                if email.application_id in applications else "Candidate"
+            ),
+            "job_title": applications[email.application_id].job.title if email.application_id in applications else None,
+            "recipient": email.recipient,
+            "subject": email.subject,
+            "status": email.status,
+            "error_message": email.error_message,
+            "sent_at": email.sent_at,
+        }
+        for email in emails
+    ]
+
+
+@app.get("/candidates/{candidate_id}/activity")
+def candidate_activity(
+    candidate_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    applications = db.scalars(
+        select(Application)
+        .where(
+            Application.candidate_id == candidate.id,
+            Application.organization_id == user.organization_id,
+        )
+        .options(selectinload(Application.job), selectinload(Application.stage))
+        .order_by(Application.applied_at.desc())
+    ).all()
+    application_ids = [application.id for application in applications]
+    events = []
+
+    if application_ids:
+        for entry in db.scalars(
+            select(AuditLog)
+            .where(
+                AuditLog.organization_id == user.organization_id,
+                AuditLog.entity_type == "application",
+                AuditLog.entity_id.in_(application_ids),
+            )
+            .order_by(AuditLog.created_at.desc())
+            .limit(100)
+        ).all():
+            events.append({
+                "type": "activity",
+                "title": entry.action.replace(".", " · ").replace("_", " ").title(),
+                "details": entry.after_data or {},
+                "created_at": entry.created_at,
+                "application_id": entry.entity_id,
+            })
+
+        for email in db.scalars(
+            select(Email)
+            .where(
+                Email.organization_id == user.organization_id,
+                Email.application_id.in_(application_ids),
+            )
+            .order_by(Email.id.desc())
+            .limit(100)
+        ).all():
+            events.append({
+                "type": "email",
+                "title": email.subject,
+                "details": {
+                    "status": email.status,
+                    "recipient": email.recipient,
+                    "error_message": email.error_message,
+                },
+                "created_at": email.sent_at or datetime.now(timezone.utc),
+                "application_id": email.application_id,
+            })
+
+        for interview in db.scalars(
+            select(Interview)
+            .where(Interview.application_id.in_(application_ids))
+            .order_by(Interview.starts_at.desc())
+            .limit(50)
+        ).all():
+            events.append({
+                "type": "interview",
+                "title": "Interview scheduled",
+                "details": {
+                    "starts_at": interview.starts_at,
+                    "duration_minutes": interview.duration_minutes,
+                    "mode": interview.mode,
+                    "location": interview.location,
+                    "meeting_url": interview.meeting_url,
+                    "status": interview.status,
+                },
+                "created_at": interview.starts_at,
+                "application_id": interview.application_id,
+            })
+
+    events.sort(
+        key=lambda event: event.get("created_at")
+        if isinstance(event.get("created_at"), datetime)
+        else datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    return {
+        "candidate": {
+            "id": candidate.id,
+            "name": f"{candidate.first_name} {candidate.last_name}".strip(),
+            "email": candidate.email,
+            "phone": candidate.phone,
+            "source": candidate.source,
+        },
+        "applications": [
+            {
+                "id": application.id,
+                "job_id": application.job_id,
+                "job_title": application.job.title,
+                "stage_name": application.stage.name if application.stage else "Applied",
+                "status": application.status,
+                "applied_at": application.applied_at,
+            }
+            for application in applications
+        ],
+        "events": events[:120],
+    }
+
+
+@app.get("/candidates/{candidate_id}", response_model=CandidateRead)
+def get_candidate(
+    candidate_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    return _get_org_record(db, Candidate, candidate_id, user.organization_id)
+
+
+@app.get("/candidates/{candidate_id}/collaboration", response_model=CandidateCollaborationRead)
+def get_candidate_collaboration(
+    candidate_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    tags = db.scalars(select(CandidateTag).where(CandidateTag.candidate_id == candidate.id).order_by(CandidateTag.name.asc())).all()
+    comments = db.scalars(
+        select(CandidateComment).where(
+            CandidateComment.candidate_id == candidate.id,
+            CandidateComment.organization_id == user.organization_id,
+        ).order_by(CandidateComment.created_at.desc())
+    ).all()
+    followers = db.scalars(
+        select(CandidateFollower).where(
+            CandidateFollower.candidate_id == candidate.id,
+            CandidateFollower.organization_id == user.organization_id,
+        )
+    ).all()
+    follower_ids = {item.user_id for item in followers}
+    org_users = db.scalars(
+        select(User).where(User.organization_id == user.organization_id, User.is_active.is_(True)).order_by(User.full_name.asc())
+    ).all()
+    owner = db.get(User, candidate.owner_id) if candidate.owner_id else None
+    return {
+        "tags": tags,
+        "comments": [
+            {
+                "id": item.id,
+                "body": item.body,
+                "mentions": item.mentions or [],
+                "author_id": item.author_id,
+                "author_name": (db.get(User, item.author_id).full_name if db.get(User, item.author_id) else "Unknown"),
+                "created_at": item.created_at,
+            }
+            for item in comments
+        ],
+        "followers": [
+            {"user_id": member.id, "user_name": member.full_name, "following": member.id in follower_ids}
+            for member in org_users
+        ],
+        "following": user.id in follower_ids,
+        "owner_id": candidate.owner_id,
+        "owner_name": owner.full_name if owner else None,
+        "starred": candidate.starred,
+        "needs_review": candidate.needs_review,
+        "priority": candidate.priority,
+    }
+
+
+@app.post("/candidates/{candidate_id}/collaboration/tags", response_model=CandidateTagRead, status_code=status.HTTP_201_CREATED)
+def add_candidate_tag(
+    candidate_id: int,
+    request: CandidateTagUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    name = request.name.strip()
+    tag = db.scalar(select(CandidateTag).where(CandidateTag.candidate_id == candidate.id, func.lower(CandidateTag.name) == name.casefold()))
+    if tag:
+        tag.color = request.color
+    else:
+        tag = CandidateTag(organization_id=user.organization_id, candidate_id=candidate.id, name=name, color=request.color)
+        db.add(tag)
+        current = [str(value) for value in (candidate.tags or []) if str(value).casefold() != name.casefold()]
+        candidate.tags = current + [name]
+    db.commit()
+    db.refresh(tag)
+    return tag
+
+
+@app.patch("/candidates/{candidate_id}/collaboration", response_model=CandidateCollaborationRead)
+def update_candidate_collaboration(
+    candidate_id: int,
+    request: CandidateCollaborationUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    updates = request.model_dump(exclude_unset=True)
+    if "owner_id" in updates:
+        owner_id = updates["owner_id"]
+        if owner_id is not None:
+            owner = db.scalar(select(User).where(User.id == owner_id, User.organization_id == user.organization_id, User.is_active.is_(True)))
+            if owner is None:
+                raise HTTPException(status_code=400, detail="Owner must be an active member of your organization")
+        candidate.owner_id = owner_id
+    for field in ("starred", "needs_review", "priority"):
+        if field in updates and updates[field] is not None:
+            setattr(candidate, field, updates[field])
+    db.commit()
+    return get_candidate_collaboration(candidate.id, user, db)
+
+
+@app.delete("/candidates/{candidate_id}/collaboration/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_candidate_tag(
+    candidate_id: int,
+    tag_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    tag = db.scalar(select(CandidateTag).where(CandidateTag.id == tag_id, CandidateTag.candidate_id == candidate.id, CandidateTag.organization_id == user.organization_id))
+    if tag is None:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    candidate.tags = [value for value in (candidate.tags or []) if str(value).casefold() != tag.name.casefold()]
+    db.delete(tag)
+    db.commit()
+
+
+@app.post("/candidates/{candidate_id}/collaboration/comments", response_model=CandidateCommentRead, status_code=status.HTTP_201_CREATED)
+def add_candidate_comment(
+    candidate_id: int,
+    request: CandidateCommentCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    mentioned_names = {match.casefold() for match in re.findall(r"@([A-Za-z][A-Za-z0-9._-]{1,99})", request.body)}
+    org_users = db.scalars(select(User).where(User.organization_id == user.organization_id, User.is_active.is_(True))).all()
+    mentions = [{"user_id": member.id, "user_name": member.full_name} for member in org_users if member.full_name.casefold() in mentioned_names or member.full_name.split(" ")[0].casefold() in mentioned_names]
+    comment = CandidateComment(
+        organization_id=user.organization_id,
+        candidate_id=candidate.id,
+        author_id=user.id,
+        body=request.body.strip(),
+        mentions=mentions,
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return {"id": comment.id, "body": comment.body, "mentions": mentions, "author_id": user.id, "author_name": user.full_name, "created_at": comment.created_at}
+
+
+@app.post("/candidates/{candidate_id}/collaboration/follow", response_model=CandidateFollowerRead)
+def follow_candidate(
+    candidate_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    follower = db.scalar(select(CandidateFollower).where(CandidateFollower.candidate_id == candidate.id, CandidateFollower.user_id == user.id))
+    if follower is None:
+        db.add(CandidateFollower(organization_id=user.organization_id, candidate_id=candidate.id, user_id=user.id))
+        db.commit()
+    return {"user_id": user.id, "user_name": user.full_name, "following": True}
+
+
+@app.delete("/candidates/{candidate_id}/collaboration/follow", status_code=status.HTTP_204_NO_CONTENT)
+def unfollow_candidate(
+    candidate_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    follower = db.scalar(select(CandidateFollower).where(CandidateFollower.candidate_id == candidate.id, CandidateFollower.user_id == user.id))
+    if follower:
+        db.delete(follower)
+        db.commit()
+
+
+@app.patch("/candidates/{candidate_id}", response_model=CandidateRead)
+def update_candidate(
+    candidate_id: int,
+    request: CandidateUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    before = _audit_candidate(candidate)
+    updates = request.model_dump(exclude_unset=True)
+    if "email" in updates and updates["email"] is not None:
+        updates["email"] = str(updates["email"]).lower()
+    if updates.get("resume_data"):
+        updates["resume_data"] = {
+            key: value for key, value in updates["resume_data"].items() if key != "raw_text"
+        }
+    for field, value in updates.items():
+        setattr(candidate, field, value)
+    record_audit(
+        db,
+        user,
+        "candidate.updated",
+        "candidate",
+        candidate.id,
+        before=before,
+        after=_audit_candidate(candidate),
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="This candidate already exists in your organization")
+    db.refresh(candidate)
+    return candidate
+
+
+@app.delete("/candidates/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_candidate(
+    candidate_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    has_applications = db.scalar(
+        select(Application.id).where(Application.candidate_id == candidate_id).limit(1)
+    )
+    if has_applications:
+        raise HTTPException(status_code=409, detail="A candidate with applications cannot be deleted")
+    record_audit(db, user, "candidate.deleted", "candidate", candidate.id, before=_audit_candidate(candidate))
+    db.delete(candidate)
+    db.commit()
+
+
+@app.get("/jobs/{job_id}/stages")
+def list_job_stages(
+    job_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = _get_org_record(db, Job, job_id, user.organization_id)
+    stages = ensure_job_stages(db, job)
+    db.commit()
+    return [
+        {"id": stage.id, "name": name, "position": stage.position}
+        for name, stage in sorted(stages.items(), key=lambda item: item[1].position)
+    ]
+
+
+@app.post("/candidates/{candidate_id}/resume", response_model=CandidateRead)
+async def upload_candidate_resume(
+    candidate_id: int,
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    suffix, content = await _read_resume_upload(file)
+
+    storage_key = f"{user.organization_id}/{candidate.id}/{os.urandom(16).hex()}{suffix}"
+    storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
+    storage_path = storage_dir / storage_key
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage_path.write_bytes(content)
+    try:
+        parsed = extractor_service.extract_to_json(content, f"resume{suffix}")
+    except Exception as error:
+        storage_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=f"Resume could not be parsed: {error}")
+
+    before = {"resume_storage_key": candidate.resume_storage_key}
+    candidate.resume_storage_key = storage_key
+    candidate.resume_data = {key: value for key, value in parsed.items() if key != "raw_text"}
+    if not candidate.phone and parsed.get("phone"):
+        candidate.phone = parsed["phone"][:50]
+    if not candidate.linkedin_url and parsed.get("linkedin"):
+        candidate.linkedin_url = parsed["linkedin"][:500]
+    record_audit(
+        db,
+        user,
+        "candidate.resume_uploaded",
+        "candidate",
+        candidate.id,
+        before=before,
+        after={"resume_storage_key": storage_key, "parsed_fields": sorted(parsed.keys())},
+    )
+    db.commit()
+    db.refresh(candidate)
+    return candidate
+
+
+@app.post("/applications", response_model=ApplicationRead, status_code=status.HTTP_201_CREATED)
+def create_application(
+    request: ApplicationCreate,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = _get_org_record(db, Job, request.job_id, user.organization_id)
+    candidate = _get_org_record(db, Candidate, request.candidate_id, user.organization_id)
+    if job.status != "open":
+        raise HTTPException(status_code=409, detail="Applications can only be created for open jobs")
+
+    stages = ensure_job_stages(db, job)
+    application = Application(
+        organization_id=user.organization_id,
+        job_id=job.id,
+        candidate_id=candidate.id,
+        stage_id=stages["Applied"].id,
+        status="active",
+    )
+    db.add(application)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="This candidate already applied to this job")
+    # Fast local candidate-to-job match on application creation.
+    # No external LLM or embedding call is made on this request path.
+    if not job.jd_analysis:
+        job.jd_analysis = matching_service.analyze_job(job)
+    score = matching_service.score_candidate(job, candidate)
+    match = db.scalar(
+        select(CandidateJobMatch).where(
+            CandidateJobMatch.organization_id == user.organization_id,
+            CandidateJobMatch.job_id == job.id,
+            CandidateJobMatch.candidate_id == candidate.id,
+        )
+    )
+    if match is None:
+        match = CandidateJobMatch(
+            organization_id=user.organization_id,
+            job_id=job.id,
+            candidate_id=candidate.id,
+        )
+        db.add(match)
+    match.model_score = score["model_score"]
+    match.score_breakdown = score["score_breakdown"]
+    match.matched_skills = score["matched_skills"]
+    match.skill_gaps = score["skill_gaps"]
+    match.explanations = score["explanations"]
+    match.semantic_mode = score["semantic_mode"]
+
+    record_audit(
+        db,
+        user,
+        "application.created",
+        "application",
+        application.id,
+        after={
+            "job_id": job.id,
+            "candidate_id": candidate.id,
+            "stage_name": "Applied",
+            "match_score": score["model_score"],
+        },
+    )
+    subject, body = _stage_email(application, "Applied", db=db)
+    email_ids = [queue_application_email(db, application, subject, body)]
+    email_ids.extend(run_stage_automations(db, application, stages["Applied"].name))
+    db.commit()
+    db.refresh(application)
+    for queued_id in email_ids:
+        background_tasks.add_task(deliver_outbox_email, queued_id)
+    return serialize_application(application)
+
+
+@app.get("/applications", response_model=list[ApplicationRead])
+def list_applications(
+    job_id: int | None = None,
+    stage_name: str | None = None,
+    source: str | None = None,
+    skill: str | None = None,
+    search: str | None = None,
+    applied_after: date | None = None,
+    applied_before: date | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    statement = _application_query(
+        user.organization_id,
+        job_id=job_id,
+        stage_name=stage_name,
+        source=source,
+        skill=skill,
+        search=search,
+        applied_after=applied_after,
+        applied_before=applied_before,
+    ).offset(offset).limit(limit)
+    return [serialize_application(application) for application in db.scalars(statement).all()]
+
+
+@app.get("/applications/export.csv")
+def export_applications_csv(
+    job_id: int | None = None,
+    stage_name: str | None = None,
+    source: str | None = None,
+    skill: str | None = None,
+    search: str | None = None,
+    applied_after: date | None = None,
+    applied_before: date | None = None,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    statement = _application_query(
+        user.organization_id,
+        job_id=job_id,
+        stage_name=stage_name,
+        source=source,
+        skill=skill,
+        search=search,
+        applied_after=applied_after,
+        applied_before=applied_before,
+    ).limit(10000)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Application ID", "Job", "Candidate", "Email", "Source", "Stage", "Applied At", "Skills"])
+    for application in db.scalars(statement):
+        candidate = application.candidate
+        skills = (candidate.resume_data or {}).get("skills", [])
+        writer.writerow(
+            [
+                _safe_csv_value(application.id),
+                _safe_csv_value(application.job.title),
+                _safe_csv_value(f"{candidate.first_name} {candidate.last_name}"),
+                _safe_csv_value(candidate.email),
+                _safe_csv_value(candidate.source),
+                _safe_csv_value(application.stage.name if application.stage else ""),
+                _safe_csv_value(application.applied_at.isoformat()),
+                _safe_csv_value(", ".join(skills)),
+            ]
+        )
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=applications.csv"},
+    )
+
+
+@app.post("/applications/{application_id}/stage", response_model=ApplicationRead)
+def update_application_stage(
+    application_id: int,
+    request: ApplicationStageUpdate,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    if application.status in {*TERMINAL_STAGES.values(), "withdrawn"} and application.stage.name != request.stage_name:
+        raise HTTPException(status_code=409, detail="A completed application cannot be moved")
+
+    stages = ensure_job_stages(db, application.job)
+    stage = stages[request.stage_name]
+    previous_name = application.stage.name if application.stage else None
+    if previous_name == request.stage_name and request.stage_name != "Interview":
+        return serialize_application(application)
+
+    if request.stage_name == "Interview":
+        if request.interview_starts_at is None:
+            raise HTTPException(status_code=422, detail="Interview date and time are required.")
+        if request.interview_starts_at.tzinfo is None:
+            raise HTTPException(status_code=422, detail="Interview date and time must include a timezone.")
+
+        if request.interview_mode == "offline" and not request.interview_location:
+            raise HTTPException(status_code=422, detail="Interview location is required for an offline interview.")
+        if request.interview_mode == "online" and not request.interview_meeting_url:
+            raise HTTPException(status_code=422, detail="Meeting link is required for an online interview.")
 
         interview = db.scalar(
             select(Interview)
