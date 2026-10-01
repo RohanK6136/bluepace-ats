@@ -1634,6 +1634,39 @@ export default function AtsWorkspace() {
                   </div>
                 </div>
 
+                <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Resume intelligence</p><p className="mt-1 text-sm text-ink-500">Structured resume evidence for recruiter review. Missing or suspicious fields are signals to verify, not definitive facts.</p></div>
+                    <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-800">Evidence-based</span>
+                  </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      ["Years of experience", profile.years_of_experience ?? "Not found"],
+                      ["Current location", profile.current_location || "Not found"],
+                      ["Preferred location", profile.preferred_location || "Not found"],
+                      ["Notice period", profile.notice_period || "Not found"],
+                      ["Work authorization", profile.work_authorization || "Not found"],
+                      ["LinkedIn", profile.linkedin || "Not found"],
+                      ["GitHub", profile.github || "Not found"],
+                      ["Highest education", profile.highest_education || "Not found"],
+                    ].map(([label, value]) => <div key={label} className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">{label}</p><p className="mt-1 break-words text-sm">{value}</p></div>)}
+                  </div>
+                  <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                    <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Companies</p><p className="mt-2 text-sm">{(profile.companies || []).join(", ") || "Not found"}</p></div>
+                    <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Job titles</p><p className="mt-2 text-sm">{(profile.job_titles || []).join(", ") || "Not found"}</p></div>
+                    <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Certifications</p><p className="mt-2 text-sm">{(profile.certifications || []).join(", ") || "Not found"}</p></div>
+                  </div>
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Projects</p><ul className="mt-2 grid gap-1 text-sm">{(profile.projects || profile.university_projects || []).slice(0, 12).map((project, index) => <li key={index}>{typeof project === "object" ? (project.name || project.title || project.description || JSON.stringify(project)) : project}</li>)}{!(profile.projects || profile.university_projects || []).length && <li className="text-ink-400">Not found</li>}</ul></div>
+                    <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Resume review signals</p>
+                      <p className="mt-2 text-xs text-ink-500">These flags indicate fields that may need recruiter verification.</p>
+                      <div className="mt-2 flex flex-wrap gap-2">{(profile.resume_quality?.missing_fields || []).map((field) => <span key={"missing-"+field} className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800">Missing: {field}</span>)}</div>
+                      <div className="mt-2 grid gap-2">{(profile.resume_quality?.suspicious_fields || []).map((flag, index) => <div key={index} className="rounded-md border border-amber-100 bg-amber-50/50 p-2 text-xs"><span className="font-semibold">{flag.field}</span>: {flag.reason}{flag.evidence ? <span className="block mt-1 text-ink-500">Evidence: {flag.evidence}</span> : null}</div>)}</div>
+                      {!profile.resume_quality?.missing_fields?.length && !profile.resume_quality?.suspicious_fields?.length && <p className="mt-2 text-sm text-emerald-700">No review signals detected by the parser.</p>}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="mt-6 border-t border-ink-100 pt-5">
                   <div className="flex items-start justify-between gap-3">
                     <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Candidate 360°</p><h4 className="mt-1 font-semibold">Application history & communication</h4></div>

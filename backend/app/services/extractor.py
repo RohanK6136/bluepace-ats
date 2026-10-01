@@ -160,9 +160,170 @@ class DocumentExtractor:
             "education": education,
             "hobbies": [],
             "university_projects": projects,
+            "projects": projects,
+            "certifications": self._extract_certifications(lines),
+            "years_of_experience": self._extract_explicit_experience_years(raw_text) or self._experience_years_from_entries(experience),
+            "companies": list(dict.fromkeys(str(item.get("company")).strip() for item in experience if isinstance(item, dict) and item.get("company"))),
+            "job_titles": list(dict.fromkeys(str(item.get("title")).strip() for item in experience if isinstance(item, dict) and item.get("title"))),
+            "current_location": self._extract_location(raw_text),
+            "preferred_location": self._extract_preferred_location(raw_text),
+            "notice_period": self._extract_notice_period(raw_text),
+            "work_authorization": self._extract_work_authorization(raw_text),
             "highest_education": education[0]["degree"] if education else None,
             "is_fresher": not bool(experience),
         }
+
+    @staticmethod
+    def _extract_certifications(lines):
+        headings = [r"certifications?", r"licenses?", r"professional certifications?"]
+        all_headings = [
+            r"experience", r"work experience", r"professional experience", r"employment history",
+            r"education", r"skills", r"projects", r"academic projects", r"university projects",
+            r"personal projects", r"key projects", r"project experience", r"certifications?",
+            r"licenses?", r"hobbies", r"summary", r"profile",
+        ]
+        for pattern in headings:
+            section = DocumentExtractor._section(lines, pattern, all_headings)
+            if section:
+                return [re.sub(r"^[•*\-]\s*", "", line).strip() for line in section if line.strip()][:30]
+        return []
+
+    @staticmethod
+    def _extract_location(raw_text):
+        patterns = [
+            r"(?:current\s+location|location|based\s+in|residing\s+in)\s*[:\-]\s*([^\n|]{2,100})",
+            r"(?:address|present\s+address)\s*[:\-]\s*([^\n|]{2,150})",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, raw_text, re.IGNORECASE)
+            if match:
+                value = re.sub(r"\s+", " ", match.group(1)).strip(" ,.-")
+                if value:
+                    return value
+        return None
+
+    @staticmethod
+    def _extract_preferred_location(raw_text):
+        patterns = [
+            r"(?:preferred\s+location|preferred\s+locations|willing\s+to\s+relocate|relocation\s+preference)\s*[:\-]\s*([^\n|]{2,150})",
+            r"(?:open\s+to\s+relocation|relocate\s+to)\s*[:\-]?\s*([^\n|]{2,150})",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, raw_text, re.IGNORECASE)
+            if match:
+                value = re.sub(r"\s+", " ", match.group(1)).strip(" ,.-")
+                if value:
+                    return value
+        return None
+
+    @staticmethod
+    def _extract_notice_period(raw_text):
+        patterns = [
+            r"(?:notice\s+period|notice)\s*[:\-]?\s*(\d{1,3}\s*(?:days?|weeks?|months?)|immediate|serving\s+notice)",
+            r"(\d{1,3})\s*(?:days?|weeks?|months?)\s*(?:notice\s+period)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, raw_text, re.IGNORECASE)
+            if match:
+                return re.sub(r"\s+", " ", match.group(1)).strip()
+        return None
+
+    @staticmethod
+    def _extract_work_authorization(raw_text):
+        patterns = [
+            r"(?:work\s+authorization|work\s+permit|visa\s+status|right\s+to\s+work|authorization\s+to\s+work)\s*[:\-]?\s*([^\n|]{2,120})",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, raw_text, re.IGNORECASE)
+            if match:
+                value = re.sub(r"\s+", " ", match.group(1)).strip(" ,.-")
+                if value:
+                    return value
+        return None
+
+    @staticmethod
+    def _extract_explicit_experience_years(raw_text):
+        patterns = [
+            r"(?:years?|yrs?)\s+of\s+(?:professional\s+)?experience\s*[:\-]?\s*(\d+(?:\.\d+)?)",
+            r"(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:professional\s+)?experience",
+        ]
+        values = []
+        for pattern in patterns:
+            values.extend(float(v) for v in re.findall(pattern, raw_text, re.IGNORECASE))
+        return max(values) if values else None
+
+    @staticmethod
+    def _experience_years_from_entries(experience):
+        total_months = 0
+        date_re = re.compile(r"(\d{4})\s*(?:-|–|to)\s*(\d{4}|present|current)", re.IGNORECASE)
+        for item in experience or []:
+            if not isinstance(item, dict):
+                continue
+            duration = str(item.get("duration") or "")
+            match = date_re.search(duration)
+            if not match:
+                continue
+            start, end = int(match.group(1)), match.group(2).lower()
+            end_year = datetime_year = None
+            if end in {"present", "current"}:
+                from datetime import datetime
+                end_year = datetime.now().year
+            else:
+                end_year = int(end)
+            if end_year >= start:
+                total_months += (end_year - start) * 12
+        return round(total_months / 12, 1) if total_months else None
+
+    @staticmethod
+    def _resume_quality_flags(raw_text, parsed):
+        flags = []
+        missing = []
+        checks = {
+            "email": "email",
+            "phone": "phone",
+            "skills": "skills",
+            "experience": "experience",
+            "education": "education",
+        }
+        for label, key in checks.items():
+            value = parsed.get(key)
+            if not value:
+                missing.append(label)
+        optional_checks = {
+            "linkedin": "LinkedIn",
+            "github": "GitHub",
+            "certifications": "certifications",
+            "current_location": "current location",
+            "preferred_location": "preferred location",
+            "notice_period": "notice period",
+            "work_authorization": "work authorization",
+        }
+        for key, label in optional_checks.items():
+            if not parsed.get(key):
+                missing.append(label)
+
+        email = str(parsed.get("email") or "")
+        if email and not re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", email):
+            flags.append({"field": "email", "severity": "medium", "reason": "Email was extracted but does not match a standard email pattern.", "evidence": email})
+        phone = str(parsed.get("phone") or "")
+        if phone and len(re.sub(r"\D", "", phone)) < 8:
+            flags.append({"field": "phone", "severity": "low", "reason": "Phone number appears unusually short; verify against the source resume.", "evidence": phone})
+        for item in parsed.get("experience") or []:
+            if not isinstance(item, dict):
+                continue
+            duration = str(item.get("duration") or "")
+            if duration and not re.search(r"(?:19|20)\d{2}", duration):
+                flags.append({"field": "experience", "severity": "low", "reason": "An experience entry has a duration that could not be normalized to calendar years.", "evidence": duration})
+        explicit = parsed.get("years_of_experience")
+        calculated = DocumentExtractor._experience_years_from_entries(parsed.get("experience"))
+        if explicit is not None and calculated is not None and abs(float(explicit) - float(calculated)) > 2:
+            flags.append({"field": "years_of_experience", "severity": "medium", "reason": "Explicit experience duration differs materially from the dates detected in employment entries.", "evidence": f"Explicit: {explicit}; date-based estimate: {calculated}"})
+        if re.search(r"\b(?:19|20)\d{2}\b", raw_text) and parsed.get("education"):
+            for item in parsed.get("education") or []:
+                year = item.get("graduation_year") if isinstance(item, dict) else None
+                if year and int(str(year)) > __import__("datetime").datetime.now().year + 2:
+                    flags.append({"field": "education", "severity": "medium", "reason": "A graduation year is unusually far in the future; verify the extracted year.", "evidence": str(year)})
+        return {"missing_fields": missing, "suspicious_fields": flags}
 
     def _llm_parse(self, raw_text):
         if self.client is None:
@@ -234,14 +395,23 @@ Resume text:
         parsed = self._fallback_parse(raw_text)
         llm_data = self._llm_parse(raw_text) if os.getenv("ENABLE_LLM_RESUME_ENRICHMENT", "false").lower() == "true" else None
         if llm_data:
-            for field in ("name", "email", "phone", "linkedin", "github", "highest_education"):
+            for field in ("name", "email", "phone", "linkedin", "github", "highest_education", "years_of_experience", "current_location", "preferred_location", "notice_period", "work_authorization"):
                 if llm_data.get(field):
                     parsed[field] = llm_data[field]
-            for field in ("skills", "experience", "education", "hobbies", "university_projects"):
+            for field in ("skills", "experience", "education", "hobbies", "university_projects", "projects", "certifications", "companies", "job_titles"):
                 if isinstance(llm_data.get(field), list) and llm_data[field]:
                     parsed[field] = llm_data[field]
             if isinstance(llm_data.get("is_fresher"), bool):
                 parsed["is_fresher"] = llm_data["is_fresher"]
+        if not parsed.get("projects"):
+            parsed["projects"] = parsed.get("university_projects") or []
+        if not parsed.get("companies"):
+            parsed["companies"] = list(dict.fromkeys(str(item.get("company")).strip() for item in parsed.get("experience") or [] if isinstance(item, dict) and item.get("company")))
+        if not parsed.get("job_titles"):
+            parsed["job_titles"] = list(dict.fromkeys(str(item.get("title")).strip() for item in parsed.get("experience") or [] if isinstance(item, dict) and item.get("title")))
+        if parsed.get("years_of_experience") is None:
+            parsed["years_of_experience"] = self._experience_years_from_entries(parsed.get("experience"))
+        parsed["resume_quality"] = self._resume_quality_flags(raw_text, parsed)
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
         return parsed
