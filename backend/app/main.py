@@ -2105,7 +2105,7 @@ def create_application(
             "match_score": score["model_score"],
         },
     )
-    subject, body = _stage_email(application, "Applied")
+    subject, body = _stage_email(application, "Applied", db=db)
     email_id = queue_application_email(db, application, subject, body)
     db.commit()
     db.refresh(application)
