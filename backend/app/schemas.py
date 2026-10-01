@@ -419,6 +419,25 @@ class OfferRead(BaseModel):
     updated_at: datetime
 
 
+class InterviewParticipantInput(BaseModel):
+    user_id: int
+
+
+class InterviewAvailabilityCreate(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class InterviewAvailabilityRead(BaseModel):
+    id: int
+    user_id: int
+    starts_at: datetime
+    ends_at: datetime
+    status: str
+    note: Optional[str]
+
+
 class InterviewCreate(BaseModel):
     starts_at: datetime
     duration_minutes: int = Field(default=60, ge=15, le=480)
@@ -426,7 +445,10 @@ class InterviewCreate(BaseModel):
     location: Optional[str] = Field(default=None, max_length=500)
     meeting_url: Optional[str] = Field(default=None, max_length=1000)
     round_name: str = Field(default="Interview", min_length=1, max_length=100)
+    round_type: str = Field(default="technical", pattern="^(technical|hr|manager|custom)$")
+    round_number: int = Field(default=1, ge=1, le=20)
     feedback_deadline: Optional[datetime] = None
+    interviewer_ids: list[int] = Field(default_factory=list)
 
 
 class InterviewStatusUpdate(BaseModel):
