@@ -1024,6 +1024,18 @@ def logout(
     return {"status": "revoked", "revoked": revoke_access_token(token, db)}
 
 
+@app.get("/recruiting-users", response_model=list[UserRead])
+def list_recruiting_users(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    return db.scalars(
+        select(User)
+        .where(User.organization_id == user.organization_id, User.is_active.is_(True))
+        .order_by(User.full_name.asc())
+    ).all()
+
+
 @app.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def create_user(
     request: UserCreate,
