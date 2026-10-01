@@ -60,6 +60,7 @@ from app.schemas import (
     ScorecardCreate,
     ScorecardRead,
     EmailTemplateUpdate,
+    EmailTemplateTestRequest,
     OrganizationRegistration,
     TokenRead,
     UserCreate,
@@ -1646,6 +1647,105 @@ def get_email_templates(
         label: custom.get(label) or merged.get(label) or {}
         for label in labels
     }
+
+
+@app.get("/email-templates/preview")
+def preview_email_template(
+    template_name: str = Query(..., min_length=1, max_length=100),
+    application_id: int | None = None,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    labels = {"Applied", "Screening", "Interview", "Offer", "Hired", "Rejected", "Interview Reminder 24h", "Interview Reminder 1h"}
+    if template_name not in labels:
+        raise HTTPException(status_code=400, detail="Unknown email template")
+    organization = db.get(Organization, user.organization_id)
+    custom = organization.email_templates if organization and organization.email_templates else {}
+    defaults = dict(DEFAULT_EMAIL_TEMPLATES)
+    defaults["Interview Reminder 24h"] = REMINDER_EMAIL_TEMPLATES["24h"]
+    defaults["Interview Reminder 1h"] = REMINDER_EMAIL_TEMPLATES["1h"]
+    template = custom.get(template_name) or defaults.get(template_name)
+    if not template:
+        raise HTTPException(status_code=404, detail="Email template not found")
+
+    candidate_name = "Candidate"
+    job_title = "Sample role"
+    interview_values = {
+        "interview_date": "01 October 2026",
+        "interview_time": "10:00 AM IST",
+        "interview_duration": "60",
+        "interview_mode": "Online",
+        "meeting_link": "https://example.com/interview",
+        "interview_location": "Blupace Tech office",
+    }
+    if application_id is not None:
+        application = _get_org_record(db, Application, application_id, user.organization_id)
+        candidate_name = application.candidate.first_name or "Candidate"
+        job_title = application.job.title
+        interview_values["interview_date"] = application.updated_at.strftime("%d %B %Y") if application.updated_at else interview_values["interview_date"]
+
+    values = {
+        "candidate_name": candidate_name,
+        "job_title": job_title,
+        **interview_values,
+        "candidate_portal_url": "https://bluepace-ats-frontend.onrender.com/?portal=preview",
+        "company_name": "Blupace Tech",
+    }
+    subject, body = _render_email_template(template, values)
+    return {
+        "template_name": template_name,
+        "subject": subject,
+        "body": body,
+        "is_custom": bool(custom.get(template_name)),
+    }
+
+
+@app.post("/email-templates/test")
+def send_email_template_test(
+    request: EmailTemplateTestRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    labels = {"Applied", "Screening", "Interview", "Offer", "Hired", "Rejected", "Interview Reminder 24h", "Interview Reminder 1h"}
+    if request.template_name not in labels:
+        raise HTTPException(status_code=400, detail="Unknown email template")
+    organization = db.get(Organization, user.organization_id)
+    custom = organization.email_templates if organization and organization.email_templates else {}
+    defaults = dict(DEFAULT_EMAIL_TEMPLATES)
+    defaults["Interview Reminder 24h"] = REMINDER_EMAIL_TEMPLATES["24h"]
+    defaults["Interview Reminder 1h"] = REMINDER_EMAIL_TEMPLATES["1h"]
+    template = custom.get(request.template_name) or defaults.get(request.template_name)
+    if not template:
+        raise HTTPException(status_code=404, detail="Email template not found")
+
+    values = {
+        "candidate_name": "Test Candidate",
+        "job_title": "Sample role",
+        "interview_date": "01 October 2026",
+        "interview_time": "10:00 AM IST",
+        "interview_duration": "60",
+        "interview_mode": "Online",
+        "meeting_link": "https://example.com/interview",
+        "interview_location": "Blupace Tech office",
+        "candidate_portal_url": "https://bluepace-ats-frontend.onrender.com/?portal=preview",
+        "company_name": "Blupace Tech",
+    }
+    subject, body = _render_email_template(template, values)
+    email = Email(
+        organization_id=user.organization_id,
+        application_id=None,
+        recipient=request.recipient.strip(),
+        subject=subject,
+        body=body,
+        status="pending",
+    )
+    db.add(email)
+    db.flush()
+    record_audit(db, user, "email.template_test_sent", "organization", organization.id, after={"template_name": request.template_name, "recipient": request.recipient.strip()})
+    db.commit()
+    background_tasks.add_task(deliver_outbox_email, email.id)
+    return {"status": "queued", "email_id": email.id, "recipient": email.recipient, "subject": email.subject}
 
 
 @app.patch("/email-templates")
