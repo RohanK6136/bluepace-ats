@@ -1594,14 +1594,6 @@ def create_public_candidate_question(
     )
     db.add(row)
     db.flush()
-    db.add(AuditLog(
-        organization_id=application.organization_id,
-        actor_id=application.candidate_id,
-        action="candidate.question_submitted",
-        entity_type="application",
-        entity_id=application.id,
-        after_data={"question_id": row.id, "subject": row.subject},
-    ))
     db.commit()
     db.refresh(row)
     return {"id": row.id, "subject": row.subject, "question": row.question, "answer": None, "status": row.status, "created_at": row.created_at, "answered_at": None}
@@ -1778,14 +1770,6 @@ async def upload_public_document(token: str, file: UploadFile = File(...), reque
             raise HTTPException(status_code=409, detail="This document request has already been fulfilled.")
         document_request.document_id = row.id
         document_request.status = "fulfilled"
-    db.add(AuditLog(
-        organization_id=application.organization_id,
-        actor_id=application.candidate_id,
-        action="candidate.document_uploaded",
-        entity_type="application",
-        entity_id=application.id,
-        after_data={"document_id": row.id, "name": row.name, "request_id": request_id},
-    ))
     db.commit()
     db.refresh(row)
     return {"id": row.id, "name": row.name, "content_type": row.content_type, "size_bytes": row.size_bytes, "created_at": row.created_at, "download_url": f"/public/application/{token}/documents/{row.id}"}
