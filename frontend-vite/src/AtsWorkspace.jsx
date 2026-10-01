@@ -1337,16 +1337,20 @@ export default function AtsWorkspace() {
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">Add candidate</button><button className={buttonSecondary} type="button" onClick={() => setCandidateFormOpen(false)}>Cancel</button></div>
             </form>}
             <form onSubmit={searchCandidates} className="mb-5 rounded-xl border border-ink-100 bg-white p-4">
-              <div className="grid gap-3 md:grid-cols-5">
-                <Field label="Search" placeholder="Name, email, skill, project..." value={candidateFilters.search} onChange={(event) => setCandidateFilters({ ...candidateFilters, search: event.target.value })} />
+              <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
+                <Field label="Search" placeholder="Python AND SQL NOT Java" value={candidateFilters.search} onChange={(event) => setCandidateFilters({ ...candidateFilters, search: event.target.value })} />
                 <Field label="Skill" placeholder="Python, React, SQL..." value={candidateFilters.skill} onChange={(event) => setCandidateFilters({ ...candidateFilters, skill: event.target.value })} />
+                <Field label="Tags" placeholder="Immediate, React" value={candidateFilters.tags} onChange={(event) => setCandidateFilters({ ...candidateFilters, tags: event.target.value })} />
                 <Field label="Location" placeholder="Hyderabad" value={candidateFilters.location} onChange={(event) => setCandidateFilters({ ...candidateFilters, location: event.target.value })} />
-                <Field label="Minimum experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.min_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, min_experience_years: event.target.value })} />
-                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Source<select className={inputStyle} value={candidateFilters.source} onChange={(event) => setCandidateFilters({ ...candidateFilters, source: event.target.value })}><option value="">All sources</option>{[...new Set(candidates.map((candidate) => candidate.source).filter(Boolean))].map((source) => <option key={source}>{source}</option>)}</select></label>
+                <Field label="Min experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.min_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, min_experience_years: event.target.value })} />
+                <Field label="Max experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.max_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, max_experience_years: event.target.value })} />
+                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Stage<select className={inputStyle} value={candidateFilters.stage_name} onChange={(event) => setCandidateFilters({ ...candidateFilters, stage_name: event.target.value })}><option value="">Any stage</option>{["Applied","Screening","Interview","Offer","Hired","Rejected","withdrawn"].map((stage) => <option key={stage}>{stage}</option>)}</select></label>
               </div>
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-wrap gap-2 items-end">
+                <label className="grid gap-1.5 text-xs font-semibold text-ink-700"><span>Source</span><select className={inputStyle + " min-w-44"} value={candidateFilters.source} onChange={(event) => setCandidateFilters({ ...candidateFilters, source: event.target.value })}><option value="">All sources</option>{[...new Set(candidates.map((candidate) => candidate.source).filter(Boolean))].map((source) => <option key={source}>{source}</option>)}</select></label>
                 <button className={buttonPrimary} type="submit">Search candidates</button>
-                <button className={buttonSecondary} type="button" onClick={() => { const cleared = { search: "", skill: "", source: "", location: "", min_experience_years: "" }; setCandidateFilters(cleared); apiRequest(token, "get", "/candidates", { params: { limit: 100 } }).then((response) => setCandidates(response.data)).catch((requestError) => setError(errorText(requestError))); }}>Clear</button>
+                <button className={buttonSecondary} type="button" onClick={() => { const cleared = { search: "", skill: "", source: "", location: "", tags: "", stage_name: "", min_experience_years: "", max_experience_years: "" }; setCandidateFilters(cleared); apiRequest(token, "get", "/candidates", { params: { limit: 100 } }).then((response) => setCandidates(response.data)).catch((requestError) => setError(errorText(requestError))); }}>Clear</button>
+                <span className="text-[11px] text-ink-500">Search supports AND / OR / NOT.</span>
               </div>
             </form>
             <div className="mb-5"><p className="text-sm text-ink-500">{candidates.length} profiles</p><h2 className="mt-1 text-xl font-semibold">Candidate directory</h2></div>
