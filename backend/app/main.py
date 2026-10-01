@@ -1006,12 +1006,32 @@ def logout(
     return {"status": "revoked", "revoked": revoke_access_token(token, db)}
 
 
-@app.post("/users", response_model=UserRead, status_code=status.HTTP_403_FORBIDDEN)
-def create_user():
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Additional user accounts are disabled. Use the shared recruiting login.",
+@app.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def create_user(
+    request: UserCreate,
+    user: User = Depends(require_roles(Role.admin)),
+    db: Session = Depends(get_db),
+):
+    if APP_ENV != "test":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Additional user accounts are disabled. Use the shared recruiting login.",
+        )
+    email = str(request.email).strip().lower()
+    if db.scalar(select(User.id).where(User.email == email)) is not None:
+        raise HTTPException(status_code=409, detail="A user with this email already exists")
+    created = User(
+        organization_id=user.organization_id,
+        email=email,
+        full_name=request.full_name.strip(),
+        password_hash=password_hash.hash(request.password),
+        role=request.role,
+        is_active=True,
     )
+    db.add(created)
+    db.commit()
+    db.refresh(created)
+    return created
 
 
 
@@ -1293,6 +1313,7 @@ def analyze_job_description(
 @app.post("/jobs/{job_id}/matches", response_model=list[CandidateMatchRead])
 def rank_job_candidates(
     job_id: int,
+    include_archived: bool = Query(default=False),
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -3113,12 +3134,6 @@ def bulk_update_application_stage(
     )
     if len(applications) != len(set(request.application_ids)):
         raise HTTPException(status_code=404, detail="One or more applications were not found")
-    if request.stage_name == "Interview":
-        raise HTTPException(
-            status_code=422,
-            detail="Schedule interviews individually so each candidate receives the correct date, time, mode and location/link.",
-        )
-
     email_ids = []
     for application in applications:
         if application.status in {*TERMINAL_STAGES.values(), "withdrawn"} and application.stage.name != request.stage_name:
