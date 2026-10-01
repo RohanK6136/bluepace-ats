@@ -129,19 +129,7 @@ async def interview_reminder_loop():
                     if application is None:
                         continue
                     subject, body = _interview_reminder_email(application, interview, reminder_kind, db)
-                    if request.stage_name == "Interview" and interview is not None:
-            calendar_bytes = _interview_ics(interview, application).encode("utf-8")
-            email_id = queue_application_email(
-                db,
-                application,
-                subject,
-                body,
-                attachment_filename=f"blupace-interview-{interview.id}.ics",
-                attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
-                attachment_content_type="text/calendar",
-            )
-        else:
-            email_id = queue_application_email(db, application, subject, body)
+                    email_id = queue_application_email(db, application, subject, body)
                     if reminder_kind == "24h":
                         interview.reminder_24_sent = True
                     else:
@@ -3059,7 +3047,19 @@ def update_application_stage(
             interview_meeting_url=request.interview_meeting_url,
             interview_id=interview.id if request.stage_name == "Interview" else None,
         )
-        email_id = queue_application_email(db, application, subject, body)
+        if request.stage_name == "Interview" and interview is not None:
+            calendar_bytes = _interview_ics(interview, application).encode("utf-8")
+            email_id = queue_application_email(
+                db,
+                application,
+                subject,
+                body,
+                attachment_filename=f"blupace-interview-{interview.id}.ics",
+                attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
+                attachment_content_type="text/calendar",
+            )
+        else:
+            email_id = queue_application_email(db, application, subject, body)
     db.commit()
     db.refresh(application)
     if email_id is not None:
