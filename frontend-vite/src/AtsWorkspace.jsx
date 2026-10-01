@@ -115,7 +115,7 @@ export default function AtsWorkspace() {
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ organization_name: "", full_name: "", email: "", password: "" });
   const [authError, setAuthError] = useState("");
-  const [view, setView] = useState("pipeline");
+  const [view, setView] = useState("dashboard");
   const [jobs, setJobs] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [applications, setApplications] = useState([]);
