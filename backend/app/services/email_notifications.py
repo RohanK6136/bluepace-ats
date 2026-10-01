@@ -2,6 +2,7 @@ import os
 import smtplib
 from datetime import datetime, timezone
 from email.message import EmailMessage
+import base64
 
 from app.database import SessionLocal
 from app.models import Email
@@ -25,6 +26,19 @@ def deliver_outbox_email(email_id: int):
         message["To"] = email_record.recipient
         message["Subject"] = email_record.subject
         message.set_content(email_record.body)
+        if email_record.attachment_content and email_record.attachment_filename:
+            try:
+                attachment = base64.b64decode(email_record.attachment_content)
+            except (ValueError, TypeError):
+                attachment = None
+            if attachment is not None:
+                maintype, subtype = (email_record.attachment_content_type or "application/octet-stream").split("/", 1)
+                message.add_attachment(
+                    attachment,
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=email_record.attachment_filename,
+                )
 
         try:
             port = int(os.getenv("SMTP_PORT", "587"))
