@@ -24,6 +24,7 @@ from app.models import (
     Job,
     Offer,
     Role,
+    Scorecard,
     Stage,
     TalentPoolMembership,
     User,
@@ -93,7 +94,7 @@ class AutomationRuleUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     trigger_event: str | None = Field(default=None, pattern="^(stage_changed|scorecards_complete)$")
     trigger_stage: str | None = Field(default=None, max_length=100)
-    action_type: str | None = Field(default=None, pattern="^(send_email|assign_owner|mark_review|move_stage)$")
+    action_type: str | None = Field(default=None, pattern="^(send_email|assign_owner|assign_interviewer|mark_review|move_stage)$")
     action_value: str | None = Field(default=None, max_length=500)
     subject: str | None = Field(default=None, max_length=500)
     body: str | None = Field(default=None, max_length=10000)
@@ -493,7 +494,17 @@ def reschedule_interview(
         "Please use the secure candidate portal for the latest application details.\n\n"
         "Blupace Tech Recruiting"
     )
-    email_id = queue_application_email(db, application, subject, body)
+    calendar_bytes = _interview_ics(interview, application).encode("utf-8")
+    import base64
+    email_id = queue_application_email(
+        db,
+        application,
+        subject,
+        body,
+        attachment_filename=f"blupace-interview-{interview.id}.ics",
+        attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
+        attachment_content_type="text/calendar",
+    )
     record_audit(
         db,
         user,
@@ -1011,11 +1022,21 @@ def recruiter_assistant(
 def _render_automation(template: str, application: Application, stage_name: str) -> str:
     candidate = application.candidate
     job = application.job
+    portal_url = ""
+    try:
+        from app.security import create_candidate_portal_token
+        from app.main import DEPLOYED_FRONTEND_ORIGIN
+        import urllib.parse
+        portal_url = f"{DEPLOYED_FRONTEND_ORIGIN}?portal={urllib.parse.quote(create_candidate_portal_token(application.id))}"
+    except Exception:
+        portal_url = ""
     values = {
         "candidate_name": f"{candidate.first_name} {candidate.last_name}".strip(),
         "candidate_email": candidate.email,
         "job_title": job.title,
         "stage_name": stage_name,
+        "candidate_portal_url": portal_url,
+        "company_name": "Blupace Tech",
     }
     rendered = str(template or "")
     for key, value in values.items():
@@ -1055,7 +1076,13 @@ def scorecards_complete(db: Session, application_id: int) -> bool:
     return expected.issubset(submitted)
 
 
-def _apply_automation_action(db: Session, application: Application, rule: AutomationRule, stage_name: str) -> list[int]:
+def _apply_automation_action(
+    db: Session,
+    application: Application,
+    rule: AutomationRule,
+    stage_name: str,
+    skip_rule_ids: set[int] | None = None,
+) -> list[int]:
     queued = []
     if rule.action_type == "send_email":
         if rule.subject.strip() and rule.body.strip():
@@ -1104,7 +1131,8 @@ def _apply_automation_action(db: Session, application: Application, rule: Automa
                     "Please keep your candidate portal link for future updates.\n\n"
                     "Blupace Tech Recruiting"
                 )
-                queued.append(queue_application_email(db, application, subject, body))
+                if not stage_email_automation_enabled(db, application, target):
+                    queued.append(queue_application_email(db, application, subject, body))
                 db.add(AuditLog(
                     organization_id=application.organization_id,
                     actor_id=rule.created_by_id,
@@ -1113,6 +1141,9 @@ def _apply_automation_action(db: Session, application: Application, rule: Automa
                     entity_id=application.id,
                     after_data={"stage_name": target, "rule_id": rule.id},
                 ))
+                visited = set(skip_rule_ids or set())
+                visited.add(rule.id)
+                queued.extend(run_stage_automations(db, application, target, skip_rule_ids=visited))
     return queued
 
 
@@ -1128,7 +1159,12 @@ def stage_email_automation_enabled(db: Session, application: Application, stage_
     ) is not None
 
 
-def run_stage_automations(db: Session, application: Application, stage_name: str) -> list[int]:
+def run_stage_automations(
+    db: Session,
+    application: Application,
+    stage_name: str,
+    skip_rule_ids: set[int] | None = None,
+) -> list[int]:
     rules = db.scalars(
         select(AutomationRule).where(
             AutomationRule.organization_id == application.organization_id,
@@ -1136,11 +1172,14 @@ def run_stage_automations(db: Session, application: Application, stage_name: str
             AutomationRule.trigger_event == "stage_changed",
         )
     ).all()
+    skipped = skip_rule_ids or set()
     email_ids = []
     for rule in rules:
+        if rule.id in skipped:
+            continue
         if rule.trigger_stage and rule.trigger_stage != stage_name:
             continue
-        email_ids.extend(_apply_automation_action(db, application, rule, stage_name))
+        email_ids.extend(_apply_automation_action(db, application, rule, stage_name, skipped))
     return email_ids
 
 

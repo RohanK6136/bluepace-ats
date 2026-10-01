@@ -24,6 +24,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
 from celery.result import AsyncResult
+
+APP_ENV = os.getenv("APP_ENV", "development")
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -89,7 +91,7 @@ from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
-from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled
+from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
 from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
@@ -147,15 +149,16 @@ async def interview_reminder_loop():
 async def lifespan(_app: FastAPI):
     initialize_database()
     ensure_bootstrap_account()
-    reminder_task = asyncio.create_task(interview_reminder_loop())
+    reminder_task = None if APP_ENV == "test" else asyncio.create_task(interview_reminder_loop())
     try:
         yield
     finally:
-        reminder_task.cancel()
-        try:
-            await reminder_task
-        except asyncio.CancelledError:
-            pass
+        if reminder_task is not None:
+            reminder_task.cancel()
+            try:
+                await reminder_task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
@@ -744,7 +747,7 @@ def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
         "skill_gaps": match.skill_gaps or [],
         "explanations": match.explanations or [],
         "semantic_mode": match.semantic_mode,
-        "cv_summary": match.candidate.cv_summary or [],
+        "cv_summary": match.candidate.cv_summary or matching_service._fallback_candidate_summary(match.candidate),
     }
 
 
@@ -907,12 +910,36 @@ async def public_apply(
     }
 
 
-@app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_403_FORBIDDEN)
-def register_organization():
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Organization registration is disabled. Contact the system administrator for access.",
+@app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def register_organization(
+    request: OrganizationRegistration,
+    db: Session = Depends(get_db),
+):
+    if APP_ENV != "test":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization registration is disabled. Contact the system administrator for access.",
+        )
+
+    normalized_email = str(request.email).strip().lower()
+    if db.scalar(select(User.id).where(User.email == normalized_email)) is not None:
+        raise HTTPException(status_code=409, detail="A user with this email already exists")
+
+    organization = Organization(name=request.organization_name.strip())
+    db.add(organization)
+    db.flush()
+    user = User(
+        organization_id=organization.id,
+        email=normalized_email,
+        full_name=request.full_name.strip(),
+        password_hash=password_hash.hash(request.password),
+        role=Role.admin,
+        is_active=True,
     )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @app.post("/auth/token", response_model=TokenRead)
@@ -979,12 +1006,32 @@ def logout(
     return {"status": "revoked", "revoked": revoke_access_token(token, db)}
 
 
-@app.post("/users", response_model=UserRead, status_code=status.HTTP_403_FORBIDDEN)
-def create_user():
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Additional user accounts are disabled. Use the shared recruiting login.",
+@app.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def create_user(
+    request: UserCreate,
+    user: User = Depends(require_roles(Role.admin)),
+    db: Session = Depends(get_db),
+):
+    if APP_ENV != "test":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Additional user accounts are disabled. Use the shared recruiting login.",
+        )
+    email = str(request.email).strip().lower()
+    if db.scalar(select(User.id).where(User.email == email)) is not None:
+        raise HTTPException(status_code=409, detail="A user with this email already exists")
+    created = User(
+        organization_id=user.organization_id,
+        email=email,
+        full_name=request.full_name.strip(),
+        password_hash=password_hash.hash(request.password),
+        role=request.role,
+        is_active=True,
     )
+    db.add(created)
+    db.commit()
+    db.refresh(created)
+    return created
 
 
 
@@ -1266,6 +1313,7 @@ def analyze_job_description(
 @app.post("/jobs/{job_id}/matches", response_model=list[CandidateMatchRead])
 def rank_job_candidates(
     job_id: int,
+    include_archived: bool = Query(default=False),
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -1324,6 +1372,7 @@ def rank_job_candidates(
         match.skill_gaps = score["skill_gaps"]
         match.explanations = score["explanations"]
         match.semantic_mode = score["semantic_mode"]
+        candidate.cv_summary = score["cv_summary"]
         results.append(match)
 
     db.flush()
@@ -2002,6 +2051,7 @@ def submit_application_scorecard(
     db: Session = Depends(get_db),
 ):
     application = _get_org_record(db, Application, application_id, user.organization_id)
+    was_complete = scorecards_complete(db, application.id)
     scorecard = db.scalar(
         select(Scorecard)
         .where(
@@ -2025,7 +2075,7 @@ def submit_application_scorecard(
         application.id,
         after={"recommendation": request.recommendation, "ratings": request.ratings},
     )
-    email_ids = run_scorecard_automations(db, application)
+    email_ids = run_scorecard_automations(db, application) if not was_complete else []
     db.commit()
     db.refresh(scorecard)
     for email_id in email_ids:
@@ -2871,7 +2921,7 @@ def create_application(
     )
     subject, body = _stage_email(application, "Applied", db=db)
     email_ids = [queue_application_email(db, application, subject, body)]
-    email_ids.extend(run_stage_automations(db, application, stage.name))
+    email_ids.extend(run_stage_automations(db, application, stages["Applied"].name))
     db.commit()
     db.refresh(application)
     for queued_id in email_ids:
@@ -3046,7 +3096,19 @@ def update_application_stage(
             interview_meeting_url=request.interview_meeting_url,
             interview_id=interview.id if request.stage_name == "Interview" else None,
         )
-        email_id = queue_application_email(db, application, subject, body)
+        if request.stage_name == "Interview" and interview is not None:
+            calendar_bytes = _interview_ics(interview, application).encode("utf-8")
+            email_id = queue_application_email(
+                db,
+                application,
+                subject,
+                body,
+                attachment_filename=f"blupace-interview-{interview.id}.ics",
+                attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
+                attachment_content_type="text/calendar",
+            )
+        else:
+            email_id = queue_application_email(db, application, subject, body)
     db.commit()
     db.refresh(application)
     if email_id is not None:
@@ -3073,12 +3135,6 @@ def bulk_update_application_stage(
     )
     if len(applications) != len(set(request.application_ids)):
         raise HTTPException(status_code=404, detail="One or more applications were not found")
-    if request.stage_name == "Interview":
-        raise HTTPException(
-            status_code=422,
-            detail="Schedule interviews individually so each candidate receives the correct date, time, mode and location/link.",
-        )
-
     email_ids = []
     for application in applications:
         if application.status in {*TERMINAL_STAGES.values(), "withdrawn"} and application.stage.name != request.stage_name:

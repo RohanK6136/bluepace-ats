@@ -325,4 +325,7 @@ class Email(Base):
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(30), default="draft")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachment_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    attachment_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachment_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

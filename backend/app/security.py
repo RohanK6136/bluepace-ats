@@ -84,7 +84,13 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             )
         )
         now = datetime.now(timezone.utc)
-        if session is None or session.revoked_at is not None or session.expires_at <= now:
+        expires_at = session.expires_at if session is not None else None
+        revoked_at = session.revoked_at if session is not None else None
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if revoked_at is not None and revoked_at.tzinfo is None:
+            revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+        if session is None or revoked_at is not None or expires_at is None or expires_at <= now:
             raise unauthorized
     return user
 

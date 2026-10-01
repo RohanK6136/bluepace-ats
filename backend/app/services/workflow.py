@@ -29,7 +29,16 @@ def record_audit(db, user: User, action: str, entity_type: str, entity_id: int, 
     )
 
 
-def queue_application_email(db, application: Application, subject: str, body: str) -> int:
+def queue_application_email(
+    db,
+    application: Application,
+    subject: str,
+    body: str,
+    *,
+    attachment_filename: str | None = None,
+    attachment_content: str | None = None,
+    attachment_content_type: str | None = None,
+) -> int:
     email = Email(
         organization_id=application.organization_id,
         application_id=application.id,
@@ -37,6 +46,9 @@ def queue_application_email(db, application: Application, subject: str, body: st
         subject=subject,
         body=body,
         status="pending",
+        attachment_filename=attachment_filename,
+        attachment_content=attachment_content,
+        attachment_content_type=attachment_content_type,
     )
     db.add(email)
     db.flush()
