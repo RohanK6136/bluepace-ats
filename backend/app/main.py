@@ -2,6 +2,7 @@ import base64
 import csv
 import io
 import os
+import asyncio
 import re
 import socket
 import ipaddress
@@ -55,12 +56,15 @@ from app.schemas import (
     JobRead,
     JobUpdate,
     MatchFeedbackUpdate,
+    ScorecardCreate,
+    ScorecardRead,
+    EmailTemplateUpdate,
     OrganizationRegistration,
     TokenRead,
     UserCreate,
     UserRead,
 )
-from app.security import create_access_token, get_current_user, password_hash, require_roles
+from app.security import create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
