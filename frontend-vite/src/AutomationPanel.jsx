@@ -13,6 +13,7 @@ export default function AutomationPanel({ token, apiRequest, onNotice, onError }
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [starterInterviewer, setStarterInterviewer] = useState("");
 
   async function load() {
     setLoading(true);
@@ -105,14 +106,20 @@ export default function AutomationPanel({ token, apiRequest, onNotice, onError }
       <section className="mb-5 rounded-xl border border-blue-100 bg-blue-50 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Quick-start recipes</p><h3 className="mt-1 font-semibold">Build the recruiting flow in a few clicks</h3><p className="mt-1 text-sm text-blue-900/75">These create editable rules in this workspace. Review them before enabling production communications.</p></div>
-          <button type="button" className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-blue-800" onClick={async () => {
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-blue-900" value={starterInterviewer} onChange={(event) => setStarterInterviewer(event.target.value)}>
+              <option value="">No automatic interviewer assignment</option>
+              {users.filter((user) => user.role === "interviewer").map((user) => <option key={user.id} value={user.id}>Assign {user.full_name}</option>)}
+            </select>
+            <button type="button" className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-blue-800" onClick={async () => {
             const starterRules = [
               { name: "Screening candidate update", trigger_event: "stage_changed", trigger_stage: "Screening", action_type: "send_email", action_value: null, subject: "Application update — {{job_title}}", body: "Hello {{candidate_name}},\n\nYour application for {{job_title}} has moved to our screening stage. We will contact you with the next update.\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team", enabled: true },
+              ...(starterInterviewer ? [{ name: "Screening interviewer assignment", trigger_event: "stage_changed", trigger_stage: "Screening", action_type: "assign_interviewer", action_value: starterInterviewer, subject: "", body: "", enabled: true }] : []),
               { name: "Scorecards complete → Offer review", trigger_event: "scorecards_complete", trigger_stage: null, action_type: "move_stage", action_value: "Offer", subject: "", body: "", enabled: true }
             ];
             try {
               for (const rule of starterRules) await apiRequest(token, "post", "/automation-rules", { data: rule });
-              onNotice("Starter workflow created: Screening email + scorecards-complete → Offer");
+              onNotice("Starter workflow created: Screening email" + (starterInterviewer ? " + interviewer assignment" : "") + " + scorecards-complete → Offer");
               await load();
             } catch (error) { onError(error); }
           }}>Create starter workflow</button>

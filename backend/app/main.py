@@ -3011,6 +3011,8 @@ def update_application_stage(
             interview.reminder_24_sent = False
             interview.reminder_1h_sent = False
 
+        db.flush()
+
     application.stage_id = stage.id
     application.status = TERMINAL_STAGES.get(stage.name, "active")
     record_audit(
