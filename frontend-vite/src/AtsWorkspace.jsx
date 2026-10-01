@@ -1656,6 +1656,25 @@ export default function AtsWorkspace() {
                     <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Job titles</p><p className="mt-2 text-sm">{(profile.job_titles || []).join(", ") || "Not found"}</p></div>
                     <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Certifications</p><p className="mt-2 text-sm">{(profile.certifications || []).join(", ") || "Not found"}</p></div>
                   </div>
+                  <div className="mt-4 rounded-lg border border-ink-100 bg-white p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[11px] font-semibold uppercase text-ink-500">Extraction confidence & evidence</p>
+                      <span className="text-[11px] text-ink-500">Confidence describes extraction certainty, not candidate quality.</span>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {Object.entries(profile.extraction_confidence || {}).slice(0, 12).map(([field, score]) => {
+                        const evidence = (profile.extraction_evidence || []).find((item) => item.field === field);
+                        return <div key={field} className="rounded-md border border-ink-100 bg-[#fafaf8] p-2">
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <span className="font-medium">{field.replaceAll("_", " ")}</span>
+                            <span>{Math.round(Number(score) * 100)}%</span>
+                          </div>
+                          {evidence?.source_lines?.length ? <p className="mt-1 text-[11px] text-ink-500">{evidence.source_lines[0]}</p> : null}
+                        </div>;
+                      })}
+                    </div>
+                    {!Object.keys(profile.extraction_confidence || {}).length && <p className="mt-2 text-xs text-ink-400">Evidence details unavailable for this resume.</p>}
+                  </div>
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
                     <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Projects</p><ul className="mt-2 grid gap-1 text-sm">{(profile.projects || profile.university_projects || []).slice(0, 12).map((project, index) => <li key={index}>{typeof project === "object" ? (project.name || project.title || project.description || JSON.stringify(project)) : project}</li>)}{!(profile.projects || profile.university_projects || []).length && <li className="text-ink-400">Not found</li>}</ul></div>
                     <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Resume review signals</p>
