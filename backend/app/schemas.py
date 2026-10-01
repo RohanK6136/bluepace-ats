@@ -132,46 +132,6 @@ class CandidateRead(BaseModel):
     updated_at: datetime
 
 
-class CandidateMergeField(BaseModel):
-    field: str
-    survivor_value: object = None
-    merged_value: object = None
-    recommended: str = "survivor"
-
-class CandidateDuplicateRead(BaseModel):
-    candidate_id: int
-    id: int
-    first_name: str
-    last_name: str
-    email: str
-    phone: Optional[str]
-    source: Optional[str]
-    similarity_score: int
-    matched_by: list[str] = Field(default_factory=list)
-
-class CandidateMergeComparisonRead(BaseModel):
-    survivor: CandidateSummary
-    merged: CandidateSummary
-    fields: list[CandidateMergeField]
-    employment_history: list[dict] = Field(default_factory=list)
-    projects: list[object] = Field(default_factory=list)
-    notes: list[dict] = Field(default_factory=list)
-    applications: list[dict] = Field(default_factory=list)
-
-class CandidateMergeRequest(BaseModel):
-    survivor_id: int
-    merged_id: int
-    field_choices: dict[str, str] = Field(default_factory=dict)
-
-class CandidateMergeAuditRead(BaseModel):
-    id: int
-    actor_id: int
-    actor_name: str
-    survivor_candidate_id: int
-    merged_candidate_id: int
-    field_choices: dict
-    merge_summary: dict
-    created_at: datetime
 class CandidateTagRead(BaseModel):
     id: int
     name: str
@@ -234,6 +194,47 @@ class CandidateSummary(BaseModel):
     source: Optional[str]
     resume_data: Optional[dict]
 
+
+class CandidateMergeField(BaseModel):
+    field: str
+    survivor_value: object = None
+    merged_value: object = None
+    recommended: str = "survivor"
+
+class CandidateDuplicateRead(BaseModel):
+    candidate_id: int
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+    phone: Optional[str]
+    source: Optional[str]
+    similarity_score: int
+    matched_by: list[str] = Field(default_factory=list)
+
+class CandidateMergeComparisonRead(BaseModel):
+    survivor: CandidateSummary
+    merged: CandidateSummary
+    fields: list[CandidateMergeField]
+    employment_history: list[dict] = Field(default_factory=list)
+    projects: list[object] = Field(default_factory=list)
+    notes: list[dict] = Field(default_factory=list)
+    applications: list[dict] = Field(default_factory=list)
+
+class CandidateMergeRequest(BaseModel):
+    survivor_id: int
+    merged_id: int
+    field_choices: dict[str, str] = Field(default_factory=dict)
+
+class CandidateMergeAuditRead(BaseModel):
+    id: int
+    actor_id: int
+    actor_name: str
+    survivor_candidate_id: int
+    merged_candidate_id: int
+    field_choices: dict
+    merge_summary: dict
+    created_at: datetime
 
 class ApplicationRead(BaseModel):
     id: int
