@@ -3,6 +3,7 @@ import csv
 import io
 import os
 import asyncio
+import asyncio
 import re
 import socket
 import ipaddress
@@ -80,11 +81,61 @@ from app.services.workflow import (
 )
 
 
+async def interview_reminder_loop():
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            with SessionLocal() as db:
+                interviews = db.scalars(
+                    select(Interview)
+                    .where(Interview.status == "scheduled", Interview.starts_at >= now)
+                    .order_by(Interview.starts_at.asc())
+                    .limit(500)
+                ).all()
+                due = []
+                for interview in interviews:
+                    delta_seconds = (interview.starts_at - now).total_seconds()
+                    if not interview.reminder_24_sent and 23 * 3600 <= delta_seconds <= 24 * 3600:
+                        due.append((interview, "24h"))
+                    if not interview.reminder_1h_sent and 30 * 60 <= delta_seconds <= 60 * 60:
+                        due.append((interview, "1h"))
+
+                for interview, reminder_kind in due:
+                    application = db.scalar(
+                        select(Application)
+                        .where(Application.id == interview.application_id)
+                        .options(selectinload(Application.job), selectinload(Application.candidate))
+                    )
+                    if application is None:
+                        continue
+                    subject, body = _interview_reminder_email(application, interview, reminder_kind, db)
+                    email_id = queue_application_email(db, application, subject, body)
+                    if reminder_kind == "24h":
+                        interview.reminder_24_sent = True
+                    else:
+                        interview.reminder_1h_sent = True
+                    db.commit()
+                    await asyncio.to_thread(deliver_outbox_email, email_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            traceback.print_exc()
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     initialize_database()
     ensure_bootstrap_account()
-    yield
+    reminder_task = asyncio.create_task(interview_reminder_loop())
+    try:
+        yield
+    finally:
+        reminder_task.cancel()
+        try:
+            await reminder_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.3.0", lifespan=lifespan)
@@ -521,6 +572,49 @@ def _format_interview_datetime(value: datetime | None) -> str:
     return moment.strftime("%d %B %Y, %I:%M %p %z")
 
 
+REMINDER_EMAIL_TEMPLATES = {
+    "24h": {
+        "subject": "Interview reminder — {{job_title}}",
+        "body": "Hello {{candidate_name}},\n\nThis is a reminder that your interview for {{job_title}} is scheduled for {{interview_date}} at {{interview_time}}.\nDuration: {{interview_duration}} minutes\nInterview mode: {{interview_mode}}\nMeeting link: {{meeting_link}}\nInterview location: {{interview_location}}\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team",
+    },
+    "1h": {
+        "subject": "Interview starts soon — {{job_title}}",
+        "body": "Hello {{candidate_name}},\n\nYour interview for {{job_title}} starts in about one hour at {{interview_time}} on {{interview_date}}.\nDuration: {{interview_duration}} minutes\nInterview mode: {{interview_mode}}\nMeeting link: {{meeting_link}}\nInterview location: {{interview_location}}\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team",
+    },
+}
+
+
+def _render_email_template(template: dict, values: dict[str, str]) -> tuple[str, str]:
+    subject = str(template.get("subject") or "")
+    body = str(template.get("body") or "")
+    for key, value in values.items():
+        placeholder = "{{" + key + "}}"
+        subject = subject.replace(placeholder, value)
+        body = body.replace(placeholder, value)
+    return subject, body
+
+
+def _interview_reminder_email(application: Application, interview: Interview, reminder_kind: str, db: Session) -> tuple[str, str]:
+    organization = db.get(Organization, application.organization_id)
+    custom = organization.email_templates if organization and organization.email_templates else {}
+    key = "Interview Reminder 24h" if reminder_kind == "24h" else "Interview Reminder 1h"
+    template = custom.get(key) or REMINDER_EMAIL_TEMPLATES[reminder_kind]
+    portal_url = f"{DEPLOYED_FRONTEND_ORIGIN}?portal={urllib.parse.quote(create_candidate_portal_token(application.id))}"
+    values = {
+        "candidate_name": application.candidate.first_name or "Candidate",
+        "job_title": application.job.title,
+        "interview_date": interview.starts_at.strftime("%d %B %Y"),
+        "interview_time": interview.starts_at.strftime("%I:%M %p %Z"),
+        "interview_duration": str(interview.duration_minutes),
+        "interview_mode": "Online" if interview.mode == "online" else "Offline / On-site",
+        "meeting_link": interview.meeting_url or "",
+        "interview_location": interview.location or "",
+        "candidate_portal_url": portal_url,
+        "company_name": "Blupace Tech",
+    }
+    return _render_email_template(template, values)
+
+
 DEFAULT_EMAIL_TEMPLATES = {
     "Applied": {
         "subject": "Application received — {{job_title}}",
@@ -582,12 +676,7 @@ def _stage_email(
         "candidate_portal_url": portal_url,
         "company_name": "Blupace Tech",
     }
-    subject = template["subject"]
-    body = template["body"]
-    for key, value in values.items():
-        subject = subject.replace("{{" + key + "}}", value)
-        body = body.replace("{{" + key + "}}", value)
-    return subject, body
+    return _render_email_template(template, values)
 
 def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
     return {
@@ -1402,8 +1491,8 @@ def create_candidate(
     db: Session = Depends(get_db),
 ):
     values = request.model_dump()
-    values["email"] = normalized_email
     normalized_email = str(request.email).lower()
+    values["email"] = normalized_email
     normalized_phone = re.sub(r"[^0-9]", "", request.phone or "")
     duplicate = db.scalar(
         select(Candidate).where(
