@@ -1255,18 +1255,40 @@ export default function AtsWorkspace() {
               if (!candidate) return null;
               const profile = candidate.resume_data || {};
               return <section className="mt-5 border-y border-ink-100 bg-white p-4 sm:p-5">
-                <div className="flex items-start justify-between"><div><p className="text-xs uppercase text-ink-500">Candidate profile</p><h3 className="mt-1 text-lg font-semibold">{candidate.first_name} {candidate.last_name}</h3><p className="text-sm text-ink-500">{candidate.email} {candidate.phone && `· ${candidate.phone}`}</p></div><button aria-label="Close profile" onClick={() => { setSelectedCandidate(null); setFitAnalysis(null); }}>×</button></div>
-                <div className="mt-5 grid gap-5 md:grid-cols-3">
-                  <div><h4 className="text-xs font-semibold uppercase text-ink-500">Skills</h4><p className="mt-2 text-sm">{(profile.skills || []).join(", ") || "Not available"}</p></div>
-                  <div><h4 className="text-xs font-semibold uppercase text-ink-500">Experience</h4><ul className="mt-2 grid gap-2 text-sm">{(profile.experience || []).map((item, index) => <li key={index}><strong>{item.title || item.company || "Experience"}</strong><span className="block text-xs text-ink-500">{item.company} · {item.duration}</span><span className="block text-xs text-ink-600">{item.description}</span></li>)}</ul></div>
-                  <div><h4 className="text-xs font-semibold uppercase text-ink-500">Education</h4><ul className="mt-2 grid gap-2 text-sm">{(profile.education || []).map((item, index) => <li key={index}><strong>{item.degree}</strong><span className="block text-xs text-ink-500">{item.university} · {item.graduation_year}</span></li>)}</ul></div>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-xs uppercase text-ink-500">Candidate profile</p>
+                    <h3 className="mt-1 text-lg font-semibold">{candidate.first_name} {candidate.last_name}</h3>
+                    <p className="text-sm text-ink-500">{candidate.email}{candidate.phone && " · " + candidate.phone}</p>
+                  </div>
+                  <button aria-label="Close profile" onClick={() => { setSelectedCandidate(null); setFitAnalysis(null); setCandidateActivity(null); }}>×</button>
                 </div>
+
+                <div className="mt-5 grid gap-5 md:grid-cols-3">
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase text-ink-500">Skills</h4>
+                    <p className="mt-2 text-sm">{(profile.skills || []).join(", ") || "Not available"}</p>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase text-ink-500">Experience</h4>
+                    <ul className="mt-2 grid gap-2 text-sm">
+                      {(profile.experience || []).map((item, index) => <li key={index}><strong>{item.title || item.company || "Experience"}</strong><span className="block text-xs text-ink-500">{item.company} · {item.duration}</span><span className="block text-xs text-ink-600">{item.description}</span></li>)}
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase text-ink-500">Education</h4>
+                    <ul className="mt-2 grid gap-2 text-sm">
+                      {(profile.education || []).map((item, index) => <li key={index}><strong>{item.degree}</strong><span className="block text-xs text-ink-500">{item.university} · {item.graduation_year}</span></li>)}
+                    </ul>
+                  </div>
+                </div>
+
                 <div className="mt-6 border-t border-ink-100 pt-5">
                   <div className="flex items-start justify-between gap-3">
                     <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Candidate 360°</p><h4 className="mt-1 font-semibold">Application history & communication</h4></div>
                     {candidateActivity?.candidate && <span className="text-xs text-ink-500">{candidateActivity.applications?.length || 0} application(s)</span>}
                   </div>
-                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
                     <div className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4">
                       <p className="text-xs font-semibold uppercase text-ink-500">Applied roles</p>
                       <div className="mt-3 grid gap-2">
@@ -1278,13 +1300,15 @@ export default function AtsWorkspace() {
                       <p className="text-xs font-semibold uppercase text-ink-500">Activity timeline</p>
                       <div className="mt-3 max-h-80 overflow-auto pr-1">
                         <div className="grid gap-3">
-                          {(candidateActivity?.events || []).map((event, index) => <div key={index} className="rounded-lg border border-ink-100 bg-white p-3"><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{event.type}</span><span className="text-[11px] text-ink-400">{event.created_at && typeof event.created_at === "string" ? new Date(event.created_at).toLocaleString() : ""}</span></div><p className="mt-1 text-sm font-medium">{event.title}</p>{event.details?.status && <p className="mt-1 text-xs text-ink-500">Status: {event.details.status}</p>}{event.details?.meeting_url && <a className="mt-1 block text-xs underline" href={event.details.meeting_url} target="_blank" rel="noreferrer">Open meeting link</a>}{event.details?.location && <p className="mt-1 text-xs text-ink-500">{event.details.location}</p>}</div>)}
+                          {(candidateActivity?.events || []).map((event, index) => <div key={index} className="rounded-lg border border-ink-100 bg-white p-3"><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{event.type}</span><span className="text-[11px] text-ink-400">{event.created_at ? new Date(event.created_at).toLocaleString() : ""}</span></div><p className="mt-1 text-sm font-medium">{event.title}</p>{event.details?.status && <p className="mt-1 text-xs text-ink-500">Status: {event.details.status}</p>}{event.details?.meeting_url && <a className="mt-1 block text-xs underline" href={event.details.meeting_url} target="_blank" rel="noreferrer">Open meeting link</a>}{event.details?.location && <p className="mt-1 text-xs text-ink-500">{event.details.location}</p>}</div>)}
                           {!candidateActivity?.events?.length && <p className="text-sm text-ink-500">No activity recorded yet.</p>}
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
+
+                <div className="mt-6 border-t border-ink-100 pt-5">
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Role fit</p>
@@ -1295,9 +1319,7 @@ export default function AtsWorkspace() {
                         <option value="">Choose an applied job</option>
                         {applications.filter((item) => item.candidate_id === candidate.id).map((item) => <option key={item.id} value={item.job_id}>{item.job_title}</option>)}
                       </SelectField>
-                      <button type="button" className={buttonPrimary} disabled={!fitJobId || fitLoading} onClick={loadFitAnalysis}>
-                        {fitLoading ? "Checking…" : "Check role fit"}
-                      </button>
+                      <button type="button" className={buttonPrimary} disabled={!fitJobId || fitLoading} onClick={loadFitAnalysis}>{fitLoading ? "Checking…" : "Check role fit"}</button>
                     </div>
                   </div>
                   {fitAnalysis && (
@@ -1320,7 +1342,7 @@ export default function AtsWorkspace() {
                         <p className="text-xs font-semibold uppercase text-ink-500">Matched vs. missing skills</p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {(fitAnalysis.matched_skills || []).map((skill) => <span key={skill} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{skill}</span>)}
-                          {(fitAnalysis.skill_gaps || []).map((skill) => <span key={`gap-${skill}`} className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-800">{skill}</span>)}
+                          {(fitAnalysis.skill_gaps || []).map((skill) => <span key={"gap-" + skill} className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-800">{skill}</span>)}
                         </div>
                       </div>
                       <div className="rounded-xl border border-ink-100 p-4">
