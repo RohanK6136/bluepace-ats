@@ -2267,7 +2267,6 @@ def update_application_stage(
         application,
         stage.name,
         db=db,
-        db=db,
         interview_starts_at=request.interview_starts_at,
         interview_duration_minutes=request.interview_duration_minutes,
         interview_mode=request.interview_mode,
