@@ -1036,27 +1036,53 @@ def create_user(
 
 
 def _candidate_search_matches(content: str, query: str) -> bool:
-    query = " ".join(query.split()).strip()
-    if not query:
+    """Evaluate recruiter Boolean search safely against normalized candidate text."""
+    tokens = re.findall(r'"[^"]*"|\(|\)|\bAND\b|\bOR\b|\bNOT\b|[^\s()]+', query, flags=re.IGNORECASE)
+    tokens = [token.strip() for token in tokens if token.strip()]
+    if not tokens:
         return True
-    for any_group in re.split(r"\s+OR\s+", query, flags=re.IGNORECASE):
-        terms = re.split(r"\s+AND\s+", any_group, flags=re.IGNORECASE)
-        group_ok = True
-        for raw_term in terms:
-            term = raw_term.strip()
-            negate = bool(re.match(r"^NOT\s+", term, flags=re.IGNORECASE))
-            if negate:
-                term = re.sub(r"^NOT\s+", "", term, flags=re.IGNORECASE).strip()
-            if not term:
-                continue
-            present = term.casefold() in content.casefold()
-            if (negate and present) or ((not negate) and (not present)):
-                group_ok = False
-                break
-        if group_ok:
-            return True
-    return False
 
+    position = 0
+    haystack = content.casefold()
+
+    def parse_or():
+        nonlocal position
+        value = parse_and()
+        while position < len(tokens) and tokens[position].casefold() == "or":
+            position += 1
+            value = value or parse_and()
+        return value
+
+    def parse_and():
+        nonlocal position
+        value = parse_unary()
+        while position < len(tokens) and tokens[position].casefold() == "and":
+            position += 1
+            value = value and parse_unary()
+        return value
+
+    def parse_unary():
+        nonlocal position
+        if position >= len(tokens):
+            return False
+        token = tokens[position]
+        if token.casefold() == "not":
+            position += 1
+            return not parse_unary()
+        if token == "(":
+            position += 1
+            value = parse_or()
+            if position < len(tokens) and tokens[position] == ")":
+                position += 1
+            return value
+        if token == ")":
+            position += 1
+            return False
+        position += 1
+        term = token[1:-1] if len(token) >= 2 and token.startswith('"') and token.endswith('"') else token
+        return term.casefold() in haystack
+
+    return parse_or() and position == len(tokens)
 
 READ_ROLES = (Role.admin, Role.recruiter, Role.hiring_manager, Role.interviewer)
 WRITE_ROLES = (Role.admin, Role.recruiter)
