@@ -15,9 +15,7 @@ SKILL_CATALOG = (
     "Redis", "GraphQL", "Figma", "Excel", "Go", "Rust", "C#", "Azure", "GCP",
     "Terraform", "Linux", "Salesforce", "Tableau", "Power BI", "Swift", "Kotlin",
 )
-SKILL_ALIASES = {"reactjs":"React","react.js":"React","react js":"React","nodejs":"Node.js","node.js":"Node.js","node js":"Node.js","nextjs":"Next.js","next.js":"Next.js","next js":"Next.js","postgres":"PostgreSQL","postgresql":"PostgreSQL","postgres sql":"PostgreSQL","mongo":"MongoDB","mongodb":"MongoDB","k8s":"Kubernetes","python3":"Python","fast api":"FastAPI","fastapi":"FastAPI","restful api":"REST API","rest api":"REST API","ml":"Machine Learning","powerbi":"Power BI","power bi":"Power BI"}
-
-PREFERRED_MARKERS = ("nice to have", "preferred", "bonus", "plus", "desirable", "good to have")
+PREFERRED_MARKERS = ("nice to have", "preferred", "bonus", "plus", "desirable")
 STOP_WORDS = {
     "and", "the", "for", "with", "from", "that", "this", "have", "has", "are",
     "will", "you", "your", "our", "their", "years", "year", "experience", "work",
@@ -42,28 +40,10 @@ class CandidateMatcher:
             self.chat_model = None
 
     @staticmethod
-    def normalize_skill(value: str) -> str:
-        cleaned = re.sub(r"\s+", " ", str(value or "").strip().casefold())
-        return SKILL_ALIASES.get(cleaned, str(value or "").strip())
-
-    @classmethod
-    def normalize_skills(cls, values):
-        result, seen = [], set()
-        for value in values or []:
-            normalized = cls.normalize_skill(value)
-            key = normalized.casefold()
-            if normalized and key not in seen:
-                seen.add(key); result.append(normalized)
-        return result
-
-    @staticmethod
     def _extract_skills(text):
         found = []
-        for alias, canonical in sorted(SKILL_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
-            if re.search(r"(?<![\w+#.])" + re.escape(alias) + r"(?![\w+#.])", text, re.IGNORECASE) and canonical not in found:
-                found.append(canonical)
         for skill in SKILL_CATALOG:
-            if skill not in found and re.search(r"(?<![\w+#.])" + re.escape(skill) + r"(?![\w+#.])", text, re.IGNORECASE):
+            if re.search(r"(?<!\w)" + re.escape(skill) + r"(?!\w)", text, re.IGNORECASE):
                 found.append(skill)
         return found
 
@@ -123,34 +103,13 @@ class CandidateMatcher:
             re.IGNORECASE,
         )
         years_match = re.search(r"\b(\d{1,2})\+?\s*(?:years|yrs)\b", text, re.IGNORECASE)
-        responsibilities = []
-        interview_topics = []
-        collecting = None
-        for raw_line in description.splitlines():
-            line = re.sub(r"^\s*[-•*]\s*", "", raw_line).strip()
-            heading = re.sub(r"[:\s]+$", "", line).casefold()
-            if heading in {"responsibilities", "what you'll do", "what you will do", "key responsibilities", "duties"}:
-                collecting = "responsibilities"; continue
-            if heading in {"interview", "interview topics", "technical interview", "what we assess", "assessment"}:
-                collecting = "interview"; continue
-            if heading in {"requirements", "qualifications", "skills", "preferred", "nice to have", "education", "experience", "benefits"}:
-                collecting = None
-            elif line and collecting == "responsibilities":
-                responsibilities.append(line)
-            elif line and collecting == "interview":
-                interview_topics.append(line)
         fallback = {
-            "required_skills": self.normalize_skills(required_skills),
-            "preferred_skills": self.normalize_skills(preferred_skills),
-            "experience": {"minimum_years": int(years_match.group(1)) if years_match else None, "maximum_years": None},
+            "required_skills": required_skills,
+            "preferred_skills": preferred_skills,
             "seniority": seniority,
             "location": location or (location_match.group(1).strip() if location_match else None),
-            "work_mode": "remote" if re.search(r"\b(remote|work from home|wfh|fully remote)\b", lower_text) else "hybrid" if re.search(r"\bhybrid\b", lower_text) else "onsite" if re.search(r"\bonsite|on-site\b", lower_text) else None,
             "education": education_match.group(0).strip() if education_match else None,
             "minimum_experience_years": int(years_match.group(1)) if years_match else None,
-            "responsibilities": responsibilities[:20],
-            "interview_topics": self.normalize_skills(self._extract_skills("\n".join(interview_topics))) + interview_topics[:10],
-            "skill_normalization": {alias: canonical for alias, canonical in SKILL_ALIASES.items() if re.search(r"(?<![\w+#.])" + re.escape(alias) + r"(?![\w+#.])", text, re.IGNORECASE)},
         }
         if not use_llm or self.llm_client is None:
             return fallback
@@ -213,8 +172,6 @@ class CandidateMatcher:
                 "Education: " + str(analysis.get("education", "")),
                 "Minimum experience: " + str(analysis.get("minimum_experience_years", "")),
                 "Freshers allowed: " + str(analysis.get("fresher_allowed", False)),
-                "Responsibilities: " + " | ".join(analysis.get("responsibilities", [])),
-                "Interview topics: " + ", ".join(analysis.get("interview_topics", [])),
             ]
         )
 
@@ -340,9 +297,9 @@ class CandidateMatcher:
     def score_candidate(self, job, candidate) -> dict:
         analysis = job.jd_analysis or self.analyze_job(job)
         profile = candidate.resume_data or {}
-        candidate_skills = {self.normalize_skill(skill).casefold(): self.normalize_skill(skill) for skill in profile.get("skills", [])}
-        required_skills = self.normalize_skills(analysis.get("required_skills", []))
-        preferred_skills = self.normalize_skills(analysis.get("preferred_skills", []))
+        candidate_skills = {str(skill).casefold(): str(skill) for skill in profile.get("skills", [])}
+        required_skills = analysis.get("required_skills", [])
+        preferred_skills = analysis.get("preferred_skills", [])
         matched_required = [skill for skill in required_skills if skill.casefold() in candidate_skills]
         matched_preferred = [skill for skill in preferred_skills if skill.casefold() in candidate_skills]
         skill_gaps = [skill for skill in required_skills if skill.casefold() not in candidate_skills]
