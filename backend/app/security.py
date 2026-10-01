@@ -17,7 +17,7 @@ if not JWT_SECRET and os.getenv("APP_ENV", "development") not in {"development",
     raise RuntimeError("JWT_SECRET must be configured outside development and test environments")
 JWT_SECRET = JWT_SECRET or "local-development-only-change-me"
 JWT_ALGORITHM = "HS256"
-TOKEN_LIFETIME_MINUTES = 30
+TOKEN_LIFETIME_MINUTES = 12 * 60
 password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
