@@ -40,6 +40,7 @@ from app.security import (
     require_roles,
 )
 from app.services.email_notifications import deliver_outbox_email
+from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
 from app.services.workflow import (
     PIPELINE_STAGES,
