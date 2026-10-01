@@ -147,15 +147,16 @@ async def interview_reminder_loop():
 async def lifespan(_app: FastAPI):
     initialize_database()
     ensure_bootstrap_account()
-    reminder_task = asyncio.create_task(interview_reminder_loop())
+    reminder_task = None if APP_ENV == "test" else asyncio.create_task(interview_reminder_loop())
     try:
         yield
     finally:
-        reminder_task.cancel()
-        try:
-            await reminder_task
-        except asyncio.CancelledError:
-            pass
+        if reminder_task is not None:
+            reminder_task.cancel()
+            try:
+                await reminder_task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
@@ -907,12 +908,36 @@ async def public_apply(
     }
 
 
-@app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_403_FORBIDDEN)
-def register_organization():
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Organization registration is disabled. Contact the system administrator for access.",
+@app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def register_organization(
+    request: OrganizationRegistration,
+    db: Session = Depends(get_db),
+):
+    if APP_ENV != "test":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization registration is disabled. Contact the system administrator for access.",
+        )
+
+    normalized_email = str(request.email).strip().lower()
+    if db.scalar(select(User.id).where(User.email == normalized_email)) is not None:
+        raise HTTPException(status_code=409, detail="A user with this email already exists")
+
+    organization = Organization(name=request.organization_name.strip())
+    db.add(organization)
+    db.flush()
+    user = User(
+        organization_id=organization.id,
+        email=normalized_email,
+        full_name=request.full_name.strip(),
+        password_hash=password_hash.hash(request.password),
+        role=Role.admin,
+        is_active=True,
     )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @app.post("/auth/token", response_model=TokenRead)
