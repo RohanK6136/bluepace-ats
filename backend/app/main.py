@@ -2441,6 +2441,95 @@ def create_interview_round(
     return interview
 
 
+@app.get("/interviewers/availability", response_model=list[InterviewAvailabilityRead])
+def list_interviewer_availability(
+    user_id: int | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    stmt = select(InterviewAvailability).where(InterviewAvailability.organization_id == user.organization_id)
+    if user_id is not None: stmt = stmt.where(InterviewAvailability.user_id == user_id)
+    if start is not None: stmt = stmt.where(InterviewAvailability.starts_at >= start)
+    if end is not None: stmt = stmt.where(InterviewAvailability.ends_at <= end)
+    return db.scalars(stmt.order_by(InterviewAvailability.starts_at.asc())).all()
+
+
+@app.post("/interviewers/availability", response_model=InterviewAvailabilityRead)
+def create_interviewer_availability(
+    request: InterviewAvailabilityCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    if request.ends_at <= request.starts_at: raise HTTPException(422, "Availability end must be after start")
+    slot = InterviewAvailability(organization_id=user.organization_id, user_id=user.id, starts_at=request.starts_at, ends_at=request.ends_at, note=request.note)
+    db.add(slot); db.commit(); db.refresh(slot)
+    return slot
+
+
+@app.get("/interviewer-dashboard")
+def interviewer_dashboard(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    participant_ids = select(InterviewParticipant.interview_id).where(InterviewParticipant.user_id == user.id)
+    assigned = db.scalars(select(Interview).where(Interview.id.in_(participant_ids), Interview.status == "scheduled").order_by(Interview.starts_at.asc())).all()
+    legacy = db.scalars(select(Interview).where(Interview.interviewer_id == user.id, Interview.status == "scheduled")).all()
+    seen = {item.id for item in assigned}
+    interviews = assigned + [item for item in legacy if item.id not in seen]
+    scorecards = db.scalars(select(Scorecard).where(Scorecard.interviewer_id == user.id)).all()
+    pending = [s for s in scorecards if s.submitted_at is None]
+    overdue = [i for i in interviews if i.feedback_deadline and i.feedback_deadline < datetime.now(timezone.utc)]
+    return {
+        "interviews": [{"id": i.id, "application_id": i.application_id, "starts_at": i.starts_at, "duration_minutes": i.duration_minutes, "round_name": i.round_name, "round_type": getattr(i, "round_type", "technical"), "round_number": i.round_number, "status": i.status, "feedback_deadline": i.feedback_deadline} for i in interviews],
+        "scorecards_pending": len(pending),
+        "scorecards_overdue": len(overdue),
+        "completed_scorecards": len([s for s in scorecards if s.submitted_at is not None]),
+    }
+
+
+@app.patch("/interviews/{interview_id}/reschedule", response_model=InterviewRead)
+def reschedule_interview(
+    interview_id: int,
+    request: InterviewCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _get_org_record(db, Interview, interview_id, user.organization_id)
+    if interview.status == "cancelled": raise HTTPException(409, "Cancelled interviews cannot be rescheduled")
+    interview.starts_at = request.starts_at
+    interview.duration_minutes = request.duration_minutes
+    interview.mode = request.mode
+    interview.location = request.location
+    interview.meeting_url = request.meeting_url
+    if request.feedback_deadline: interview.feedback_deadline = request.feedback_deadline
+    interview.status = "scheduled"
+    interview.reminder_24_sent = False
+    interview.reminder_1h_sent = False
+    record_audit(db, user, "interview.rescheduled", "interview", interview.id, after={"starts_at": request.starts_at.isoformat()})
+    db.commit(); db.refresh(interview)
+    return interview
+
+
+@app.post("/interviews/{interview_id}/cancel")
+def cancel_interview(
+    interview_id: int,
+    reason: str,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _get_org_record(db, Interview, interview_id, user.organization_id)
+    if not reason.strip(): raise HTTPException(422, "Cancellation reason is required")
+    interview.status = "cancelled"
+    interview.cancellation_reason = reason.strip()
+    interview.reminder_24_sent = True
+    interview.reminder_1h_sent = True
+    record_audit(db, user, "interview.cancelled", "interview", interview.id, after={"reason": interview.cancellation_reason})
+    db.commit()
+    return {"id": interview.id, "status": interview.status, "cancellation_reason": interview.cancellation_reason}
+
+
 @app.get("/applications/{application_id}/interviews", response_model=list[InterviewRead])
 def list_interview_rounds(
     application_id: int,
