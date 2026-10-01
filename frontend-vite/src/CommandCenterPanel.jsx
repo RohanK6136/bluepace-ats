@@ -24,26 +24,41 @@ export default function CommandCenterPanel({ token, apiRequest, onNotice, onErro
       setData(dashboardResult.value.data);
       setAnalytics(analyticsResult.value.data);
 
-      // Optional integrations must never take down the Command Center.
+      // Optional integrations are best-effort: a provider/configuration failure
+      // must never take down the Command Center.
       const dashboard = dashboardResult.value.data || {};
-      setInterviewer({
-        pending_scorecards: dashboard.pending_scorecards ?? 0,
-        interviews: (dashboard.upcoming_interviews || []).map((item) => ({
-          interview_id: item.id,
-          candidate_name: item.candidate_name,
-          job_title: item.job_title,
-          round_name: item.mode || "Interview",
-          starts_at: item.starts_at,
-          scorecard_submitted: false,
-          status: item.status || "scheduled",
-        })),
-      });
-      setCalendar({
-        message: "Calendar invitations are available through the interview scheduling workflow.",
-        google: { configured: false },
-        microsoft: { configured: false },
-        ics_available: true,
-      });
+      const [interviewerResult, calendarResult] = await Promise.allSettled([
+        apiRequest(token, "get", "/interviewer-dashboard"),
+        apiRequest(token, "get", "/integrations/calendar/status"),
+      ]);
+
+      setInterviewer(
+        interviewerResult.status === "fulfilled"
+          ? interviewerResult.value.data
+          : {
+              pending_scorecards: dashboard.pending_scorecards ?? 0,
+              interviews: (dashboard.upcoming_interviews || []).map((item) => ({
+                interview_id: item.id,
+                candidate_name: item.candidate_name,
+                job_title: item.job_title,
+                round_name: item.round_name || item.mode || "Interview",
+                starts_at: item.starts_at,
+                scorecard_submitted: item.scorecard_submitted ?? false,
+                status: item.status || "scheduled",
+              })),
+            },
+      );
+
+      setCalendar(
+        calendarResult.status === "fulfilled"
+          ? calendarResult.value.data
+          : {
+              message: "Calendar invitations are available through the interview scheduling workflow.",
+              google: { configured: false },
+              microsoft: { configured: false },
+              ics_available: true,
+            },
+      );
     } catch (error) {
       setData(null);
       setAnalytics(null);
@@ -56,7 +71,29 @@ export default function CommandCenterPanel({ token, apiRequest, onNotice, onErro
   useEffect(() => { load(); }, [token]);
 
   async function download(kind) {
-    onError(new Error("Recruitment report export is not available in this deployment yet."));
+    setReportLoading(kind);
+    try {
+      const extension = kind === "xlsx" ? "xlsx" : "pdf";
+      const response = await apiRequest(token, "get", `/reports/recruitment.${extension}`, {
+        responseType: "blob",
+      });
+      const blob = new Blob([response.data], {
+        type: response.headers?.["content-type"] || "application/octet-stream",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `bluepace-recruitment-report.${extension}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      onNotice(`${extension.toUpperCase()} recruitment report downloaded.`);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setReportLoading("");
+    }
   }
 
   if (loading) return <section className={card + " text-sm text-ink-500"}>Loading recruitment command center…</section>;
@@ -69,7 +106,7 @@ export default function CommandCenterPanel({ token, apiRequest, onNotice, onErro
     <section>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div><p className="text-sm text-ink-500">Jobs → candidates → interviews → feedback → offers → hiring.</p><h2 className="mt-1 text-2xl font-semibold">Recruitment command center</h2></div>
-        <div className="flex gap-2"><button className={secondary} onClick={() => download("xlsx")}>Excel report</button><button className={secondary} onClick={() => download("pdf")}>PDF report</button></div>
+        <div className="flex gap-2"><button className={secondary} disabled={Boolean(reportLoading)} onClick={() => download("xlsx")}>{reportLoading === "xlsx" ? "Exporting…" : "Excel report"}</button><button className={secondary} disabled={Boolean(reportLoading)} onClick={() => download("pdf")}>{reportLoading === "pdf" ? "Exporting…" : "PDF report"}</button></div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
