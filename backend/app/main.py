@@ -104,8 +104,10 @@ from app.security import create_access_token, create_candidate_portal_token, dec
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
+from app.services.calendar import sync_interview_calendar
 from app.services.matching import matching_service
 from app.routers.merge_center import router as merge_center_router
+from app.routers.calendar import router as calendar_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
 from app.services.workflow import (
     PIPELINE_STAGES,
@@ -178,6 +180,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
 app.include_router(merge_center_router)
+app.include_router(calendar_router)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
@@ -2453,6 +2456,7 @@ def create_interview_round(
     db.commit()
     db.refresh(interview)
     background_tasks.add_task(deliver_outbox_email, email_id)
+    background_tasks.add_task(sync_interview_calendar, interview.id, user.organization_id, user.id, "upsert")
     return interview
 
 
