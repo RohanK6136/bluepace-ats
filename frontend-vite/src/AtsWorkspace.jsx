@@ -10,6 +10,7 @@ import ApplicationEnhancements from "./ApplicationEnhancements.jsx";
 import RecruiterToolsPanel from "./RecruiterToolsPanel.jsx";
 import InterviewPanel from "./InterviewPanel.jsx";
 import AutomationPanel from "./AutomationPanel.jsx";
+import CommandCenterPanel from "./CommandCenterPanel.jsx";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -121,6 +122,7 @@ export default function AtsWorkspace() {
   const [publicForm, setPublicForm] = useState({ full_name: "", email: "", phone: "" });
   const [publicError, setPublicError] = useState("");
   const [publicSuccess, setPublicSuccess] = useState("");
+  const [publicFilters, setPublicFilters] = useState({ search: "", department: "", location: "", work_mode: "" });
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ organization_name: "", full_name: "", email: "", password: "" });
   const [authError, setAuthError] = useState("");
@@ -200,6 +202,17 @@ export default function AtsWorkspace() {
     loadPublicJobs();
     return () => { active = false; };
   }, [token, accessMode]);
+
+
+  useEffect(() => {
+    if (token || accessMode !== "public") return undefined;
+    let active = true;
+    const params = Object.fromEntries(Object.entries(publicFilters).filter(([, value]) => value));
+    apiRequest(null, "get", "/public/jobs", { params })
+      .then((response) => { if (active) setPublicJobs(Array.isArray(response.data) ? response.data : []); })
+      .catch((requestError) => { if (active) setPublicError(errorText(requestError)); });
+    return () => { active = false; };
+  }, [token, accessMode, publicFilters.search, publicFilters.department, publicFilters.location, publicFilters.work_mode]);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -961,6 +974,7 @@ export default function AtsWorkspace() {
 
   const navItems = [
     { id: "dashboard", label: "Dashboard" },
+    { id: "command", label: "Command Center" },
     { id: "pipeline", label: "Applications", count: applications.length },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
@@ -1019,6 +1033,13 @@ export default function AtsWorkspace() {
           {error && <div role="alert" className="mb-4 flex items-center justify-between border-l-2 border-rose-600 bg-white px-4 py-3 text-sm text-rose-800"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
           {loading && <div className="mb-3 text-xs text-ink-500">Loading workspace…</div>}
 
+
+          {view === "command" && <CommandCenterPanel
+            token={token}
+            apiRequest={apiRequest}
+            onNotice={setNotice}
+            onError={(requestError) => setError(errorText(requestError))}
+          />}
 
           {view === "dashboard" && <>
             <div className="mb-6"><p className="text-sm text-ink-500">Recruitment overview</p><h2 className="mt-1 text-2xl font-semibold">Recruiter dashboard</h2></div>

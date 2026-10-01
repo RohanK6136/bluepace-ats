@@ -13,10 +13,25 @@ export default function CandidatePortal({ token }) {
   const [actionLoading, setActionLoading] = useState(false);
   const [withdrawReason, setWithdrawReason] = useState("");
   const [message, setMessage] = useState("");
+  const [documents, setDocuments] = useState([]);
+  const [documentFile, setDocumentFile] = useState(null);
+  const [profileForm, setProfileForm] = useState({ email: "", phone: "" });
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [documentLoading, setDocumentLoading] = useState(false);
 
   async function load() {
-    const response = await axios.get(API_URL + "/public/application/" + encodeURIComponent(token) + "/details", { timeout: 30000 });
+    const encoded = encodeURIComponent(token);
+    const [response, documentResponse] = await Promise.all([
+      axios.get(API_URL + "/public/application/" + encoded + "/details", { timeout: 30000 }),
+      axios.get(API_URL + "/public/application/" + encoded + "/documents", { timeout: 30000 }).catch(() => ({ data: [] })),
+    ]);
     setData(response.data);
+    setDocuments(documentResponse.data || []);
+    setProfileForm((current) => ({
+      email: response.data?.candidate_email || current.email || "",
+      phone: response.data?.candidate_phone || current.phone || "",
+    }));
   }
 
   useEffect(() => {
@@ -42,6 +57,35 @@ export default function CandidatePortal({ token }) {
     } catch (requestError) {
       setError(requestError.response?.data?.detail || "We could not update your offer response.");
     } finally { setActionLoading(false); }
+  }
+
+  async function saveProfile() {
+    setSavingProfile(true);
+    setMessage("");
+    try {
+      const response = await axios.patch(API_URL + "/public/application/" + encodeURIComponent(token) + "/profile", profileForm, { timeout: 30000 });
+      setProfileForm({ email: response.data.email || "", phone: response.data.phone || "" });
+      setProfileEditing(false);
+      setMessage("Your contact details were updated.");
+      await load();
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || "We could not update your contact details.");
+    } finally { setSavingProfile(false); }
+  }
+
+  async function uploadDocument() {
+    if (!documentFile) return;
+    setDocumentLoading(true);
+    try {
+      const form = new FormData();
+      form.append("file", documentFile);
+      await axios.post(API_URL + "/public/application/" + encodeURIComponent(token) + "/documents", form, { timeout: 30000 });
+      setDocumentFile(null);
+      setMessage("Document uploaded successfully.");
+      await load();
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || "We could not upload this document.");
+    } finally { setDocumentLoading(false); }
   }
 
   async function withdrawApplication() {
@@ -83,6 +127,31 @@ export default function CandidatePortal({ token }) {
             <div className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4"><p className="text-xs uppercase text-ink-500">Status</p><p className="mt-1 font-semibold capitalize">{data.status}</p></div>
             <div className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4"><p className="text-xs uppercase text-ink-500">Applied</p><p className="mt-1 font-semibold">{new Date(data.applied_at).toLocaleDateString()}</p></div>
             <div className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4"><p className="text-xs uppercase text-ink-500">Reference</p><p className="mt-1 font-semibold">BP-{String(data.application_id).padStart(6, "0")}</p></div>
+          </div>
+
+          <div className="mt-7 border-t border-ink-100 pt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Contact details</p><p className="mt-1 text-sm text-ink-500">Keep your email and phone current for recruiting updates.</p></div>
+              <button className="text-sm font-semibold underline" onClick={() => setProfileEditing((value) => !value)}>{profileEditing ? "Cancel" : "Edit"}</button>
+            </div>
+            {profileEditing ? (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <input className={inputStyle} type="email" value={profileForm.email} onChange={(e) => setProfileForm({...profileForm,email:e.target.value})} placeholder="Email" />
+                <input className={inputStyle} value={profileForm.phone} onChange={(e) => setProfileForm({...profileForm,phone:e.target.value})} placeholder="Phone" />
+                <button className="sm:col-span-2 w-fit rounded-md bg-[#1769d3] px-4 py-2 text-sm font-semibold text-white" disabled={savingProfile} onClick={saveProfile}>{savingProfile ? "Saving…" : "Save details"}</button>
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2"><div className="rounded-lg bg-[#fafaf8] p-3 text-sm">{profileForm.email || "Email not available"}</div><div className="rounded-lg bg-[#fafaf8] p-3 text-sm">{profileForm.phone || "Phone not available"}</div></div>
+            )}
+          </div>
+
+          <div className="mt-7 border-t border-ink-100 pt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Documents</p><p className="mt-1 text-sm text-ink-500">Upload supporting documents requested by recruiting.</p></div>
+              <label className="rounded-md border border-ink-100 bg-white px-3 py-2 text-xs font-semibold cursor-pointer">Choose file<input className="hidden" type="file" accept=".pdf,.docx,.png,.jpg,.jpeg" onChange={(e) => setDocumentFile(e.target.files?.[0] || null)} /></label>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">{documentFile && <><span className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800">{documentFile.name}</span><button className="rounded-md bg-[#1769d3] px-3 py-2 text-xs font-semibold text-white" disabled={documentLoading} onClick={uploadDocument}>{documentLoading ? "Uploading…" : "Upload"}</button></>}</div>
+            <div className="mt-4 grid gap-2">{documents.map((doc) => <div key={doc.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-100 p-3 text-sm"><div><p className="font-semibold">{doc.name}</p><p className="text-xs text-ink-500">{Math.max(1, Math.round(doc.size_bytes / 1024))} KB</p></div><a className="text-xs font-semibold underline" href={API_URL + doc.download_url}>Download</a></div>)}{!documents.length && <p className="text-sm text-ink-500">No additional documents uploaded.</p>}</div>
           </div>
 
           <div className="mt-7 border-t border-ink-100 pt-6">
