@@ -54,6 +54,7 @@ def initialize_database():
     upgrade_phase2_columns(engine)
     upgrade_phase3_columns(engine)
     upgrade_phase4_columns(engine)
+    upgrade_phase5_columns(engine)
 
 
 def upgrade_phase1_columns(target_engine):
@@ -128,6 +129,29 @@ def upgrade_phase4_columns(target_engine):
     additions = {
         "jobs": [Job.__table__.c.work_mode],
         "interviews": [Interview.__table__.c.mode, Interview.__table__.c.location],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+def upgrade_phase5_columns(target_engine):
+    from app.models import Interview, Organization
+
+    additions = {
+        "organizations": [Organization.__table__.c.email_templates],
+        "interviews": [
+            Interview.__table__.c.reminder_24_sent,
+            Interview.__table__.c.reminder_1h_sent,
+        ],
     }
     with target_engine.begin() as connection:
         existing_tables = set(inspect(connection).get_table_names())
