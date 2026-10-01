@@ -86,6 +86,9 @@ class Candidate(Base):
     resume_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cv_summary: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536).with_variant(JSON(), "sqlite"), nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(JSON, default=list, nullable=True)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    merged_into_id: Mapped[int | None] = mapped_column(ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
