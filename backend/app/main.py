@@ -945,7 +945,7 @@ def _candidate_search_matches(content: str, query: str) -> bool:
             if not term:
                 continue
             present = term.casefold() in content.casefold()
-            if (not present) if negate else (not present):
+            if (negate and present) or ((not negate) and (not present)):
                 group_ok = False
                 break
         if group_ok:
