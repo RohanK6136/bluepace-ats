@@ -237,3 +237,8 @@ class EmailTemplate(BaseModel):
 
 class EmailTemplateUpdate(BaseModel):
     templates: dict[str, EmailTemplate]
+
+
+class EmailTemplateTestRequest(BaseModel):
+    template_name: str = Field(min_length=1, max_length=100)
+    recipient: str = Field(min_length=3, max_length=320)
