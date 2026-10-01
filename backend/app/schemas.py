@@ -220,6 +220,8 @@ class ScorecardCreate(BaseModel):
 
 
 class ScorecardRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     application_id: int
     interviewer_id: int
