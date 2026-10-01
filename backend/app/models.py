@@ -188,6 +188,46 @@ class Interview(Base):
     reminder_1h_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
+class TalentPool(Base):
+    __tablename__ = "talent_pools"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class TalentPoolMembership(Base):
+    __tablename__ = "talent_pool_memberships"
+    __table_args__ = (UniqueConstraint("pool_id", "candidate_id", name="uq_pool_candidate"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pool_id: Mapped[int] = mapped_column(ForeignKey("talent_pools.id", ondelete="CASCADE"), index=True)
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"), index=True)
+    added_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Offer(Base):
+    __tablename__ = "offers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), unique=True, index=True)
+    position_title: Mapped[str] = mapped_column(String(200))
+    annual_ctc: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    currency: Mapped[str] = mapped_column(String(10), default="INR")
+    joining_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    offer_letter_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 class Email(Base):
     __tablename__ = "emails"
 
