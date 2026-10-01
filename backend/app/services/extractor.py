@@ -342,9 +342,12 @@ class DocumentExtractor:
         prompt = f"""
 Extract only information present in this resume. Do not infer missing facts.
 Return a JSON object with name, email, phone, linkedin, github, skills (strings),
-experience (objects with company, title, duration, description), education
-(objects with degree, university, cgpa, graduation_year), hobbies,
-university_projects, highest_education, and is_fresher.
+years_of_experience, companies (strings), job_titles (strings), experience
+(objects with company, title, duration, description), education
+(objects with degree, university, cgpa, graduation_year), certifications (strings),
+projects, university_projects, highest_education, notice_period, current_location,
+preferred_location, work_authorization, and is_fresher. Extract only explicit
+evidence from the resume; never infer missing facts. Use null or [] when absent.
 
 Resume text:
 {raw_text[:12000]}
@@ -414,6 +417,9 @@ Resume text:
                     parsed[field] = llm_data[field]
             if isinstance(llm_data.get("is_fresher"), bool):
                 parsed["is_fresher"] = llm_data["is_fresher"]
+        for social_field in ("linkedin", "github"):
+            if parsed.get(social_field):
+                parsed[social_field] = self._normalize_url(parsed[social_field])
         if not parsed.get("projects"):
             parsed["projects"] = parsed.get("university_projects") or []
         if not parsed.get("companies"):
@@ -423,6 +429,7 @@ Resume text:
         if parsed.get("years_of_experience") is None:
             parsed["years_of_experience"] = self._experience_years_from_entries(parsed.get("experience"))
         parsed["resume_quality"] = self._resume_quality_flags(raw_text, parsed)
+        parsed["resume_intelligence_version"] = 2
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
         return parsed
