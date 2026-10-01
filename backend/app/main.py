@@ -1486,7 +1486,9 @@ def list_job_matches(
     user: User = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(get_db),
 ):
-    _get_org_record(db, Job, job_id, user.organization_id)
+    job = _get_org_record(db, Job, job_id, user.organization_id)
+    if not job.jd_analysis:
+        job.jd_analysis = matching_service.analyze_job(job)
     matches = db.scalars(
         select(CandidateJobMatch)
         .where(
