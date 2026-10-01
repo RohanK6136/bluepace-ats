@@ -60,6 +60,14 @@ def decode_candidate_portal_token(token: str) -> int:
     return int(payload["application_id"])
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -84,12 +92,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             )
         )
         now = datetime.now(timezone.utc)
-        expires_at = session.expires_at if session is not None else None
-        revoked_at = session.revoked_at if session is not None else None
-        if expires_at is not None and expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if revoked_at is not None and revoked_at.tzinfo is None:
-            revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+        expires_at = _as_utc(session.expires_at if session is not None else None)
+        revoked_at = _as_utc(session.revoked_at if session is not None else None)
         if session is None or revoked_at is not None or expires_at is None or expires_at <= now:
             raise unauthorized
     return user
