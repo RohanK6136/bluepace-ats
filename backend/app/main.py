@@ -1669,6 +1669,17 @@ def update_email_templates(
     return get_email_templates(user=user, db=db)
 
 
+@app.get("/applications/{application_id}/portal-link")
+def application_portal_link(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    token = create_candidate_portal_token(application.id)
+    return {"url": f"{DEPLOYED_FRONTEND_ORIGIN}?portal={urllib.parse.quote(token)}", "application_id": application.id}
+
+
 @app.get("/public/application/{token}")
 def public_application_status(token: str, db: Session = Depends(get_db)):
     try:
