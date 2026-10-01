@@ -1384,7 +1384,7 @@ async def create_candidate_from_resume(
                     semantic_mode=score["semantic_mode"],
                 )
             )
-            subject, body = _stage_email(application, "Applied")
+            subject, body = _stage_email(application, "Applied", db=db)
             email_id = queue_application_email(db, application, subject, body)
 
     db.commit()
@@ -2032,6 +2032,7 @@ def update_application_stage(
     subject, body = _stage_email(
         application,
         stage.name,
+        db=db,
         db=db,
         interview_starts_at=request.interview_starts_at,
         interview_duration_minutes=request.interview_duration_minutes,
