@@ -93,7 +93,7 @@ class OfferTransitionRequest(BaseModel):
 
 class OfferResponseRequest(BaseModel):
     status: str = Field(pattern="^(accepted|declined)$")
-    acknowledgement: str = Field(min_length=10, max_length=2000)
+    acknowledgement: str | None = Field(default=None, max_length=2000)
 
 
 def _now():
@@ -351,7 +351,7 @@ def public_offer_response_v2(token: str, request: OfferResponseRequest, http_req
         offer_id=offer.id,
         application_id=application.id,
         action=request.status,
-        acknowledgement=request.acknowledgement,
+        acknowledgement=request.acknowledgement or ("Candidate " + request.status + " the offer through the secure candidate portal."),
         accepted_at=offer.responded_at,
         ip_address=http_request.client.host if http_request.client else None,
         user_agent=http_request.headers.get("user-agent"),
