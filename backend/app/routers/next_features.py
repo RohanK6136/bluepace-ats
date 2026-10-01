@@ -1532,3 +1532,111 @@ def update_public_candidate_profile(token: str, request: CandidatePortalProfileU
         candidate.phone = (values["phone"] or "").strip() or None
     db.commit()
     return {"email": candidate.email, "phone": candidate.phone}
+
+
+def _recruitment_rows(db: Session, organization_id: int):
+    applications = db.scalars(
+        select(Application)
+        .where(Application.organization_id == organization_id)
+        .options(selectinload(Application.job), selectinload(Application.candidate), selectinload(Application.stage))
+        .order_by(Application.applied_at.desc())
+    ).all()
+    application_ids = [app.id for app in applications]
+    interview_counts = {}
+    if application_ids:
+        for app_id, count in db.execute(select(Interview.application_id, func.count(Interview.id)).where(Interview.application_id.in_(application_ids)).group_by(Interview.application_id)).all():
+            interview_counts[app_id] = count
+    offers = {o.application_id: o for o in db.scalars(select(Offer).where(Offer.application_id.in_(application_ids))).all()} if application_ids else {}
+    rows = []
+    for app in applications:
+        candidate = app.candidate
+        offer = offers.get(app.id)
+        rows.append([
+            app.id,
+            app.job.title,
+            f"{candidate.first_name} {candidate.last_name}".strip(),
+            candidate.email,
+            candidate.source or "",
+            app.stage.name if app.stage else "Applied",
+            app.status,
+            app.applied_at.isoformat(),
+            interview_counts.get(app.id, 0),
+            offer.status if offer else "",
+            offer.annual_ctc if offer else "",
+            offer.currency if offer else "",
+            offer.joining_date.isoformat() if offer and offer.joining_date else "",
+            ", ".join(_candidate_tags(candidate)),
+        ])
+    return rows
+
+
+@router.get("/reports/recruitment.xlsx")
+def recruitment_report_xlsx(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    from openpyxl import Workbook
+    output = io.BytesIO()
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Recruitment"
+    headers = ["Application ID", "Job", "Candidate", "Email", "Source", "Stage", "Application Status", "Applied At", "Interview Rounds", "Offer Status", "Offer CTC", "Currency", "Joining Date", "Tags"]
+    sheet.append(headers)
+    for row in _recruitment_rows(db, user.organization_id):
+        sheet.append(row)
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    for column in sheet.columns:
+        max_len = min(48, max(len(str(cell.value or "")) for cell in column) + 2)
+        sheet.column_dimensions[column[0].column_letter].width = max_len
+    workbook.save(output)
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="blupace-recruitment-report.xlsx"'},
+    )
+
+
+@router.get("/reports/recruitment.pdf")
+def recruitment_report_pdf(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfgen import canvas
+    output = io.BytesIO()
+    page = landscape(A4)
+    pdf = canvas.Canvas(output, pagesize=page)
+    width, height = page
+    pdf.setTitle("Blupace Recruitment Report")
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(36, height - 40, "Blupace Tech — Recruitment Report")
+    pdf.setFont("Helvetica", 8)
+    rows = _recruitment_rows(db, user.organization_id)
+    headers = ["ID", "Job", "Candidate", "Stage", "Status", "Applied", "Interviews", "Offer"]
+    x = [36, 64, 180, 330, 400, 465, 560, 620]
+    y = height - 65
+    pdf.setFont("Helvetica-Bold", 8)
+    for xx, header in zip(x, headers):
+        pdf.drawString(xx, y, header)
+    pdf.setFont("Helvetica", 7)
+    for index, row in enumerate(rows):
+        y -= 14
+        if y < 36:
+            pdf.showPage()
+            pdf.setFont("Helvetica-Bold", 16)
+            pdf.drawString(36, height - 40, "Blupace Tech — Recruitment Report")
+            pdf.setFont("Helvetica-Bold", 8)
+            for xx, header in zip(x, headers):
+                pdf.drawString(xx, height - 65, header)
+            pdf.setFont("Helvetica", 7)
+            y = height - 79
+        values = [row[0], str(row[1])[:22], str(row[2])[:24], row[5], row[6], str(row[7])[:10], row[8], row[9]]
+        for xx, value in zip(x, values):
+            pdf.drawString(xx, y, str(value))
+    pdf.save()
+    return Response(
+        content=output.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="blupace-recruitment-report.pdf"'},
+    )
