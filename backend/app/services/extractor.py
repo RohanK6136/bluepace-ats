@@ -2,6 +2,7 @@ import io
 import json
 import os
 import re
+from datetime import datetime
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -130,8 +131,8 @@ class DocumentExtractor:
     def _fallback_parse(self, raw_text):
         email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", raw_text)
         phone_match = re.search(r"\+?\d{0,2}[\s.-]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", raw_text)
-        linkedin_match = re.search(r"linkedin\.com/in/[a-zA-Z0-9_-]+", raw_text, re.IGNORECASE)
-        github_match = re.search(r"github\.com/[a-zA-Z0-9_-]+", raw_text, re.IGNORECASE)
+        linkedin_match = re.search(r"(?:https?://)?(?:www\.)?linkedin\.com/in/[a-zA-Z0-9._-]+", raw_text, re.IGNORECASE)
+        github_match = re.search(r"(?:https?://)?(?:www\.)?github\.com/[a-zA-Z0-9._-]+", raw_text, re.IGNORECASE)
         lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
         possible_name = next(
             (
