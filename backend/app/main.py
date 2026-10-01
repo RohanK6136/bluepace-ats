@@ -41,6 +41,10 @@ from app.models import (
     Organization,
     Role,
     Scorecard,
+    Note,
+    TalentPool,
+    TalentPoolMembership,
+    Offer,
     Stage,
     User,
 )
@@ -61,6 +65,18 @@ from app.schemas import (
     ScorecardRead,
     EmailTemplateUpdate,
     EmailTemplateTestRequest,
+    NoteCreate,
+    NoteRead,
+    TalentPoolCreate,
+    TalentPoolRead,
+    TalentPoolCandidateRequest,
+    OfferCreate,
+    OfferUpdate,
+    OfferRead,
+    InterviewCreate,
+    InterviewStatusUpdate,
+    InterviewRead,
+    CandidateComparisonRead,
     OrganizationRegistration,
     TokenRead,
     UserCreate,
@@ -1868,6 +1884,391 @@ def submit_application_scorecard(
     db.commit()
     db.refresh(scorecard)
     return scorecard
+
+
+@app.get("/analytics")
+def recruitment_analytics(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    applications = db.scalars(
+        select(Application)
+        .where(Application.organization_id == user.organization_id)
+        .options(selectinload(Application.stage), selectinload(Application.job), selectinload(Application.candidate))
+    ).all()
+    stage_counts = {stage: 0 for stage in PIPELINE_STAGES}
+    source_counts = {}
+    total_days = []
+    hired_days = []
+    for application in applications:
+        stage = application.stage.name if application.stage else "Applied"
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
+        source = application.candidate.source or "Unknown"
+        source_counts[source] = source_counts.get(source, 0) + 1
+        if application.updated_at and application.applied_at:
+            days = max(0, (application.updated_at - application.applied_at).total_seconds() / 86400)
+            total_days.append(days)
+            if stage == "Hired":
+                hired_days.append(days)
+    stage_rates = {}
+    previous = max(len(applications), 1)
+    for stage in PIPELINE_STAGES:
+        value = stage_counts.get(stage, 0)
+        stage_rates[stage] = round((value / previous) * 100, 1) if previous else 0
+        previous = max(value, 1)
+    return {
+        "total_applications": len(applications),
+        "stage_counts": stage_counts,
+        "stage_rates": stage_rates,
+        "avg_days_in_application": round(sum(total_days) / len(total_days), 1) if total_days else 0,
+        "avg_days_to_hire": round(sum(hired_days) / len(hired_days), 1) if hired_days else 0,
+        "sources": [{"name": k, "count": v} for k, v in sorted(source_counts.items(), key=lambda item: item[1], reverse=True)],
+    }
+
+
+@app.get("/applications/{application_id}/comparison", response_model=CandidateComparisonRead)
+def compare_application_with_job(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    job = application.job
+    candidate = application.candidate
+    analysis = job.jd_analysis or matching_service.analyze_job(job)
+    if not job.jd_analysis:
+        job.jd_analysis = analysis
+        db.commit()
+    score = matching_service.score_candidate(job, candidate)
+    profile = candidate.resume_data or {}
+    candidate_skills = {str(value).casefold(): str(value) for value in profile.get("skills") or []}
+    required = analysis.get("required_skills") or job.required_skills or []
+    matched = [skill for skill in required if str(skill).casefold() in candidate_skills]
+    missing = [skill for skill in required if str(skill).casefold() not in candidate_skills]
+    experience = matching_service._estimate_experience_years(profile.get("experience") or [])
+    education = analysis.get("education") or "Not specified"
+    education_evidence = []
+    for item in profile.get("education") or []:
+        evidence = " · ".join(str(item.get(key)) for key in ("degree", "university", "graduation_year") if item.get(key))
+        if evidence:
+            education_evidence.append(evidence)
+    projects = [str(item).strip() for item in (profile.get("university_projects") or profile.get("projects") or []) if str(item).strip()]
+    gaps = list(missing)
+    minimum = analysis.get("minimum_experience_years")
+    if minimum is not None and experience < minimum:
+        gaps.append(f"Experience below requested {minimum}+ years")
+    return {
+        "application_id": application.id,
+        "job_title": job.title,
+        "score": score["model_score"],
+        "matched_skills": matched,
+        "missing_skills": missing,
+        "experience_required": minimum,
+        "experience_estimated": experience,
+        "education_requirement": education,
+        "education_evidence": education_evidence,
+        "project_evidence": projects[:12],
+        "gaps": gaps,
+    }
+
+
+@app.get("/applications/{application_id}/notes", response_model=list[NoteRead])
+def get_application_notes(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    rows = db.execute(
+        select(Note, User.full_name)
+        .join(User, User.id == Note.author_id)
+        .where(Note.application_id == application.id, Note.organization_id == user.organization_id)
+        .order_by(Note.created_at.desc())
+    ).all()
+    return [
+        {
+            "id": note.id,
+            "application_id": note.application_id,
+            "author_id": note.author_id,
+            "author_name": author_name,
+            "body": note.body,
+            "created_at": note.created_at,
+        }
+        for note, author_name in rows
+    ]
+
+
+@app.post("/applications/{application_id}/notes", response_model=NoteRead)
+def add_application_note(
+    application_id: int,
+    request: NoteCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    note = Note(
+        organization_id=user.organization_id,
+        application_id=application.id,
+        author_id=user.id,
+        body=request.body.strip(),
+    )
+    db.add(note)
+    record_audit(db, user, "application.note_added", "application", application.id, after={"note": note.body[:200]})
+    db.commit()
+    db.refresh(note)
+    return {
+        "id": note.id,
+        "application_id": note.application_id,
+        "author_id": note.author_id,
+        "author_name": user.full_name,
+        "body": note.body,
+        "created_at": note.created_at,
+    }
+
+
+@app.get("/talent-pools", response_model=list[TalentPoolRead])
+def list_talent_pools(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    pools = db.scalars(select(TalentPool).where(TalentPool.organization_id == user.organization_id).order_by(TalentPool.created_at.desc())).all()
+    return [
+        {
+            "id": pool.id,
+            "name": pool.name,
+            "description": pool.description,
+            "candidate_count": db.scalar(select(func.count(TalentPoolMembership.id)).where(TalentPoolMembership.pool_id == pool.id)) or 0,
+            "created_at": pool.created_at,
+        }
+        for pool in pools
+    ]
+
+
+@app.post("/talent-pools", response_model=TalentPoolRead)
+def create_talent_pool(
+    request: TalentPoolCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    pool = TalentPool(
+        organization_id=user.organization_id,
+        name=request.name.strip(),
+        description=request.description.strip() if request.description else None,
+        created_by_id=user.id,
+    )
+    db.add(pool)
+    record_audit(db, user, "talent_pool.created", "talent_pool", 0, after={"name": pool.name})
+    db.commit()
+    db.refresh(pool)
+    return {"id": pool.id, "name": pool.name, "description": pool.description, "candidate_count": 0, "created_at": pool.created_at}
+
+
+@app.get("/talent-pools/{pool_id}/candidates")
+def list_talent_pool_candidates(
+    pool_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    pool = _get_org_record(db, TalentPool, pool_id, user.organization_id)
+    rows = db.execute(
+        select(Candidate, TalentPoolMembership.created_at)
+        .join(TalentPoolMembership, TalentPoolMembership.candidate_id == Candidate.id)
+        .where(TalentPoolMembership.pool_id == pool.id)
+        .order_by(TalentPoolMembership.created_at.desc())
+    ).all()
+    return [
+        {
+            "id": candidate.id,
+            "first_name": candidate.first_name,
+            "last_name": candidate.last_name,
+            "email": candidate.email,
+            "phone": candidate.phone,
+            "source": candidate.source,
+            "skills": (candidate.resume_data or {}).get("skills", [])[:20],
+            "added_at": added_at,
+        }
+        for candidate, added_at in rows
+    ]
+
+
+@app.post("/talent-pools/{pool_id}/candidates")
+def add_candidate_to_talent_pool(
+    pool_id: int,
+    request: TalentPoolCandidateRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    pool = _get_org_record(db, TalentPool, pool_id, user.organization_id)
+    candidate = _get_org_record(db, Candidate, request.candidate_id, user.organization_id)
+    existing = db.scalar(select(TalentPoolMembership).where(TalentPoolMembership.pool_id == pool.id, TalentPoolMembership.candidate_id == candidate.id))
+    if existing:
+        return {"status": "already_member", "candidate_id": candidate.id}
+    membership = TalentPoolMembership(pool_id=pool.id, candidate_id=candidate.id, added_by_id=user.id)
+    db.add(membership)
+    db.flush()
+    record_audit(db, user, "talent_pool.candidate_added", "talent_pool", pool.id, after={"candidate_id": candidate.id})
+    db.commit()
+    return {"status": "added", "candidate_id": candidate.id}
+
+
+@app.delete("/talent-pools/{pool_id}/candidates/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_candidate_from_talent_pool(
+    pool_id: int,
+    candidate_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    pool = _get_org_record(db, TalentPool, pool_id, user.organization_id)
+    membership = db.scalar(select(TalentPoolMembership).where(TalentPoolMembership.pool_id == pool.id, TalentPoolMembership.candidate_id == candidate_id))
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Candidate is not in this talent pool")
+    db.delete(membership)
+    record_audit(db, user, "talent_pool.candidate_removed", "talent_pool", pool.id, after={"candidate_id": candidate_id})
+    db.commit()
+
+
+@app.post("/applications/{application_id}/interviews", response_model=InterviewRead)
+def create_interview_round(
+    application_id: int,
+    request: InterviewCreate,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    if request.starts_at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="Interview date and time must include a timezone.")
+    if request.mode == "offline" and not request.location:
+        raise HTTPException(status_code=422, detail="Interview location is required for offline interviews.")
+    if request.mode == "online" and not request.meeting_url:
+        raise HTTPException(status_code=422, detail="Meeting link is required for online interviews.")
+    round_number = (db.scalar(select(func.max(Interview.round_number)).where(Interview.application_id == application.id)) or 0) + 1
+    interview = Interview(
+        application_id=application.id,
+        interviewer_id=user.id,
+        starts_at=request.starts_at,
+        duration_minutes=request.duration_minutes,
+        status="scheduled",
+        mode=request.mode,
+        location=request.location,
+        meeting_url=request.meeting_url,
+        round_name=request.round_name,
+        round_number=round_number,
+    )
+    db.add(interview)
+    application.stage_id = ensure_job_stages(db, application.job)["Interview"].id
+    application.status = "active"
+    db.flush()
+    subject, body = _stage_email(
+        application,
+        "Interview",
+        db=db,
+        interview_starts_at=request.starts_at,
+        interview_duration_minutes=request.duration_minutes,
+        interview_mode=request.mode,
+        interview_location=request.location,
+        interview_meeting_url=request.meeting_url,
+    )
+    email_id = queue_application_email(db, application, subject, body)
+    record_audit(db, user, "interview.round_scheduled", "application", application.id, after={"round_name": request.round_name, "round_number": round_number})
+    db.commit()
+    db.refresh(interview)
+    background_tasks.add_task(deliver_outbox_email, email_id)
+    return interview
+
+
+@app.get("/applications/{application_id}/interviews", response_model=list[InterviewRead])
+def list_interview_rounds(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    return db.scalars(select(Interview).where(Interview.application_id == application.id).order_by(Interview.round_number.asc(), Interview.starts_at.asc())).all()
+
+
+@app.patch("/interviews/{interview_id}/status")
+def update_interview_status(
+    interview_id: int,
+    request: InterviewStatusUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _get_org_record(db, Interview, interview_id, user.organization_id)
+    interview.status = request.status
+    interview.reminder_24_sent = True
+    interview.reminder_1h_sent = True
+    application = _get_org_record(db, Application, interview.application_id, user.organization_id)
+    record_audit(db, user, "interview.status_changed", "interview", interview.id, after={"status": request.status})
+    db.commit()
+    return {"id": interview.id, "status": interview.status, "application_id": application.id}
+
+
+@app.get("/applications/{application_id}/offer", response_model=OfferRead)
+def get_offer(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    offer = db.scalar(select(Offer).where(Offer.application_id == application.id))
+    if offer is None:
+        raise HTTPException(status_code=404, detail="No offer created for this application")
+    return offer
+
+
+@app.post("/applications/{application_id}/offer", response_model=OfferRead)
+def create_or_update_offer(
+    application_id: int,
+    request: OfferCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    offer = db.scalar(select(Offer).where(Offer.application_id == application.id))
+    if offer is None:
+        offer = Offer(
+            organization_id=user.organization_id,
+            application_id=application.id,
+            position_title=request.position_title.strip(),
+            annual_ctc=request.annual_ctc,
+            currency=request.currency,
+            joining_date=request.joining_date,
+            offer_letter_url=request.offer_letter_url,
+            notes=request.notes,
+            status="draft",
+            created_by_id=user.id,
+        )
+        db.add(offer)
+    else:
+        offer.position_title = request.position_title.strip()
+        offer.annual_ctc = request.annual_ctc
+        offer.currency = request.currency
+        offer.joining_date = request.joining_date
+        offer.offer_letter_url = request.offer_letter_url
+        offer.notes = request.notes
+    db.commit()
+    db.refresh(offer)
+    return offer
+
+
+@app.patch("/applications/{application_id}/offer", response_model=OfferRead)
+def update_offer(
+    application_id: int,
+    request: OfferUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    offer = db.scalar(select(Offer).where(Offer.application_id == application.id))
+    if offer is None:
+        raise HTTPException(status_code=404, detail="No offer created for this application")
+    for field, value in request.model_dump(exclude_unset=True).items():
+        setattr(offer, field, value)
+    record_audit(db, user, "offer.updated", "application", application.id, after=request.model_dump(exclude_unset=True))
+    db.commit()
+    db.refresh(offer)
+    return offer
 
 
 @app.get("/dashboard")
