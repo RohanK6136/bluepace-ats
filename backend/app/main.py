@@ -1056,9 +1056,18 @@ def _candidate_search_matches(content: str, query: str) -> bool:
     def parse_and():
         nonlocal position
         value = parse_unary()
-        while position < len(tokens) and tokens[position].casefold() == "and":
-            position += 1
-            value = value and parse_unary()
+        while position < len(tokens):
+            token = tokens[position].casefold()
+            if token == "and":
+                position += 1
+                value = value and parse_unary()
+                continue
+            # Recruiter queries commonly omit AND before NOT or a grouped term:
+            # "Python SQL NOT Java" means "Python AND SQL AND NOT Java".
+            if token == "not" or tokens[position] == "(":
+                value = value and parse_unary()
+                continue
+            break
         return value
 
     def parse_unary():
