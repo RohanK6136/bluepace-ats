@@ -436,6 +436,7 @@ def test_application_starts_applied_and_can_advance(client):
         json={"title": "Product Designer", "description": "Design useful tools", "status": "open"},
         headers=headers,
     ).json()
+    assert job["jd_analysis"]["preferred_skills"] == ["React"]
     candidate = client.post(
         "/candidates",
         json={"first_name": "Morgan", "last_name": "Chen", "email": "morgan@example.com"},
