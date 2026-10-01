@@ -3,7 +3,6 @@ import csv
 import io
 import os
 import asyncio
-import asyncio
 import re
 import socket
 import ipaddress
@@ -94,7 +93,8 @@ async def interview_reminder_loop():
                 ).all()
                 due = []
                 for interview in interviews:
-                    delta_seconds = (interview.starts_at - now).total_seconds()
+                    starts_at = interview.starts_at if interview.starts_at.tzinfo is not None else interview.starts_at.replace(tzinfo=timezone.utc)
+                    delta_seconds = (starts_at - now).total_seconds()
                     if not interview.reminder_24_sent and 23 * 3600 <= delta_seconds <= 24 * 3600:
                         due.append((interview, "24h"))
                     if not interview.reminder_1h_sent and 30 * 60 <= delta_seconds <= 60 * 60:
