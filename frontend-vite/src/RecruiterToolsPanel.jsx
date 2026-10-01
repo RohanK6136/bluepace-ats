@@ -25,11 +25,19 @@ export default function RecruiterToolsPanel({
   const [assistantResult, setAssistantResult] = useState(null);
   const [assistantLoading, setAssistantLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
+  const [recruitingUsers, setRecruitingUsers] = useState([]);
+  const [collaboration, setCollaboration] = useState({ owner_id: "", starred: false, needs_review: false, priority: "normal" });
 
   useEffect(() => {
     const next = candidateId ? String(candidateId) : "";
     setSelectedCandidateId(next);
   }, [candidateId]);
+
+  useEffect(() => {
+    apiRequest(token, "get", "/recruiting-users")
+      .then((response) => setRecruitingUsers(response.data || []))
+      .catch(onError);
+  }, [token]);
 
   useEffect(() => {
     if (!selectedCandidateId) {
@@ -39,7 +47,15 @@ export default function RecruiterToolsPanel({
     let active = true;
     apiRequest(token, "get", "/candidates/" + selectedCandidateId)
       .then((response) => {
-        if (active) setTags(response.data?.tags || []);
+        if (active) {
+          setTags(response.data?.tags || []);
+          setCollaboration({
+            owner_id: response.data?.owner_id ? String(response.data.owner_id) : "",
+            starred: Boolean(response.data?.starred),
+            needs_review: Boolean(response.data?.needs_review),
+            priority: response.data?.priority || "normal",
+          });
+        }
       })
       .catch((error) => { if (active) onError(error); });
     return () => { active = false; };
