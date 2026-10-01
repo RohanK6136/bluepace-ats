@@ -1124,18 +1124,68 @@ Evidence:
         except Exception:
             generated = None
 
-    generated = generated or {}
+    generated = generated if isinstance(generated, dict) else {}
+
+    generated_missing = [
+        str(value).strip()
+        for value in (generated.get("missing_required_skills") or [])
+        if str(value).strip() and str(value).casefold().strip() in {skill.casefold() for skill in missing_skills}
+    ]
+    missing_required_skills = generated_missing or missing_skills
+
+    generated_questions = [
+        str(value).strip()
+        for value in (generated.get("interview_questions") or [])
+        if str(value).strip()
+    ]
+    interview_questions = generated_questions or fallback["interview_questions"]
+
+    summary = str(generated.get("summary") or fallback["summary"]).strip()
+    screening_email = str(generated.get("screening_email") or fallback["screening_email"]).strip()
+    interview_feedback_summary = str(
+        generated.get("interview_feedback_summary") or fallback["interview_feedback_summary"]
+    ).strip()
+    requirement_explanation = str(
+        generated.get("requirement_explanation") or fallback["requirement_explanation"]
+    ).strip()
+
+    answer_by_intent = {
+        "missing_skills": (
+            "No required-skill gaps were identified from the parsed resume."
+            if not missing_required_skills
+            else "Required skills not explicitly evidenced in the parsed resume: "
+            + ", ".join(missing_required_skills)
+        ),
+        "interview_questions": "\n".join(
+            f"{index + 1}. {value}" for index, value in enumerate(interview_questions)
+        ),
+        "screening_email": screening_email,
+        "interview_feedback": interview_feedback_summary,
+        "requirement_explanation": requirement_explanation,
+        "candidate_summary": summary,
+    }
+
+    key_facts = [
+        f"Candidate: {candidate.first_name} {candidate.last_name}".strip(),
+        f"Role: {job.title}",
+        f"Parsed experience: {experience_years:g} years",
+        f"Required skills explicitly matched: {len(matched_skills)}/{len(required_skills)}",
+        f"Interview records: {len(interviews)}; submitted scorecards: {len(scorecards)}",
+    ]
+
     return {
         "application_id": application.id,
         "question": question,
         "intent": intent,
-        "summary": generated.get("summary") or fallback["summary"],
-        "missing_required_skills": generated.get("missing_required_skills") or missing_skills,
+        "answer": answer_by_intent.get(intent, summary),
+        "summary": summary,
+        "key_facts": key_facts,
+        "missing_required_skills": missing_required_skills,
         "matched_required_skills": matched_skills,
-        "interview_questions": generated.get("interview_questions") or fallback["interview_questions"],
-        "screening_email": generated.get("screening_email") or fallback["screening_email"],
-        "interview_feedback_summary": generated.get("interview_feedback_summary") or fallback["interview_feedback_summary"],
-        "requirement_explanation": generated.get("requirement_explanation") or fallback["requirement_explanation"],
+        "interview_questions": interview_questions,
+        "screening_email": screening_email,
+        "interview_feedback_summary": interview_feedback_summary,
+        "requirement_explanation": requirement_explanation,
         "evidence": evidence,
         "sources": sources,
         "guardrails": [
