@@ -71,6 +71,7 @@ class InterviewRescheduleRequest(BaseModel):
     location: str | None = Field(default=None, max_length=500)
     meeting_url: str | None = Field(default=None, max_length=1000)
     round_name: str | None = Field(default=None, min_length=1, max_length=100)
+    feedback_deadline: datetime | None = None
 
 
 class AssistantRequest(BaseModel):
@@ -328,6 +329,21 @@ def merge_candidates(
             + [str(v) for v in duplicate.cv_summary if str(v).strip()]
         ))
 
+    if duplicate.resume_data:
+        current = dict(keep.resume_data or {})
+        incoming = dict(duplicate.resume_data or {})
+        for list_key in ("skills", "university_projects", "projects", "hobbies"):
+            merged = [str(v).strip() for v in (current.get(list_key) or []) + (incoming.get(list_key) or []) if str(v).strip()]
+            if merged:
+                current[list_key] = list(dict.fromkeys(merged))
+        for list_key in ("experience", "education"):
+            if incoming.get(list_key):
+                current[list_key] = (current.get(list_key) or []) + [v for v in incoming.get(list_key) or [] if v not in (current.get(list_key) or [])]
+        for scalar_key in ("linkedin", "github", "notice_period", "availability", "preferred_location", "work_authorization"):
+            if not current.get(scalar_key) and incoming.get(scalar_key):
+                current[scalar_key] = incoming.get(scalar_key)
+        keep.resume_data = current
+
     conflicting_applications = 0
     duplicate_application_rows = db.scalars(
         select(Application).where(
@@ -456,6 +472,8 @@ def reschedule_interview(
     interview.meeting_url = meeting_url
     if request.round_name:
         interview.round_name = request.round_name
+    if request.feedback_deadline is not None:
+        interview.feedback_deadline = request.feedback_deadline
     interview.status = "scheduled"
     interview.reminder_24_sent = False
     interview.reminder_1h_sent = False
@@ -506,6 +524,8 @@ def reschedule_interview(
         "meeting_url": interview.meeting_url,
         "round_name": interview.round_name,
         "round_number": interview.round_number,
+        "feedback_deadline": interview.feedback_deadline,
+        "cancellation_reason": interview.cancellation_reason,
         "email_id": email_id,
     }
 
@@ -513,6 +533,7 @@ def reschedule_interview(
 @router.post("/interviews/{interview_id}/cancel")
 def cancel_interview(
     interview_id: int,
+    reason: str | None = Query(default=None, max_length=1000),
     background_tasks: BackgroundTasks,
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
@@ -528,6 +549,7 @@ def cancel_interview(
     if interview.status == "cancelled":
         return {"id": interview.id, "status": "cancelled"}
     interview.status = "cancelled"
+    interview.cancellation_reason = (reason or "").strip() or None
     interview.reminder_24_sent = True
     interview.reminder_1h_sent = True
     subject = f"Interview cancelled: {application.job.title}"
@@ -539,7 +561,7 @@ def cancel_interview(
         "Blupace Tech Recruiting"
     )
     email_id = queue_application_email(db, application, subject, body)
-    record_audit(db, user, "interview.cancelled", "interview", interview.id, after={"status": "cancelled"})
+    record_audit(db, user, "interview.cancelled", "interview", interview.id, after={"status": "cancelled", "reason": interview.cancellation_reason})
     db.commit()
     background_tasks.add_task(deliver_outbox_email, email_id)
     return {"id": interview.id, "status": interview.status, "email_id": email_id}

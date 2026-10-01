@@ -335,6 +335,7 @@ class InterviewCreate(BaseModel):
     location: Optional[str] = Field(default=None, max_length=500)
     meeting_url: Optional[str] = Field(default=None, max_length=1000)
     round_name: str = Field(default="Interview", min_length=1, max_length=100)
+    feedback_deadline: Optional[datetime] = None
 
 
 class InterviewStatusUpdate(BaseModel):
