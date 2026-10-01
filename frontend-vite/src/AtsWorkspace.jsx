@@ -136,6 +136,10 @@ export default function AtsWorkspace() {
   const [dashboardData, setDashboardData] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [candidateActivity, setCandidateActivity] = useState(null);
+  const [candidateCollaboration, setCandidateCollaboration] = useState(null);
+  const [collabComment, setCollabComment] = useState("");
+  const [collabTagName, setCollabTagName] = useState("");
+  const [collabTagColor, setCollabTagColor] = useState("#1769d3");
   const [emails, setEmails] = useState([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [candidateFilters, setCandidateFilters] = useState({
@@ -341,6 +345,75 @@ export default function AtsWorkspace() {
       .finally(() => { if (active) setEmailsLoading(false); });
     return () => { active = false; };
   }, [token, view]);
+
+  useEffect(() => {
+    if (!token || !selectedCandidate) {
+      setCandidateCollaboration(null);
+      return undefined;
+    }
+    let active = true;
+    apiRequest(token, "get", "/candidates/" + selectedCandidate + "/collaboration")
+      .then((response) => { if (active) setCandidateCollaboration(response.data); })
+      .catch(() => { if (active) setCandidateCollaboration(null); });
+    return () => { active = false; };
+  }, [token, selectedCandidate]);
+
+  async function refreshCandidateCollaboration() {
+    if (!token || !selectedCandidate) return;
+    const response = await apiRequest(token, "get", "/candidates/" + selectedCandidate + "/collaboration");
+    setCandidateCollaboration(response.data);
+  }
+
+  async function updateCandidateCollaboration(patch) {
+    try {
+      const response = await apiRequest(token, "patch", "/candidates/" + selectedCandidate + "/collaboration", { data: patch });
+      setCandidateCollaboration(response.data);
+      setCandidates((current) => current.map((item) => item.id === selectedCandidate ? { ...item, ...response.data } : item));
+    } catch (requestError) {
+      setError(errorText(requestError));
+    }
+  }
+
+  async function addCollaborationTag(event) {
+    event.preventDefault();
+    if (!collabTagName.trim()) return;
+    try {
+      await apiRequest(token, "post", "/candidates/" + selectedCandidate + "/collaboration/tags", { data: { name: collabTagName.trim(), color: collabTagColor } });
+      setCollabTagName("");
+      await refreshCandidateCollaboration();
+      await refreshWorkspace();
+    } catch (requestError) { setError(errorText(requestError)); }
+  }
+
+  async function removeCollaborationTag(tagId) {
+    try {
+      await apiRequest(token, "delete", "/candidates/" + selectedCandidate + "/collaboration/tags/" + tagId);
+      await refreshCandidateCollaboration();
+      await refreshWorkspace();
+    } catch (requestError) { setError(errorText(requestError)); }
+  }
+
+  async function addCollaborationComment(event) {
+    event.preventDefault();
+    if (!collabComment.trim()) return;
+    try {
+      await apiRequest(token, "post", "/candidates/" + selectedCandidate + "/collaboration/comments", { data: { body: collabComment.trim() } });
+      setCollabComment("");
+      await refreshCandidateCollaboration();
+      setNotice("Internal comment added");
+    } catch (requestError) { setError(errorText(requestError)); }
+  }
+
+  async function toggleCandidateFollow() {
+    try {
+      if (candidateCollaboration?.following) {
+        await apiRequest(token, "delete", "/candidates/" + selectedCandidate + "/collaboration/follow");
+      } else {
+        await apiRequest(token, "post", "/candidates/" + selectedCandidate + "/collaboration/follow");
+      }
+      await refreshCandidateCollaboration();
+    } catch (requestError) { setError(errorText(requestError)); }
+  }
 
   useEffect(() => {
     if (!token || !selectedCandidate) {
@@ -1425,6 +1498,49 @@ export default function AtsWorkspace() {
                     </div>}
                   </div>
                   <button aria-label="Close profile" onClick={() => { setSelectedCandidate(null); setFitAnalysis(null); setCandidateActivity(null); setPortalLink(""); }}>×</button>
+                </div>
+
+                <div className="mt-5 rounded-xl border border-ink-100 bg-[#fcfcfa] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Recruiter collaboration</p><p className="mt-1 text-sm text-ink-500">Tags, ownership, review state, follows and internal discussion.</p></div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className={buttonSecondary} onClick={toggleCandidateFollow}>{candidateCollaboration?.following ? "Following" : "Follow"}</button>
+                      <button type="button" className={candidateCollaboration?.starred ? buttonPrimary : buttonSecondary} onClick={() => updateCandidateCollaboration({ starred: !candidateCollaboration?.starred })}>{candidateCollaboration?.starred ? "★ Starred" : "☆ Star"}</button>
+                      <button type="button" className={candidateCollaboration?.needs_review ? buttonPrimary : buttonSecondary} onClick={() => updateCandidateCollaboration({ needs_review: !candidateCollaboration?.needs_review })}>{candidateCollaboration?.needs_review ? "Needs review ✓" : "Needs review"}</button>
+                      <button type="button" className={candidateCollaboration?.priority === "high" ? buttonPrimary : buttonSecondary} onClick={() => updateCandidateCollaboration({ priority: candidateCollaboration?.priority === "high" ? "normal" : "high" })}>{candidateCollaboration?.priority === "high" ? "High priority ✓" : "High priority"}</button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <div>
+                      <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Candidate owner
+                        <select className={inputStyle} value={candidateCollaboration?.owner_id || ""} onChange={(event) => updateCandidateCollaboration({ owner_id: event.target.value ? Number(event.target.value) : null })}>
+                          <option value="">Unassigned</option>
+                          {(candidateCollaboration?.followers || []).map((member) => <option key={member.user_id} value={member.user_id}>{member.user_name}</option>)}
+                        </select>
+                      </label>
+                      <form onSubmit={addCollaborationTag} className="mt-4 flex gap-2">
+                        <input className={inputStyle} placeholder="Add tag, e.g. React expert" value={collabTagName} onChange={(event) => setCollabTagName(event.target.value)} />
+                        <input aria-label="Tag color" title="Tag color" type="color" className="h-10 w-12 rounded-md border border-ink-100 bg-white p-1" value={collabTagColor} onChange={(event) => setCollabTagColor(event.target.value)} />
+                        <button className={buttonSecondary} type="submit">Add</button>
+                      </form>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(candidateCollaboration?.tags || []).map((tag) => <span key={tag.id} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-white" style={{ backgroundColor: tag.color }}><span>{tag.name}</span><button type="button" className="opacity-80 hover:opacity-100" onClick={() => removeCollaborationTag(tag.id)} aria-label={"Remove " + tag.name}>×</button></span>)}
+                        {!candidateCollaboration?.tags?.length && <span className="text-xs text-ink-400">No tags yet.</span>}
+                      </div>
+                    </div>
+                    <div>
+                      <form onSubmit={addCollaborationComment}>
+                        <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Internal comment
+                          <textarea className={inputStyle + " min-h-24 resize-y"} placeholder="Add a private note. Mention teammates with @Aishwarya." value={collabComment} onChange={(event) => setCollabComment(event.target.value)} />
+                        </label>
+                        <div className="mt-2 flex justify-end"><button className={buttonSecondary} type="submit" disabled={!collabComment.trim()}>Add comment</button></div>
+                      </form>
+                      <div className="mt-3 max-h-48 space-y-2 overflow-auto">
+                        {(candidateCollaboration?.comments || []).map((comment) => <div key={comment.id} className="rounded-lg border border-ink-100 bg-white p-3"><div className="flex justify-between gap-3"><span className="text-xs font-semibold">{comment.author_name}</span><span className="text-[11px] text-ink-400">{new Date(comment.created_at).toLocaleString()}</span></div><p className="mt-1 whitespace-pre-wrap text-sm text-ink-700">{comment.body}</p>{comment.mentions?.length ? <p className="mt-1 text-[11px] text-blue-700">Mentioned: {comment.mentions.map((mention) => "@" + mention.user_name).join(", ")}</p> : null}</div>)}
+                        {!candidateCollaboration?.comments?.length && <p className="text-xs text-ink-400">No internal comments yet.</p>}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="mt-5 grid gap-5 md:grid-cols-3">
