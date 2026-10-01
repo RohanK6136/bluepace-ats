@@ -320,9 +320,7 @@ def merge_candidates(
             db.delete(match)
 
     for membership in db.scalars(
-        select(TalentPoolMembership)
-        .join(TalentPoolMembership.candidate)
-        .where(TalentPoolMembership.candidate_id == duplicate.id)
+        select(TalentPoolMembership).where(TalentPoolMembership.candidate_id == duplicate.id)
     ).all():
         existing = db.scalar(
             select(TalentPoolMembership).where(
