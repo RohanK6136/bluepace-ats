@@ -8,6 +8,8 @@ import TalentPoolsPanel from "./TalentPoolsPanel.jsx";
 import AnalyticsPanel from "./AnalyticsPanel.jsx";
 import ApplicationEnhancements from "./ApplicationEnhancements.jsx";
 import RecruiterToolsPanel from "./RecruiterToolsPanel.jsx";
+import InterviewPanel from "./InterviewPanel.jsx";
+import AutomationPanel from "./AutomationPanel.jsx";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -134,7 +136,7 @@ export default function AtsWorkspace() {
   const [candidateActivity, setCandidateActivity] = useState(null);
   const [emails, setEmails] = useState([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
-  const [candidateFilters, setCandidateFilters] = useState({ search: "", skill: "", source: "", location: "", min_experience_years: "" });
+  const [candidateFilters, setCandidateFilters] = useState({ search: "", skill: "", source: "", location: "", tags: "", stage_name: "", min_experience_years: "", max_experience_years: "" });
   const [portalToken] = useState(() => new URLSearchParams(window.location.search).get("portal") || "");
   const [portalLink, setPortalLink] = useState("");
   const [portalLinkLoading, setPortalLinkLoading] = useState(false);
@@ -265,15 +267,22 @@ export default function AtsWorkspace() {
     }
   }
 
-  function signOut() {
-    sessionStorage.removeItem("bluepace_token");
-    setToken(null);
-    setUser(null);
-    setJobs([]);
-    setCandidates([]);
-    setApplications([]);
-    setNotice("");
-    setError("");
+  async function signOut() {
+    const currentToken = token;
+    try {
+      if (currentToken) await apiRequest(currentToken, "post", "/auth/logout");
+    } catch (_) {
+      // Always clear local state even when the server session is already expired.
+    } finally {
+      sessionStorage.removeItem("bluepace_token");
+      setToken(null);
+      setUser(null);
+      setJobs([]);
+      setCandidates([]);
+      setApplications([]);
+      setNotice("");
+      setError("");
+    }
   }
 
   async function loadFilteredApplications(event) {
@@ -1487,6 +1496,13 @@ export default function AtsWorkspace() {
                   onNotice={setNotice}
                   onError={(requestError) => setError(errorText(requestError))}
                 />
+                <InterviewPanel
+                  token={token}
+                  applications={applications.filter((item) => item.candidate_id === candidate.id)}
+                  apiRequest={apiRequest}
+                  onNotice={setNotice}
+                  onError={(requestError) => setError(errorText(requestError))}
+                />
               </section>;
             })()}
           </>}
@@ -1505,7 +1521,8 @@ export default function AtsWorkspace() {
               {!emails.length && <EmptyState title="No email events yet" detail="Application and pipeline notifications will appear here." />}
             </div>
           </>}
-          {view === "tools" && <RecruiterToolsPanel token={token} candidates={candidates} applications={applications} canWrite={canWrite} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}\n          {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab /></section>}
+          {view === "tools" && <RecruiterToolsPanel token={token} candidates={candidates} applications={applications} canWrite={canWrite} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
+          {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}\n          {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab /></section>}
         </main>
       </div>
 
