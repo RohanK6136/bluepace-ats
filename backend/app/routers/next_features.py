@@ -1131,7 +1131,8 @@ def _apply_automation_action(
                     "Please keep your candidate portal link for future updates.\n\n"
                     "Blupace Tech Recruiting"
                 )
-                queued.append(queue_application_email(db, application, subject, body))
+                if not stage_email_automation_enabled(db, application, target):
+                    queued.append(queue_application_email(db, application, subject, body))
                 db.add(AuditLog(
                     organization_id=application.organization_id,
                     actor_id=rule.created_by_id,
