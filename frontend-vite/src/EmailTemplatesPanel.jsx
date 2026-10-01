@@ -157,7 +157,7 @@ export default function EmailTemplatesPanel({ token, apiRequest, onNotice, onErr
                 </label>
                 <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-xs leading-5 text-blue-900">
                   <p className="font-semibold">Supported placeholders</p>
-                  <p className="mt-1 font-mono break-words">{'{{candidate_name}}'}, {'{{job_title}}'}, {'{{interview_date}}'}, {'{{interview_time}}'}, {'{{interview_duration}}'}, {'{{interview_mode}}'}, {'{{meeting_link}}'}, {'{{interview_location}}'}, {'{{candidate_portal_url}}'}, {'{{company_name}}'}</p>
+                  <p className="mt-1 font-mono break-words">{'{{candidate_name}}'}, {'{{job_title}}'}, {'{{interview_date}}'}, {'{{interview_time}}'}, {'{{interview_duration}}'}, {'{{interview_mode}}'}, {'{{meeting_link}}'}, {'{{interview_location}}'}, {'{{interview_calendar_url}}'}, {'{{candidate_portal_url}}'}, {'{{company_name}}'}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" className={buttonPrimary} disabled={saving || !draft.subject?.trim() || !draft.body?.trim()} onClick={save}>{saving ? "Saving…" : "Save template"}</button>

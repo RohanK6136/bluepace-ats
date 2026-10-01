@@ -194,6 +194,7 @@ async def add_process_time_header(request, call_next):
 
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
+DEPLOYED_BACKEND_ORIGIN = os.getenv("BACKEND_PUBLIC_ORIGIN", "https://bluepace-ats-11.onrender.com")
 MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024
 
 def ensure_bootstrap_account() -> None:
@@ -716,6 +717,7 @@ def _stage_email(
         "interview_mode": "Online" if interview_mode == "online" else "Offline / On-site",
         "meeting_link": interview_meeting_url or "",
         "interview_location": interview_location or "",
+        "interview_calendar_url": portal_url + "&calendar=interview" if interview_starts_at else "",
         "candidate_portal_url": portal_url,
         "company_name": "Blupace Tech",
     }

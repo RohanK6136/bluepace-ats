@@ -102,7 +102,22 @@ export default function AutomationPanel({ token, apiRequest, onNotice, onError }
         <p className="text-sm text-ink-500">Automate communications and controlled workflow actions while leaving final hiring decisions with recruiters.</p>
         <h2 className="mt-1 text-xl font-semibold">Workflow automation</h2>
       </div>
-      <div className="grid gap-5 lg:grid-cols-[430px,1fr]">
+      <section className="mb-5 rounded-xl border border-blue-100 bg-blue-50 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Quick-start recipes</p><h3 className="mt-1 font-semibold">Build the recruiting flow in a few clicks</h3><p className="mt-1 text-sm text-blue-900/75">These create editable rules in this workspace. Review them before enabling production communications.</p></div>
+          <button type="button" className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-blue-800" onClick={async () => {
+            const starterRules = [
+              { name: "Screening candidate update", trigger_event: "stage_changed", trigger_stage: "Screening", action_type: "send_email", action_value: null, subject: "Application update — {{job_title}}", body: "Hello {{candidate_name}},\n\nYour application for {{job_title}} has moved to our screening stage. We will contact you with the next update.\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team", enabled: true },
+              { name: "Scorecards complete → Offer review", trigger_event: "scorecards_complete", trigger_stage: null, action_type: "move_stage", action_value: "Offer", subject: "", body: "", enabled: true }
+            ];
+            try {
+              for (const rule of starterRules) await apiRequest(token, "post", "/automation-rules", { data: rule });
+              onNotice("Starter workflow created: Screening email + scorecards-complete → Offer");
+              await load();
+            } catch (error) { onError(error); }
+          }}>Create starter workflow</button>
+        </div>
+      </section>      <div className="grid gap-5 lg:grid-cols-[430px,1fr]">
         <form onSubmit={save} className="rounded-xl border border-ink-100 bg-white p-5">
           <div className="flex items-center justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">{editingId ? "Edit rule" : "New rule"}</p><h3 className="mt-1 font-semibold">Automation builder</h3></div>{editingId && <button type="button" className={secondary} onClick={reset}>New</button>}</div>
           <div className="mt-4 grid gap-3">
