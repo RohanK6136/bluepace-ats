@@ -1116,6 +1116,18 @@ def _apply_automation_action(db: Session, application: Application, rule: Automa
     return queued
 
 
+def stage_email_automation_enabled(db: Session, application: Application, stage_name: str) -> bool:
+    return db.scalar(
+        select(AutomationRule.id).where(
+            AutomationRule.organization_id == application.organization_id,
+            AutomationRule.enabled.is_(True),
+            AutomationRule.trigger_event == "stage_changed",
+            AutomationRule.trigger_stage == stage_name,
+            AutomationRule.action_type == "send_email",
+        ).limit(1)
+    ) is not None
+
+
 def run_stage_automations(db: Session, application: Application, stage_name: str) -> list[int]:
     rules = db.scalars(
         select(AutomationRule).where(

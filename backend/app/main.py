@@ -89,7 +89,7 @@ from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
-from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations
+from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled
 from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
@@ -3029,22 +3029,26 @@ def update_application_stage(
         },
     )
 
-    subject, body = _stage_email(
-        application,
-        stage.name,
+    automation_email_ids = run_stage_automations(db, application, stage.name)
+    if stage_email_automation_enabled(db, application, stage.name):
+        email_id = None
+    else:
+        subject, body = _stage_email(
+            application,
+            stage.name,
         db=db,
         interview_starts_at=request.interview_starts_at,
         interview_duration_minutes=request.interview_duration_minutes,
         interview_mode=request.interview_mode,
         interview_location=request.interview_location,
         interview_meeting_url=request.interview_meeting_url,
-        interview_id=interview.id if request.stage_name == "Interview" else None,
-    )
-    email_id = queue_application_email(db, application, subject, body)
-    automation_email_ids = run_stage_automations(db, application, stage.name)
+            interview_id=interview.id if request.stage_name == "Interview" else None,
+        )
+        email_id = queue_application_email(db, application, subject, body)
     db.commit()
     db.refresh(application)
-    background_tasks.add_task(deliver_outbox_email, email_id)
+    if email_id is not None:
+        background_tasks.add_task(deliver_outbox_email, email_id)
     for automation_email_id in automation_email_ids:
         background_tasks.add_task(deliver_outbox_email, automation_email_id)
     return serialize_application(application)
@@ -3094,9 +3098,10 @@ def bulk_update_application_stage(
             before={"stage_name": previous_name, "status": previous_status},
             after={"stage_name": stage.name, "status": application.status},
         )
-        subject, body = _stage_email(application, stage.name, db=db)
-        email_ids.append(queue_application_email(db, application, subject, body))
         email_ids.extend(run_stage_automations(db, application, stage.name))
+        if not stage_email_automation_enabled(db, application, stage.name):
+            subject, body = _stage_email(application, stage.name, db=db)
+            email_ids.append(queue_application_email(db, application, subject, body))
     db.commit()
     for email_id in email_ids:
         background_tasks.add_task(deliver_outbox_email, email_id)
