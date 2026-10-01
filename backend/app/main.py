@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from celery.result import AsyncResult
-from sqlalchemy import String, cast, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -1439,6 +1439,93 @@ def list_candidates(
         )
     )
 
+
+
+@app.get("/dashboard")
+def dashboard_summary(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    jobs = db.scalars(select(Job).where(Job.organization_id == user.organization_id)).all()
+    applications = db.scalars(
+        select(Application)
+        .where(Application.organization_id == user.organization_id)
+        .options(selectinload(Application.job), selectinload(Application.candidate), selectinload(Application.stage))
+        .order_by(Application.applied_at.desc())
+    ).all()
+    stage_counts = {stage: 0 for stage in PIPELINE_STAGES}
+    job_counts = {}
+    source_counts = {}
+    for application in applications:
+        stage_name = application.stage.name if application.stage else "Applied"
+        stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
+        job_name = application.job.title
+        job_counts[job_name] = job_counts.get(job_name, 0) + 1
+        source = application.candidate.source or "Unknown"
+        source_counts[source] = source_counts.get(source, 0) + 1
+
+    application_ids = [application.id for application in applications]
+    email_counts = {"pending": 0, "sent": 0, "failed": 0, "other": 0}
+    if application_ids:
+        for status_value, count in db.execute(
+            select(Email.status, func.count(Email.id))
+            .where(
+                Email.organization_id == user.organization_id,
+                Email.application_id.in_(application_ids),
+            )
+            .group_by(Email.status)
+        ).all():
+            email_counts[status_value if status_value in email_counts else "other"] = count
+
+    now = datetime.now(timezone.utc)
+    upcoming = []
+    if application_ids:
+        interviews = db.scalars(
+            select(Interview)
+            .where(
+                Interview.application_id.in_(application_ids),
+                Interview.starts_at >= now,
+                Interview.status == "scheduled",
+            )
+            .order_by(Interview.starts_at.asc())
+            .limit(12)
+        ).all()
+        applications_by_id = {application.id: application for application in applications}
+        for interview in interviews:
+            application = applications_by_id.get(interview.application_id)
+            if application is not None:
+                upcoming.append({
+                    "id": interview.id,
+                    "application_id": application.id,
+                    "candidate_id": application.candidate_id,
+                    "candidate_name": f"{application.candidate.first_name} {application.candidate.last_name}".strip(),
+                    "candidate_email": application.candidate.email,
+                    "job_title": application.job.title,
+                    "starts_at": interview.starts_at,
+                    "duration_minutes": interview.duration_minutes,
+                    "mode": interview.mode,
+                    "location": interview.location,
+                    "meeting_url": interview.meeting_url,
+                    "status": interview.status,
+                })
+
+    return {
+        "metrics": {
+            "open_jobs": sum(1 for job in jobs if job.status == "open"),
+            "total_jobs": len(jobs),
+            "total_applications": len(applications),
+            "screening": stage_counts.get("Screening", 0),
+            "interviews": stage_counts.get("Interview", 0),
+            "offers": stage_counts.get("Offer", 0),
+            "hired": stage_counts.get("Hired", 0),
+            "rejected": stage_counts.get("Rejected", 0),
+        },
+        "stage_counts": stage_counts,
+        "job_counts": [{"name": name, "count": count} for name, count in sorted(job_counts.items(), key=lambda item: item[1], reverse=True)[:10]],
+        "source_counts": [{"name": name, "count": count} for name, count in sorted(source_counts.items(), key=lambda item: item[1], reverse=True)[:10]],
+        "email_counts": email_counts,
+        "upcoming_interviews": upcoming,
+    }
 
 @app.get("/candidates/{candidate_id}", response_model=CandidateRead)
 def get_candidate(
