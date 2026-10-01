@@ -459,6 +459,9 @@ class InterviewRead(BaseModel):
     id: int
     application_id: int
     interviewer_id: int
+    round_type: str = "technical"
+    participants: list[dict] = Field(default_factory=list)
+    cancellation_reason: Optional[str] = None
     starts_at: datetime
     duration_minutes: int
     status: str
