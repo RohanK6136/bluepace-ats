@@ -11,9 +11,9 @@ export default function ApplicationEnhancements({ token, applications, candidate
   const [notes, setNotes] = useState([]);
   const [note, setNote] = useState("");
   const [offer, setOffer] = useState(null);
-  const [offerForm, setOfferForm] = useState({ position_title: "", annual_ctc: "", currency: "INR", joining_date: "", offer_letter_url: "", notes: "" });
+  const [offerForm, setOfferForm] = useState({ position_title: "", annual_ctc: "", currency: "INR", joining_date: "", offer_letter_url: "", notes: "", probation_period: "", expires_at: "", ctc_breakdown: "", benefits: "" });
   const [interviews, setInterviews] = useState([]);
-  const [interviewForm, setInterviewForm] = useState({ starts_at: "", duration_minutes: "60", mode: "online", location: "", meeting_url: "", round_name: "Technical interview" });
+  const [interviewForm, setInterviewForm] = useState({ starts_at: "", duration_minutes: "60", mode: "online", location: "", meeting_url: "", round_name: "Technical interview", feedback_deadline: "" });
 
   useEffect(() => {
     const first = candidateApplications[0]?.id ? String(candidateApplications[0].id) : "";
@@ -33,7 +33,7 @@ export default function ApplicationEnhancements({ token, applications, candidate
       setNotes(notesResponse.data || []);
       setInterviews(interviewsResponse.data || []);
       setOffer(offerResponse.data || null);
-      if (offerResponse.data) setOfferForm({ position_title: offerResponse.data.position_title || "", annual_ctc: offerResponse.data.annual_ctc || "", currency: offerResponse.data.currency || "INR", joining_date: offerResponse.data.joining_date ? new Date(offerResponse.data.joining_date).toISOString().slice(0,16) : "", offer_letter_url: offerResponse.data.offer_letter_url || "", notes: offerResponse.data.notes || "" });
+      if (offerResponse.data) setOfferForm({ position_title: offerResponse.data.position_title || "", annual_ctc: offerResponse.data.annual_ctc || "", currency: offerResponse.data.currency || "INR", joining_date: offerResponse.data.joining_date ? new Date(offerResponse.data.joining_date).toISOString().slice(0,16) : "", offer_letter_url: offerResponse.data.offer_letter_url || "", notes: offerResponse.data.notes || "", probation_period: offerResponse.data.probation_period || "", expires_at: offerResponse.data.expires_at ? new Date(offerResponse.data.expires_at).toISOString().slice(0,16) : "", ctc_breakdown: Object.entries(offerResponse.data.ctc_breakdown || {}).map(([key,value]) => key + ": " + value).join("\n"), benefits: (offerResponse.data.benefits || []).join("\n") });
     } catch (error) { onError(error); }
   }
 
@@ -51,16 +51,33 @@ export default function ApplicationEnhancements({ token, applications, candidate
   async function saveOffer(event) {
     event.preventDefault();
     try {
-      const payload = { ...offerForm, joining_date: offerForm.joining_date ? new Date(offerForm.joining_date).toISOString() : null };
+      const payload = { ...offerForm, joining_date: offerForm.joining_date ? new Date(offerForm.joining_date).toISOString() : null, expires_at: offerForm.expires_at ? new Date(offerForm.expires_at).toISOString() : null, ctc_breakdown: Object.fromEntries(offerForm.ctc_breakdown.split("\n").map((line) => line.split(":").map((part) => part.trim())).filter((parts) => parts.length >= 2 && parts[0])), benefits: offerForm.benefits.split(/\n|,/).map((item) => item.trim()).filter(Boolean) };
       const response = await apiRequest(token, "post", "/applications/" + applicationId + "/offer", { data: payload });
       setOffer(response.data); onNotice("Offer saved");
+    } catch (error) { onError(error); }
+  }
+
+  async function transitionOffer(status) {
+    if (!applicationId) return;
+    try {
+      const response = await apiRequest(token, "post", "/applications/" + applicationId + "/offer/transition", { data: { status } });
+      setOffer((value) => ({ ...value, status: response.data.status }));
+      onNotice("Offer moved to " + status.replaceAll("_", " "));
+    } catch (error) { onError(error); }
+  }
+
+  async function sendOffer() {
+    try {
+      await apiRequest(token, "post", "/applications/" + applicationId + "/offer/send");
+      setOffer((value) => ({ ...value, status: "sent" }));
+      onNotice("Offer sent to the candidate");
     } catch (error) { onError(error); }
   }
 
   async function scheduleRound(event) {
     event.preventDefault();
     try {
-      const payload = { ...interviewForm, duration_minutes: Number(interviewForm.duration_minutes), starts_at: new Date(interviewForm.starts_at).toISOString() };
+      const payload = { ...interviewForm, duration_minutes: Number(interviewForm.duration_minutes), starts_at: new Date(interviewForm.starts_at).toISOString(), feedback_deadline: interviewForm.feedback_deadline ? new Date(interviewForm.feedback_deadline).toISOString() : null };
       const response = await apiRequest(token, "post", "/applications/" + applicationId + "/interviews", { data: payload });
       setInterviews((items) => [...items, response.data].sort((a,b) => a.round_number - b.round_number));
       onNotice("Interview round scheduled");
@@ -100,6 +117,7 @@ export default function ApplicationEnhancements({ token, applications, candidate
             <label className="grid gap-1 text-xs font-semibold">Round name<input className={input} value={interviewForm.round_name} onChange={(e) => setInterviewForm({...interviewForm, round_name:e.target.value})} /></label>
             <label className="grid gap-1 text-xs font-semibold">Date & time<input className={input} required type="datetime-local" value={interviewForm.starts_at} onChange={(e) => setInterviewForm({...interviewForm, starts_at:e.target.value})} /></label>
             <label className="grid gap-1 text-xs font-semibold">Duration<input className={input} type="number" min="15" value={interviewForm.duration_minutes} onChange={(e) => setInterviewForm({...interviewForm, duration_minutes:e.target.value})} /></label>
+            <label className="grid gap-1 text-xs font-semibold">Feedback deadline<input className={input} type="datetime-local" value={interviewForm.feedback_deadline} onChange={(e) => setInterviewForm({...interviewForm, feedback_deadline:e.target.value})} /></label>
             <label className="grid gap-1 text-xs font-semibold">Mode<select className={input} value={interviewForm.mode} onChange={(e) => setInterviewForm({...interviewForm, mode:e.target.value, location:"", meeting_url:""})}><option value="online">Online</option><option value="offline">Offline</option></select></label>
             {interviewForm.mode === "online" ? <label className="grid gap-1 text-xs font-semibold">Meeting URL<input required className={input} value={interviewForm.meeting_url} onChange={(e) => setInterviewForm({...interviewForm, meeting_url:e.target.value})} placeholder="https://teams..." /></label> : <label className="grid gap-1 text-xs font-semibold">Location<input required className={input} value={interviewForm.location} onChange={(e) => setInterviewForm({...interviewForm, location:e.target.value})} /></label>}
             <div className="flex items-end"><button className={primary} type="submit">Schedule round</button></div>
@@ -114,10 +132,23 @@ export default function ApplicationEnhancements({ token, applications, candidate
             <label className="grid gap-1 text-xs font-semibold">Annual CTC<input className={input} value={offerForm.annual_ctc} onChange={(e) => setOfferForm({...offerForm, annual_ctc:e.target.value})} placeholder="1200000" /></label>
             <label className="grid gap-1 text-xs font-semibold">Currency<input className={input} value={offerForm.currency} onChange={(e) => setOfferForm({...offerForm, currency:e.target.value})} /></label>
             <label className="grid gap-1 text-xs font-semibold">Joining date<input className={input} type="datetime-local" value={offerForm.joining_date} onChange={(e) => setOfferForm({...offerForm, joining_date:e.target.value})} /></label>
-            <label className="grid gap-1 text-xs font-semibold sm:col-span-2">Offer letter URL<input className={input} value={offerForm.offer_letter_url} onChange={(e) => setOfferForm({...offerForm, offer_letter_url:e.target.value})} placeholder="https://..." /></label>
+            <label className="grid gap-1 text-xs font-semibold">Offer expiry<input className={input} type="datetime-local" value={offerForm.expires_at} onChange={(e) => setOfferForm({...offerForm, expires_at:e.target.value})} /></label>
+            <label className="grid gap-1 text-xs font-semibold">Probation<input className={input} value={offerForm.probation_period} onChange={(e) => setOfferForm({...offerForm, probation_period:e.target.value})} placeholder="6 months" /></label>
+            <label className="grid gap-1 text-xs font-semibold sm:col-span-2">CTC breakdown<textarea className={input + " min-h-20"} value={offerForm.ctc_breakdown} onChange={(e) => setOfferForm({...offerForm, ctc_breakdown:e.target.value})} placeholder={"Basic: 600000\nHRA: 240000\nBonus: 120000"} /></label>
+            <label className="grid gap-1 text-xs font-semibold">Benefits<textarea className={input + " min-h-20"} value={offerForm.benefits} onChange={(e) => setOfferForm({...offerForm, benefits:e.target.value})} placeholder={"Health insurance\nPF\nPaid leave"} /></label>
             <label className="grid gap-1 text-xs font-semibold sm:col-span-3">Offer notes<textarea className={input + " min-h-20"} value={offerForm.notes} onChange={(e) => setOfferForm({...offerForm, notes:e.target.value})} /></label>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2"><button className={primary} onClick={saveOffer}>Save offer</button>{offer && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">Status: {offer.status}</span>}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button className={primary} onClick={saveOffer}>Save offer</button>
+            {offer && <>
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">Status: {offer.status}</span>
+              {offer.status === "draft" && <button type="button" className={secondary} onClick={() => transitionOffer("internal_review")}>Submit for review</button>}
+              {offer.status === "internal_review" && <button type="button" className={secondary} onClick={() => transitionOffer("approved")}>Approve offer</button>}
+              {offer.status === "approved" && <button type="button" className={primary} onClick={sendOffer}>Send to candidate</button>}
+              {(offer.status === "sent" || offer.status === "viewed") && <a className={secondary} target="_blank" rel="noreferrer" href={(import.meta.env.VITE_API_URL || "https://bluepace-ats-11.onrender.com") + "/applications/" + applicationId + "/offer/letter"}>Open offer letter</a>}
+              {["sent","viewed"].includes(offer.status) && offer.expires_at && <span className="text-xs text-ink-500">Expires {new Date(offer.expires_at).toLocaleString()}</span>}
+            </>}
+          </div>
         </section>
       </div>
     </section>
