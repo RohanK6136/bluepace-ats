@@ -283,6 +283,19 @@ class InterviewParticipant(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class InterviewAvailability(Base):
+    __tablename__ = "interview_availability"
+    __table_args__ = (UniqueConstraint("user_id", "starts_at", name="uq_interviewer_availability_slot"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(30), default="available")
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
 class TalentPool(Base):
     __tablename__ = "talent_pools"
 
