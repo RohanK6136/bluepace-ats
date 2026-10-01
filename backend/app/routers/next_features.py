@@ -494,7 +494,17 @@ def reschedule_interview(
         "Please use the secure candidate portal for the latest application details.\n\n"
         "Blupace Tech Recruiting"
     )
-    email_id = queue_application_email(db, application, subject, body)
+    calendar_bytes = _interview_ics(interview, application).encode("utf-8")
+    import base64
+    email_id = queue_application_email(
+        db,
+        application,
+        subject,
+        body,
+        attachment_filename=f"blupace-interview-{interview.id}.ics",
+        attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
+        attachment_content_type="text/calendar",
+    )
     record_audit(
         db,
         user,
