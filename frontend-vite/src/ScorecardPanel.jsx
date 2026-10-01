@@ -31,7 +31,7 @@ export default function ScorecardPanel({ token, applicationId, candidateName, ap
       })
       .catch((error) => { if (active) onError(error); });
     return () => { active = false; };
-  }, [token, applicationId, apiRequest, onError]);
+  }, [token, applicationId]);
 
   async function save() {
     if (!applicationId) return;
