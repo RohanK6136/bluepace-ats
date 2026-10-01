@@ -21,7 +21,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
 from celery.result import AsyncResult
 from sqlalchemy import String, cast, func, select
@@ -45,6 +45,7 @@ from app.models import (
     TalentPool,
     TalentPoolMembership,
     Offer,
+    AuthSession,
     Stage,
     User,
 )
@@ -87,7 +88,7 @@ from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
-from app.routers.next_features import router as next_features_router
+from app.routers.next_features import router as next_features_router, run_stage_automations
 from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
@@ -903,12 +904,20 @@ def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return TokenRead(access_token=create_access_token(user))
+    return TokenRead(access_token=create_access_token(user, db=db))
 
 
 @app.get("/auth/me", response_model=UserRead)
 def get_me(user: User = Depends(get_current_user)):
     return user
+
+@app.post("/auth/logout")
+def logout(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    from app.security import revoke_access_token
+    return {"status": "revoked", "revoked": revoke_access_token(token, db)}
 
 
 @app.post("/users", response_model=UserRead, status_code=status.HTTP_403_FORBIDDEN)
@@ -917,6 +926,31 @@ def create_user():
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Additional user accounts are disabled. Use the shared recruiting login.",
     )
+
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+
+def _candidate_search_matches(content: str, query: str) -> bool:
+    query = " ".join(query.split()).strip()
+    if not query:
+        return True
+    for any_group in re.split(r"\s+OR\s+", query, flags=re.IGNORECASE):
+        terms = re.split(r"\s+AND\s+", any_group, flags=re.IGNORECASE)
+        group_ok = True
+        for raw_term in terms:
+            term = raw_term.strip()
+            negate = bool(re.match(r"^NOT\s+", term, flags=re.IGNORECASE))
+            if negate:
+                term = re.sub(r"^NOT\s+", "", term, flags=re.IGNORECASE).strip()
+            if not term:
+                continue
+            present = term.casefold() in content.casefold()
+            if (not present) if negate else (not present):
+                group_ok = False
+                break
+        if group_ok:
+            return True
+    return False
 
 
 READ_ROLES = (Role.admin, Role.recruiter, Role.hiring_manager, Role.interviewer)
@@ -1188,10 +1222,22 @@ def rank_job_candidates(
     if not job.jd_analysis:
         job.jd_analysis = matching_service.analyze_job(job)
 
+    candidate_stage_names = {}
+    stage_rows = db.execute(
+        select(Application.candidate_id, Stage.name)
+        .join(Stage, Application.stage_id == Stage.id)
+        .where(Application.organization_id == user.organization_id)
+    ).all()
+    for candidate_id, stage_value in stage_rows:
+        candidate_stage_names.setdefault(candidate_id, set()).add(stage_value)
+
     candidates = list(
         db.scalars(
             select(Candidate)
-            .where(Candidate.organization_id == user.organization_id)
+            .where(
+                Candidate.organization_id == user.organization_id,
+                Candidate.archived.is_(True) if include_archived else Candidate.archived.is_(False),
+            )
             .order_by(Candidate.created_at.desc())
             .limit(200)
         ).all()
@@ -1561,7 +1607,11 @@ def list_candidates(
     skill: str | None = None,
     source: str | None = None,
     location: str | None = None,
+    tags: str | None = Query(default=None, description="Comma-separated candidate tags"),
+    stage_name: str | None = Query(default=None, pattern="^(Applied|Screening|Interview|Offer|Hired|Rejected|withdrawn)$"),
     min_experience_years: int | None = Query(default=None, ge=0, le=60),
+    max_experience_years: int | None = Query(default=None, ge=0, le=60),
+    include_archived: bool = False,
     user: User = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -1595,19 +1645,29 @@ def list_candidates(
     for candidate in candidates:
         profile = candidate.resume_data or {}
         content = haystack(candidate)
-        if search and search.casefold() not in content:
+        if search and not _candidate_search_matches(content, search):
             continue
         if skill and skill.casefold() not in " ".join(str(value) for value in profile.get("skills") or []).casefold():
             continue
         if source and source.casefold() not in (candidate.source or "").casefold():
             continue
+        candidate_tag_values = [str(value).casefold() for value in (candidate.tags or [])]
+        if tags:
+            required_tags = [value.strip().casefold() for value in tags.split(",") if value.strip()]
+            if required_tags and not all(any(req == item or req in item for item in candidate_tag_values) for req in required_tags):
+                continue
         if location:
             candidate_location = str(profile.get("location") or profile.get("address") or "")
             if location.casefold() not in candidate_location.casefold():
                 continue
-        if min_experience_years is not None:
-            estimated = matching_service._estimate_experience_years(profile.get("experience") or [])
-            if estimated < min_experience_years:
+        estimated = matching_service._estimate_experience_years(profile.get("experience") or [])
+        if min_experience_years is not None and estimated < min_experience_years:
+            continue
+        if max_experience_years is not None and estimated > max_experience_years:
+            continue
+        if stage_name:
+            stage_values = candidate_stage_names.get(candidate.id, set())
+            if stage_name.casefold() not in {value.casefold() for value in stage_values}:
                 continue
         filtered.append(candidate)
 
@@ -2708,10 +2768,12 @@ def create_application(
         },
     )
     subject, body = _stage_email(application, "Applied", db=db)
-    email_id = queue_application_email(db, application, subject, body)
+    email_ids = [queue_application_email(db, application, subject, body)]
+    email_ids.extend(run_stage_automations(db, application, stage.name))
     db.commit()
     db.refresh(application)
-    background_tasks.add_task(deliver_outbox_email, email_id)
+    for queued_id in email_ids:
+        background_tasks.add_task(deliver_outbox_email, queued_id)
     return serialize_application(application)
 
 
@@ -2928,6 +2990,7 @@ def bulk_update_application_stage(
         )
         subject, body = _stage_email(application, stage.name, db=db)
         email_ids.append(queue_application_email(db, application, subject, body))
+        email_ids.extend(run_stage_automations(db, application, stage.name))
     db.commit()
     for email_id in email_ids:
         background_tasks.add_task(deliver_outbox_email, email_id)

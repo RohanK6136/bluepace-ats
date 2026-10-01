@@ -1,14 +1,16 @@
 import os
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Role, User
+from app.models import AuthSession, Role, User
 
 JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET and os.getenv("APP_ENV", "development") not in {"development", "test"}:
@@ -20,13 +22,26 @@ password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 
-def create_access_token(user: User) -> str:
+def create_access_token(user: User, db: Session | None = None, ip_address: str | None = None, user_agent: str | None = None) -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_LIFETIME_MINUTES)
-    return jwt.encode(
-        {"sub": str(user.id), "org": user.organization_id, "role": user.role.value, "exp": expires_at},
+    jti = uuid4().hex
+    token = jwt.encode(
+        {"sub": str(user.id), "org": user.organization_id, "role": user.role.value, "jti": jti, "exp": expires_at},
         JWT_SECRET,
         algorithm=JWT_ALGORITHM,
     )
+    if db is not None:
+        db.add(
+            AuthSession(
+                user_id=user.id,
+                jti=jti,
+                expires_at=expires_at,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+        )
+        db.commit()
+    return token
 
 
 def create_candidate_portal_token(application_id: int) -> str:
@@ -60,6 +75,17 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise unauthorized
+    jti = payload.get("jti")
+    if jti:
+        session = db.scalar(
+            select(AuthSession).where(
+                AuthSession.jti == str(jti),
+                AuthSession.user_id == user.id,
+            )
+        )
+        now = datetime.now(timezone.utc)
+        if session is None or session.revoked_at is not None or session.expires_at <= now:
+            raise unauthorized
     return user
 
 
@@ -70,3 +96,17 @@ def require_roles(*roles: Role):
         return user
 
     return dependency
+def revoke_access_token(token: str, db: Session) -> bool:
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        jti = payload.get("jti")
+    except jwt.InvalidTokenError:
+        return False
+    if not jti:
+        return False
+    session = db.scalar(select(AuthSession).where(AuthSession.jti == str(jti)))
+    if session is None:
+        return False
+    session.revoked_at = datetime.now(timezone.utc)
+    db.commit()
+    return True

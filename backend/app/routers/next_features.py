@@ -18,6 +18,8 @@ from app.models import (
     Candidate,
     CandidateJobMatch,
     Email,
+    AutomationRule,
+    InterviewParticipant,
     Interview,
     Job,
     Offer,
@@ -72,6 +74,36 @@ class InterviewRescheduleRequest(BaseModel):
 
 class AssistantRequest(BaseModel):
     question: str = Field(default="Give me a factual summary of this application.", max_length=2000)
+
+
+class AutomationRuleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    trigger_event: str = Field(default="stage_changed", pattern="^(stage_changed)$")
+    trigger_stage: str | None = Field(default=None, max_length=100)
+    action_type: str = Field(default="send_email", pattern="^(send_email)$")
+    subject: str = Field(min_length=1, max_length=500)
+    body: str = Field(min_length=1, max_length=10000)
+    enabled: bool = True
+
+
+class AutomationRuleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    trigger_stage: str | None = Field(default=None, max_length=100)
+    subject: str | None = Field(default=None, min_length=1, max_length=500)
+    body: str | None = Field(default=None, min_length=1, max_length=10000)
+    enabled: bool | None = None
+
+
+class InterviewParticipantRequest(BaseModel):
+    user_id: int
+
+
+class InterviewParticipantRead(BaseModel):
+    id: int
+    user_id: int
+    full_name: str
+    email: str
+    role: str
 
 
 def _org_record(db: Session, model, record_id: int, organization_id: int):
@@ -925,3 +957,201 @@ def recruiter_assistant(
         "job": {"id": job.id, "title": job.title},
         "candidate": {"id": candidate.id, "name": f"{candidate.first_name} {candidate.last_name}".strip()},
     }
+
+
+def _render_automation(template: str, application: Application, stage_name: str) -> str:
+    candidate = application.candidate
+    job = application.job
+    values = {
+        "candidate_name": f"{candidate.first_name} {candidate.last_name}".strip(),
+        "candidate_email": candidate.email,
+        "job_title": job.title,
+        "stage_name": stage_name,
+    }
+    rendered = str(template or "")
+    for key, value in values.items():
+        rendered = rendered.replace("{{" + key + "}}", str(value or ""))
+    return rendered
+
+
+def run_stage_automations(db: Session, application: Application, stage_name: str) -> list[int]:
+    rules = db.scalars(
+        select(AutomationRule).where(
+            AutomationRule.organization_id == application.organization_id,
+            AutomationRule.enabled.is_(True),
+            AutomationRule.trigger_event == "stage_changed",
+        )
+    ).all()
+    email_ids = []
+    for rule in rules:
+        if rule.trigger_stage and rule.trigger_stage != stage_name:
+            continue
+        subject = _render_automation(rule.subject, application, stage_name)
+        body = _render_automation(rule.body, application, stage_name)
+        email_ids.append(queue_application_email(db, application, subject, body))
+    return email_ids
+
+
+@router.get("/automation-rules")
+def list_automation_rules(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(
+        select(AutomationRule)
+        .where(AutomationRule.organization_id == user.organization_id)
+        .order_by(AutomationRule.created_at.desc())
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "name": row.name,
+            "trigger_event": row.trigger_event,
+            "trigger_stage": row.trigger_stage,
+            "action_type": row.action_type,
+            "subject": row.subject,
+            "body": row.body,
+            "enabled": row.enabled,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+        for row in rows
+    ]
+
+
+@router.post("/automation-rules")
+def create_automation_rule(
+    request: AutomationRuleCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    row = AutomationRule(
+        organization_id=user.organization_id,
+        created_by_id=user.id,
+        name=request.name.strip(),
+        trigger_event=request.trigger_event,
+        trigger_stage=request.trigger_stage or None,
+        action_type=request.action_type,
+        subject=request.subject.strip(),
+        body=request.body,
+        enabled=request.enabled,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    record_audit(db, user, "automation.created", "automation_rule", row.id, after={"name": row.name, "trigger_stage": row.trigger_stage, "enabled": row.enabled})
+    db.commit()
+    return {
+        "id": row.id, "name": row.name, "trigger_event": row.trigger_event,
+        "trigger_stage": row.trigger_stage, "action_type": row.action_type,
+        "subject": row.subject, "body": row.body, "enabled": row.enabled,
+        "created_at": row.created_at, "updated_at": row.updated_at,
+    }
+
+
+@router.patch("/automation-rules/{rule_id}")
+def update_automation_rule(
+    rule_id: int,
+    request: AutomationRuleUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    row = _org_record(db, AutomationRule, rule_id, user.organization_id)
+    before = {"name": row.name, "trigger_stage": row.trigger_stage, "subject": row.subject, "enabled": row.enabled}
+    for field in ("name", "trigger_stage", "subject", "body", "enabled"):
+        value = getattr(request, field)
+        if value is not None:
+            setattr(row, field, value.strip() if isinstance(value, str) else value)
+    record_audit(db, user, "automation.updated", "automation_rule", row.id, before=before, after={"name": row.name, "trigger_stage": row.trigger_stage, "subject": row.subject, "enabled": row.enabled})
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "name": row.name, "trigger_event": row.trigger_event, "trigger_stage": row.trigger_stage, "action_type": row.action_type, "subject": row.subject, "body": row.body, "enabled": row.enabled, "created_at": row.created_at, "updated_at": row.updated_at}
+
+
+@router.delete("/automation-rules/{rule_id}")
+def delete_automation_rule(
+    rule_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    row = _org_record(db, AutomationRule, rule_id, user.organization_id)
+    record_audit(db, user, "automation.deleted", "automation_rule", row.id, before={"name": row.name})
+    db.delete(row)
+    db.commit()
+    return {"status": "deleted", "id": rule_id}
+
+
+@router.get("/recruiting-users")
+def list_recruiting_users(
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(
+        select(User).where(
+            User.organization_id == user.organization_id,
+            User.is_active.is_(True),
+            User.role != Role.candidate,
+        ).order_by(User.full_name.asc())
+    ).all()
+    return [{"id": row.id, "full_name": row.full_name, "email": row.email, "role": row.role.value} for row in rows]
+
+
+@router.get("/interviews/{interview_id}/participants")
+def list_interview_participants(
+    interview_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _org_record(db, Interview, interview_id, user.organization_id)
+    rows = db.scalars(
+        select(InterviewParticipant)
+        .where(InterviewParticipant.interview_id == interview.id)
+        .order_by(InterviewParticipant.created_at.asc())
+    ).all()
+    users = {row.id: row for row in db.scalars(select(User).where(User.id.in_([p.user_id for p in rows]))).all()} if rows else {}
+    return [
+        {"id": row.id, "user_id": row.user_id, "full_name": users[row.user_id].full_name, "email": users[row.user_id].email, "role": users[row.user_id].role.value}
+        for row in rows if row.user_id in users
+    ]
+
+
+@router.post("/interviews/{interview_id}/participants")
+def add_interview_participant(
+    interview_id: int,
+    request: InterviewParticipantRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _org_record(db, Interview, interview_id, user.organization_id)
+    participant = db.scalar(
+        select(InterviewParticipant).where(
+            InterviewParticipant.interview_id == interview.id,
+            InterviewParticipant.user_id == request.user_id,
+        )
+    )
+    target = db.scalar(
+        select(User).where(User.id == request.user_id, User.organization_id == user.organization_id, User.is_active.is_(True), User.role != Role.candidate)
+    )
+    if target is None:
+        raise HTTPException(status_code=404, detail="Recruiting user not found")
+    if participant is None:
+        participant = InterviewParticipant(interview_id=interview.id, user_id=target.id)
+        db.add(participant)
+        db.commit()
+        db.refresh(participant)
+    return {"id": participant.id, "user_id": target.id, "full_name": target.full_name, "email": target.email, "role": target.role.value}
+
+
+@router.delete("/interviews/{interview_id}/participants/{user_id}")
+def remove_interview_participant(
+    interview_id: int,
+    user_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    interview = _org_record(db, Interview, interview_id, user.organization_id)
+    row = db.scalar(select(InterviewParticipant).where(InterviewParticipant.interview_id == interview.id, InterviewParticipant.user_id == user_id))
+    if row is not None:
+        db.delete(row)
+        db.commit()
+    return {"status": "removed", "interview_id": interview.id, "user_id": user_id}
