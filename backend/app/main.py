@@ -1525,6 +1525,17 @@ def dashboard_summary(
         "source_counts": [{"name": name, "count": count} for name, count in sorted(source_counts.items(), key=lambda item: item[1], reverse=True)[:10]],
         "email_counts": email_counts,
         "upcoming_interviews": upcoming,
+        "recent_applications": [
+            {
+                "id": application.id,
+                "candidate_id": application.candidate_id,
+                "candidate_name": f"{application.candidate.first_name} {application.candidate.last_name}".strip(),
+                "job_title": application.job.title,
+                "stage_name": application.stage.name if application.stage else "Applied",
+                "applied_at": application.applied_at,
+            }
+            for application in applications[:10]
+        ],
     }
 
 
