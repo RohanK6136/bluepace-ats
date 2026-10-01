@@ -128,6 +128,7 @@ def ensure_bootstrap_account() -> None:
         else:
             user.organization_id = organization.id
             user.full_name = full_name
+            user.password_hash = password_hash.hash(password)
             user.role = Role.admin
             user.is_active = True
 
