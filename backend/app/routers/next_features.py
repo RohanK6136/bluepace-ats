@@ -92,7 +92,7 @@ class AutomationRuleCreate(BaseModel):
 
 class AutomationRuleUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
-    trigger_event: str | None = Field(default=None, pattern="^(stage_changed|scorecards_complete|interview_scheduled)$")
+    trigger_event: str | None = Field(default=None, pattern="^(stage_changed|scorecards_complete)$")
     trigger_stage: str | None = Field(default=None, max_length=100)
     action_type: str | None = Field(default=None, pattern="^(send_email|assign_owner|assign_interviewer|mark_review|move_stage)$")
     action_value: str | None = Field(default=None, max_length=500)
