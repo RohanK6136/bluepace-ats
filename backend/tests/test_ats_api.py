@@ -984,7 +984,7 @@ def test_candidate_match_api_returns_explainable_ranking_and_keeps_recruiter_ove
         headers=headers,
     ).json()
 
-    ranked = client.post(f"/jobs/{job["id"]}/matches", headers=headers)
+    ranked = client.post(f"/jobs/{job['id']}/matches", headers=headers)
     assert ranked.status_code == 200
     match = ranked.json()[0]
     assert "required_skill_coverage" in match["score_breakdown"]
@@ -1002,7 +1002,7 @@ def test_candidate_match_api_returns_explainable_ranking_and_keeps_recruiter_ove
     assert match["matched_preferred_skills"] == ["React"]
 
     updated = client.patch(
-        f"/candidate-matches/{match["id"]}/feedback",
+        f"/candidate-matches/{match['id']}/feedback",
         json={"recruiter_override": 42, "recruiter_note": "Recruiter review"},
         headers=headers,
     )
@@ -1010,6 +1010,6 @@ def test_candidate_match_api_returns_explainable_ranking_and_keeps_recruiter_ove
     assert updated.json()["effective_score"] == 42
     assert updated.json()["recruiter_override"] == 42
 
-    refreshed = client.get(f"/jobs/{job["id"]}/matches", headers=headers)
+    refreshed = client.get(f"/jobs/{job['id']}/matches", headers=headers)
     assert refreshed.status_code == 200
     assert refreshed.json()[0]["effective_score"] == 42
