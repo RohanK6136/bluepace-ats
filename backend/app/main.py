@@ -159,6 +159,8 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.3.0", lifespan=lifespan)
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+
 
 @app.middleware("http")
 async def add_process_time_header(request, call_next):
@@ -928,7 +930,6 @@ def create_user():
     )
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 def _candidate_search_matches(content: str, query: str) -> bool:
     query = " ".join(query.split()).strip()
