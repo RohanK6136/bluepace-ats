@@ -336,7 +336,7 @@ class DocumentExtractor:
             confidence[field] = evidence[-1]["confidence"]
 
         if parsed.get("years_of_experience") is not None:
-            calculated = self._experience_years_from_entries(parsed.get("experience"))
+            calculated = DocumentExtractor._experience_years_from_entries(parsed.get("experience"))
             explicit = self._extract_explicit_experience_years(raw_text)
             confidence["years_of_experience"] = 0.97 if explicit is not None else (0.84 if calculated is not None else 0.5)
             evidence.append({
