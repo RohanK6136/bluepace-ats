@@ -747,7 +747,7 @@ def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
         "skill_gaps": match.skill_gaps or [],
         "explanations": match.explanations or [],
         "semantic_mode": match.semantic_mode,
-        "cv_summary": match.candidate.cv_summary or [],
+        "cv_summary": match.candidate.cv_summary or matching_service._fallback_candidate_summary(match.candidate),
     }
 
 
