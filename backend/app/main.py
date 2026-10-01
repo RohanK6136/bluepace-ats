@@ -2405,9 +2405,14 @@ def create_interview_round(
     if request.mode == "online" and not request.meeting_url:
         raise HTTPException(status_code=422, detail="Meeting link is required for online interviews.")
     round_number = (db.scalar(select(func.max(Interview.round_number)).where(Interview.application_id == application.id)) or 0) + 1
+    interviewer_ids = list(dict.fromkeys(request.interviewer_ids or [application.assigned_interviewer_id or user.id]))
+    if not interviewer_ids: interviewer_ids = [user.id]
+    members = db.scalars(select(User).where(User.id.in_(interviewer_ids), User.organization_id == user.organization_id, User.is_active.is_(True))).all()
+    if len(members) != len(interviewer_ids): raise HTTPException(422, "One or more interviewers are not active members of this organization")
+    round_type = request.round_type
     interview = Interview(
         application_id=application.id,
-        interviewer_id=application.assigned_interviewer_id or user.id,
+        interviewer_id=interviewer_ids[0],
         starts_at=request.starts_at,
         duration_minutes=request.duration_minutes,
         status="scheduled",
@@ -2415,10 +2420,15 @@ def create_interview_round(
         location=request.location,
         meeting_url=request.meeting_url,
         round_name=request.round_name,
-        round_number=round_number,
+        round_number=request.round_number if request.round_number else round_number,
         feedback_deadline=request.feedback_deadline,
     )
     db.add(interview)
+    db.flush()
+    for interviewer_id in interviewer_ids:
+        db.add(InterviewParticipant(interview_id=interview.id, user_id=interviewer_id))
+        if not db.scalar(select(Scorecard).where(Scorecard.application_id == application.id, Scorecard.interviewer_id == interviewer_id)):
+            db.add(Scorecard(application_id=application.id, interviewer_id=interviewer_id))
     application.stage_id = ensure_job_stages(db, application.job)["Interview"].id
     application.status = "active"
     db.flush()
