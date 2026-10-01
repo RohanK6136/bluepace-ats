@@ -173,6 +173,25 @@ export default function RecruiterToolsPanel({
           </div>
           {selectedCandidateId ? (
             <>
+              <div className="mb-3 flex flex-wrap items-center gap-2"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Collaboration</p>{collaboration.starred && <span className="rounded-full bg-gold-50 px-2 py-1 text-[11px] font-semibold text-gold-700">Starred</span>}{collaboration.needs_review && <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">Needs review</span>}</div>
+              <div className="mb-4 grid gap-3 rounded-lg border border-ink-100 bg-[#fafaf8] p-3 sm:grid-cols-4">
+                <label className="grid gap-1 text-xs font-semibold">Owner<select className={input} value={collaboration.owner_id} disabled={!canWrite} onChange={async (event) => {
+                  const owner_id = event.target.value ? Number(event.target.value) : null;
+                  try { await apiRequest(token, "patch", "/candidates/" + selectedCandidateId + "/collaboration", { data: { owner_id } }); setCollaboration((value) => ({ ...value, owner_id: event.target.value })); onNotice("Candidate owner updated"); } catch (error) { onError(error); }
+                }}><option value="">Unassigned</option>{recruitingUsers.map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}</select></label>
+                <label className="grid gap-1 text-xs font-semibold">Priority<select className={input} value={collaboration.priority} disabled={!canWrite} onChange={async (event) => {
+                  const priority = event.target.value;
+                  try { await apiRequest(token, "patch", "/candidates/" + selectedCandidateId + "/collaboration", { data: { priority } }); setCollaboration((value) => ({ ...value, priority })); } catch (error) { onError(error); }
+                }}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
+                <label className="flex items-center gap-2 text-xs font-semibold sm:pt-5"><input type="checkbox" checked={collaboration.starred} disabled={!canWrite} onChange={async (event) => {
+                  const starred = event.target.checked;
+                  try { await apiRequest(token, "patch", "/candidates/" + selectedCandidateId + "/collaboration", { data: { starred } }); setCollaboration((value) => ({ ...value, starred })); } catch (error) { onError(error); }
+                }} /> Star</label>
+                <label className="flex items-center gap-2 text-xs font-semibold sm:pt-5"><input type="checkbox" checked={collaboration.needs_review} disabled={!canWrite} onChange={async (event) => {
+                  const needs_review = event.target.checked;
+                  try { await apiRequest(token, "patch", "/candidates/" + selectedCandidateId + "/collaboration", { data: { needs_review } }); setCollaboration((value) => ({ ...value, needs_review })); } catch (error) { onError(error); }
+                }} /> Needs review</label>
+              </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {tags.map((tag) => (
                   <button key={tag} type="button" disabled={!canWrite} onClick={() => saveTags(tags.filter((item) => item.toLowerCase() !== tag.toLowerCase()))} className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">
