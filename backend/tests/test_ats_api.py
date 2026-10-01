@@ -1013,3 +1013,60 @@ def test_candidate_match_api_returns_explainable_ranking_and_keeps_recruiter_ove
     refreshed = client.get(f"/jobs/{job['id']}/matches", headers=headers)
     assert refreshed.status_code == 200
     assert refreshed.json()[0]["effective_score"] == 42
+
+
+def test_recruiter_assistant_returns_question_specific_structured_answer(client, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    headers = register_and_login(client)
+
+    job = client.post(
+        "/jobs",
+        json={
+            "title": "Python Backend Engineer",
+            "description": "Build APIs with Python and PostgreSQL.",
+            "status": "open",
+            "required_skills": ["Python", "PostgreSQL"],
+            "minimum_experience_years": 2,
+        },
+        headers=headers,
+    ).json()
+
+    candidate = client.post(
+        "/candidates",
+        json={
+            "first_name": "Asha",
+            "last_name": "Tester",
+            "email": "asha.assistant@example.com",
+            "resume_data": {
+                "skills": ["Python"],
+                "experience": [{"title": "Software Engineer", "company": "Acme", "duration": "3 years"}],
+                "education": [{"degree": "B.Tech Computer Science", "university": "Example University"}],
+                "projects": ["API monitoring dashboard"],
+            },
+        },
+        headers=headers,
+    ).json()
+
+    application = client.post(
+        "/applications",
+        json={"job_id": job["id"], "candidate_id": candidate["id"]},
+        headers=headers,
+    ).json()
+
+    response = client.post(
+        f"/candidate-tools/applications/{application['id']}/assistant",
+        json={"question": "What skills are missing?"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"] == "missing_skills"
+    assert payload["answer"]
+    assert payload["key_facts"]
+    assert payload["matched_required_skills"] == ["Python"]
+    assert payload["missing_required_skills"] == ["PostgreSQL"]
+    assert isinstance(payload["interview_questions"], list)
+    assert payload["screening_email"]
+    assert payload["requirement_explanation"]
+    assert payload["guardrails"]
