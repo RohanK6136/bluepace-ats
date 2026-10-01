@@ -1135,9 +1135,12 @@ def create_job(
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
-    job = Job(**request.model_dump(), organization_id=user.organization_id, created_by_id=user.id)
+    payload = request.model_dump()
+    job = Job(**payload, organization_id=user.organization_id, created_by_id=user.id)
     db.add(job)
     db.flush()
+    job.jd_analysis = matching_service.analyze_job(job)
+    job.embedding = None
     ensure_job_stages(db, job)
     record_audit(db, user, "job.created", "job", job.id, after={"title": job.title, "status": job.status})
     db.commit()
@@ -1320,9 +1323,9 @@ def update_job(
     for field, value in updates.items():
         setattr(job, field, value)
     if set(updates) & {
-        "title", "description", "location", "required_skills", "minimum_experience_years", "fresher_allowed"
+        "title", "description", "location", "work_mode", "required_skills", "minimum_experience_years", "fresher_allowed"
     }:
-        job.jd_analysis = None
+        job.jd_analysis = matching_service.analyze_job(job)
         job.embedding = None
     record_audit(
         db,
