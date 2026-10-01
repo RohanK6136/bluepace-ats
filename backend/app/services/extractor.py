@@ -292,54 +292,49 @@ class DocumentExtractor:
 
     @staticmethod
     def _resume_quality_flags(raw_text, parsed):
-        flags = []
         missing = []
-        checks = {
-            "email": "email",
-            "phone": "phone",
-            "skills": "skills",
-            "experience": "experience",
-            "education": "education",
-        }
-        for label, key in checks.items():
-            value = parsed.get(key)
-            if not value:
-                missing.append(label)
-        optional_checks = {
-            "linkedin": "LinkedIn",
-            "github": "GitHub",
-            "certifications": "certifications",
-            "current_location": "current location",
-            "preferred_location": "preferred location",
-            "notice_period": "notice period",
-            "work_authorization": "work authorization",
-        }
-        for key, label in optional_checks.items():
+        optional_missing = []
+        suspicious = []
+        for key in ("email", "phone", "skills", "experience", "education"):
             if not parsed.get(key):
-                missing.append(label)
+                missing.append(key)
+        optional = {
+            "linkedin": "LinkedIn", "github": "GitHub", "certifications": "certifications",
+            "current_location": "current location", "preferred_location": "preferred location",
+            "notice_period": "notice period", "work_authorization": "work authorization",
+        }
+        for key, label in optional.items():
+            if not parsed.get(key):
+                optional_missing.append(label)
 
         email = str(parsed.get("email") or "")
         if email and not re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", email):
-            flags.append({"field": "email", "severity": "medium", "reason": "Email was extracted but does not match a standard email pattern.", "evidence": email})
+            suspicious.append({"field": "email", "severity": "medium", "reason": "Extracted email does not match a standard email pattern.", "evidence": email})
         phone = str(parsed.get("phone") or "")
         if phone and len(re.sub(r"\D", "", phone)) < 8:
-            flags.append({"field": "phone", "severity": "low", "reason": "Phone number appears unusually short; verify against the source resume.", "evidence": phone})
-        for item in parsed.get("experience") or []:
-            if not isinstance(item, dict):
-                continue
-            duration = str(item.get("duration") or "")
-            if duration and not re.search(r"(?:19|20)\d{2}", duration):
-                flags.append({"field": "experience", "severity": "low", "reason": "An experience entry has a duration that could not be normalized to calendar years.", "evidence": duration})
+            suspicious.append({"field": "phone", "severity": "low", "reason": "Extracted phone number appears unusually short.", "evidence": phone})
+
         explicit = parsed.get("years_of_experience")
         calculated = DocumentExtractor._experience_years_from_entries(parsed.get("experience"))
         if explicit is not None and calculated is not None and abs(float(explicit) - float(calculated)) > 2:
-            flags.append({"field": "years_of_experience", "severity": "medium", "reason": "Explicit experience duration differs materially from the dates detected in employment entries.", "evidence": f"Explicit: {explicit}; date-based estimate: {calculated}"})
-        if re.search(r"\b(?:19|20)\d{2}\b", raw_text) and parsed.get("education"):
-            for item in parsed.get("education") or []:
-                year = item.get("graduation_year") if isinstance(item, dict) else None
-                if year and int(str(year)) > __import__("datetime").datetime.now().year + 2:
-                    flags.append({"field": "education", "severity": "medium", "reason": "A graduation year is unusually far in the future; verify the extracted year.", "evidence": str(year)})
-        return {"missing_fields": missing, "suspicious_fields": flags}
+            suspicious.append({"field": "years_of_experience", "severity": "medium", "reason": "Explicit experience duration differs materially from the employment dates detected.", "evidence": f"Explicit: {explicit}; date-based estimate: {calculated}"})
+
+        current_year = datetime.now().year
+        for item in parsed.get("education") or []:
+            year = item.get("graduation_year") if isinstance(item, dict) else None
+            if year:
+                try:
+                    if int(str(year)) > current_year + 2:
+                        suspicious.append({"field": "education", "severity": "medium", "reason": "Graduation year is unusually far in the future; verify it.", "evidence": str(year)})
+                except ValueError:
+                    pass
+
+        return {
+            "missing_fields": missing,
+            "optional_missing_fields": optional_missing,
+            "suspicious_fields": suspicious,
+            "disclaimer": "Review signals are based only on extracted resume text and are not definitive facts about the candidate.",
+        }
 
     def _llm_parse(self, raw_text):
         if self.client is None:
