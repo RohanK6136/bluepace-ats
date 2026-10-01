@@ -2420,6 +2420,7 @@ def create_interview_round(
         location=request.location,
         meeting_url=request.meeting_url,
         round_name=request.round_name,
+        round_type=request.round_type,
         round_number=request.round_number if request.round_number else round_number,
         feedback_deadline=request.feedback_deadline,
     )
@@ -2444,7 +2445,7 @@ def create_interview_round(
         interview_id=interview.id,
     )
     email_id = queue_application_email(db, application, subject, body)
-    record_audit(db, user, "interview.round_scheduled", "application", application.id, after={"round_name": request.round_name, "round_number": round_number})
+    record_audit(db, user, "interview.round_scheduled", "application", application.id, after={"round_name": request.round_name, "round_type": request.round_type, "round_number": request.round_number if request.round_number else round_number, "interviewer_ids": interviewer_ids})
     db.commit()
     db.refresh(interview)
     background_tasks.add_task(deliver_outbox_email, email_id)
