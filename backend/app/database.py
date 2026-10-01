@@ -222,6 +222,7 @@ def upgrade_phase8_columns(target_engine):
 
     additions = {
         "users": [User.__table__.c.failed_login_attempts, User.__table__.c.locked_until],
+        "applications": [Application.__table__.c.assigned_interviewer_id],
         "candidates": [
             Candidate.__table__.c.owner_id,
             Candidate.__table__.c.starred,

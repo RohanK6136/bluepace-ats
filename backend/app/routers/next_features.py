@@ -82,7 +82,7 @@ class AutomationRuleCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     trigger_event: str = Field(default="stage_changed", pattern="^(stage_changed|scorecards_complete)$")
     trigger_stage: str | None = Field(default=None, max_length=100)
-    action_type: str = Field(default="send_email", pattern="^(send_email|assign_owner|mark_review|move_stage)$")
+    action_type: str = Field(default="send_email", pattern="^(send_email|assign_owner|assign_interviewer|mark_review|move_stage)$")
     action_value: str | None = Field(default=None, max_length=500)
     subject: str = Field(default="", max_length=500)
     body: str = Field(default="", max_length=10000)
@@ -1073,6 +1073,20 @@ def _apply_automation_action(db: Session, application: Application, rule: Automa
         owner = db.scalar(select(User).where(User.id == owner_id, User.organization_id == application.organization_id, User.is_active.is_(True)))
         if owner is not None:
             application.candidate.owner_id = owner.id
+    elif rule.action_type == "assign_interviewer":
+        try:
+            interviewer_id = int(rule.action_value or "")
+        except (TypeError, ValueError):
+            interviewer_id = 0
+        interviewer = db.scalar(select(User).where(
+            User.id == interviewer_id,
+            User.organization_id == application.organization_id,
+            User.is_active.is_(True),
+            User.role == Role.interviewer,
+        ))
+        if interviewer is None:
+            raise HTTPException(status_code=404, detail="Configured interviewer not found")
+        application.assigned_interviewer_id = interviewer.id
     elif rule.action_type == "mark_review":
         application.candidate.needs_review = True
     elif rule.action_type == "move_stage":

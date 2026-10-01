@@ -1991,7 +1991,7 @@ def submit_application_scorecard(
     application_id: int,
     request: ScorecardCreate,
     background_tasks: BackgroundTasks,
-    user: User = Depends(require_roles(*WRITE_ROLES)),
+    user: User = Depends(require_roles(Role.admin, Role.recruiter, Role.interviewer)),
     db: Session = Depends(get_db),
 ):
     application = _get_org_record(db, Application, application_id, user.organization_id)
@@ -2285,7 +2285,7 @@ def create_interview_round(
     round_number = (db.scalar(select(func.max(Interview.round_number)).where(Interview.application_id == application.id)) or 0) + 1
     interview = Interview(
         application_id=application.id,
-        interviewer_id=user.id,
+        interviewer_id=application.assigned_interviewer_id or user.id,
         starts_at=request.starts_at,
         duration_minutes=request.duration_minutes,
         status="scheduled",
@@ -2294,6 +2294,7 @@ def create_interview_round(
         meeting_url=request.meeting_url,
         round_name=request.round_name,
         round_number=round_number,
+        feedback_deadline=request.feedback_deadline,
         feedback_deadline=request.feedback_deadline,
     )
     db.add(interview)
@@ -2983,7 +2984,7 @@ def update_application_stage(
         if interview is None:
             interview = Interview(
                 application_id=application.id,
-                interviewer_id=user.id,
+                interviewer_id=application.assigned_interviewer_id or user.id,
                 starts_at=request.interview_starts_at,
                 duration_minutes=request.interview_duration_minutes,
                 status="scheduled",
@@ -3032,9 +3033,12 @@ def update_application_stage(
         interview_meeting_url=request.interview_meeting_url,
     )
     email_id = queue_application_email(db, application, subject, body)
+    automation_email_ids = run_stage_automations(db, application, stage.name)
     db.commit()
     db.refresh(application)
     background_tasks.add_task(deliver_outbox_email, email_id)
+    for automation_email_id in automation_email_ids:
+        background_tasks.add_task(deliver_outbox_email, automation_email_id)
     return serialize_application(application)
 
 

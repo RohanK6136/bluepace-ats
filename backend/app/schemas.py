@@ -150,6 +150,7 @@ class ApplicationRead(BaseModel):
     id: int
     job_id: int
     candidate_id: int
+    assigned_interviewer_id: Optional[int] = None
     job_title: str
     stage_id: Optional[int]
     stage_name: Optional[str]
