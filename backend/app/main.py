@@ -2010,6 +2010,8 @@ def update_application_stage(
             interview.mode = request.interview_mode
             interview.location = request.interview_location
             interview.meeting_url = request.interview_meeting_url
+            interview.reminder_24_sent = False
+            interview.reminder_1h_sent = False
 
     application.stage_id = stage.id
     application.status = TERMINAL_STAGES.get(stage.name, "active")
