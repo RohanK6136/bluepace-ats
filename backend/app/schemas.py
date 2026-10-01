@@ -213,3 +213,25 @@ class ResumeData(BaseModel):
     highest_education: Optional[str] = None
     is_fresher: bool = False
     raw_text_length: int = 0
+
+class ScorecardCreate(BaseModel):
+    ratings: dict = Field(default_factory=dict)
+    recommendation: Optional[str] = Field(default=None, max_length=50)
+
+
+class ScorecardRead(BaseModel):
+    id: int
+    application_id: int
+    interviewer_id: int
+    ratings: dict
+    recommendation: Optional[str]
+    submitted_at: Optional[datetime]
+
+
+class EmailTemplate(BaseModel):
+    subject: str = Field(min_length=1, max_length=500)
+    body: str = Field(min_length=1, max_length=10000)
+
+
+class EmailTemplateUpdate(BaseModel):
+    templates: dict[str, EmailTemplate]
