@@ -168,4 +168,3 @@ class CandidateMatcher:
         if job.location:
             analysis["location"] = job.location
         return analysis
-)
