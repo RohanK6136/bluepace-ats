@@ -956,7 +956,7 @@ def test_candidate_match_api_returns_explainable_ranking_and_keeps_recruiter_ove
         "/jobs",
         json={
             "title": "Python Engineer",
-            "description": "Python SQL React engineer in Bengaluru. At least 3 years experience.",
+            "description": "Python SQL engineer in Bengaluru. At least 3 years experience. React is nice to have.",
             "location": "Bengaluru, India",
             "work_mode": "hybrid",
             "status": "open",
