@@ -123,6 +123,11 @@ class CandidateRead(BaseModel):
     tags: Optional[list[str]] = None
     archived: bool = False
     merged_into_id: Optional[int] = None
+    owner_id: Optional[int] = None
+    owner_name: Optional[str] = None
+    starred: bool = False
+    needs_review: bool = False
+    priority: str = "normal"
     created_at: datetime
     updated_at: datetime
 
@@ -284,6 +289,10 @@ class OfferCreate(BaseModel):
     joining_date: Optional[datetime] = None
     offer_letter_url: Optional[str] = Field(default=None, max_length=1000)
     notes: Optional[str] = Field(default=None, max_length=5000)
+    ctc_breakdown: Optional[dict] = None
+    benefits: Optional[list[str]] = None
+    probation_period: Optional[str] = Field(default=None, max_length=100)
+    expires_at: Optional[datetime] = None
 
 
 class OfferUpdate(BaseModel):
@@ -291,7 +300,7 @@ class OfferUpdate(BaseModel):
     currency: Optional[str] = Field(default=None, min_length=3, max_length=10)
     joining_date: Optional[datetime] = None
     offer_letter_url: Optional[str] = Field(default=None, max_length=1000)
-    status: Optional[str] = Field(default=None, pattern="^(draft|sent|viewed|accepted|declined|expired)$")
+    status: Optional[str] = Field(default=None, pattern="^(draft|internal_review|approved|sent|viewed|accepted|declined|expired)$")
     notes: Optional[str] = Field(default=None, max_length=5000)
 
 
@@ -305,6 +314,16 @@ class OfferRead(BaseModel):
     offer_letter_url: Optional[str]
     status: str
     notes: Optional[str]
+    ctc_breakdown: Optional[dict]
+    benefits: Optional[list[str]]
+    probation_period: Optional[str]
+    approved_by_id: Optional[int]
+    approved_at: Optional[datetime]
+    sent_at: Optional[datetime]
+    viewed_at: Optional[datetime]
+    responded_at: Optional[datetime]
+    expires_at: Optional[datetime]
+    revision: int
     created_at: datetime
     updated_at: datetime
 
@@ -334,6 +353,7 @@ class InterviewRead(BaseModel):
     meeting_url: Optional[str]
     round_name: str
     round_number: int
+    feedback_deadline: Optional[datetime] = None
 
 
 class CandidateComparisonRead(BaseModel):

@@ -57,6 +57,7 @@ def initialize_database():
     upgrade_phase5_columns(engine)
     upgrade_phase6_columns(engine)
     upgrade_phase7_columns(engine)
+    upgrade_phase8_columns(engine)
 
 
 def upgrade_phase1_columns(target_engine):
@@ -214,3 +215,46 @@ def upgrade_phase7_columns(target_engine):
             connection.execute(text("UPDATE candidates SET archived = FALSE WHERE archived IS NULL"))
         if "tags" in {column["name"] for column in inspect(connection).get_columns("candidates")}:
             connection.execute(text("UPDATE candidates SET tags = '[]' WHERE tags IS NULL"))
+
+
+def upgrade_phase8_columns(target_engine):
+    from app.models import Candidate, CandidateDocument, Interview, Offer, AutomationRule, User
+
+    additions = {
+        "users": [User.__table__.c.failed_login_attempts, User.__table__.c.locked_until],
+        "candidates": [
+            Candidate.__table__.c.owner_id,
+            Candidate.__table__.c.starred,
+            Candidate.__table__.c.needs_review,
+            Candidate.__table__.c.priority,
+        ],
+        "interviews": [
+            Interview.__table__.c.feedback_deadline,
+            Interview.__table__.c.cancellation_reason,
+        ],
+        "offers": [
+            Offer.__table__.c.ctc_breakdown,
+            Offer.__table__.c.benefits,
+            Offer.__table__.c.probation_period,
+            Offer.__table__.c.approved_by_id,
+            Offer.__table__.c.approved_at,
+            Offer.__table__.c.sent_at,
+            Offer.__table__.c.viewed_at,
+            Offer.__table__.c.responded_at,
+            Offer.__table__.c.expires_at,
+            Offer.__table__.c.revision,
+        ],
+        "automation_rules": [AutomationRule.__table__.c.action_value],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)

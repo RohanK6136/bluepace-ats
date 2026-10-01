@@ -53,6 +53,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(500))
     role: Mapped[Role] = mapped_column(Enum(Role, native_enum=False), default=Role.recruiter)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     organization: Mapped[Organization] = relationship(back_populates="users")
 
@@ -78,6 +80,10 @@ class Job(Base):
     tags: Mapped[list[str] | None] = mapped_column(JSON, default=list, nullable=True)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     merged_into_id: Mapped[int | None] = mapped_column(ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    starred: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), default="normal", server_default="normal")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
@@ -207,6 +213,8 @@ class Interview(Base):
     reminder_1h_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     round_name: Mapped[str] = mapped_column(String(100), default="Interview", server_default="Interview")
     round_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    feedback_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
 
 class InterviewParticipant(Base):
@@ -269,11 +277,26 @@ class AutomationRule(Base):
     trigger_event: Mapped[str] = mapped_column(String(50), default="stage_changed")
     trigger_stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
     action_type: Mapped[str] = mapped_column(String(50), default="send_email")
+    action_value: Mapped[str | None] = mapped_column(String(500), nullable=True)
     subject: Mapped[str] = mapped_column(String(500))
     body: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class CandidateDocument(Base):
+    __tablename__ = "candidate_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"), index=True)
+    application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id", ondelete="SET NULL"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    storage_key: Mapped[str] = mapped_column(String(1000))
+    content_type: Mapped[str] = mapped_column(String(200), default="application/octet-stream")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class Email(Base):

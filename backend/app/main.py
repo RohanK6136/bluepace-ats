@@ -18,7 +18,7 @@ from time import perf_counter
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
@@ -35,6 +35,7 @@ from app.models import (
     AuditLog,
     Candidate,
     CandidateJobMatch,
+    CandidateDocument,
     Email,
     Interview,
     Job,
@@ -88,7 +89,7 @@ from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
-from app.routers.next_features import router as next_features_router, run_stage_automations
+from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations
 from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
@@ -157,9 +158,30 @@ async def lifespan(_app: FastAPI):
             pass
 
 
-app = FastAPI(title="BluePace Tech ATS API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok", "service": "bluepace-ats"}
+
+@app.get("/readyz")
+def readyz(db: Session = Depends(get_db)):
+    db.execute(select(1))
+    return {"status": "ready"}
+
+
+@app.middleware("http")
+async def security_headers_middleware(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if os.getenv("APP_ENV", "development") not in {"development", "test"}:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 
 @app.middleware("http")
@@ -720,14 +742,25 @@ def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
 
 
 @app.get("/public/jobs")
-def public_jobs(db: Session = Depends(get_db)):
+def public_jobs(
+    search: str | None = None,
+    department: str | None = None,
+    location: str | None = None,
+    work_mode: str | None = Query(default=None, pattern="^(remote|hybrid|onsite)$"),
+    db: Session = Depends(get_db),
+):
     organization = _public_organization(db)
-    jobs = db.scalars(
-        select(Job)
-        .where(Job.organization_id == organization.id, Job.status == "open")
-        .order_by(Job.created_at.desc())
-        .limit(100)
-    ).all()
+    statement = select(Job).where(Job.organization_id == organization.id, Job.status == "open")
+    if department:
+        statement = statement.where(Job.department.ilike("%" + department.strip() + "%"))
+    if location:
+        statement = statement.where(Job.location.ilike("%" + location.strip() + "%"))
+    if work_mode:
+        statement = statement.where(Job.work_mode == work_mode)
+    jobs = db.scalars(statement.order_by(Job.created_at.desc()).limit(100)).all()
+    if search:
+        needle = search.casefold().strip()
+        jobs = [job for job in jobs if needle in " ".join([job.title, job.description, job.department or "", job.location or "", " ".join(job.required_skills or [])]).casefold()]
     return [
         {
             "id": job.id,
@@ -877,6 +910,7 @@ def register_organization():
 
 @app.post("/auth/token", response_model=TokenRead)
 def login(
+    request: Request,
     credentials: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
@@ -900,12 +934,28 @@ def login(
             db.expire(user)
             user = db.scalar(select(User).where(User.email == login_email))
 
-    if user is None or not user.is_active or not password_hash.verify(credentials.password, user.password_hash):
+    now = datetime.now(timezone.utc)
+    if user is not None and user.locked_until is not None and user.locked_until > now:
+        raise HTTPException(status_code=429, detail="Account temporarily locked after repeated failed sign-in attempts.")
+
+    valid = bool(user and user.is_active and password_hash.verify(credentials.password, user.password_hash))
+    if not valid:
+        if user is not None:
+            user.failed_login_attempts = int(user.failed_login_attempts or 0) + 1
+            if user.failed_login_attempts >= 5:
+                from datetime import timedelta
+                user.locked_until = now + timedelta(minutes=15)
+            db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    record_audit(db, user, "auth.login", "user", user.id, after={"ip": request.client.host if request.client else None})
+    db.commit()
     return TokenRead(access_token=create_access_token(user, db=db))
 
 
@@ -1612,6 +1662,12 @@ def list_candidates(
     stage_name: str | None = Query(default=None, pattern="^(Applied|Screening|Interview|Offer|Hired|Rejected|withdrawn)$"),
     min_experience_years: int | None = Query(default=None, ge=0, le=60),
     max_experience_years: int | None = Query(default=None, ge=0, le=60),
+    notice_period: str | None = None,
+    education: str | None = None,
+    availability: str | None = None,
+    preferred_location: str | None = None,
+    work_authorization: str | None = None,
+    has_applied_job_id: int | None = Query(default=None, ge=1),
     include_archived: bool = False,
     user: User = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(get_db),
@@ -1669,6 +1725,24 @@ def list_candidates(
         if stage_name:
             stage_values = candidate_stage_names.get(candidate.id, set())
             if stage_name.casefold() not in {value.casefold() for value in stage_values}:
+                continue
+        profile_lower = json.dumps(profile, ensure_ascii=False).casefold()
+        for query_value, keys in [
+            (notice_period, ("notice_period", "notice period")),
+            (education, ("highest_education", "education", "degree")),
+            (availability, ("availability", "available_from", "available")),
+            (preferred_location, ("preferred_location", "preferred location")),
+            (work_authorization, ("work_authorization", "work authorization", "visa", "authorization")),
+        ]:
+            if query_value and not (query_value.casefold() in profile_lower):
+                continue
+        if has_applied_job_id is not None:
+            applied = db.scalar(select(Application.id).where(
+                Application.organization_id == user.organization_id,
+                Application.candidate_id == candidate.id,
+                Application.job_id == has_applied_job_id,
+            ))
+            if applied is None:
                 continue
         filtered.append(candidate)
 
@@ -1943,8 +2017,12 @@ def submit_application_scorecard(
         application.id,
         after={"recommendation": request.recommendation, "ratings": request.ratings},
     )
+    email_ids = run_scorecard_automations(db, application)
     db.commit()
     db.refresh(scorecard)
+    for email_id in email_ids:
+        # scorecard endpoint is synchronous; delivery happens through the existing email worker/outbox on subsequent processing.
+        pass
     return scorecard
 
 
