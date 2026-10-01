@@ -169,12 +169,13 @@ def upgrade_phase5_columns(target_engine):
 
 
 def upgrade_phase6_columns(target_engine):
-    from app.models import Offer, TalentPool, TalentPoolMembership
+    from app.models import Interview
 
     additions = {
-        "offers": [],
-        "talent_pools": [],
-        "talent_pool_memberships": [],
+        "interviews": [
+            Interview.__table__.c.round_name,
+            Interview.__table__.c.round_number,
+        ],
     }
     with target_engine.begin() as connection:
         existing_tables = set(inspect(connection).get_table_names())
