@@ -1402,7 +1402,33 @@ def create_candidate(
     db: Session = Depends(get_db),
 ):
     values = request.model_dump()
-    values["email"] = str(request.email).lower()
+    values["email"] = normalized_email
+    normalized_email = str(request.email).lower()
+    normalized_phone = re.sub(r"[^0-9]", "", request.phone or "")
+    duplicate = db.scalar(
+        select(Candidate).where(
+            Candidate.organization_id == user.organization_id,
+            Candidate.email == normalized_email,
+        )
+    )
+    if duplicate is None and normalized_phone:
+        existing_candidates = db.scalars(
+            select(Candidate).where(Candidate.organization_id == user.organization_id)
+        ).all()
+        duplicate = next(
+            (
+                item
+                for item in existing_candidates
+                if re.sub(r"[^0-9]", "", item.phone or "") == normalized_phone
+            ),
+            None,
+        )
+    if duplicate is not None:
+        matched_by = "email" if duplicate.email == normalized_email else "phone"
+        raise HTTPException(
+            status_code=409,
+            detail=f"Possible duplicate candidate found by {matched_by}: {duplicate.first_name} {duplicate.last_name} ({duplicate.email})",
+        )
     if values.get("resume_data"):
         values["resume_data"] = {
             key: value for key, value in values["resume_data"].items() if key != "raw_text"
@@ -1424,18 +1450,95 @@ def create_candidate(
 def list_candidates(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    search: str | None = None,
+    skill: str | None = None,
+    source: str | None = None,
+    location: str | None = None,
+    min_experience_years: int | None = Query(default=None, ge=0, le=60),
     user: User = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(get_db),
 ):
-    return list(
+    candidates = list(
         db.scalars(
             select(Candidate)
             .where(Candidate.organization_id == user.organization_id)
             .order_by(Candidate.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
+        ).all()
     )
+
+    def haystack(candidate: Candidate) -> str:
+        profile = candidate.resume_data or {}
+        experience = profile.get("experience") or []
+        projects = profile.get("university_projects") or profile.get("projects") or []
+        return " ".join(
+            [
+                candidate.first_name or "",
+                candidate.last_name or "",
+                candidate.email or "",
+                candidate.phone or "",
+                candidate.source or "",
+                str(profile.get("location") or profile.get("address") or ""),
+                " ".join(str(value) for value in profile.get("skills") or []),
+                " ".join(str(value) for value in projects),
+                " ".join(str(value) for value in experience),
+            ]
+        ).casefold()
+
+    filtered = []
+    for candidate in candidates:
+        profile = candidate.resume_data or {}
+        content = haystack(candidate)
+        if search and search.casefold() not in content:
+            continue
+        if skill and skill.casefold() not in " ".join(str(value) for value in profile.get("skills") or []).casefold():
+            continue
+        if source and source.casefold() not in (candidate.source or "").casefold():
+            continue
+        if location:
+            candidate_location = str(profile.get("location") or profile.get("address") or "")
+            if location.casefold() not in candidate_location.casefold():
+                continue
+        if min_experience_years is not None:
+            estimated = matching_service._estimate_experience_years(profile.get("experience") or [])
+            if estimated < min_experience_years:
+                continue
+        filtered.append(candidate)
+
+    return filtered[offset : offset + limit]
+
+
+@app.get("/candidates/duplicates")
+def find_candidate_duplicates(
+    email: str | None = None,
+    phone: str | None = None,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    normalized_email = email.strip().lower() if email else None
+    normalized_phone = re.sub(r"[^0-9]", "", phone or "")
+    candidates = db.scalars(
+        select(Candidate)
+        .where(Candidate.organization_id == user.organization_id)
+        .order_by(Candidate.created_at.desc())
+        .limit(500)
+    ).all()
+    results = []
+    for candidate in candidates:
+        email_match = normalized_email and candidate.email.lower() == normalized_email
+        phone_match = normalized_phone and re.sub(r"[^0-9]", "", candidate.phone or "") == normalized_phone
+        if email_match or phone_match:
+            results.append(
+                {
+                    "id": candidate.id,
+                    "first_name": candidate.first_name,
+                    "last_name": candidate.last_name,
+                    "email": candidate.email,
+                    "phone": candidate.phone,
+                    "source": candidate.source,
+                    "matched_by": "email" if email_match else "phone",
+                }
+            )
+    return results[:10]
 
 
 
