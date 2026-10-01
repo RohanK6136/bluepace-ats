@@ -309,17 +309,81 @@ class CandidateMatcher:
         return total
 
     def score_candidate(self, job, candidate) -> dict:
+        """
+        Decision-support match analysis. Scores describe alignment with job
+        requirements; they are not hiring recommendations or candidate quality.
+        """
         analysis = job.jd_analysis or self.analyze_job(job)
         profile = candidate.resume_data or {}
-        candidate_skills = {str(skill).casefold(): str(skill) for skill in profile.get("skills", [])}
-        required_skills = analysis.get("required_skills", [])
-        preferred_skills = analysis.get("preferred_skills", [])
-        matched_required = [skill for skill in required_skills if skill.casefold() in candidate_skills]
-        matched_preferred = [skill for skill in preferred_skills if skill.casefold() in candidate_skills]
-        skill_gaps = [skill for skill in required_skills if skill.casefold() not in candidate_skills]
-        required_score = (len(matched_required) / len(required_skills) * 100) if required_skills else 100
-        preferred_score = (len(matched_preferred) / len(preferred_skills) * 100) if preferred_skills else 100
-        skill_score = round(required_score * 0.8 + preferred_score * 0.2)
+
+        def norm(value):
+            return re.sub(r"\\s+", " ", str(value or "").strip().casefold())
+
+        def normalized_skills(values):
+            return {norm(self.normalize_skill(v)): self.normalize_skill(v) for v in (values or []) if str(v).strip()}
+
+        candidate_skills = normalized_skills(profile.get("skills"))
+        required_skills = [self.normalize_skill(v) for v in analysis.get("required_skills", [])]
+        preferred_skills = [self.normalize_skill(v) for v in analysis.get("preferred_skills", [])]
+
+        matched_required = [s for s in required_skills if norm(s) in candidate_skills]
+        matched_preferred = [s for s in preferred_skills if norm(s) in candidate_skills]
+        skill_gaps = [s for s in required_skills if norm(s) not in candidate_skills]
+        required_score = round(len(matched_required) / len(required_skills) * 100) if required_skills else 100
+        preferred_score = round(len(matched_preferred) / len(preferred_skills) * 100) if preferred_skills else 100
+
+        experience = profile.get("experience") or []
+        minimum_years = analysis.get("minimum_experience_years")
+        years = self._estimate_experience_years(experience)
+        if analysis.get("fresher_allowed") and not experience:
+            experience_score = 100
+            experience_note = "Fresher eligibility is allowed by the job."
+        elif minimum_years is not None:
+            experience_score = 100 if minimum_years == 0 else round(min(100, years / minimum_years * 100))
+            experience_note = f"Parsed experience: {years:g} years; stated minimum: {minimum_years:g} years."
+        else:
+            experience_score = 100 if experience else 50
+            experience_note = "Work history is present." if experience else "Work history was not parsed."
+
+        education_entries = profile.get("education") or []
+        required_education = norm(analysis.get("education"))
+        candidate_education = " ".join(
+            " ".join(str(v) for v in item.values()) if isinstance(item, dict) else str(item)
+            for item in education_entries
+        )
+        education_tokens = self._tokens(required_education)
+        candidate_education_tokens = self._tokens(candidate_education)
+        education_score = (
+            round(len(education_tokens & candidate_education_tokens) / len(education_tokens) * 100)
+            if education_tokens else (100 if education_entries else 50)
+        )
+
+        required_location = norm(analysis.get("location"))
+        candidate_location = norm(profile.get("current_location") or profile.get("location"))
+        preferred_location = norm(profile.get("preferred_location"))
+        work_mode = norm(analysis.get("work_mode"))
+        candidate_work_mode = norm(profile.get("work_mode") or profile.get("work_preference"))
+
+        location_score = 100
+        if required_location and required_location not in {"remote", "hybrid", "onsite"}:
+            if required_location in candidate_location or required_location in preferred_location:
+                location_score = 100
+            elif not candidate_location and not preferred_location:
+                location_score = 50
+            else:
+                location_score = 0
+        elif not required_location:
+            location_score = 100
+
+        if work_mode in {"remote", "hybrid", "onsite"}:
+            if candidate_work_mode:
+                work_mode_score = 100 if candidate_work_mode == work_mode else (50 if work_mode == "hybrid" or candidate_work_mode == "hybrid" else 0)
+            elif work_mode == "remote":
+                work_mode_score = 100
+            else:
+                work_mode_score = 50
+        else:
+            work_mode_score = 100
 
         candidate_text = self.candidate_embedding_text(candidate)
         if job.embedding and candidate.embedding:
@@ -331,79 +395,94 @@ class CandidateMatcher:
             semantic_score = round(len(jd_tokens & candidate_tokens) / len(jd_tokens) * 100) if jd_tokens else 0
             semantic_mode = "lexical_fallback"
 
-        experience = profile.get("experience") or []
-        minimum_years = analysis.get("minimum_experience_years")
-        if analysis.get("fresher_allowed") and not experience:
-            experience_score = 100
-        elif minimum_years is not None:
-            years = self._estimate_experience_years(experience)
-            experience_score = 100 if minimum_years == 0 else round(min(100, years / minimum_years * 100))
-        else:
-            experience_score = 100 if experience else 50
-
-        education_entries = profile.get("education") or []
-        required_education = str(analysis.get("education") or "").casefold()
-        candidate_education = " ".join(str(item) for item in education_entries).casefold()
-        education_score = (
-            100 if required_education and any(token in candidate_education for token in self._tokens(required_education))
-            else 0 if required_education
-            else 100 if education_entries
-            else 50
+        project_items = profile.get("projects") or []
+        project_text = " ".join(
+            " ".join(str(v) for v in item.values()) if isinstance(item, dict) else str(item)
+            for item in project_items
+        )
+        project_tokens = self._tokens(project_text)
+        required_skill_tokens = set()
+        for skill in required_skills:
+            required_skill_tokens.update(self._tokens(skill))
+        project_evidence_score = (
+            round(len(required_skill_tokens & project_tokens) / len(required_skill_tokens) * 100)
+            if required_skill_tokens else (100 if project_items else 50)
         )
 
-        required_location = str(analysis.get("location") or "").strip().casefold()
-        candidate_location = str(profile.get("location") or "").strip().casefold()
-        location_score = (
-            100 if not required_location or required_location in {"remote", "hybrid"} and not candidate_location
-            else 100 if required_location in candidate_location
-            else 50 if not candidate_location
-            else 0
-        )
-
+        skill_score = round(required_score * 0.80 + preferred_score * 0.20)
         breakdown = {
+            "required_skill_coverage": required_score,
+            "preferred_skill_coverage": preferred_score,
             "skills": skill_score,
-            "semantic": semantic_score,
+            "experience_alignment": experience_score,
             "experience": experience_score,
+            "education_alignment": education_score,
             "education": education_score,
+            "location_alignment": location_score,
             "location": location_score,
+            "work_mode_alignment": work_mode_score,
+            "project_evidence": project_evidence_score,
+            "semantic_similarity": semantic_score,
+            "semantic": semantic_score,
         }
-        weighted_score = (
-            skill_score * 0.30
-            + semantic_score * 0.30
-            + experience_score * 0.15
-            + education_score * 0.10
-            + location_score * 0.15
-        )
+
+        # Weights are transparent and intentionally sum to 100.
+        weights = {
+            "required_skill_coverage": 0.25,
+            "preferred_skill_coverage": 0.10,
+            "experience_alignment": 0.15,
+            "education_alignment": 0.10,
+            "location_alignment": 0.08,
+            "work_mode_alignment": 0.07,
+            "project_evidence": 0.10,
+            "semantic_similarity": 0.15,
+        }
+        model_score = round(sum(breakdown[key] * weight for key, weight in weights.items()))
+
         explanations = []
         if matched_required:
-            explanations.append("Required skills matched: " + ", ".join(matched_required) + ".")
+            explanations.append("Required skills found: " + ", ".join(matched_required) + ".")
         if skill_gaps:
             explanations.append("Required skill gaps: " + ", ".join(skill_gaps) + ".")
-        if experience:
-            first_experience = experience[0]
-            role = first_experience.get("title") or first_experience.get("company")
-            if role:
-                explanations.append(f"Parsed experience includes {role}.")
-        elif analysis.get("fresher_allowed"):
-            explanations.append("This role is open to freshers; lack of work history is not penalized.")
+        if preferred_skills:
+            explanations.append(f"Preferred-skill coverage: {preferred_score}%.")
+        explanations.append(experience_note)
         if required_education:
             explanations.append(
-                "Education requirement is represented in the parsed profile."
-                if education_score == 100
-                else "The parsed profile does not show the requested education."
+                f"Education alignment: {education_score}% based on parsed education text."
             )
+        if required_location:
+            explanations.append(
+                "Location aligns with the job location."
+                if location_score == 100
+                else "Location alignment is incomplete or not established from the resume."
+            )
+        if work_mode in {"remote", "hybrid", "onsite"}:
+            explanations.append(f"Work-mode alignment: {work_mode_score}%.")
+        if project_items:
+            explanations.append(f"Project evidence coverage for required-skill terms: {project_evidence_score}%.")
         if semantic_mode == "lexical_fallback":
-            explanations.append("Semantic embeddings are unavailable; the semantic component uses text overlap.")
+            explanations.append("Semantic embeddings are unavailable; semantic similarity uses text overlap.")
+
         summary = candidate.cv_summary or self._fallback_candidate_summary(candidate)
         return {
-            "model_score": max(0, min(100, round(weighted_score))),
+            "model_score": max(0, min(100, model_score)),
             "score_breakdown": breakdown,
+            "score_weights": weights,
             "matched_skills": list(dict.fromkeys(matched_required + matched_preferred)),
+            "matched_required_skills": matched_required,
+            "matched_preferred_skills": matched_preferred,
             "skill_gaps": skill_gaps,
+            "experience_years": years,
+            "required_experience_years": minimum_years,
+            "project_evidence": {
+                "project_count": len(project_items),
+                "coverage": project_evidence_score,
+            },
             "explanations": explanations,
+            "decision_support_only": True,
             "semantic_mode": semantic_mode,
             "cv_summary": summary,
         }
-
 
 matching_service = CandidateMatcher()
