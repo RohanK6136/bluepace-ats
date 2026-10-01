@@ -25,7 +25,16 @@ const API_URL = (
 const REQUEST_TIMEOUT_MS = 90_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
-const MATCH_WEIGHTS = { skills: 30, semantic: 30, experience: 15, education: 10, location: 15 };
+const MATCH_WEIGHTS = {
+  required_skill_coverage: 25,
+  preferred_skill_coverage: 10,
+  experience_alignment: 15,
+  education_alignment: 10,
+  location_alignment: 8,
+  work_mode_alignment: 7,
+  project_evidence: 10,
+  semantic_similarity: 15,
+};
 const buttonPrimary = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2 text-sm font-semibold text-[#10131c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const buttonSecondary = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
 const inputStyle = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
@@ -1462,7 +1471,7 @@ export default function AtsWorkspace() {
                     const noteValue = feedback.recruiter_note ?? match.recruiter_note ?? "";
                     return <tr key={match.id} className="align-top hover:bg-[#fcfcfa]">
                       <td className="whitespace-nowrap px-3 py-4"><div className="flex items-start gap-2"><span className="mt-0.5 text-xs text-ink-400">{String(index + 1).padStart(2, "0")}</span><div><p className="font-semibold">{match.candidate_name}</p><p className="text-xs text-ink-500">{match.candidate_email}</p></div></div></td>
-                      <td className="min-w-32 px-3 py-4"><p className="text-lg font-semibold tabular-nums">{match.effective_score}<span className="text-xs font-normal text-ink-500"> / 100</span></p>{match.recruiter_override !== null && <p className="text-[11px] text-gold-600">Model: {match.model_score}</p>}<div className="mt-1 h-1.5 w-24 bg-ink-100"><div className="h-full bg-gold-500" style={{ width: `${match.effective_score}%` }} /></div><p className="mt-2 text-[10px] text-ink-500">{Object.entries(match.score_breakdown).map(([key, value]) => `${key} ${value}·${MATCH_WEIGHTS[key]}%`).join(" · ")}</p></td>
+                      <td className="min-w-32 px-3 py-4"><p className="text-lg font-semibold tabular-nums">{match.effective_score}<span className="text-xs font-normal text-ink-500"> / 100</span></p>{match.recruiter_override !== null && <p className="text-[11px] text-gold-600">Model: {match.model_score}</p>}<div className="mt-1 h-1.5 w-24 bg-ink-100"><div className="h-full bg-gold-500" style={{ width: `${match.effective_score}%` }} /></div><p className="mt-2 text-[10px] text-ink-500">{Object.entries(MATCH_WEIGHTS).map(([key, weight]) => `${key.replaceAll("_", " ")} ${match.score_breakdown[key] ?? 0}·${weight}%`).join(" · ")}</p><p className="mt-1 text-[10px] text-ink-400">Decision-support signal; recruiter review remains required.</p></td>
                       <td className="max-w-48 px-3 py-4 text-xs text-emerald-800">{match.matched_skills.join(", ") || "No direct skill matches"}</td>
                       <td className="max-w-48 px-3 py-4 text-xs text-rose-800">{match.skill_gaps.join(", ") || "No required skill gaps"}</td>
                       <td className="max-w-64 px-3 py-4"><ul className="grid gap-1 text-xs text-ink-600">{match.explanations.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul></td>
