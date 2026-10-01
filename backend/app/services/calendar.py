@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import SessionLocal
-from app.models import CalendarConnection, CalendarEventSync, Interview, InterviewParticipant, User
+from app.models import Application, CalendarConnection, CalendarEventSync, Interview, InterviewParticipant, User
 
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -405,12 +405,12 @@ def sync_interview_calendar(interview_id: int, organization_id: int, user_id: in
         if interview is None:
             return {"status": "missing"}
         application = db.scalar(
-            select(__import__("app.models", fromlist=["Application"]).Application)
+            select(Application)
             .where(
-                __import__("app.models", fromlist=["Application"]).Application.id == interview.application_id,
-                __import__("app.models", fromlist=["Application"]).Application.organization_id == organization_id,
+                Application.id == interview.application_id,
+                Application.organization_id == organization_id,
             )
-            .options(selectinload(__import__("app.models", fromlist=["Application"]).Application.job), selectinload(__import__("app.models", fromlist=["Application"]).Application.candidate)),
+            .options(selectinload(Application.job), selectinload(Application.candidate)),
         )
         if application is None:
             return {"status": "missing_application"}
