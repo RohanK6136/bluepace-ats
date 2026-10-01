@@ -89,7 +89,7 @@ from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
-from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled
+from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
 from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
@@ -129,7 +129,19 @@ async def interview_reminder_loop():
                     if application is None:
                         continue
                     subject, body = _interview_reminder_email(application, interview, reminder_kind, db)
-                    email_id = queue_application_email(db, application, subject, body)
+                    if request.stage_name == "Interview" and interview is not None:
+            calendar_bytes = _interview_ics(interview, application).encode("utf-8")
+            email_id = queue_application_email(
+                db,
+                application,
+                subject,
+                body,
+                attachment_filename=f"blupace-interview-{interview.id}.ics",
+                attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
+                attachment_content_type="text/calendar",
+            )
+        else:
+            email_id = queue_application_email(db, application, subject, body)
                     if reminder_kind == "24h":
                         interview.reminder_24_sent = True
                     else:
@@ -2002,6 +2014,7 @@ def submit_application_scorecard(
     db: Session = Depends(get_db),
 ):
     application = _get_org_record(db, Application, application_id, user.organization_id)
+    was_complete = scorecards_complete(db, application.id)
     scorecard = db.scalar(
         select(Scorecard)
         .where(
@@ -2025,7 +2038,7 @@ def submit_application_scorecard(
         application.id,
         after={"recommendation": request.recommendation, "ratings": request.ratings},
     )
-    email_ids = run_scorecard_automations(db, application)
+    email_ids = run_scorecard_automations(db, application) if not was_complete else []
     db.commit()
     db.refresh(scorecard)
     for email_id in email_ids:
@@ -2871,7 +2884,7 @@ def create_application(
     )
     subject, body = _stage_email(application, "Applied", db=db)
     email_ids = [queue_application_email(db, application, subject, body)]
-    email_ids.extend(run_stage_automations(db, application, stage.name))
+    email_ids.extend(run_stage_automations(db, application, stages["Applied"].name))
     db.commit()
     db.refresh(application)
     for queued_id in email_ids:
