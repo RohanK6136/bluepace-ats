@@ -320,7 +320,9 @@ class ResumeData(BaseModel):
     preferred_location: Optional[str] = None
     work_authorization: Optional[str] = None
     resume_quality: dict = {}
-    resume_intelligence_version: int = 1
+    extraction_evidence: List[dict] = []
+    extraction_confidence: dict = {}
+    resume_intelligence_version: int = 3
     is_fresher: bool = False
     raw_text_length: int = 0
 
