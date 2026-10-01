@@ -15,7 +15,7 @@ from app.database import (
     upgrade_phase2_columns,
     upgrade_phase3_columns,
 )
-from app.models import Email
+from app.models import Candidate, Email
 from app.services.extractor import extractor_service
 
 
