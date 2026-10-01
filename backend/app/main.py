@@ -87,7 +87,8 @@ from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
-from app.routers.next_features import router as next_features_router\nfrom app.services.workflow import (
+from app.routers.next_features import router as next_features_router
+from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
     ensure_job_stages,
