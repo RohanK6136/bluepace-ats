@@ -895,3 +895,121 @@ def test_resume_intelligence_extracts_extended_profile_and_non_definitive_signal
     assert "disclaimer" in parsed["resume_quality"]
     assert "linkedin" not in parsed["resume_quality"]["missing_fields"]
     assert "GitHub" not in parsed["resume_quality"]["optional_missing_fields"]
+
+
+def test_candidate_ranking_exposes_richer_explainable_factors():
+    from types import SimpleNamespace
+    from app.services.matching import CandidateMatcher
+
+    matcher = CandidateMatcher()
+    job = SimpleNamespace(
+        title="Senior Python Engineer",
+        description="Build Python APIs with SQL and React.",
+        location="Bengaluru, India",
+        work_mode="hybrid",
+        jd_analysis={
+            "required_skills": ["Python", "SQL"],
+            "preferred_skills": ["React"],
+            "minimum_experience_years": 3,
+            "education": "B.Tech Computer Science",
+            "location": "Bengaluru, India",
+            "work_mode": "hybrid",
+            "fresher_allowed": False,
+        },
+        embedding=None,
+    )
+    candidate = SimpleNamespace(
+        first_name="Alex",
+        last_name="Engineer",
+        resume_data={
+            "skills": ["Python", "SQL", "React"],
+            "experience": [{"title": "Backend Engineer", "company": "Acme", "duration": "5 years"}],
+            "education": [{"degree": "B.Tech Computer Science", "university": "State University"}],
+            "current_location": "Bengaluru, India",
+            "preferred_location": "Bengaluru, India",
+            "work_mode": "hybrid",
+            "projects": [{"name": "API Platform", "description": "Python SQL service"}],
+        },
+        embedding=None,
+        cv_summary=None,
+    )
+
+    result = matcher.score_candidate(job, candidate)
+
+    assert result["score_breakdown"]["required_skill_coverage"] == 100
+    assert result["score_breakdown"]["preferred_skill_coverage"] == 100
+    assert result["score_breakdown"]["experience_alignment"] == 100
+    assert result["score_breakdown"]["education_alignment"] > 0
+    assert result["score_breakdown"]["location_alignment"] == 100
+    assert result["score_breakdown"]["work_mode_alignment"] == 100
+    assert result["score_breakdown"]["project_evidence"] == 100
+    assert "semantic_similarity" in result["score_breakdown"]
+    assert sum(result["score_weights"].values()) == pytest.approx(1.0)
+    assert result["matched_required_skills"] == ["Python", "SQL"]
+    assert result["matched_preferred_skills"] == ["React"]
+    assert result["decision_support_only"] is True
+
+
+def test_candidate_match_api_returns_explainable_ranking_and_keeps_recruiter_override(client):
+    headers = register_and_login(client)
+    job = client.post(
+        "/jobs",
+        json={
+            "title": "Python Engineer",
+            "description": "Python SQL React engineer in Bengaluru. At least 3 years experience.",
+            "location": "Bengaluru, India",
+            "work_mode": "hybrid",
+            "status": "open",
+            "required_skills": ["Python", "SQL"],
+            "minimum_experience_years": 3,
+        },
+        headers=headers,
+    ).json()
+    candidate = client.post(
+        "/candidates",
+        json={
+            "first_name": "Alex",
+            "last_name": "Engineer",
+            "email": "alex.ranking@example.com",
+            "resume_data": {
+                "skills": ["Python", "SQL", "React"],
+                "experience": [{"title": "Backend Engineer", "company": "Acme", "duration": "5 years"}],
+                "education": [{"degree": "B.Tech Computer Science", "university": "State University"}],
+                "current_location": "Bengaluru, India",
+                "preferred_location": "Bengaluru, India",
+                "work_mode": "hybrid",
+                "projects": [{"name": "API Platform", "description": "Python SQL service"}],
+            },
+        },
+        headers=headers,
+    ).json()
+
+    ranked = client.post(f"/jobs/{job["id"]}/matches", headers=headers)
+    assert ranked.status_code == 200
+    match = ranked.json()[0]
+    assert "required_skill_coverage" in match["score_breakdown"]
+    assert "preferred_skill_coverage" in match["score_breakdown"]
+    assert "experience_alignment" in match["score_breakdown"]
+    assert "project_evidence" in match["score_breakdown"]
+    assert "semantic_similarity" in match["score_breakdown"]
+    assert set(match["score_weights"]) == {
+        "required_skill_coverage", "preferred_skill_coverage", "experience_alignment",
+        "education_alignment", "location_alignment", "work_mode_alignment",
+        "project_evidence", "semantic_similarity",
+    }
+    assert match["decision_support_only"] is True
+    assert match["matched_required_skills"] == ["Python", "SQL"]
+    assert match["matched_preferred_skills"] == ["React"]
+
+    updated = client.patch(
+        f"/candidate-matches/{match["id"]}/feedback",
+        json={"recruiter_override": 42, "recruiter_note": "Recruiter review"},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["effective_score"] == 42
+    assert updated.json()["recruiter_override"] == 42
+
+    refreshed = client.get(f"/jobs/{job["id"]}/matches", headers=headers)
+    assert refreshed.status_code == 200
+    assert refreshed.json()[0]["effective_score"] == 42
