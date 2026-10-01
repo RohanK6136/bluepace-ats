@@ -91,6 +91,7 @@ export default function CandidatePortal({ token }) {
       const requestQuery = selectedRequestId ? "?request_id=" + encodeURIComponent(selectedRequestId) : "";
       await axios.post(API_URL + "/public/application/" + encodeURIComponent(token) + "/documents" + requestQuery, form, { timeout: 30000 });
       setDocumentFile(null);
+      setSelectedRequestId(null);
       setMessage("Document uploaded successfully.");
       await load();
     } catch (requestError) {
