@@ -123,6 +123,7 @@ export default function AutomationPanel({ token, apiRequest, onNotice, onError }
               await load();
             } catch (error) { onError(error); }
           }}>Create starter workflow</button>
+          </div>
         </div>
       </section>      <div className="grid gap-5 lg:grid-cols-[430px,1fr]">
         <form onSubmit={save} className="rounded-xl border border-ink-100 bg-white p-5">
