@@ -1990,6 +1990,7 @@ def get_application_scorecards(
 def submit_application_scorecard(
     application_id: int,
     request: ScorecardCreate,
+    background_tasks: BackgroundTasks,
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -2021,8 +2022,7 @@ def submit_application_scorecard(
     db.commit()
     db.refresh(scorecard)
     for email_id in email_ids:
-        # scorecard endpoint is synchronous; delivery happens through the existing email worker/outbox on subsequent processing.
-        pass
+        background_tasks.add_task(deliver_outbox_email, email_id)
     return scorecard
 
 
