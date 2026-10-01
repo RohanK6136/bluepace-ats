@@ -40,6 +40,7 @@ from app.models import (
     Job,
     Organization,
     Role,
+    Scorecard,
     Stage,
     User,
 )
@@ -1514,6 +1515,56 @@ def public_application_status(token: str, db: Session = Depends(get_db)):
             for interview in interviews
         ],
     }
+
+
+@app.get("/applications/{application_id}/scorecard", response_model=list[ScorecardRead])
+def get_application_scorecards(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    return db.scalars(
+        select(Scorecard)
+        .where(Scorecard.application_id == application.id)
+        .order_by(Scorecard.submitted_at.desc())
+    ).all()
+
+
+@app.post("/applications/{application_id}/scorecard", response_model=ScorecardRead)
+def submit_application_scorecard(
+    application_id: int,
+    request: ScorecardCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _get_org_record(db, Application, application_id, user.organization_id)
+    scorecard = db.scalar(
+        select(Scorecard)
+        .where(
+            Scorecard.application_id == application.id,
+            Scorecard.interviewer_id == user.id,
+        )
+        .order_by(Scorecard.id.desc())
+        .limit(1)
+    )
+    if scorecard is None:
+        scorecard = Scorecard(application_id=application.id, interviewer_id=user.id)
+        db.add(scorecard)
+    scorecard.ratings = request.ratings
+    scorecard.recommendation = request.recommendation
+    scorecard.submitted_at = datetime.now(timezone.utc)
+    record_audit(
+        db,
+        user,
+        "interview.scorecard_submitted",
+        "application",
+        application.id,
+        after={"recommendation": request.recommendation, "ratings": request.ratings},
+    )
+    db.commit()
+    db.refresh(scorecard)
+    return scorecard
 
 
 @app.get("/dashboard")
