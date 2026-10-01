@@ -55,6 +55,7 @@ def initialize_database():
     upgrade_phase3_columns(engine)
     upgrade_phase4_columns(engine)
     upgrade_phase5_columns(engine)
+    upgrade_phase6_columns(engine)
 
 
 def upgrade_phase1_columns(target_engine):
@@ -165,3 +166,20 @@ def upgrade_phase5_columns(target_engine):
                 definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
                 existing_columns.add(column.name)
+
+
+def upgrade_phase6_columns(target_engine):
+    from app.models import Offer, TalentPool, TalentPoolMembership
+
+    additions = {
+        "offers": [],
+        "talent_pools": [],
+        "talent_pool_memberships": [],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        # New tables are created by metadata.create_all above; this hook exists so
+        # later column changes can be added without a migration runner.
+        for table_name in additions:
+            if table_name not in existing_tables:
+                continue
