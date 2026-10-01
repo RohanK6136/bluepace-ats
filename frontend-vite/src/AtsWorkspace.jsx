@@ -346,9 +346,21 @@ export default function AtsWorkspace() {
     if (!token || view !== "emails") return undefined;
     let active = true;
     setEmailsLoading(true);
+    setError("");
     apiRequest(token, "get", "/emails", { params: { limit: 200 } })
       .then((response) => { if (active) setEmails(Array.isArray(response.data) ? response.data : []); })
-      .catch((requestError) => { if (active) setError(errorText(requestError)); })
+      .catch((requestError) => {
+        if (!active) return;
+        if (requestError.response?.status === 401) {
+          sessionStorage.removeItem("bluepace_token");
+          setToken(null);
+          setUser(null);
+          setEmails([]);
+          setError("Your session has expired. Please sign in again to open Email Center.");
+          return;
+        }
+        setError(errorText(requestError));
+      })
       .finally(() => { if (active) setEmailsLoading(false); });
     return () => { active = false; };
   }, [token, view]);
