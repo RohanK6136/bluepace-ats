@@ -29,6 +29,8 @@ from app.models import (
     TalentPoolMembership,
     User,
     CandidateDocument,
+    CandidatePortalQuestion,
+    CandidateDocumentRequest,
 )
 from app.security import (
     decode_candidate_portal_token,
@@ -59,6 +61,23 @@ class CandidateMergeRequest(BaseModel):
 
 class PortalWithdrawRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
+
+
+class PortalQuestionCreate(BaseModel):
+    subject: str = Field(min_length=2, max_length=200)
+    question: str = Field(min_length=2, max_length=5000)
+
+
+class CandidateDocumentRequestCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    required: bool = True
+    due_at: datetime | None = None
+
+
+class CandidateQuestionAnswer(BaseModel):
+    answer: str = Field(min_length=1, max_length=5000)
+    status: str = Field(default="answered", pattern="^(open|answered|closed)$")
 
 
 class OfferResponseRequest(BaseModel):
@@ -680,14 +699,40 @@ def public_application_details(token: str, db: Session = Depends(get_db)):
             "offer_letter_url": offer.offer_letter_url,
         }
 
+    history_rows = db.scalars(
+        select(AuditLog)
+        .where(
+            AuditLog.organization_id == application.organization_id,
+            AuditLog.entity_type == "application",
+            AuditLog.entity_id == application.id,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(100)
+    ).all()
+    history = []
+    for row in history_rows:
+        action = row.action.replace(".", " · ").replace("_", " ").title()
+        history.append({
+            "id": row.id,
+            "title": action,
+            "created_at": row.created_at,
+            "details": {
+                key: value for key, value in (row.after_data or {}).items()
+                if key in {"stage_name", "status", "reason", "round_name", "interview_id", "offer_id"}
+            },
+        })
+
     return {
         "application_id": application.id,
         "candidate_name": f"{application.candidate.first_name} {application.candidate.last_name}".strip(),
+        "candidate_email": application.candidate.email,
+        "candidate_phone": application.candidate.phone,
         "job_title": application.job.title,
         "stage_name": application.stage.name if application.stage else "Applied",
         "status": application.status,
         "applied_at": application.applied_at,
         "timeline": timeline,
+        "history": history,
         "offer": offer_payload,
         "interviews": [
             {
@@ -1507,6 +1552,171 @@ def transition_offer(
     return {"status": offer.status, "offer_id": offer.id}
 
 
+@router.get("/public/application/{token}/questions")
+def public_candidate_questions(token: str, db: Session = Depends(get_db)):
+    try:
+        application_id = decode_candidate_portal_token(token)
+    except Exception as error:
+        raise HTTPException(status_code=401, detail="This candidate portal link is invalid or expired.") from error
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    rows = db.scalars(
+        select(CandidatePortalQuestion)
+        .where(CandidatePortalQuestion.application_id == application.id)
+        .order_by(CandidatePortalQuestion.created_at.desc())
+    ).all()
+    return [{
+        "id": row.id, "subject": row.subject, "question": row.question, "answer": row.answer,
+        "status": row.status, "created_at": row.created_at, "answered_at": row.answered_at,
+    } for row in rows]
+
+
+@router.post("/public/application/{token}/questions")
+def create_public_candidate_question(
+    token: str,
+    request: PortalQuestionCreate,
+    db: Session = Depends(get_db),
+):
+    try:
+        application_id = decode_candidate_portal_token(token)
+    except Exception as error:
+        raise HTTPException(status_code=401, detail="This candidate portal link is invalid or expired.") from error
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    row = CandidatePortalQuestion(
+        organization_id=application.organization_id,
+        application_id=application.id,
+        candidate_id=application.candidate_id,
+        subject=request.subject.strip(),
+        question=request.question.strip(),
+    )
+    db.add(row)
+    db.flush()
+    db.add(AuditLog(
+        organization_id=application.organization_id,
+        actor_id=application.candidate_id,
+        action="candidate.question_submitted",
+        entity_type="application",
+        entity_id=application.id,
+        after_data={"question_id": row.id, "subject": row.subject},
+    ))
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "subject": row.subject, "question": row.question, "answer": None, "status": row.status, "created_at": row.created_at, "answered_at": None}
+
+
+@router.get("/public/application/{token}/document-requests")
+def public_document_requests(token: str, db: Session = Depends(get_db)):
+    try:
+        application_id = decode_candidate_portal_token(token)
+    except Exception as error:
+        raise HTTPException(status_code=401, detail="This candidate portal link is invalid or expired.") from error
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    rows = db.scalars(
+        select(CandidateDocumentRequest)
+        .where(CandidateDocumentRequest.application_id == application.id)
+        .order_by(CandidateDocumentRequest.created_at.desc())
+    ).all()
+    return [{
+        "id": row.id, "name": row.name, "description": row.description, "required": row.required,
+        "status": row.status, "document_id": row.document_id, "due_at": row.due_at, "created_at": row.created_at,
+    } for row in rows]
+
+
+@router.get("/applications/{application_id}/candidate-portal/questions")
+def list_candidate_portal_questions(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _org_record(db, Application, application_id, user.organization_id)
+    rows = db.scalars(select(CandidatePortalQuestion).where(CandidatePortalQuestion.application_id == application.id).order_by(CandidatePortalQuestion.created_at.desc())).all()
+    return [{
+        "id": row.id, "subject": row.subject, "question": row.question, "answer": row.answer,
+        "status": row.status, "created_at": row.created_at, "answered_at": row.answered_at,
+    } for row in rows]
+
+
+@router.patch("/candidate-portal/questions/{question_id}")
+def answer_candidate_portal_question(
+    question_id: int,
+    request: CandidateQuestionAnswer,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    question = db.scalar(
+        select(CandidatePortalQuestion)
+        .where(CandidatePortalQuestion.id == question_id, CandidatePortalQuestion.organization_id == user.organization_id)
+    )
+    if question is None:
+        raise HTTPException(status_code=404, detail="Candidate question not found")
+    question.answer = request.answer.strip()
+    question.status = request.status
+    question.answered_by_id = user.id
+    question.answered_at = datetime.now(timezone.utc)
+    db.add(AuditLog(
+        organization_id=question.organization_id,
+        actor_id=user.id,
+        action="candidate.question_answered",
+        entity_type="application",
+        entity_id=question.application_id,
+        after_data={"question_id": question.id, "status": question.status},
+    ))
+    db.commit()
+    return {"id": question.id, "status": question.status, "answered_at": question.answered_at}
+
+
+@router.get("/applications/{application_id}/candidate-portal/document-requests")
+def list_candidate_document_requests(
+    application_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _org_record(db, Application, application_id, user.organization_id)
+    rows = db.scalars(select(CandidateDocumentRequest).where(CandidateDocumentRequest.application_id == application.id).order_by(CandidateDocumentRequest.created_at.desc())).all()
+    return [{
+        "id": row.id, "name": row.name, "description": row.description, "required": row.required,
+        "status": row.status, "document_id": row.document_id, "due_at": row.due_at, "created_at": row.created_at,
+    } for row in rows]
+
+
+@router.post("/applications/{application_id}/candidate-portal/document-requests")
+def create_candidate_document_request(
+    application_id: int,
+    request: CandidateDocumentRequestCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = _org_record(db, Application, application_id, user.organization_id)
+    row = CandidateDocumentRequest(
+        organization_id=application.organization_id,
+        application_id=application.id,
+        candidate_id=application.candidate_id,
+        requested_by_id=user.id,
+        name=request.name.strip(),
+        description=request.description.strip() if request.description else None,
+        required=request.required,
+        due_at=request.due_at,
+    )
+    db.add(row)
+    db.flush()
+    db.add(AuditLog(
+        organization_id=application.organization_id,
+        actor_id=user.id,
+        action="candidate.document_requested",
+        entity_type="application",
+        entity_id=application.id,
+        after_data={"request_id": row.id, "name": row.name, "required": row.required},
+    ))
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "name": row.name, "description": row.description, "required": row.required, "status": row.status, "document_id": None, "due_at": row.due_at, "created_at": row.created_at}
+
+
 @router.get("/public/application/{token}/documents")
 def public_documents(token: str, db: Session = Depends(get_db)):
     try:
@@ -1521,7 +1731,7 @@ def public_documents(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/public/application/{token}/documents")
-async def upload_public_document(token: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_public_document(token: str, file: UploadFile = File(...), request_id: int | None = Query(default=None), db: Session = Depends(get_db)):
     try:
         application_id = decode_candidate_portal_token(token)
     except Exception as error:
@@ -1553,6 +1763,29 @@ async def upload_public_document(token: str, file: UploadFile = File(...), db: S
         size_bytes=len(content),
     )
     db.add(row)
+    db.flush()
+    if request_id is not None:
+        document_request = db.scalar(
+            select(CandidateDocumentRequest).where(
+                CandidateDocumentRequest.id == request_id,
+                CandidateDocumentRequest.application_id == application.id,
+                CandidateDocumentRequest.candidate_id == application.candidate_id,
+            )
+        )
+        if document_request is None:
+            raise HTTPException(status_code=404, detail="Document request not found")
+        if document_request.status == "fulfilled":
+            raise HTTPException(status_code=409, detail="This document request has already been fulfilled.")
+        document_request.document_id = row.id
+        document_request.status = "fulfilled"
+    db.add(AuditLog(
+        organization_id=application.organization_id,
+        actor_id=application.candidate_id,
+        action="candidate.document_uploaded",
+        entity_type="application",
+        entity_id=application.id,
+        after_data={"document_id": row.id, "name": row.name, "request_id": request_id},
+    ))
     db.commit()
     db.refresh(row)
     return {"id": row.id, "name": row.name, "content_type": row.content_type, "size_bytes": row.size_bytes, "created_at": row.created_at, "download_url": f"/public/application/{token}/documents/{row.id}"}
