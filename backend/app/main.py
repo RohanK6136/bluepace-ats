@@ -36,6 +36,9 @@ from app.models import (
     Application,
     AuditLog,
     Candidate,
+    CandidateTag,
+    CandidateComment,
+    CandidateFollower,
     CandidateJobMatch,
     CandidateDocument,
     Email,
@@ -60,6 +63,13 @@ from app.schemas import (
     CandidateMatchRead,
     CandidateCreate,
     CandidateRead,
+    CandidateTagRead,
+    CandidateTagUpdate,
+    CandidateCommentCreate,
+    CandidateCommentRead,
+    CandidateFollowerRead,
+    CandidateCollaborationRead,
+    CandidateCollaborationUpdate,
     CandidateUpdate,
     JobCreate,
     JobRead,
@@ -2795,6 +2805,169 @@ def get_candidate(
     db: Session = Depends(get_db),
 ):
     return _get_org_record(db, Candidate, candidate_id, user.organization_id)
+
+
+@app.get("/candidates/{candidate_id}/collaboration", response_model=CandidateCollaborationRead)
+def get_candidate_collaboration(
+    candidate_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    tags = db.scalars(select(CandidateTag).where(CandidateTag.candidate_id == candidate.id).order_by(CandidateTag.name.asc())).all()
+    comments = db.scalars(
+        select(CandidateComment).where(
+            CandidateComment.candidate_id == candidate.id,
+            CandidateComment.organization_id == user.organization_id,
+        ).order_by(CandidateComment.created_at.desc())
+    ).all()
+    followers = db.scalars(
+        select(CandidateFollower).where(
+            CandidateFollower.candidate_id == candidate.id,
+            CandidateFollower.organization_id == user.organization_id,
+        )
+    ).all()
+    follower_ids = {item.user_id for item in followers}
+    org_users = db.scalars(
+        select(User).where(User.organization_id == user.organization_id, User.is_active.is_(True)).order_by(User.full_name.asc())
+    ).all()
+    owner = db.get(User, candidate.owner_id) if candidate.owner_id else None
+    return {
+        "tags": tags,
+        "comments": [
+            {
+                "id": item.id,
+                "body": item.body,
+                "mentions": item.mentions or [],
+                "author_id": item.author_id,
+                "author_name": (db.get(User, item.author_id).full_name if db.get(User, item.author_id) else "Unknown"),
+                "created_at": item.created_at,
+            }
+            for item in comments
+        ],
+        "followers": [
+            {"user_id": member.id, "user_name": member.full_name, "following": member.id in follower_ids}
+            for member in org_users
+        ],
+        "following": user.id in follower_ids,
+        "owner_id": candidate.owner_id,
+        "owner_name": owner.full_name if owner else None,
+        "starred": candidate.starred,
+        "needs_review": candidate.needs_review,
+        "priority": candidate.priority,
+    }
+
+
+@app.post("/candidates/{candidate_id}/collaboration/tags", response_model=CandidateTagRead, status_code=status.HTTP_201_CREATED)
+def add_candidate_tag(
+    candidate_id: int,
+    request: CandidateTagUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    name = request.name.strip()
+    tag = db.scalar(select(CandidateTag).where(CandidateTag.candidate_id == candidate.id, func.lower(CandidateTag.name) == name.casefold()))
+    if tag:
+        tag.color = request.color
+    else:
+        tag = CandidateTag(organization_id=user.organization_id, candidate_id=candidate.id, name=name, color=request.color)
+        db.add(tag)
+        current = [str(value) for value in (candidate.tags or []) if str(value).casefold() != name.casefold()]
+        candidate.tags = current + [name]
+    db.commit()
+    db.refresh(tag)
+    return tag
+
+
+@app.patch("/candidates/{candidate_id}/collaboration", response_model=CandidateCollaborationRead)
+def update_candidate_collaboration(
+    candidate_id: int,
+    request: CandidateCollaborationUpdate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    updates = request.model_dump(exclude_unset=True)
+    if "owner_id" in updates:
+        owner_id = updates["owner_id"]
+        if owner_id is not None:
+            owner = db.scalar(select(User).where(User.id == owner_id, User.organization_id == user.organization_id, User.is_active.is_(True)))
+            if owner is None:
+                raise HTTPException(status_code=400, detail="Owner must be an active member of your organization")
+        candidate.owner_id = owner_id
+    for field in ("starred", "needs_review", "priority"):
+        if field in updates and updates[field] is not None:
+            setattr(candidate, field, updates[field])
+    db.commit()
+    return get_candidate_collaboration(candidate.id, user, db)
+
+
+@app.delete("/candidates/{candidate_id}/collaboration/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_candidate_tag(
+    candidate_id: int,
+    tag_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    tag = db.scalar(select(CandidateTag).where(CandidateTag.id == tag_id, CandidateTag.candidate_id == candidate.id, CandidateTag.organization_id == user.organization_id))
+    if tag is None:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    candidate.tags = [value for value in (candidate.tags or []) if str(value).casefold() != tag.name.casefold()]
+    db.delete(tag)
+    db.commit()
+
+
+@app.post("/candidates/{candidate_id}/collaboration/comments", response_model=CandidateCommentRead, status_code=status.HTTP_201_CREATED)
+def add_candidate_comment(
+    candidate_id: int,
+    request: CandidateCommentCreate,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    mentioned_names = {match.casefold() for match in re.findall(r"@([A-Za-z][A-Za-z0-9._-]{1,99})", request.body)}
+    org_users = db.scalars(select(User).where(User.organization_id == user.organization_id, User.is_active.is_(True))).all()
+    mentions = [{"user_id": member.id, "user_name": member.full_name} for member in org_users if member.full_name.casefold() in mentioned_names or member.full_name.split(" ")[0].casefold() in mentioned_names]
+    comment = CandidateComment(
+        organization_id=user.organization_id,
+        candidate_id=candidate.id,
+        author_id=user.id,
+        body=request.body.strip(),
+        mentions=mentions,
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return {"id": comment.id, "body": comment.body, "mentions": mentions, "author_id": user.id, "author_name": user.full_name, "created_at": comment.created_at}
+
+
+@app.post("/candidates/{candidate_id}/collaboration/follow", response_model=CandidateFollowerRead)
+def follow_candidate(
+    candidate_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    follower = db.scalar(select(CandidateFollower).where(CandidateFollower.candidate_id == candidate.id, CandidateFollower.user_id == user.id))
+    if follower is None:
+        db.add(CandidateFollower(organization_id=user.organization_id, candidate_id=candidate.id, user_id=user.id))
+        db.commit()
+    return {"user_id": user.id, "user_name": user.full_name, "following": True}
+
+
+@app.delete("/candidates/{candidate_id}/collaboration/follow", status_code=status.HTTP_204_NO_CONTENT)
+def unfollow_candidate(
+    candidate_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    follower = db.scalar(select(CandidateFollower).where(CandidateFollower.candidate_id == candidate.id, CandidateFollower.user_id == user.id))
+    if follower:
+        db.delete(follower)
+        db.commit()
 
 
 @app.patch("/candidates/{candidate_id}", response_model=CandidateRead)
