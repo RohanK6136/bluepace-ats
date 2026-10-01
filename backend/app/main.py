@@ -747,7 +747,7 @@ def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
         "skill_gaps": match.skill_gaps or [],
         "explanations": match.explanations or [],
         "semantic_mode": match.semantic_mode,
-        "cv_summary": match.cv_summary or [],
+        "cv_summary": match.candidate.cv_summary or [],
     }
 
 
@@ -1372,7 +1372,7 @@ def rank_job_candidates(
         match.skill_gaps = score["skill_gaps"]
         match.explanations = score["explanations"]
         match.semantic_mode = score["semantic_mode"]
-        match.cv_summary = score["cv_summary"]
+        match.candidate.cv_summary = score["cv_summary"]
         results.append(match)
 
     db.flush()
