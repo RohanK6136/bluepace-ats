@@ -17,7 +17,7 @@ export default function InterviewManagement2({ token, apiRequest, applications =
   useEffect(() => {
     Promise.all([
       apiRequest(token, "get", "/interviewer-dashboard"),
-      apiRequest(token, "get", "/interviewer/availability"),
+      apiRequest(token, "get", "/interviewers/availability"),
       apiRequest(token, "get", "/recruiting-users"),
     ]).then(([d,a,u]) => { setDashboard(d.data); setAvailability(a.data || []); setUsers(u.data || []); }).catch(onError);
   }, [token]);
