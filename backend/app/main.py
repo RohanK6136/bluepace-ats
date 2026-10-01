@@ -774,7 +774,7 @@ def _serialize_candidate_match(match: CandidateJobMatch, job: Job | None = None)
         "matched_required_skills": matched_required,
         "matched_preferred_skills": matched_preferred,
         "skill_gaps": match.skill_gaps or [],
-        "experience_years": float(breakdown.get("experience_alignment", 0)),
+        "experience_years": matching_service._estimate_experience_years(match.candidate.resume_data.get("experience") or []),
         "required_experience_years": analysis.get("minimum_experience_years"),
         "project_evidence": {"coverage": breakdown.get("project_evidence", 0)},
         "explanations": match.explanations or [],
