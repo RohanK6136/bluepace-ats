@@ -761,3 +761,95 @@ def test_csv_export_escapes_spreadsheet_formulas(client):
 
     assert response.status_code == 200
     assert "'=SUM(1,1) Candidate" in response.text
+
+def test_advanced_candidate_search_filters_and_boolean_query(client):
+    headers = register_and_login(client)
+    job = client.post(
+        "/jobs",
+        json={"title": "Backend Engineer", "description": "Python SQL backend role", "status": "open"},
+        headers=headers,
+    ).json()
+
+    alice = client.post(
+        "/candidates",
+        json={
+            "first_name": "Alice",
+            "last_name": "Python",
+            "email": "alice.search@example.com",
+            "source": "LinkedIn",
+            "resume_data": {
+                "skills": ["Python", "SQL"],
+                "location": "Hyderabad",
+                "notice_period": "30 days",
+                "availability": "Immediate",
+                "preferred_location": "Hyderabad",
+                "work_authorization": "Authorized",
+                "highest_education": "B.Tech Computer Science",
+                "education": [{"degree": "B.Tech Computer Science", "university": "JNTU"}],
+                "experience": [{"title": "Backend Engineer", "company": "Acme Labs", "duration": "4 years"}],
+            },
+        },
+        headers=headers,
+    ).json()
+    bob = client.post(
+        "/candidates",
+        json={
+            "first_name": "Bob",
+            "last_name": "Java",
+            "email": "bob.search@example.com",
+            "source": "Indeed",
+            "resume_data": {
+                "skills": ["Python", "SQL", "Java"],
+                "location": "Hyderabad",
+                "experience": [{"title": "Backend Engineer", "company": "Other Co", "duration": "5 years"}],
+            },
+        },
+        headers=headers,
+    ).json()
+
+    with client.app.state.test_session() as db:
+        db_candidate = db.get(Candidate, alice["id"])
+        db_candidate.tags = ["Immediate", "Backend"]
+        db.commit()
+
+    application = client.post(
+        "/applications",
+        json={"job_id": job["id"], "candidate_id": alice["id"]},
+        headers=headers,
+    )
+    assert application.status_code == 201
+    assert client.post(
+        f"/applications/{application.json()['id']}/stage",
+        json={"stage_name": "Screening"},
+        headers=headers,
+    ).status_code == 200
+
+    response = client.get(
+        "/candidates",
+        params={
+            "search": "Python AND SQL NOT Java",
+            "skill": "Python,SQL",
+            "location": "Hyderabad",
+            "notice_period": "30 days",
+            "education": "Computer Science",
+            "job_history": "Acme Labs",
+            "availability": "Immediate",
+            "preferred_location": "Hyderabad",
+            "tags": "Immediate,Backend",
+            "stage_name": "Screening",
+            "source": "LinkedIn",
+            "has_applied_job_id": job["id"],
+            "min_experience_years": 3,
+            "max_experience_years": 5,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert [candidate["id"] for candidate in response.json()] == [alice["id"]]
+
+    excluded = client.get(
+        "/candidates",
+        params={"search": "Python AND SQL NOT Java"},
+        headers=headers,
+    ).json()
+    assert [candidate["id"] for candidate in excluded] == [alice["id"]]
