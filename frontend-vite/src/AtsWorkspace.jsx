@@ -11,6 +11,7 @@ import RecruiterToolsPanel from "./RecruiterToolsPanel.jsx";
 import InterviewPanel from "./InterviewPanel.jsx";
 import AutomationPanel from "./AutomationPanel.jsx";
 import CommandCenterPanel from "./CommandCenterPanel.jsx";
+import CandidateMergeCenter from "./CandidateMergeCenter.jsx";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -1056,6 +1057,7 @@ export default function AtsWorkspace() {
     { id: "pipeline", label: "Applications", count: applications.length },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
+    { id: "merge-center", label: "Merge Center" },
     { id: "matching", label: "AI Match" },
     { id: "emails", label: "Email Center" },
     { id: "templates", label: "Email Templates" },
@@ -1118,6 +1120,8 @@ export default function AtsWorkspace() {
             onNotice={setNotice}
             onError={(requestError) => setError(errorText(requestError))}
           />}
+
+          {view === "merge-center" && <CandidateMergeCenter token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
           {view === "dashboard" && <>
             <div className="mb-6"><p className="text-sm text-ink-500">Recruitment overview</p><h2 className="mt-1 text-2xl font-semibold">Recruiter dashboard</h2></div>

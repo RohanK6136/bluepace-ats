@@ -180,6 +180,22 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
+class CandidateMergeAudit(Base):
+    __tablename__ = "candidate_merge_audits"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    survivor_candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"), index=True)
+    merged_candidate_id: Mapped[int] = mapped_column(Integer, index=True)
+    field_choices: Mapped[dict] = mapped_column(JSON, default=dict)
+    before_survivor: Mapped[dict] = mapped_column(JSON, default=dict)
+    before_merged: Mapped[dict] = mapped_column(JSON, default=dict)
+    after_survivor: Mapped[dict] = mapped_column(JSON, default=dict)
+    merge_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
 class CandidateTag(Base):
     __tablename__ = "candidate_tags"
     __table_args__ = (UniqueConstraint("candidate_id", "name", name="uq_candidate_tag_name"),)
