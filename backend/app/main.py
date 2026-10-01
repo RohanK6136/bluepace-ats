@@ -28,7 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from celery_app import celery_app
-from app.database import get_db, initialize_database
+from app.database import SessionLocal, get_db, initialize_database
 from app.models import (
     Application,
     AuditLog,
@@ -78,6 +78,7 @@ from app.services.workflow import (
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     initialize_database()
+    ensure_bootstrap_account()
     yield
 
 
@@ -96,6 +97,43 @@ LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
 MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024
 
+def ensure_bootstrap_account() -> None:
+    email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
+    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+    full_name = os.getenv("BOOTSTRAP_ADMIN_NAME", "Blupace Tech Recruiting").strip() or "Blupace Tech Recruiting"
+    organization_name = os.getenv("BOOTSTRAP_ORGANIZATION_NAME", "Blupace Tech").strip() or "Blupace Tech"
+    if not email or not password:
+        return
+
+    with SessionLocal() as db:
+        organization = db.scalar(
+            select(Organization).where(Organization.name == organization_name).order_by(Organization.id.asc()).limit(1)
+        )
+        if organization is None:
+            organization = Organization(name=organization_name)
+            db.add(organization)
+            db.flush()
+
+        user = db.scalar(select(User).where(User.email == email))
+        if user is None:
+            user = User(
+                organization_id=organization.id,
+                email=email,
+                full_name=full_name,
+                password_hash=password_hash.hash(password),
+                role=Role.admin,
+                is_active=True,
+            )
+            db.add(user)
+        else:
+            user.organization_id = organization.id
+            user.full_name = full_name
+            user.role = Role.admin
+            user.is_active = True
+
+        db.commit()
+
+
 def _public_organization(db: Session) -> Organization:
     configured_id = os.getenv("PUBLIC_ORGANIZATION_ID", "").strip()
     if configured_id:
@@ -107,6 +145,14 @@ def _public_organization(db: Session) -> Organization:
         if organization is None:
             raise HTTPException(status_code=503, detail="Configured public organization was not found")
         return organization
+
+    configured_name = os.getenv("BOOTSTRAP_ORGANIZATION_NAME", "Blupace Tech").strip()
+    if configured_name:
+        named_organization = db.scalar(
+            select(Organization).where(Organization.name == configured_name).order_by(Organization.id.asc()).limit(1)
+        )
+        if named_organization is not None:
+            return named_organization
 
     organizations = db.scalars(select(Organization).order_by(Organization.id.asc()).limit(2)).all()
     if len(organizations) == 1:
@@ -740,27 +786,12 @@ def get_me(user: User = Depends(get_current_user)):
     return user
 
 
-@app.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def create_user(
-    request: UserCreate,
-    current_user: User = Depends(require_roles(Role.admin)),
-    db: Session = Depends(get_db),
-):
-    user = User(
-        organization_id=current_user.organization_id,
-        email=str(request.email).lower(),
-        full_name=request.full_name,
-        password_hash=password_hash.hash(request.password),
-        role=request.role,
+@app.post("/users", response_model=UserRead, status_code=status.HTTP_403_FORBIDDEN)
+def create_user():
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Additional user accounts are disabled. Use the shared recruiting login.",
     )
-    db.add(user)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="An account with this email already exists")
-    db.refresh(user)
-    return user
 
 
 READ_ROLES = (Role.admin, Role.recruiter, Role.hiring_manager, Role.interviewer)
