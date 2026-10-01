@@ -67,13 +67,21 @@ class CandidateMatcher:
         return SKILL_ALIASES.get(cleaned, str(value or "").strip())
 
     @classmethod
+    def _skill_pattern(cls, value):
+        escaped = re.escape(str(value or "").strip())
+        # Allow sentence punctuation such as "React." while still avoiding
+        # false matches inside dotted skill names such as "React.js".
+        return r"(?<![\w+#.])" + escaped + r"(?![\w+#])(?:\.(?![A-Za-z]))?"
+    
+    @classmethod
     def _extract_skills(cls, text):
         found = []
+        content = str(text or "")
         for alias, canonical in sorted(SKILL_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
-            if re.search(r"(?<![\w+#.])" + re.escape(alias) + r"(?![\w+#.])", str(text or ""), re.IGNORECASE) and canonical not in found:
+            if re.search(cls._skill_pattern(alias), content, re.IGNORECASE) and canonical not in found:
                 found.append(canonical)
         for skill in SKILL_CATALOG:
-            if skill not in found and re.search(r"(?<![\w+#.])" + re.escape(skill) + r"(?![\w+#.])", str(text or ""), re.IGNORECASE):
+            if skill not in found and re.search(cls._skill_pattern(skill), content, re.IGNORECASE):
                 found.append(skill)
         return found
 
