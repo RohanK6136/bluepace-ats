@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import ResumeLab from "./App.jsx";
+import CandidatePortal from "./CandidatePortal.jsx";
+import EmailTemplatesPanel from "./EmailTemplatesPanel.jsx";
+import ScorecardPanel from "./ScorecardPanel.jsx";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -127,6 +130,8 @@ export default function AtsWorkspace() {
   const [candidateActivity, setCandidateActivity] = useState(null);
   const [emails, setEmails] = useState([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
+  const [candidateFilters, setCandidateFilters] = useState({ search: "", skill: "", source: "", location: "", min_experience_years: "" });
+  const [portalToken] = useState(() => new URLSearchParams(window.location.search).get("portal") || "");
   const [filters, setFilters] = useState({ search: "", skill: "", stage_name: "", source: "", applied_after: "", applied_before: "" });
   const [jobFormOpen, setJobFormOpen] = useState(false);
   const [jobEntryMode, setJobEntryMode] = useState("manual");
@@ -675,6 +680,23 @@ export default function AtsWorkspace() {
     setSelectedApplications((current) => current.includes(id)
       ? current.filter((selectedId) => selectedId !== id)
       : [...current, id]);
+  }
+
+  async function searchCandidates(event) {
+    event?.preventDefault();
+    if (!token) return;
+    setLoading(true);
+    setError("");
+    try {
+      const params = Object.fromEntries(Object.entries(candidateFilters).filter(([, value]) => value));
+      const response = await apiRequest(token, "get", "/candidates", { params: { ...params, limit: 100 } });
+      setCandidates(response.data);
+      setSelectedCandidate(null);
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setLoading(false);
+    }
   }
 
   function setFilter(field, value) {
