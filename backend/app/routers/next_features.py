@@ -36,6 +36,7 @@ from app.security import (
     require_roles,
 )
 from app.services.email_notifications import deliver_outbox_email
+from app.services.calendar import sync_interview_calendar
 from app.services.workflow import (
     PIPELINE_STAGES,
     queue_application_email,
@@ -494,17 +495,7 @@ def reschedule_interview(
         "Please use the secure candidate portal for the latest application details.\n\n"
         "Blupace Tech Recruiting"
     )
-    calendar_bytes = _interview_ics(interview, application).encode("utf-8")
-    import base64
-    email_id = queue_application_email(
-        db,
-        application,
-        subject,
-        body,
-        attachment_filename=f"blupace-interview-{interview.id}.ics",
-        attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
-        attachment_content_type="text/calendar",
-    )
+    email_id = queue_application_email(db, application, subject, body)
     record_audit(
         db,
         user,
@@ -524,6 +515,7 @@ def reschedule_interview(
     db.commit()
     db.refresh(interview)
     background_tasks.add_task(deliver_outbox_email, email_id)
+    background_tasks.add_task(sync_interview_calendar, interview.id, user.organization_id, user.id, "upsert")
     return {
         "id": interview.id,
         "application_id": application.id,
@@ -575,6 +567,7 @@ def cancel_interview(
     record_audit(db, user, "interview.cancelled", "interview", interview.id, after={"status": "cancelled", "reason": interview.cancellation_reason})
     db.commit()
     background_tasks.add_task(deliver_outbox_email, email_id)
+    background_tasks.add_task(sync_interview_calendar, interview.id, user.organization_id, user.id, "delete")
     return {"id": interview.id, "status": interview.status, "email_id": email_id}
 
 
