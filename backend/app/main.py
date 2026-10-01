@@ -1372,6 +1372,7 @@ def rank_job_candidates(
         match.skill_gaps = score["skill_gaps"]
         match.explanations = score["explanations"]
         match.semantic_mode = score["semantic_mode"]
+        match.cv_summary = score["cv_summary"]
         results.append(match)
 
     db.flush()
