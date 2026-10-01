@@ -1070,7 +1070,7 @@ export default function AtsWorkspace() {
 
   return (
     <div className="min-h-screen bg-[#f3f4f1] text-ink-900">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col bg-ink-950 text-white lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto bg-ink-950 text-white lg:flex">
         <div className="flex h-[72px] items-center gap-3 border-b border-white/10 px-5">
           <div className="grid h-9 w-9 place-items-center rounded-md bg-gold-500 text-xs font-bold text-ink-950">BP</div>
           <div>
@@ -1086,7 +1086,7 @@ export default function AtsWorkspace() {
             </button>
           ))}
         </nav>
-        <div className="mt-auto border-t border-white/10 px-5 py-4">
+        <div className="sticky bottom-0 mt-auto border-t border-white/10 bg-ink-950 px-5 py-4">
           <p className="truncate text-sm font-medium">{user?.full_name}</p>
           <p className="mt-0.5 text-xs capitalize text-ink-400">{user?.role?.replaceAll("_", " ")}</p>
           <button onClick={signOut} className="mt-4 text-xs font-medium text-ink-300 hover:text-white">Sign out</button>
