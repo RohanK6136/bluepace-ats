@@ -982,6 +982,12 @@ def recruiter_assistant(
     user: User = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(get_db),
 ):
+    """Evidence-grounded recruiter copilot.
+
+    The endpoint assembles facts from the stored JD, parsed resume and scorecards.
+    Optional LLM generation is constrained to those facts and never returns a hiring
+    recommendation or ranking.
+    """
     application = db.scalar(
         select(Application)
         .where(Application.id == application_id, Application.organization_id == user.organization_id)
@@ -989,79 +995,177 @@ def recruiter_assistant(
     )
     if application is None:
         raise HTTPException(status_code=404, detail="Application not found")
+
     candidate = application.candidate
     job = application.job
     profile = candidate.resume_data or {}
-    skills = [str(value) for value in (profile.get("skills") or [])][:30]
+    resume_text = str(profile.get("raw_text") or "")[:12000]
+    skills = list(dict.fromkeys(str(v).strip() for v in (profile.get("skills") or []) if str(v).strip()))
     experience = profile.get("experience") or []
-    projects = [str(value) for value in (profile.get("university_projects") or profile.get("projects") or [])][:8]
     education = profile.get("education") or []
-    match = db.scalar(
-        select(CandidateJobMatch).where(
-            CandidateJobMatch.organization_id == user.organization_id,
-            CandidateJobMatch.candidate_id == candidate.id,
-            CandidateJobMatch.job_id == job.id,
-        )
-    )
-    offer = db.scalar(select(Offer).where(Offer.application_id == application.id))
-    interviews = db.scalars(
-        select(Interview)
-        .where(Interview.application_id == application.id)
-        .order_by(Interview.round_number.asc())
-    ).all()
+    projects = [str(v).strip() for v in (profile.get("university_projects") or profile.get("projects") or []) if str(v).strip()]
+    jd_analysis = job.jd_analysis or {}
+    required_skills = list(dict.fromkeys(
+        str(v).strip() for v in (jd_analysis.get("required_skills") or job.required_skills or []) if str(v).strip()
+    ))
+    preferred_skills = list(dict.fromkeys(
+        str(v).strip() for v in (jd_analysis.get("preferred_skills") or []) if str(v).strip()
+    ))
+    skill_lookup = {skill.casefold(): skill for skill in skills}
+    matched_skills = [skill for skill in required_skills if skill.casefold() in skill_lookup]
+    missing_skills = [skill for skill in required_skills if skill.casefold() not in skill_lookup]
 
-    match_score = match.recruiter_override if match and match.recruiter_override is not None else (match.model_score if match else None)
     experience_years = 0.0
     try:
-        from app.services.matching import matching_service
         experience_years = matching_service._estimate_experience_years(experience)
     except Exception:
         pass
 
-    focus = []
-    question = request.question.casefold()
-    if "skill" in question:
-        focus.append(f"Resume skills: {', '.join(skills) or 'No structured skills parsed'}")
-    if "experience" in question:
-        focus.append(f"Estimated experience: {experience_years:g} years across {len(experience)} parsed role(s)")
-    if "project" in question:
-        focus.append(f"Parsed projects: {', '.join(projects) or 'No projects parsed'}")
-    if "education" in question:
-        education_text = [
-            " · ".join(str(item.get(key)) for key in ("degree", "university", "graduation_year") if item.get(key))
-            for item in education if isinstance(item, dict)
-        ]
-        focus.append(f"Education: {', '.join(value for value in education_text if value) or 'No structured education parsed'}")
-    if "interview" in question:
-        focus.append(f"Interview rounds: {len(interviews)}")
-    if "offer" in question:
-        focus.append(f"Offer status: {offer.status if offer else 'No offer created'}")
-    if not focus:
-        focus = [
-            f"Application is in {application.stage.name if application.stage else 'Applied'} stage.",
-            f"Role: {job.title}.",
-            f"Candidate: {candidate.first_name} {candidate.last_name}".strip(),
-            f"Structured skills parsed: {', '.join(skills) or 'None'}",
-            f"Estimated experience: {experience_years:g} years.",
-            f"Interview rounds recorded: {len(interviews)}.",
-            f"Offer status: {offer.status if offer else 'No offer created'}.",
-        ]
+    education_evidence = [
+        " · ".join(str(item.get(key)).strip() for key in ("degree", "university", "graduation_year") if item.get(key))
+        for item in education if isinstance(item, dict)
+    ]
+    scorecards = db.scalars(
+        select(Scorecard).where(Scorecard.application_id == application.id).order_by(Scorecard.submitted_at.asc())
+    ).all()
+    interviews = db.scalars(
+        select(Interview).where(Interview.application_id == application.id).order_by(Interview.round_number.asc(), Interview.starts_at.asc())
+    ).all()
 
-    summary = (
-        f"{candidate.first_name} {candidate.last_name} is currently in the "
-        f"{application.stage.name if application.stage else 'Applied'} stage for {job.title}. "
-        f"The recorded match evidence is {match_score if match_score is not None else 'not available'} / 100. "
-        "This assistant returns structured recruiting evidence only and does not make a hiring decision."
-    )
-    return {
-        "application_id": application.id,
-        "question": request.question,
-        "summary": summary,
-        "key_facts": focus,
-        "job": {"id": job.id, "title": job.title},
-        "candidate": {"id": candidate.id, "name": f"{candidate.first_name} {candidate.last_name}".strip()},
+    feedback = []
+    for scorecard in scorecards:
+        ratings = scorecard.ratings if isinstance(scorecard.ratings, dict) else {}
+        feedback.append({
+            "scorecard_id": scorecard.id,
+            "recommendation": scorecard.recommendation,
+            "ratings": ratings,
+            "submitted_at": scorecard.submitted_at.isoformat() if scorecard.submitted_at else None,
+        })
+
+    evidence = {
+        "job": {
+            "title": job.title,
+            "description": job.description[:12000],
+            "required_skills": required_skills,
+            "preferred_skills": preferred_skills,
+            "minimum_experience_years": job.minimum_experience_years,
+            "location": job.location,
+            "work_mode": job.work_mode,
+            "education": jd_analysis.get("education"),
+        },
+        "resume": {
+            "candidate_name": f"{candidate.first_name} {candidate.last_name}".strip(),
+            "skills": skills,
+            "experience": experience[:12],
+            "education": education_evidence,
+            "projects": projects[:12],
+            "raw_text": resume_text,
+        },
+        "computed_evidence": {
+            "matched_required_skills": matched_skills,
+            "missing_required_skills": missing_skills,
+            "estimated_experience_years": experience_years,
+        },
+        "interview_feedback": feedback,
+        "interviews_recorded": len(interviews),
     }
 
+    question = request.question.strip()
+    lower = question.casefold()
+    if any(term in lower for term in ("missing", "gap", "required skill")):
+        intent = "missing_skills"
+    elif any(term in lower for term in ("interview question", "questions", "technical question")):
+        intent = "interview_questions"
+    elif any(term in lower for term in ("screening email", "screening mail", "email")):
+        intent = "screening_email"
+    elif any(term in lower for term in ("feedback", "scorecard")):
+        intent = "interview_feedback"
+    elif any(term in lower for term in ("why", "does not satisfy", "doesn't satisfy", "requirement")):
+        intent = "requirement_explanation"
+    else:
+        intent = "candidate_summary"
+
+    sources = [
+        {"id": "JD", "label": "Job description", "fields": ["title", "description", "required_skills", "preferred_skills", "minimum_experience_years", "location", "work_mode"]},
+        {"id": "RESUME", "label": "Parsed resume", "fields": ["skills", "experience", "education", "projects", "raw_text"]},
+    ]
+    if scorecards:
+        sources.append({"id": "SCORECARDS", "label": "Submitted interview scorecards", "fields": ["ratings", "recommendation", "submitted_at"]})
+
+    fallback = {
+        "candidate_summary": (
+            f"{candidate.first_name} {candidate.last_name} is applying for {job.title}. "
+            f"The stored resume contains {len(skills)} parsed skills and approximately {experience_years:g} years "
+            f"of parsed experience. The JD lists {len(required_skills)} required skills; "
+            f"{len(matched_skills)} are explicitly present in the parsed resume."
+        ),
+        "missing_skills": missing_skills,
+        "matched_skills": matched_skills,
+        "interview_questions": [
+            f"Ask the candidate to describe a project where they used {matched_skills[0]} and what they personally implemented." if matched_skills else "Ask the candidate to walk through their most relevant project and their individual contribution.",
+            f"Ask the candidate how they would demonstrate practical experience with {missing_skills[0]}." if missing_skills else "Ask a role-specific technical question based on the strongest requirement in the JD.",
+            "Ask for a concrete example from the resume and probe the result, trade-offs, and lessons learned.",
+        ],
+        "screening_email": (
+            f"Subject: Screening discussion — {job.title}\n\n"
+            f"Hello {candidate.first_name},\n\n"
+            f"Thank you for applying for {job.title}. We would like to discuss your experience and the role requirements in a screening conversation. "
+            f"We will focus on the experience and skills described in your application.\n\n"
+            "Regards,\nRecruiting Team"
+        ),
+        "interview_feedback_summary": (
+            f"{len(scorecards)} submitted scorecard(s) are recorded for this application. "
+            + ("The summary below reflects the submitted ratings and comments only." if scorecards else "No submitted scorecards are available yet.")
+        ),
+        "requirement_explanation": (
+            f"The JD explicitly lists these required skills: {', '.join(required_skills) or 'No structured required skills were extracted'}. "
+            f"The parsed resume explicitly contains: {', '.join(skills) or 'No structured skills were extracted'}. "
+            f"Required skills not explicitly evidenced in the parsed resume: {', '.join(missing_skills) or 'None'}."
+        ),
+    }
+
+    generated = None
+    if getattr(llm_validator, "client", None) and os.getenv("OPENROUTER_API_KEY"):
+        prompt = f"""
+You are BluePace's evidence-grounded recruiter assistant. You may summarize or draft content, but you MUST NOT make a hiring decision, rank the candidate, assign a score, or recommend hire/reject.
+Use ONLY the supplied evidence. If evidence is missing, say it is missing. Never turn absence of a parsed field into proof that the candidate lacks the capability.
+Return JSON with exactly these keys:
+summary, missing_required_skills, interview_questions, screening_email, interview_feedback_summary, requirement_explanation.
+The value of missing_required_skills must contain only skills explicitly required by the JD and not explicitly present in the parsed resume.
+Interview questions must be questions, not judgments.
+Screening email must be a professional draft and must not claim facts not in the evidence.
+Interview feedback summary must attribute observations to submitted scorecards and note when none exist.
+Requirement explanation must distinguish "not evidenced in parsed resume" from "does not have".
+User request: {question}
+Evidence:
+{json.dumps(evidence, ensure_ascii=False)[:30000]}
+"""
+        try:
+            response = llm_validator._request_completion(prompt)
+            generated = llm_validator._parse_llm_response(response.choices[0].message.content)
+        except Exception:
+            generated = None
+
+    payload = {
+        "application_id": application.id,
+        "question": question,
+        "intent": intent,
+        "summary": (generated or {}).get("summary") or fallback["candidate_summary"],
+        "missing_required_skills": (generated or {}).get("missing_required_skills") or missing_skills,
+        "matched_required_skills": matched_skills,
+        "interview_questions": (generated or {}).get("interview_questions") or fallback["interview_questions"],
+        "screening_email": (generated or {}).get("screening_email") or fallback["screening_email"],
+        "interview_feedback_summary": (generated or {}).get("interview_feedback_summary") or fallback["interview_feedback_summary"],
+        "requirement_explanation": (generated or {}).get("requirement_explanation") or fallback["requirement_explanation"],
+        "evidence": evidence,
+        "sources": sources,
+        "guardrails": [
+            "Evidence is limited to the stored JD, parsed resume, and submitted scorecards.",
+            "Missing from the parsed resume means not explicitly evidenced; it does not prove the candidate lacks the skill.",
+            "The assistant does not make hiring decisions or move candidates between stages.",
+        ],
+    }
+    return payload
 
 def _render_automation(template: str, application: Application, stage_name: str) -> str:
     candidate = application.candidate
