@@ -139,6 +139,7 @@ class CandidateMergeField(BaseModel):
     recommended: str = "survivor"
 
 class CandidateDuplicateRead(BaseModel):
+    candidate_id: int
     id: int
     first_name: str
     last_name: str
