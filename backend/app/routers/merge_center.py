@@ -49,7 +49,7 @@ def duplicate_candidates(user=Depends(require_roles(*READ_ROLES)), db: Session =
         for other in candidates[index + 1:]:
             score, matched = _candidate_score(candidate, other)
             if score < 70: continue
-            results.append({"id": other.id, "first_name": other.first_name, "last_name": other.last_name, "email": other.email, "phone": other.phone, "source": other.source, "similarity_score": score, "matched_by": matched, "_pair": (candidate.id, other.id)})
+            results.append({"candidate_id": candidate.id, "id": other.id, "first_name": other.first_name, "last_name": other.last_name, "email": other.email, "phone": other.phone, "source": other.source, "similarity_score": score, "matched_by": matched, "_pair": (candidate.id, other.id)})
     results.sort(key=lambda item: (-item["similarity_score"], item["id"]))
     return results[:100]
 
