@@ -19,15 +19,24 @@ export default function CandidatePortal({ token }) {
   const [profileEditing, setProfileEditing] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [documentLoading, setDocumentLoading] = useState(false);
+  const [documentRequests, setDocumentRequests] = useState([]);
+  const [questions, setQuestions] = useState([]);
+  const [questionForm, setQuestionForm] = useState({ subject: "", question: "" });
+  const [questionLoading, setQuestionLoading] = useState(false);
+  const [selectedRequestId, setSelectedRequestId] = useState(null);
 
   async function load() {
     const encoded = encodeURIComponent(token);
-    const [response, documentResponse] = await Promise.all([
+    const [response, documentResponse, requestResponse, questionResponse] = await Promise.all([
       axios.get(API_URL + "/public/application/" + encoded + "/details", { timeout: 30000 }),
       axios.get(API_URL + "/public/application/" + encoded + "/documents", { timeout: 30000 }).catch(() => ({ data: [] })),
+      axios.get(API_URL + "/public/application/" + encoded + "/document-requests", { timeout: 30000 }).catch(() => ({ data: [] })),
+      axios.get(API_URL + "/public/application/" + encoded + "/questions", { timeout: 30000 }).catch(() => ({ data: [] })),
     ]);
     setData(response.data);
     setDocuments(documentResponse.data || []);
+    setDocumentRequests(requestResponse.data || []);
+    setQuestions(questionResponse.data || []);
     setProfileForm((current) => ({
       email: response.data?.candidate_email || current.email || "",
       phone: response.data?.candidate_phone || current.phone || "",
@@ -79,13 +88,35 @@ export default function CandidatePortal({ token }) {
     try {
       const form = new FormData();
       form.append("file", documentFile);
-      await axios.post(API_URL + "/public/application/" + encodeURIComponent(token) + "/documents", form, { timeout: 30000 });
+      const requestQuery = selectedRequestId ? "?request_id=" + encodeURIComponent(selectedRequestId) : "";
+      await axios.post(API_URL + "/public/application/" + encodeURIComponent(token) + "/documents" + requestQuery, form, { timeout: 30000 });
       setDocumentFile(null);
+      setSelectedRequestId(null);
       setMessage("Document uploaded successfully.");
       await load();
     } catch (requestError) {
       setError(requestError.response?.data?.detail || "We could not upload this document.");
     } finally { setDocumentLoading(false); }
+  }
+
+  async function submitQuestion() {
+    if (!questionForm.subject.trim() || !questionForm.question.trim() || questionLoading) return;
+    setQuestionLoading(true);
+    setMessage("");
+    try {
+      await axios.post(
+        API_URL + "/public/application/" + encodeURIComponent(token) + "/questions",
+        questionForm,
+        { timeout: 30000 }
+      );
+      setQuestionForm({ subject: "", question: "" });
+      setMessage("Your question has been sent to the recruiting team.");
+      await load();
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || "We could not send your question.");
+    } finally {
+      setQuestionLoading(false);
+    }
   }
 
   async function withdrawApplication() {
@@ -150,8 +181,32 @@ export default function CandidatePortal({ token }) {
               <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Documents</p><p className="mt-1 text-sm text-ink-500">Upload supporting documents requested by recruiting.</p></div>
               <label className="rounded-md border border-ink-100 bg-white px-3 py-2 text-xs font-semibold cursor-pointer">Choose file<input className="hidden" type="file" accept=".pdf,.docx,.png,.jpg,.jpeg" onChange={(e) => setDocumentFile(e.target.files?.[0] || null)} /></label>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">{documentFile && <><span className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800">{documentFile.name}</span><button className="rounded-md bg-[#1769d3] px-3 py-2 text-xs font-semibold text-white" disabled={documentLoading} onClick={uploadDocument}>{documentLoading ? "Uploading…" : "Upload"}</button></>}</div>
-            <div className="mt-4 grid gap-2">{documents.map((doc) => <div key={doc.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-100 p-3 text-sm"><div><p className="font-semibold">{doc.name}</p><p className="text-xs text-ink-500">{Math.max(1, Math.round(doc.size_bytes / 1024))} KB</p></div><a className="text-xs font-semibold underline" href={API_URL + doc.download_url}>Download</a></div>)}{!documents.length && <p className="text-sm text-ink-500">No additional documents uploaded.</p>}</div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">{selectedRequestId && <span className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">Uploading for requested document #{selectedRequestId}</span>}{documentFile && <><span className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800">{documentFile.name}</span><button className="rounded-md bg-[#1769d3] px-3 py-2 text-xs font-semibold text-white" disabled={documentLoading} onClick={uploadDocument}>{documentLoading ? "Uploading…" : "Upload"}</button></>}</div>
+            {documentRequests.length > 0 && (
+            <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+              <p className="text-sm font-semibold">Requested documents</p>
+              <div className="mt-3 grid gap-2">
+                {documentRequests.map((request) => (
+                  <div key={request.id} className="rounded-lg border border-ink-100 bg-white p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">{request.name}{request.required ? <span className="ml-2 text-xs text-rose-600">Required</span> : null}</p>
+                        {request.description && <p className="mt-1 text-xs text-ink-500">{request.description}</p>}
+                        {request.due_at && <p className="mt-1 text-xs text-ink-500">Due {new Date(request.due_at).toLocaleDateString()}</p>}
+                      </div>
+                      <span className="rounded-full bg-ink-50 px-2.5 py-1 text-[11px] font-semibold capitalize">{request.status}</span>
+                    </div>
+                    {request.status !== "fulfilled" && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button className="rounded-md border border-ink-100 px-3 py-2 text-xs font-semibold" onClick={() => setSelectedRequestId(request.id)}>Upload for this request</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="mt-4 grid gap-2">{documents.map((doc) => <div key={doc.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-100 p-3 text-sm"><div><p className="font-semibold">{doc.name}</p><p className="text-xs text-ink-500">{Math.max(1, Math.round(doc.size_bytes / 1024))} KB</p></div><a className="text-xs font-semibold underline" href={API_URL + doc.download_url}>Download</a></div>)}{!documents.length && <p className="text-sm text-ink-500">No additional documents uploaded.</p>}</div>
           </div>
 
           <div className="mt-7 border-t border-ink-100 pt-6">
@@ -164,6 +219,23 @@ export default function CandidatePortal({ token }) {
                 </div>
               ))}
               {!data.timeline?.length && <p className="text-sm text-ink-500">No timeline events are available yet.</p>}
+            </div>
+          </div>
+
+          <div className="mt-7 border-t border-ink-100 pt-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Application history</p>
+            <div className="mt-4 space-y-3">
+              {(data.history || []).map((item) => (
+                <div key={item.id} className="flex gap-3 rounded-lg border border-ink-100 p-3">
+                  <div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" />
+                  <div>
+                    <p className="text-sm font-semibold">{item.title}</p>
+                    <p className="mt-1 text-xs text-ink-500">{new Date(item.created_at).toLocaleString()}</p>
+                    {item.details?.stage_name && <p className="mt-1 text-xs text-ink-600">Stage: {item.details.stage_name}</p>}
+                  </div>
+                </div>
+              ))}
+              {!data.history?.length && <p className="text-sm text-ink-500">No application history is available yet.</p>}
             </div>
           </div>
 
@@ -207,6 +279,26 @@ export default function CandidatePortal({ token }) {
               ) : null}
             </div>
           )}
+
+          <div className="mt-7 border-t border-ink-100 pt-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Candidate questions</p>
+            <p className="mt-1 text-sm text-ink-500">Ask the recruiting team about your application, interview, documents or offer.</p>
+            <div className="mt-3 grid gap-3">
+              <input className={inputStyle} value={questionForm.subject} onChange={(e) => setQuestionForm({...questionForm, subject: e.target.value})} placeholder="Subject" />
+              <textarea className={inputStyle + " min-h-24"} value={questionForm.question} onChange={(e) => setQuestionForm({...questionForm, question: e.target.value})} placeholder="Your question" />
+              <button className="w-fit rounded-md bg-[#1769d3] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={questionLoading || !questionForm.subject.trim() || !questionForm.question.trim()} onClick={submitQuestion}>{questionLoading ? "Sending…" : "Send question"}</button>
+            </div>
+            <div className="mt-5 space-y-3">
+              {questions.map((item) => (
+                <div key={item.id} className="rounded-xl border border-ink-100 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3"><p className="font-semibold">{item.subject}</p><span className="rounded-full bg-ink-50 px-2.5 py-1 text-[11px] font-semibold capitalize">{item.status}</span></div>
+                  <p className="mt-2 text-sm text-ink-700 whitespace-pre-wrap">{item.question}</p>
+                  {item.answer && <div className="mt-3 rounded-lg bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-800">Recruiting team</p><p className="mt-1 text-sm text-emerald-950 whitespace-pre-wrap">{item.answer}</p></div>}
+                </div>
+              ))}
+              {!questions.length && <p className="text-sm text-ink-500">No questions yet.</p>}
+            </div>
+          </div>
 
           {data.status !== "hired" && data.status !== "rejected" && data.status !== "withdrawn" && (
             <div className="mt-7 border-t border-ink-100 pt-6">
