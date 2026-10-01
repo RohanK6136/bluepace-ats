@@ -33,7 +33,6 @@ STOP_WORDS = {
 }
 
 
-class CandidateMatcher:
 MATCH_WEIGHTS = {
     "required_skill_coverage": 0.25,
     "preferred_skill_coverage": 0.10,
