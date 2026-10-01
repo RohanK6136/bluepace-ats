@@ -520,80 +520,73 @@ def _format_interview_datetime(value: datetime | None) -> str:
     return moment.strftime("%d %B %Y, %I:%M %p %z")
 
 
-def _stage_email(application: Application, stage_name: str, *, interview_starts_at: datetime | None = None, interview_duration_minutes: int = 60, interview_mode: str = "online", interview_location: str | None = None, interview_meeting_url: str | None = None) -> tuple[str, str]:
+DEFAULT_EMAIL_TEMPLATES = {
+    "Applied": {
+        "subject": "Application received — {{job_title}}",
+        "body": "Hello {{candidate_name}},\n\nYour application for {{job_title}} has been received by Blupace Tech. We will review your profile and share the next update by email.\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team",
+    },
+    "Screening": {
+        "subject": "Application update — {{job_title}}",
+        "body": "Hello {{candidate_name}},\n\nYour application for {{job_title}} has moved to our screening stage. We will contact you with the next update.\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team",
+    },
+    "Interview": {
+        "subject": "Interview invitation — {{job_title}}",
+        "body": "Hello {{candidate_name}},\n\nThank you for your application for {{job_title}} with Blupace Tech. We would like to invite you to the next stage of the selection process.\n\nInterview date and time: {{interview_date}} {{interview_time}}\nDuration: {{interview_duration}} minutes\nInterview mode: {{interview_mode}}\nMeeting link: {{meeting_link}}\nInterview location: {{interview_location}}\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team",
+    },
+    "Offer": {
+        "subject": "Position offer — {{job_title}}",
+        "body": "Hello {{candidate_name}},\n\nWe are pleased to inform you that Blupace Tech would like to offer you the position of {{job_title}}. Our Talent Team will share the formal offer and joining details with you.\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team",
+    },
+    "Hired": {
+        "subject": "Selected for {{job_title}}",
+        "body": "Hello {{candidate_name}},\n\nCongratulations. You have been selected for the position of {{job_title}} at Blupace Tech. Our Talent Team will contact you with the next steps and joining formalities.\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team",
+    },
+    "Rejected": {
+        "subject": "Application update — {{job_title}}",
+        "body": "Hello {{candidate_name}},\n\nThank you for taking the time to apply for {{job_title}} at Blupace Tech. After reviewing your application, we will not be progressing with your application for this position at this time. We appreciate your interest and wish you success in your career.\n\nTrack your application: {{candidate_portal_url}}\n\nRegards,\nBlupace Tech Talent Team",
+    },
+}
+
+
+def _stage_email(
+    application: Application,
+    stage_name: str,
+    *,
+    db: Session | None = None,
+    interview_starts_at: datetime | None = None,
+    interview_duration_minutes: int = 60,
+    interview_mode: str = "online",
+    interview_location: str | None = None,
+    interview_meeting_url: str | None = None,
+) -> tuple[str, str]:
     candidate = application.candidate
     job_title = application.job.title
     first_name = candidate.first_name or "Candidate"
+    portal_url = f"{DEPLOYED_FRONTEND_ORIGIN}?portal={urllib.parse.quote(create_candidate_portal_token(application.id))}"
 
-    if stage_name == "Interview":
-        subject = f"Interview invitation — {job_title}"
-        body = (
-            f"Hello {first_name},\n\n"
-            f"Thank you for your application for {job_title} with Blupace Tech. "
-            "We would like to invite you to the next stage of the selection process.\n\n"
-        )
-        if interview_starts_at is not None:
-            body += f"Interview date and time: {_format_interview_datetime(interview_starts_at)}\n"
-            body += f"Duration: {interview_duration_minutes} minutes\n"
-        if interview_mode == "online":
-            body += "Interview mode: Online\n"
-            if interview_meeting_url:
-                body += f"Meeting link: {interview_meeting_url}\n"
-        else:
-            body += "Interview mode: Offline / On-site\n"
-            if interview_location:
-                body += f"Interview location: {interview_location}\n"
-        body += (
-            "\nPlease keep this time available and reply to this email if you need to discuss the schedule.\n\n"
-            "Regards,\nBlupace Tech Talent Team"
-        )
-        return subject, body
-
-    if stage_name == "Offer":
-        return (
-            f"Position offer — {job_title}",
-            f"Hello {first_name},\n\n"
-            f"We are pleased to inform you that Blupace Tech would like to offer you the position of {job_title}. "
-            "Our Talent Team will share the formal offer and joining details with you.\n\n"
-            "Regards,\nBlupace Tech Talent Team",
-        )
-
-    if stage_name == "Hired":
-        return (
-            f"Selected for {job_title}",
-            f"Hello {first_name},\n\n"
-            f"Congratulations. You have been selected for the position of {job_title} at Blupace Tech. "
-            "Our Talent Team will contact you with the next steps and joining formalities.\n\n"
-            "Regards,\nBlupace Tech Talent Team",
-        )
-
-    if stage_name == "Rejected":
-        return (
-            f"Application update — {job_title}",
-            f"Hello {first_name},\n\n"
-            f"Thank you for taking the time to apply for {job_title} at Blupace Tech. "
-            "After reviewing your application, we will not be progressing with your application for this position at this time. "
-            "We appreciate your interest and wish you success in your career.\n\n"
-            "Regards,\nBlupace Tech Talent Team",
-        )
-
-    if stage_name == "Screening":
-        return (
-            f"Application update — {job_title}",
-            f"Hello {first_name},\n\n"
-            f"Your application for {job_title} has moved to our screening stage. "
-            "We will contact you with the next update.\n\n"
-            "Regards,\nBlupace Tech Talent Team",
-        )
-
-    return (
-        f"Application received — {job_title}",
-        f"Hello {first_name},\n\n"
-        f"Your application for {job_title} has been received by Blupace Tech. "
-        "We will review your profile and share the next update by email.\n\n"
-        "Regards,\nBlupace Tech Talent Team",
-    )
-
+    template = DEFAULT_EMAIL_TEMPLATES.get(stage_name)
+    if db is not None:
+        organization = db.get(Organization, application.organization_id)
+        custom_templates = organization.email_templates if organization and organization.email_templates else {}
+        template = custom_templates.get(stage_name) or template
+    values = {
+        "candidate_name": first_name,
+        "job_title": job_title,
+        "interview_date": interview_starts_at.strftime("%d %B %Y") if interview_starts_at else "",
+        "interview_time": interview_starts_at.strftime("%I:%M %p %Z") if interview_starts_at else "",
+        "interview_duration": str(interview_duration_minutes),
+        "interview_mode": "Online" if interview_mode == "online" else "Offline / On-site",
+        "meeting_link": interview_meeting_url or "",
+        "interview_location": interview_location or "",
+        "candidate_portal_url": portal_url,
+        "company_name": "Blupace Tech",
+    }
+    subject = template["subject"]
+    body = template["body"]
+    for key, value in values.items():
+        subject = subject.replace("{{" + key + "}}", value)
+        body = body.replace("{{" + key + "}}", value)
+    return subject, body
 
 def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
     return {
@@ -750,7 +743,7 @@ async def public_apply(
         semantic_mode=score["semantic_mode"],
     )
     db.add(match)
-    subject, body = _stage_email(application, "Applied")
+    subject, body = _stage_email(application, "Applied", db=db)
     email_id = queue_application_email(db, application, subject, body)
     db.commit()
     if background_tasks is not None:
@@ -2039,6 +2032,7 @@ def update_application_stage(
     subject, body = _stage_email(
         application,
         stage.name,
+        db=db,
         interview_starts_at=request.interview_starts_at,
         interview_duration_minutes=request.interview_duration_minutes,
         interview_mode=request.interview_mode,
@@ -2096,7 +2090,7 @@ def bulk_update_application_stage(
             before={"stage_name": previous_name, "status": previous_status},
             after={"stage_name": stage.name, "status": application.status},
         )
-        subject, body = _stage_email(application, stage.name)
+        subject, body = _stage_email(application, stage.name, db=db)
         email_ids.append(queue_application_email(db, application, subject, body))
     db.commit()
     for email_id in email_ids:
