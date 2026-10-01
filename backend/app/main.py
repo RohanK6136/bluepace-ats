@@ -41,7 +41,6 @@ from app.models import (
     CandidateFollower,
     CandidateJobMatch,
     CandidateDocument,
-    CalendarConnection,
     Email,
     Interview,
     InterviewParticipant,
@@ -105,10 +104,8 @@ from app.security import create_access_token, create_candidate_portal_token, dec
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
-from app.services.calendar import sync_interview_calendar
 from app.services.matching import matching_service
 from app.routers.merge_center import router as merge_center_router
-from app.routers.calendar import router as calendar_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
 from app.services.workflow import (
     PIPELINE_STAGES,
@@ -181,7 +178,6 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
 app.include_router(merge_center_router)
-app.include_router(calendar_router)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
@@ -2411,9 +2407,7 @@ def create_interview_round(
     if request.mode == "offline" and not request.location:
         raise HTTPException(status_code=422, detail="Interview location is required for offline interviews.")
     if request.mode == "online" and not request.meeting_url:
-        calendar_connected = db.scalar(select(CalendarConnection.id).where(CalendarConnection.user_id == user.id, CalendarConnection.organization_id == user.organization_id, CalendarConnection.is_active.is_(True), CalendarConnection.is_default.is_(True)).limit(1)) is not None
-        if not calendar_connected:
-            raise HTTPException(status_code=422, detail="Enter a meeting URL or connect a default Google Calendar / Outlook calendar to generate one automatically.")
+        raise HTTPException(status_code=422, detail="Meeting link is required for an online interview.")
     round_number = (db.scalar(select(func.max(Interview.round_number)).where(Interview.application_id == application.id)) or 0) + 1
     interviewer_ids = list(dict.fromkeys(request.interviewer_ids or [application.assigned_interviewer_id or user.id]))
     if not interviewer_ids: interviewer_ids = [user.id]
@@ -2454,12 +2448,20 @@ def create_interview_round(
         interview_meeting_url=request.meeting_url,
         interview_id=interview.id,
     )
-    email_id = queue_application_email(db, application, subject, body)
+    calendar_bytes = _interview_ics(interview, application).encode("utf-8")
+    email_id = queue_application_email(
+        db,
+        application,
+        subject,
+        body,
+        attachment_filename=f"blupace-interview-{interview.id}.ics",
+        attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
+        attachment_content_type="text/calendar",
+    )
     record_audit(db, user, "interview.round_scheduled", "application", application.id, after={"round_name": request.round_name, "round_type": request.round_type, "round_number": request.round_number if request.round_number else round_number, "interviewer_ids": interviewer_ids})
     db.commit()
     db.refresh(interview)
     background_tasks.add_task(deliver_outbox_email, email_id)
-    background_tasks.add_task(sync_interview_calendar, interview.id, user.organization_id, user.id, "upsert")
     return interview
 
 

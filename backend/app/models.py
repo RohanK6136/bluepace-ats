@@ -297,43 +297,6 @@ class InterviewAvailability(Base):
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
-class CalendarConnection(Base):
-    __tablename__ = "calendar_connections"
-    __table_args__ = (UniqueConstraint("user_id", "provider", name="uq_calendar_connection_user_provider"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    provider: Mapped[str] = mapped_column(String(30))
-    provider_account_id: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    account_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    access_token_encrypted: Mapped[str] = mapped_column(Text)
-    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
-    last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
-
-
-class CalendarEventSync(Base):
-    __tablename__ = "calendar_event_syncs"
-    __table_args__ = (UniqueConstraint("interview_id", "connection_id", name="uq_calendar_event_interview_connection"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
-    interview_id: Mapped[int] = mapped_column(ForeignKey("interviews.id", ondelete="CASCADE"), index=True)
-    connection_id: Mapped[int] = mapped_column(ForeignKey("calendar_connections.id", ondelete="CASCADE"), index=True)
-    provider_event_id: Mapped[str] = mapped_column(String(500))
-    join_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
-    status: Mapped[str] = mapped_column(String(30), default="active", server_default="active")
-    last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-
-
 class TalentPool(Base):
     __tablename__ = "talent_pools"
 

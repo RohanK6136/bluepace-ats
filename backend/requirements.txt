@@ -18,4 +18,3 @@ email-validator>=2.2,<3.0
 openpyxl
 reportlab
 
-cryptography>=43,<46
