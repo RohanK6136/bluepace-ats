@@ -37,7 +37,7 @@ export default function EmailTemplatesPanel({ token, apiRequest, onNotice, onErr
         if (mounted) setLoading(false);
       });
     return () => { mounted = false; };
-  }, [token, apiRequest, onError]);
+  }, [token]);
 
   useEffect(() => {
     setDraft(templates[active] || { subject: "", body: "" });
