@@ -897,6 +897,19 @@ def test_resume_intelligence_extracts_extended_profile_and_non_definitive_signal
     assert "GitHub" not in parsed["resume_quality"]["optional_missing_fields"]
 
 
+def test_jd_parser_extracts_preferred_skill_before_sentence_punctuation():
+    from app.services.matching import CandidateMatcher
+
+    matcher = CandidateMatcher()
+    analysis = matcher.parse_job_description(
+        "Python Engineer",
+        "Required: Python and SQL. Nice to have: React.",
+    )
+
+    assert analysis["required_skills"] == ["Python", "SQL"]
+    assert analysis["preferred_skills"] == ["React"]
+
+
 def test_candidate_ranking_exposes_richer_explainable_factors():
     from types import SimpleNamespace
     from app.services.matching import CandidateMatcher
