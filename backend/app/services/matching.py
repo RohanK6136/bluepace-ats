@@ -34,6 +34,19 @@ STOP_WORDS = {
 
 
 class CandidateMatcher:
+MATCH_WEIGHTS = {
+    "required_skill_coverage": 0.25,
+    "preferred_skill_coverage": 0.10,
+    "experience_alignment": 0.15,
+    "education_alignment": 0.10,
+    "location_alignment": 0.08,
+    "work_mode_alignment": 0.07,
+    "project_evidence": 0.10,
+    "semantic_similarity": 0.15,
+}
+
+
+class CandidateMatcher:
     def __init__(self):
         load_dotenv()
         openai_key = os.getenv("OPENAI_API_KEY")
@@ -317,7 +330,7 @@ class CandidateMatcher:
         profile = candidate.resume_data or {}
 
         def norm(value):
-            return re.sub(r"\\s+", " ", str(value or "").strip().casefold())
+            return re.sub(r"\s+", " ", str(value or "").strip().casefold())
 
         def normalized_skills(values):
             return {norm(self.normalize_skill(v)): self.normalize_skill(v) for v in (values or []) if str(v).strip()}
@@ -366,8 +379,14 @@ class CandidateMatcher:
 
         location_score = 100
         if required_location and required_location not in {"remote", "hybrid", "onsite"}:
+            location_tokens = self._tokens(required_location)
+            candidate_location_tokens = self._tokens(candidate_location)
+            preferred_location_tokens = self._tokens(preferred_location)
+            overlap = location_tokens & (candidate_location_tokens | preferred_location_tokens)
             if required_location in candidate_location or required_location in preferred_location:
                 location_score = 100
+            elif location_tokens and len(overlap) / len(location_tokens) >= 0.5:
+                location_score = 75
             elif not candidate_location and not preferred_location:
                 location_score = 50
             else:
@@ -401,12 +420,14 @@ class CandidateMatcher:
             for item in project_items
         )
         project_tokens = self._tokens(project_text)
-        required_skill_tokens = set()
-        for skill in required_skills:
-            required_skill_tokens.update(self._tokens(skill))
+        project_skill_matches = [
+            skill for skill in required_skills
+            if skill.casefold() in project_text.casefold()
+            or self._tokens(skill).issubset(project_tokens)
+        ]
         project_evidence_score = (
-            round(len(required_skill_tokens & project_tokens) / len(required_skill_tokens) * 100)
-            if required_skill_tokens else (100 if project_items else 50)
+            round(len(project_skill_matches) / len(required_skills) * 100)
+            if required_skills else (100 if project_items else 50)
         )
 
         skill_score = round(required_score * 0.80 + preferred_score * 0.20)
@@ -427,16 +448,7 @@ class CandidateMatcher:
         }
 
         # Weights are transparent and intentionally sum to 100.
-        weights = {
-            "required_skill_coverage": 0.25,
-            "preferred_skill_coverage": 0.10,
-            "experience_alignment": 0.15,
-            "education_alignment": 0.10,
-            "location_alignment": 0.08,
-            "work_mode_alignment": 0.07,
-            "project_evidence": 0.10,
-            "semantic_similarity": 0.15,
-        }
+        weights = MATCH_WEIGHTS
         model_score = round(sum(breakdown[key] * weight for key, weight in weights.items()))
 
         explanations = []
@@ -478,6 +490,7 @@ class CandidateMatcher:
             "project_evidence": {
                 "project_count": len(project_items),
                 "coverage": project_evidence_score,
+                "matched_required_skills": project_skill_matches,
             },
             "explanations": explanations,
             "decision_support_only": True,
