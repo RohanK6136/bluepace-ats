@@ -851,25 +851,16 @@ export default function AtsWorkspace() {
               Public Portal
             </button>
           </div>
-          <h1 className="text-2xl font-semibold">{authMode === "login" ? "Sign in" : "Create your workspace"}</h1>
-          <p className="mt-1 text-sm text-ink-500">
-            {authMode === "login" ? "Continue to your hiring pipeline." : "Set up an organization and admin account."}
-          </p>
+          <h1 className="text-2xl font-semibold">Sign in</h1>
+          <p className="mt-1 text-sm text-ink-500">Use the shared recruiting account provided by your administrator.</p>
           <form onSubmit={signIn} className="mt-7 grid gap-4">
-            {authMode === "register" && <>
-              <Field label="Organization" required value={authForm.organization_name} onChange={(event) => setAuthForm({ ...authForm, organization_name: event.target.value })} />
-              <Field label="Your name" required value={authForm.full_name} onChange={(event) => setAuthForm({ ...authForm, full_name: event.target.value })} />
-            </>}
             <Field label="Work email" type="email" autoComplete="email" required value={authForm.email} onChange={(event) => setAuthForm({ ...authForm, email: event.target.value })} />
             <Field label="Password" type="password" autoComplete={authMode === "login" ? "current-password" : "new-password"} minLength={12} required value={authForm.password} onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })} />
             {authError && <p role="alert" className="text-sm text-rose-700">{authError}</p>}
             <button className={`${buttonPrimary} mt-1 w-full py-3`} type="submit">
-              {authMode === "login" ? "Sign in" : "Create organization"}
+              Sign in
             </button>
           </form>
-          <button className="mt-5 text-sm font-medium text-ink-600 underline decoration-ink-300 underline-offset-4" onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }}>
-            {authMode === "login" ? "Create a new organization" : "Already registered? Sign in"}
-          </button>
         </section>
       </main>
     );
