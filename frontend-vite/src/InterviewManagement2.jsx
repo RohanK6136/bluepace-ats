@@ -15,11 +15,17 @@ export default function InterviewManagement2({ token, apiRequest, applications =
 
   useEffect(() => { setApplicationId(applications[0]?.id ? String(applications[0].id) : ""); }, [applications]);
   useEffect(() => {
-    Promise.all([
+    Promise.allSettled([
       apiRequest(token, "get", "/interviewer-dashboard"),
       apiRequest(token, "get", "/interviewers/availability"),
       apiRequest(token, "get", "/recruiting-users"),
-    ]).then(([d,a,u]) => { setDashboard(d.data); setAvailability(a.data || []); setUsers(u.data || []); }).catch(onError);
+    ]).then(([d,a,u]) => {
+      if (d.status === "fulfilled") setDashboard(d.value.data);
+      if (a.status === "fulfilled") setAvailability(a.value.data || []);
+      if (u.status === "fulfilled") setUsers(u.value.data || []);
+      const failed = [d,a,u].find((result) => result.status === "rejected");
+      if (failed) onError(failed.reason);
+    });
   }, [token]);
 
   async function loadRounds() {
