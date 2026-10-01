@@ -108,6 +108,10 @@ class Candidate(Base):
     tags: Mapped[list[str] | None] = mapped_column(JSON, default=list, nullable=True)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     merged_into_id: Mapped[int | None] = mapped_column(ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    starred: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), default="normal", server_default="normal")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
