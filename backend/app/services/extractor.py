@@ -154,15 +154,15 @@ class DocumentExtractor:
             "name": possible_name,
             "email": email_match.group(0) if email_match else None,
             "phone": phone_match.group(0).strip() if phone_match else None,
-            "linkedin": linkedin_match.group(0) if linkedin_match else None,
-            "github": github_match.group(0) if github_match else None,
+            "linkedin": self._normalize_url(linkedin_match.group(0)) if linkedin_match else None,
+            "github": self._normalize_url(github_match.group(0)) if github_match else None,
             "skills": sorted(set(skills)),
             "experience": experience,
             "education": education,
             "hobbies": [],
             "university_projects": projects,
             "projects": projects,
-            "certifications": self._extract_certifications(lines),
+            "certifications": self._extract_certifications(lines) or self._extract_inline_list(raw_text, ["certifications", "certification", "licenses", "license"]),
             "years_of_experience": self._extract_explicit_experience_years(raw_text) or self._experience_years_from_entries(experience),
             "companies": list(dict.fromkeys(str(item.get("company")).strip() for item in experience if isinstance(item, dict) and item.get("company"))),
             "job_titles": list(dict.fromkeys(str(item.get("title")).strip() for item in experience if isinstance(item, dict) and item.get("title"))),
@@ -188,6 +188,21 @@ class DocumentExtractor:
             if section:
                 return [re.sub(r"^[•*\-]\s*", "", line).strip() for line in section if line.strip()][:30]
         return []
+
+    @staticmethod
+    def _normalize_url(value):
+        value = re.sub(r"\s+", "", str(value or "")).strip()
+        if not value:
+            return None
+        return value if re.match(r"^https?://", value, re.IGNORECASE) else "https://" + value
+
+    @staticmethod
+    def _extract_inline_list(raw_text, labels):
+        label_pattern = "|".join(re.escape(label) for label in labels)
+        match = re.search(rf"(?:{label_pattern})\s*[:\-]\s*([^\n]+)", raw_text, re.IGNORECASE)
+        if not match:
+            return []
+        return [item.strip(" •*,-") for item in re.split(r"[,;|]", match.group(1)) if item.strip(" •*,-")][:30]
 
     @staticmethod
     def _extract_location(raw_text):
