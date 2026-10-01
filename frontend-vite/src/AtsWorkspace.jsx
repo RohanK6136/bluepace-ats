@@ -744,6 +744,8 @@ export default function AtsWorkspace() {
     setAuthError("");
   }
 
+  if (portalToken) return <CandidatePortal token={portalToken} />;
+
   if (!token && accessMode === "public") {
     return (
       <main className="min-h-screen bg-[#f3f4f1] text-ink-900">
@@ -935,6 +937,7 @@ export default function AtsWorkspace() {
     { id: "candidates", label: "Candidates", count: candidates.length },
     { id: "matching", label: "AI Match" },
     { id: "emails", label: "Email Center" },
+    { id: "templates", label: "Email Templates" },
     { id: "resume", label: "Resume Lab" },
   ];
 
@@ -1051,7 +1054,14 @@ export default function AtsWorkspace() {
             </>}
           </>}
 
-          {view === "pipeline" && <>
+          {view === "templates" && <EmailTemplatesPanel
+            token={token}
+            apiRequest={apiRequest}
+            onNotice={setNotice}
+            onError={(requestError) => setError(errorText(requestError))}
+          />}
+
+                    {view === "pipeline" && <>
             <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <p className="text-sm text-ink-500">{applications.length} applications in this view</p>
@@ -1257,6 +1267,19 @@ export default function AtsWorkspace() {
               </div>
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">Add candidate</button><button className={buttonSecondary} type="button" onClick={() => setCandidateFormOpen(false)}>Cancel</button></div>
             </form>}
+            <form onSubmit={searchCandidates} className="mb-5 rounded-xl border border-ink-100 bg-white p-4">
+              <div className="grid gap-3 md:grid-cols-5">
+                <Field label="Search" placeholder="Name, email, skill, project..." value={candidateFilters.search} onChange={(event) => setCandidateFilters({ ...candidateFilters, search: event.target.value })} />
+                <Field label="Skill" placeholder="Python, React, SQL..." value={candidateFilters.skill} onChange={(event) => setCandidateFilters({ ...candidateFilters, skill: event.target.value })} />
+                <Field label="Location" placeholder="Hyderabad" value={candidateFilters.location} onChange={(event) => setCandidateFilters({ ...candidateFilters, location: event.target.value })} />
+                <Field label="Minimum experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.min_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, min_experience_years: event.target.value })} />
+                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Source<select className={inputStyle} value={candidateFilters.source} onChange={(event) => setCandidateFilters({ ...candidateFilters, source: event.target.value })}><option value="">All sources</option>{[...new Set(candidates.map((candidate) => candidate.source).filter(Boolean))].map((source) => <option key={source}>{source}</option>)}</select></label>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button className={buttonPrimary} type="submit">Search candidates</button>
+                <button className={buttonSecondary} type="button" onClick={() => { const cleared = { search: "", skill: "", source: "", location: "", min_experience_years: "" }; setCandidateFilters(cleared); apiRequest(token, "get", "/candidates", { params: { limit: 100 } }).then((response) => setCandidates(response.data)).catch((requestError) => setError(errorText(requestError))); }}>Clear</button>
+              </div>
+            </form>
             <div className="mb-5"><p className="text-sm text-ink-500">{candidates.length} profiles</p><h2 className="mt-1 text-xl font-semibold">Candidate directory</h2></div>
             <div className="overflow-x-auto border-y border-ink-100 bg-white">
               <table className="w-full min-w-[650px] border-collapse text-left text-sm">
@@ -1374,6 +1397,14 @@ export default function AtsWorkspace() {
                     </div>
                   )}
                 </div>
+                <ScorecardPanel
+                  token={token}
+                  applicationId={applications.find((item) => item.candidate_id === candidate.id && (fitJobId ? item.job_id === Number(fitJobId) : item.stage_name === "Interview"))?.id || applications.find((item) => item.candidate_id === candidate.id)?.id}
+                  candidateName={candidate.first_name + " " + candidate.last_name}
+                  apiRequest={apiRequest}
+                  onNotice={setNotice}
+                  onError={(requestError) => setError(errorText(requestError))}
+                />
               </section>;
             })()}
           </>}
