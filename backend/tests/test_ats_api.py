@@ -335,12 +335,12 @@ def test_matching_explanations_and_recruiter_override(client, monkeypatch):
     assert [match["candidate_id"] for match in matches] == [strong_candidate["id"], weak_candidate["id"]]
     assert matches[0]["model_score"] > matches[1]["model_score"]
     assert matches[1]["score_breakdown"]["experience"] == 100
-    assert any("open to freshers" in item for item in matches[1]["explanations"])
-    assert matches[0]["score_breakdown"].keys() == {"skills", "semantic", "experience", "education", "location"}
+    assert any("Fresher eligibility is allowed" in item for item in matches[1]["explanations"])
+    assert {"required_skill_coverage", "preferred_skill_coverage", "experience_alignment", "education_alignment", "location_alignment", "work_mode_alignment", "project_evidence", "semantic_similarity"}.issubset(matches[0]["score_breakdown"])
     assert matches[0]["semantic_mode"] == "lexical_fallback"
     assert {"Python", "PostgreSQL"}.issubset(matches[0]["matched_skills"])
     assert len(matches[0]["cv_summary"]) in {3, 4, 5}
-    assert any("Required skills matched" in explanation for explanation in matches[0]["explanations"])
+    assert any("Required skills found" in explanation for explanation in matches[0]["explanations"])
 
     original_score = matches[0]["model_score"]
     feedback = client.patch(
@@ -891,7 +891,7 @@ def test_resume_intelligence_extracts_extended_profile_and_non_definitive_signal
     assert parsed["certifications"]
     assert parsed["companies"] == ["Acme Labs"]
     assert parsed["job_titles"] == ["Senior Engineer"]
-    assert parsed["resume_intelligence_version"] == 2
+    assert parsed["resume_intelligence_version"] == 3
     assert "disclaimer" in parsed["resume_quality"]
     assert "linkedin" not in parsed["resume_quality"]["missing_fields"]
     assert "GitHub" not in parsed["resume_quality"]["optional_missing_fields"]
