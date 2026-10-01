@@ -1408,6 +1408,10 @@ export default function AtsWorkspace() {
               <div className="mt-4 grid gap-3 border-t border-ink-50 pt-3 sm:grid-cols-2">
                 <div><p className="text-[11px] font-semibold uppercase text-ink-500">Required skills</p><p className="mt-1 text-sm">{(matchAnalysis.required_skills || []).join(", ") || "None extracted"}</p></div>
                 <div><p className="text-[11px] font-semibold uppercase text-ink-500">Preferred skills</p><p className="mt-1 text-sm">{(matchAnalysis.preferred_skills || []).join(", ") || "None extracted"}</p></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Work mode</p><p className="mt-1 capitalize">{matchAnalysis.work_mode || "Unspecified"}</p></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Responsibilities</p><ul className="mt-1 grid gap-1 text-sm">{(matchAnalysis.responsibilities || []).slice(0, 5).map((item, index) => <li key={index}>• {item}</li>)}</ul></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Interview topics</p><p className="mt-1 text-sm">{(matchAnalysis.interview_topics || []).join(", ") || "No topics extracted"}</p></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Skill normalization</p><div className="mt-1 flex flex-wrap gap-1.5">{Object.entries(matchAnalysis.skill_normalization || {}).map(([raw, normalized]) => <span key={raw} className="rounded-full bg-ink-50 px-2 py-1 text-[11px]">{raw} → {normalized}</span>)}</div></div>
               </div>
             </section>}
             {matches.length > 0 && <div className="mb-3 flex items-center justify-between text-xs text-ink-500">
