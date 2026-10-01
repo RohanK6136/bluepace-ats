@@ -533,8 +533,8 @@ def reschedule_interview(
 @router.post("/interviews/{interview_id}/cancel")
 def cancel_interview(
     interview_id: int,
-    reason: str | None = Query(default=None, max_length=1000),
     background_tasks: BackgroundTasks,
+    reason: str | None = Query(default=None, max_length=1000),
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -1083,7 +1083,14 @@ def _apply_automation_action(db: Session, application: Application, rule: Automa
             if stage is not None:
                 application.stage_id = stage.id
                 application.status = "active" if target not in {"Hired", "Rejected"} else target.casefold()
-                record_audit(db, User(id=rule.created_by_id), "automation.stage_moved", "application", application.id, after={"stage_name": target, "rule_id": rule.id})
+                db.add(AuditLog(
+                    organization_id=application.organization_id,
+                    actor_id=rule.created_by_id,
+                    action="automation.stage_moved",
+                    entity_type="application",
+                    entity_id=application.id,
+                    after_data={"stage_name": target, "rule_id": rule.id},
+                ))
     return queued
 
 
