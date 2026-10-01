@@ -191,6 +191,7 @@ class CandidateMergeAudit(Base):
     field_choices: Mapped[dict] = mapped_column(JSON, default=dict)
     before_survivor: Mapped[dict] = mapped_column(JSON, default=dict)
     before_merged: Mapped[dict] = mapped_column(JSON, default=dict)
+    after_survivor: Mapped[dict] = mapped_column(JSON, default=dict)
     merge_summary: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
