@@ -2,6 +2,7 @@ import io
 import json
 import os
 import re
+from datetime import datetime
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -130,8 +131,8 @@ class DocumentExtractor:
     def _fallback_parse(self, raw_text):
         email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", raw_text)
         phone_match = re.search(r"\+?\d{0,2}[\s.-]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", raw_text)
-        linkedin_match = re.search(r"linkedin\.com/in/[a-zA-Z0-9_-]+", raw_text, re.IGNORECASE)
-        github_match = re.search(r"github\.com/[a-zA-Z0-9_-]+", raw_text, re.IGNORECASE)
+        linkedin_match = re.search(r"(?:https?://)?(?:www\.)?linkedin\.com/in/[a-zA-Z0-9._-]+", raw_text, re.IGNORECASE)
+        github_match = re.search(r"(?:https?://)?(?:www\.)?github\.com/[a-zA-Z0-9._-]+", raw_text, re.IGNORECASE)
         lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
         possible_name = next(
             (
@@ -153,15 +154,15 @@ class DocumentExtractor:
             "name": possible_name,
             "email": email_match.group(0) if email_match else None,
             "phone": phone_match.group(0).strip() if phone_match else None,
-            "linkedin": linkedin_match.group(0) if linkedin_match else None,
-            "github": github_match.group(0) if github_match else None,
+            "linkedin": self._normalize_url(linkedin_match.group(0)) if linkedin_match else None,
+            "github": self._normalize_url(github_match.group(0)) if github_match else None,
             "skills": sorted(set(skills)),
             "experience": experience,
             "education": education,
             "hobbies": [],
             "university_projects": projects,
             "projects": projects,
-            "certifications": self._extract_certifications(lines),
+            "certifications": self._extract_certifications(lines) or self._extract_inline_list(raw_text, ["certifications", "certification", "licenses", "license"]),
             "years_of_experience": self._extract_explicit_experience_years(raw_text) or self._experience_years_from_entries(experience),
             "companies": list(dict.fromkeys(str(item.get("company")).strip() for item in experience if isinstance(item, dict) and item.get("company"))),
             "job_titles": list(dict.fromkeys(str(item.get("title")).strip() for item in experience if isinstance(item, dict) and item.get("title"))),
@@ -187,6 +188,21 @@ class DocumentExtractor:
             if section:
                 return [re.sub(r"^[•*\-]\s*", "", line).strip() for line in section if line.strip()][:30]
         return []
+
+    @staticmethod
+    def _normalize_url(value):
+        value = re.sub(r"\s+", "", str(value or "")).strip()
+        if not value:
+            return None
+        return value if re.match(r"^https?://", value, re.IGNORECASE) else "https://" + value
+
+    @staticmethod
+    def _extract_inline_list(raw_text, labels):
+        label_pattern = "|".join(re.escape(label) for label in labels)
+        match = re.search(rf"(?:{label_pattern})\s*[:\-]\s*([^\n]+)", raw_text, re.IGNORECASE)
+        if not match:
+            return []
+        return [item.strip(" •*,-") for item in re.split(r"[,;|]", match.group(1)) if item.strip(" •*,-")][:30]
 
     @staticmethod
     def _extract_location(raw_text):
@@ -276,54 +292,49 @@ class DocumentExtractor:
 
     @staticmethod
     def _resume_quality_flags(raw_text, parsed):
-        flags = []
         missing = []
-        checks = {
-            "email": "email",
-            "phone": "phone",
-            "skills": "skills",
-            "experience": "experience",
-            "education": "education",
-        }
-        for label, key in checks.items():
-            value = parsed.get(key)
-            if not value:
-                missing.append(label)
-        optional_checks = {
-            "linkedin": "LinkedIn",
-            "github": "GitHub",
-            "certifications": "certifications",
-            "current_location": "current location",
-            "preferred_location": "preferred location",
-            "notice_period": "notice period",
-            "work_authorization": "work authorization",
-        }
-        for key, label in optional_checks.items():
+        optional_missing = []
+        suspicious = []
+        for key in ("email", "phone", "skills", "experience", "education"):
             if not parsed.get(key):
-                missing.append(label)
+                missing.append(key)
+        optional = {
+            "linkedin": "LinkedIn", "github": "GitHub", "certifications": "certifications",
+            "current_location": "current location", "preferred_location": "preferred location",
+            "notice_period": "notice period", "work_authorization": "work authorization",
+        }
+        for key, label in optional.items():
+            if not parsed.get(key):
+                optional_missing.append(label)
 
         email = str(parsed.get("email") or "")
         if email and not re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", email):
-            flags.append({"field": "email", "severity": "medium", "reason": "Email was extracted but does not match a standard email pattern.", "evidence": email})
+            suspicious.append({"field": "email", "severity": "medium", "reason": "Extracted email does not match a standard email pattern.", "evidence": email})
         phone = str(parsed.get("phone") or "")
         if phone and len(re.sub(r"\D", "", phone)) < 8:
-            flags.append({"field": "phone", "severity": "low", "reason": "Phone number appears unusually short; verify against the source resume.", "evidence": phone})
-        for item in parsed.get("experience") or []:
-            if not isinstance(item, dict):
-                continue
-            duration = str(item.get("duration") or "")
-            if duration and not re.search(r"(?:19|20)\d{2}", duration):
-                flags.append({"field": "experience", "severity": "low", "reason": "An experience entry has a duration that could not be normalized to calendar years.", "evidence": duration})
+            suspicious.append({"field": "phone", "severity": "low", "reason": "Extracted phone number appears unusually short.", "evidence": phone})
+
         explicit = parsed.get("years_of_experience")
         calculated = DocumentExtractor._experience_years_from_entries(parsed.get("experience"))
         if explicit is not None and calculated is not None and abs(float(explicit) - float(calculated)) > 2:
-            flags.append({"field": "years_of_experience", "severity": "medium", "reason": "Explicit experience duration differs materially from the dates detected in employment entries.", "evidence": f"Explicit: {explicit}; date-based estimate: {calculated}"})
-        if re.search(r"\b(?:19|20)\d{2}\b", raw_text) and parsed.get("education"):
-            for item in parsed.get("education") or []:
-                year = item.get("graduation_year") if isinstance(item, dict) else None
-                if year and int(str(year)) > __import__("datetime").datetime.now().year + 2:
-                    flags.append({"field": "education", "severity": "medium", "reason": "A graduation year is unusually far in the future; verify the extracted year.", "evidence": str(year)})
-        return {"missing_fields": missing, "suspicious_fields": flags}
+            suspicious.append({"field": "years_of_experience", "severity": "medium", "reason": "Explicit experience duration differs materially from the employment dates detected.", "evidence": f"Explicit: {explicit}; date-based estimate: {calculated}"})
+
+        current_year = datetime.now().year
+        for item in parsed.get("education") or []:
+            year = item.get("graduation_year") if isinstance(item, dict) else None
+            if year:
+                try:
+                    if int(str(year)) > current_year + 2:
+                        suspicious.append({"field": "education", "severity": "medium", "reason": "Graduation year is unusually far in the future; verify it.", "evidence": str(year)})
+                except ValueError:
+                    pass
+
+        return {
+            "missing_fields": missing,
+            "optional_missing_fields": optional_missing,
+            "suspicious_fields": suspicious,
+            "disclaimer": "Review signals are based only on extracted resume text and are not definitive facts about the candidate.",
+        }
 
     def _llm_parse(self, raw_text):
         if self.client is None:
@@ -331,9 +342,12 @@ class DocumentExtractor:
         prompt = f"""
 Extract only information present in this resume. Do not infer missing facts.
 Return a JSON object with name, email, phone, linkedin, github, skills (strings),
-experience (objects with company, title, duration, description), education
-(objects with degree, university, cgpa, graduation_year), hobbies,
-university_projects, highest_education, and is_fresher.
+years_of_experience, companies (strings), job_titles (strings), experience
+(objects with company, title, duration, description), education
+(objects with degree, university, cgpa, graduation_year), certifications (strings),
+projects, university_projects, highest_education, notice_period, current_location,
+preferred_location, work_authorization, and is_fresher. Extract only explicit
+evidence from the resume; never infer missing facts. Use null or [] when absent.
 
 Resume text:
 {raw_text[:12000]}
@@ -403,6 +417,9 @@ Resume text:
                     parsed[field] = llm_data[field]
             if isinstance(llm_data.get("is_fresher"), bool):
                 parsed["is_fresher"] = llm_data["is_fresher"]
+        for social_field in ("linkedin", "github"):
+            if parsed.get(social_field):
+                parsed[social_field] = self._normalize_url(parsed[social_field])
         if not parsed.get("projects"):
             parsed["projects"] = parsed.get("university_projects") or []
         if not parsed.get("companies"):
@@ -412,6 +429,7 @@ Resume text:
         if parsed.get("years_of_experience") is None:
             parsed["years_of_experience"] = self._experience_years_from_entries(parsed.get("experience"))
         parsed["resume_quality"] = self._resume_quality_flags(raw_text, parsed)
+        parsed["resume_intelligence_version"] = 2
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
         return parsed
