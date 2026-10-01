@@ -310,6 +310,17 @@ class ResumeData(BaseModel):
     hobbies: List[str] = []
     university_projects: List[str] = []
     highest_education: Optional[str] = None
+    years_of_experience: Optional[float] = None
+    companies: List[str] = []
+    job_titles: List[str] = []
+    certifications: List[str] = []
+    projects: List[object] = []
+    notice_period: Optional[str] = None
+    current_location: Optional[str] = None
+    preferred_location: Optional[str] = None
+    work_authorization: Optional[str] = None
+    resume_quality: dict = {}
+    resume_intelligence_version: int = 1
     is_fresher: bool = False
     raw_text_length: int = 0
 
