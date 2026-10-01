@@ -8,7 +8,6 @@ export default function CommandCenterPanel({ token, apiRequest, onNotice, onErro
   const [data, setData] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [interviewer, setInterviewer] = useState(null);
-  const [calendar, setCalendar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reportLoading, setReportLoading] = useState("");
 
@@ -24,41 +23,24 @@ export default function CommandCenterPanel({ token, apiRequest, onNotice, onErro
       setData(dashboardResult.value.data);
       setAnalytics(analyticsResult.value.data);
 
-      // Optional integrations are best-effort: a provider/configuration failure
-      // must never take down the Command Center.
       const dashboard = dashboardResult.value.data || {};
-      const [interviewerResult, calendarResult] = await Promise.allSettled([
-        apiRequest(token, "get", "/interviewer-dashboard"),
-        apiRequest(token, "get", "/integrations/calendar/status"),
-      ]);
+      const interviewerResult = await apiRequest(token, "get", "/interviewer-dashboard").catch(() => null);
 
       setInterviewer(
-        interviewerResult.status === "fulfilled"
-          ? interviewerResult.value.data
-          : {
-              pending_scorecards: dashboard.pending_scorecards ?? 0,
-              interviews: (dashboard.upcoming_interviews || []).map((item) => ({
-                interview_id: item.id,
-                candidate_name: item.candidate_name,
-                job_title: item.job_title,
-                round_name: item.round_name || item.mode || "Interview",
-                starts_at: item.starts_at,
-                scorecard_submitted: item.scorecard_submitted ?? false,
-                status: item.status || "scheduled",
-              })),
-            },
+        interviewerResult?.data || {
+          pending_scorecards: dashboard.pending_scorecards ?? 0,
+          interviews: (dashboard.upcoming_interviews || []).map((item) => ({
+            interview_id: item.id,
+            candidate_name: item.candidate_name,
+            job_title: item.job_title,
+            round_name: item.round_name || item.mode || "Interview",
+            starts_at: item.starts_at,
+            scorecard_submitted: item.scorecard_submitted ?? false,
+            status: item.status || "scheduled",
+          })),
+        },
       );
 
-      setCalendar(
-        calendarResult.status === "fulfilled"
-          ? calendarResult.value.data
-          : {
-              message: "Calendar invitations are available through the interview scheduling workflow.",
-              google: { configured: false },
-              microsoft: { configured: false },
-              ics_available: true,
-            },
-      );
     } catch (error) {
       setData(null);
       setAnalytics(null);
@@ -147,14 +129,12 @@ export default function CommandCenterPanel({ token, apiRequest, onNotice, onErro
         </section>
 
         <section className={card}>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Calendar integrations</p>
-          <p className="mt-2 text-sm text-ink-500">{calendar?.message}</p>
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            <div className="rounded-lg border border-ink-100 p-3"><p className="text-xs font-semibold">Google Calendar</p><p className="mt-1 text-xs">{calendar?.google?.configured ? "OAuth configured" : "ICS fallback"}</p></div>
-            <div className="rounded-lg border border-ink-100 p-3"><p className="text-xs font-semibold">Microsoft 365</p><p className="mt-1 text-xs">{calendar?.microsoft?.configured ? "OAuth configured" : "ICS fallback"}</p></div>
-            <div className="rounded-lg border border-ink-100 p-3"><p className="text-xs font-semibold">Universal calendar</p><p className="mt-1 text-xs">{calendar?.ics_available ? "ICS available" : "Unavailable"}</p></div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Calendar invitations</p>
+          <p className="mt-2 text-sm text-ink-500">Interview emails include a universal <code>.ics</code> calendar invitation.</p>
+          <div className="mt-4 rounded-lg border border-ink-100 p-3">
+            <p className="text-xs font-semibold">Compatible calendars</p>
+            <p className="mt-1 text-xs text-ink-600">Google Calendar, Outlook, Apple Calendar and other apps that support standard ICS files.</p>
           </div>
-          <p className="mt-3 text-[11px] text-ink-500">Provider credentials are intentionally kept in server environment variables, not recruiter browser storage.</p>
         </section>
       </div>
 
