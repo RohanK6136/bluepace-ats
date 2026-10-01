@@ -2798,7 +2798,7 @@ def update_application_stage(
     db: Session = Depends(get_db),
 ):
     application = _get_org_record(db, Application, application_id, user.organization_id)
-    if application.status in TERMINAL_STAGES.values() and application.stage.name != request.stage_name:
+    if application.status in {*TERMINAL_STAGES.values(), "withdrawn"} and application.stage.name != request.stage_name:
         raise HTTPException(status_code=409, detail="A completed application cannot be moved")
 
     stages = ensure_job_stages(db, application.job)
@@ -2907,7 +2907,7 @@ def bulk_update_application_stage(
 
     email_ids = []
     for application in applications:
-        if application.status in TERMINAL_STAGES.values() and application.stage.name != request.stage_name:
+        if application.status in {*TERMINAL_STAGES.values(), "withdrawn"} and application.stage.name != request.stage_name:
             raise HTTPException(status_code=409, detail="Completed applications cannot be moved")
         stages = ensure_job_stages(db, application.job)
         previous_name = application.stage.name if application.stage else None

@@ -6,7 +6,8 @@ import EmailTemplatesPanel from "./EmailTemplatesPanel.jsx";
 import ScorecardPanel from "./ScorecardPanel.jsx";
 import TalentPoolsPanel from "./TalentPoolsPanel.jsx";
 import AnalyticsPanel from "./AnalyticsPanel.jsx";
-import ApplicationEnhancements from "./ApplicationEnhancements.jsx";\nimport RecruiterToolsPanel from "./RecruiterToolsPanel.jsx";
+import ApplicationEnhancements from "./ApplicationEnhancements.jsx";
+import RecruiterToolsPanel from "./RecruiterToolsPanel.jsx";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (

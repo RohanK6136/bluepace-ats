@@ -75,6 +75,15 @@ class AssistantRequest(BaseModel):
 
 
 def _org_record(db: Session, model, record_id: int, organization_id: int):
+    if model is Interview:
+        record = db.get(Interview, record_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Interview not found")
+        application = db.get(Application, record.application_id)
+        if application is None or application.organization_id != organization_id:
+            raise HTTPException(status_code=404, detail="Interview not found")
+        return record
+
     record = db.scalar(
         select(model).where(
             model.id == record_id,
@@ -277,7 +286,10 @@ def merge_candidates(
     if not keep.resume_data and duplicate.resume_data:
         keep.resume_data = duplicate.resume_data
     if duplicate.cv_summary:
-        keep.cv_summary = list(dict.fromkeys((_candidate_tags(keep) + [str(v) for v in duplicate.cv_summary])))
+        keep.cv_summary = list(dict.fromkeys(
+            [str(v) for v in (keep.cv_summary or []) if str(v).strip()]
+            + [str(v) for v in duplicate.cv_summary if str(v).strip()]
+        ))
 
     conflicting_applications = 0
     duplicate_application_rows = db.scalars(

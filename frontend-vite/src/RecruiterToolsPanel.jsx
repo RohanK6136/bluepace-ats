@@ -159,7 +159,7 @@ export default function RecruiterToolsPanel({
             <>
               <div className="mt-4 flex flex-wrap gap-2">
                 {tags.map((tag) => (
-                  <button key={tag} type="button" disabled={!canWrite} onClick={() => saveTags(tags.filter((item) => item.casefold?.() !== tag.casefold?.() && item.toLowerCase() !== tag.toLowerCase()))} className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">
+                  <button key={tag} type="button" disabled={!canWrite} onClick={() => saveTags(tags.filter((item) => item.toLowerCase() !== tag.toLowerCase()))} className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">
                     {tag} <span className="ml-1 text-blue-500">×</span>
                   </button>
                 ))}
