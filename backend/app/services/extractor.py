@@ -291,6 +291,69 @@ class DocumentExtractor:
         return round(total_months / 12, 1) if total_months else None
 
     @staticmethod
+    def _evidence_and_confidence(raw_text, parsed):
+        """
+        Attach source snippets and extraction confidence without turning inference into fact.
+        Confidence describes extraction certainty, not candidate quality.
+        """
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        evidence = []
+        confidence = {}
+
+        explicit_fields = {
+            "name": 0.95, "email": 0.99, "phone": 0.97, "linkedin": 0.99,
+            "github": 0.99, "notice_period": 0.95, "current_location": 0.94,
+            "preferred_location": 0.94, "work_authorization": 0.94,
+            "certifications": 0.88, "skills": 0.88, "education": 0.88,
+            "experience": 0.88, "projects": 0.85,
+        }
+        for field, base_confidence in explicit_fields.items():
+            value = parsed.get(field)
+            if not value:
+                continue
+            values = value if isinstance(value, list) else [value]
+            matched = []
+            for item in values[:20]:
+                if isinstance(item, dict):
+                    search_values = [str(v) for v in item.values() if v]
+                else:
+                    search_values = [str(item)]
+                line_match = next(
+                    (line for line in lines if any(
+                        token.strip() and token.strip().lower() in line.lower()
+                        for token in search_values[:5]
+                    )),
+                    None,
+                )
+                if line_match and line_match not in matched:
+                    matched.append(line_match)
+            evidence.append({
+                "field": field,
+                "value": value,
+                "source_lines": matched[:5],
+                "confidence": base_confidence if matched else max(base_confidence - 0.15, 0.5),
+            })
+            confidence[field] = evidence[-1]["confidence"]
+
+        if parsed.get("years_of_experience") is not None:
+            calculated = self._experience_years_from_entries(parsed.get("experience"))
+            explicit = self._extract_explicit_experience_years(raw_text)
+            confidence["years_of_experience"] = 0.97 if explicit is not None else (0.84 if calculated is not None else 0.5)
+            evidence.append({
+                "field": "years_of_experience",
+                "value": parsed["years_of_experience"],
+                "source_lines": [
+                    line for line in lines
+                    if re.search(r"years?|yrs?", line, re.IGNORECASE)
+                    and "experience" in line.lower()
+                ][:3],
+                "confidence": confidence["years_of_experience"],
+                "derivation": "explicit_resume_statement" if explicit is not None else "employment_dates",
+            })
+
+        return evidence, confidence
+
+    @staticmethod
     def _resume_quality_flags(raw_text, parsed):
         missing = []
         optional_missing = []
@@ -429,7 +492,8 @@ Resume text:
         if parsed.get("years_of_experience") is None:
             parsed["years_of_experience"] = self._experience_years_from_entries(parsed.get("experience"))
         parsed["resume_quality"] = self._resume_quality_flags(raw_text, parsed)
-        parsed["resume_intelligence_version"] = 2
+        parsed["extraction_evidence"], parsed["extraction_confidence"] = self._evidence_and_confidence(raw_text, parsed)
+        parsed["resume_intelligence_version"] = 3
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
         return parsed
