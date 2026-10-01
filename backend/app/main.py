@@ -1527,6 +1527,160 @@ def dashboard_summary(
         "upcoming_interviews": upcoming,
     }
 
+
+@app.get("/emails")
+def list_emails(
+    limit: int = Query(default=100, ge=1, le=500),
+    status_value: str | None = None,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    statement = select(Email).where(Email.organization_id == user.organization_id)
+    if status_value:
+        statement = statement.where(Email.status == status_value)
+    emails = db.scalars(statement.order_by(Email.id.desc()).limit(limit)).all()
+    application_ids = {email.application_id for email in emails if email.application_id is not None}
+    applications = {}
+    if application_ids:
+        applications = {
+            application.id: application
+            for application in db.scalars(
+                select(Application)
+                .where(
+                    Application.id.in_(application_ids),
+                    Application.organization_id == user.organization_id,
+                )
+                .options(selectinload(Application.job), selectinload(Application.candidate))
+            ).all()
+        }
+    return [
+        {
+            "id": email.id,
+            "application_id": email.application_id,
+            "candidate_name": (
+                f"{applications[email.application_id].candidate.first_name} {applications[email.application_id].candidate.last_name}".strip()
+                if email.application_id in applications else "Candidate"
+            ),
+            "job_title": applications[email.application_id].job.title if email.application_id in applications else None,
+            "recipient": email.recipient,
+            "subject": email.subject,
+            "status": email.status,
+            "error_message": email.error_message,
+            "sent_at": email.sent_at,
+        }
+        for email in emails
+    ]
+
+
+@app.get("/candidates/{candidate_id}/activity")
+def candidate_activity(
+    candidate_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    applications = db.scalars(
+        select(Application)
+        .where(
+            Application.candidate_id == candidate.id,
+            Application.organization_id == user.organization_id,
+        )
+        .options(selectinload(Application.job), selectinload(Application.stage))
+        .order_by(Application.applied_at.desc())
+    ).all()
+    application_ids = [application.id for application in applications]
+    events = []
+
+    if application_ids:
+        for entry in db.scalars(
+            select(AuditLog)
+            .where(
+                AuditLog.organization_id == user.organization_id,
+                AuditLog.entity_type == "application",
+                AuditLog.entity_id.in_(application_ids),
+            )
+            .order_by(AuditLog.created_at.desc())
+            .limit(100)
+        ).all():
+            events.append({
+                "type": "activity",
+                "title": entry.action.replace(".", " · ").replace("_", " ").title(),
+                "details": entry.after_data or {},
+                "created_at": entry.created_at,
+                "application_id": entry.entity_id,
+            })
+
+        for email in db.scalars(
+            select(Email)
+            .where(
+                Email.organization_id == user.organization_id,
+                Email.application_id.in_(application_ids),
+            )
+            .order_by(Email.id.desc())
+            .limit(100)
+        ).all():
+            events.append({
+                "type": "email",
+                "title": email.subject,
+                "details": {
+                    "status": email.status,
+                    "recipient": email.recipient,
+                    "error_message": email.error_message,
+                },
+                "created_at": email.sent_at or datetime.now(timezone.utc),
+                "application_id": email.application_id,
+            })
+
+        for interview in db.scalars(
+            select(Interview)
+            .where(Interview.application_id.in_(application_ids))
+            .order_by(Interview.starts_at.desc())
+            .limit(50)
+        ).all():
+            events.append({
+                "type": "interview",
+                "title": "Interview scheduled",
+                "details": {
+                    "starts_at": interview.starts_at,
+                    "duration_minutes": interview.duration_minutes,
+                    "mode": interview.mode,
+                    "location": interview.location,
+                    "meeting_url": interview.meeting_url,
+                    "status": interview.status,
+                },
+                "created_at": interview.starts_at,
+                "application_id": interview.application_id,
+            })
+
+    events.sort(
+        key=lambda event: event.get("created_at")
+        if isinstance(event.get("created_at"), datetime)
+        else datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    return {
+        "candidate": {
+            "id": candidate.id,
+            "name": f"{candidate.first_name} {candidate.last_name}".strip(),
+            "email": candidate.email,
+            "phone": candidate.phone,
+            "source": candidate.source,
+        },
+        "applications": [
+            {
+                "id": application.id,
+                "job_id": application.job_id,
+                "job_title": application.job.title,
+                "stage_name": application.stage.name if application.stage else "Applied",
+                "status": application.status,
+                "applied_at": application.applied_at,
+            }
+            for application in applications
+        ],
+        "events": events[:120],
+    }
+
+
 @app.get("/candidates/{candidate_id}", response_model=CandidateRead)
 def get_candidate(
     candidate_id: int,
