@@ -6,7 +6,7 @@ import EmailTemplatesPanel from "./EmailTemplatesPanel.jsx";
 import ScorecardPanel from "./ScorecardPanel.jsx";
 import TalentPoolsPanel from "./TalentPoolsPanel.jsx";
 import AnalyticsPanel from "./AnalyticsPanel.jsx";
-import ApplicationEnhancements from "./ApplicationEnhancements.jsx";
+import ApplicationEnhancements from "./ApplicationEnhancements.jsx";\nimport RecruiterToolsPanel from "./RecruiterToolsPanel.jsx";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -1475,6 +1475,16 @@ export default function AtsWorkspace() {
                   apiRequest={apiRequest}
                   onNotice={setNotice}
                   onError={(requestError) => setError(errorText(requestError))}
+                />\n                <RecruiterToolsPanel
+                  token={token}
+                  candidates={candidates}
+                  applications={applications}
+                  candidateId={candidate.id}
+                  compact
+                  canWrite={canWrite}
+                  apiRequest={apiRequest}
+                  onNotice={setNotice}
+                  onError={(requestError) => setError(errorText(requestError))}
                 />
               </section>;
             })()}
@@ -1494,7 +1504,7 @@ export default function AtsWorkspace() {
               {!emails.length && <EmptyState title="No email events yet" detail="Application and pipeline notifications will appear here." />}
             </div>
           </>}
-          {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab /></section>}
+          {view === "tools" && <RecruiterToolsPanel token={token} candidates={candidates} applications={applications} canWrite={canWrite} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}\n          {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab /></section>}
         </main>
       </div>
 
