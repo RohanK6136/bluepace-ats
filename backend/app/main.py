@@ -1737,15 +1737,16 @@ def list_candidates(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     search: str | None = None,
-    skill: str | None = None,
+    skill: str | None = Query(default=None, description="Comma-separated required skills; all must match"),
     source: str | None = None,
     location: str | None = None,
-    tags: str | None = Query(default=None, description="Comma-separated candidate tags"),
+    tags: str | None = Query(default=None, description="Comma-separated candidate tags; all must match"),
     stage_name: str | None = Query(default=None, pattern="^(Applied|Screening|Interview|Offer|Hired|Rejected|withdrawn)$"),
     min_experience_years: int | None = Query(default=None, ge=0, le=60),
     max_experience_years: int | None = Query(default=None, ge=0, le=60),
     notice_period: str | None = None,
     education: str | None = None,
+    job_history: str | None = Query(default=None, description="Search company, title, duration, or job-history text"),
     availability: str | None = None,
     preferred_location: str | None = None,
     work_authorization: str | None = None,
@@ -1780,14 +1781,29 @@ def list_candidates(
             ]
         ).casefold()
 
+    candidate_stage_names: dict[int, set[str]] = {}
+    stage_rows = db.execute(
+        select(Application.candidate_id, Stage.name)
+        .join(Stage, Application.stage_id == Stage.id)
+        .where(Application.organization_id == user.organization_id)
+    ).all()
+    for candidate_id, stage_value in stage_rows:
+        candidate_stage_names.setdefault(candidate_id, set()).add(stage_value)
+
     filtered = []
     for candidate in candidates:
         profile = candidate.resume_data or {}
         content = haystack(candidate)
         if search and not _candidate_search_matches(content, search):
             continue
-        if skill and skill.casefold() not in " ".join(str(value) for value in profile.get("skills") or []).casefold():
-            continue
+        if skill:
+            candidate_skill_values = [str(value).casefold() for value in profile.get("skills") or []]
+            required_skills = [value.strip().casefold() for value in skill.split(",") if value.strip()]
+            if required_skills and not all(
+                any(required == current or required in current for current in candidate_skill_values)
+                for required in required_skills
+            ):
+                continue
         if source and source.casefold() not in (candidate.source or "").casefold():
             continue
         candidate_tag_values = [str(value).casefold() for value in (candidate.tags or [])]
@@ -1809,21 +1825,23 @@ def list_candidates(
             if stage_name.casefold() not in {value.casefold() for value in stage_values}:
                 continue
         profile_lower = json.dumps(profile, ensure_ascii=False).casefold()
-        for query_value, keys in [
-            (notice_period, ("notice_period", "notice period")),
-            (education, ("highest_education", "education", "degree")),
-            (availability, ("availability", "available_from", "available")),
-            (preferred_location, ("preferred_location", "preferred location")),
-            (work_authorization, ("work_authorization", "work authorization", "visa", "authorization")),
-        ]:
-            if query_value and not (query_value.casefold() in profile_lower):
+        if any(
+            query_value and query_value.casefold() not in profile_lower
+            for query_value in (notice_period, education, job_history, availability, preferred_location, work_authorization)
+        ):
+            continue
+        if stage_name:
+            stage_values = candidate_stage_names.get(candidate.id, set())
+            if stage_name.casefold() not in {value.casefold() for value in stage_values}:
                 continue
         if has_applied_job_id is not None:
-            applied = db.scalar(select(Application.id).where(
-                Application.organization_id == user.organization_id,
-                Application.candidate_id == candidate.id,
-                Application.job_id == has_applied_job_id,
-            ))
+            applied = db.scalar(
+                select(Application.id).where(
+                    Application.organization_id == user.organization_id,
+                    Application.candidate_id == candidate.id,
+                    Application.job_id == has_applied_job_id,
+                )
+            )
             if applied is None:
                 continue
         filtered.append(candidate)
