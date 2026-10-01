@@ -104,7 +104,7 @@ from app.security import create_access_token, create_candidate_portal_token, dec
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
-from app.services.matching import matching_service
+from app.services.matching import MATCH_WEIGHTS, matching_service
 from app.routers.merge_center import router as merge_center_router
 from app.routers.offer_management import router as offer_management_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
@@ -749,7 +749,15 @@ def _stage_email(
     }
     return _render_email_template(template, values)
 
-def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
+def _serialize_candidate_match(match: CandidateJobMatch, job: Job | None = None) -> dict:
+    matched_skills = match.matched_skills or []
+    matched_set = {str(skill).casefold() for skill in matched_skills}
+    analysis = (job.jd_analysis if job is not None else {}) or {}
+    required_skills = [str(skill) for skill in analysis.get("required_skills", []) if str(skill).strip()]
+    preferred_skills = [str(skill) for skill in analysis.get("preferred_skills", []) if str(skill).strip()]
+    matched_required = [skill for skill in required_skills if skill.casefold() in matched_set]
+    matched_preferred = [skill for skill in preferred_skills if skill.casefold() in matched_set]
+    breakdown = match.score_breakdown or {}
     return {
         "id": match.id,
         "job_id": match.job_id,
@@ -760,11 +768,18 @@ def _serialize_candidate_match(match: CandidateJobMatch) -> dict:
         "effective_score": match.recruiter_override if match.recruiter_override is not None else match.model_score,
         "recruiter_override": match.recruiter_override,
         "recruiter_note": match.recruiter_note,
-        "score_breakdown": match.score_breakdown or {},
-        "matched_skills": match.matched_skills or [],
+        "score_breakdown": breakdown,
+        "score_weights": MATCH_WEIGHTS,
+        "matched_skills": matched_skills,
+        "matched_required_skills": matched_required,
+        "matched_preferred_skills": matched_preferred,
         "skill_gaps": match.skill_gaps or [],
+        "experience_years": float(breakdown.get("experience_alignment", 0)),
+        "required_experience_years": analysis.get("minimum_experience_years"),
+        "project_evidence": {"coverage": breakdown.get("project_evidence", 0)},
         "explanations": match.explanations or [],
         "semantic_mode": match.semantic_mode,
+        "decision_support_only": True,
         "cv_summary": match.candidate.cv_summary or matching_service._fallback_candidate_summary(match.candidate),
     }
 
@@ -1462,7 +1477,7 @@ def rank_job_candidates(
         key=lambda match: match.recruiter_override if match.recruiter_override is not None else match.model_score,
         reverse=True,
     )
-    return [_serialize_candidate_match(match) for match in results]
+    return [_serialize_candidate_match(match, job) for match in results]
 
 
 @app.get("/jobs/{job_id}/matches", response_model=list[CandidateMatchRead])
@@ -1599,7 +1614,7 @@ def update_candidate_match_feedback(
     )
     db.commit()
     db.refresh(match)
-    return _serialize_candidate_match(match)
+    return _serialize_candidate_match(match, match.job if hasattr(match, "job") else None)
 
 
 @app.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
