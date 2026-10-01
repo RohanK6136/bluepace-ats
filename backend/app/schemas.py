@@ -242,3 +242,106 @@ class EmailTemplateUpdate(BaseModel):
 class EmailTemplateTestRequest(BaseModel):
     template_name: str = Field(min_length=1, max_length=100)
     recipient: str = Field(min_length=3, max_length=320)
+
+
+class NoteCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=5000)
+
+
+class NoteRead(BaseModel):
+    id: int
+    application_id: int
+    author_id: int
+    author_name: str
+    body: str
+    created_at: datetime
+
+
+class TalentPoolCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
+
+
+class TalentPoolRead(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    candidate_count: int
+    created_at: datetime
+
+
+class TalentPoolCandidateRequest(BaseModel):
+    candidate_id: int
+
+
+class OfferCreate(BaseModel):
+    position_title: str = Field(min_length=1, max_length=200)
+    annual_ctc: Optional[str] = Field(default=None, max_length=100)
+    currency: str = Field(default="INR", min_length=3, max_length=10)
+    joining_date: Optional[datetime] = None
+    offer_letter_url: Optional[str] = Field(default=None, max_length=1000)
+    notes: Optional[str] = Field(default=None, max_length=5000)
+
+
+class OfferUpdate(BaseModel):
+    annual_ctc: Optional[str] = Field(default=None, max_length=100)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=10)
+    joining_date: Optional[datetime] = None
+    offer_letter_url: Optional[str] = Field(default=None, max_length=1000)
+    status: Optional[str] = Field(default=None, pattern="^(draft|sent|viewed|accepted|declined|expired)$")
+    notes: Optional[str] = Field(default=None, max_length=5000)
+
+
+class OfferRead(BaseModel):
+    id: int
+    application_id: int
+    position_title: str
+    annual_ctc: Optional[str]
+    currency: str
+    joining_date: Optional[datetime]
+    offer_letter_url: Optional[str]
+    status: str
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class InterviewCreate(BaseModel):
+    starts_at: datetime
+    duration_minutes: int = Field(default=60, ge=15, le=480)
+    mode: str = Field(default="online", pattern="^(online|offline)$")
+    location: Optional[str] = Field(default=None, max_length=500)
+    meeting_url: Optional[str] = Field(default=None, max_length=1000)
+    round_name: str = Field(default="Interview", min_length=1, max_length=100)
+
+
+class InterviewStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(scheduled|completed|cancelled|no_show)$")
+
+
+class InterviewRead(BaseModel):
+    id: int
+    application_id: int
+    interviewer_id: int
+    starts_at: datetime
+    duration_minutes: int
+    status: str
+    mode: str
+    location: Optional[str]
+    meeting_url: Optional[str]
+    round_name: str
+    round_number: int
+
+
+class CandidateComparisonRead(BaseModel):
+    application_id: int
+    job_title: str
+    score: int
+    matched_skills: list[str]
+    missing_skills: list[str]
+    experience_required: Optional[int]
+    experience_estimated: float
+    education_requirement: str
+    education_evidence: list[str]
+    project_evidence: list[str]
+    gaps: list[str]
