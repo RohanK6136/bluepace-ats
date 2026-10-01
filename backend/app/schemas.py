@@ -120,6 +120,9 @@ class CandidateRead(BaseModel):
     resume_storage_key: Optional[str]
     resume_data: Optional[dict]
     cv_summary: Optional[list[str]]
+    tags: Optional[list[str]] = None
+    archived: bool = False
+    merged_into_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 

@@ -56,6 +56,7 @@ def initialize_database():
     upgrade_phase4_columns(engine)
     upgrade_phase5_columns(engine)
     upgrade_phase6_columns(engine)
+    upgrade_phase7_columns(engine)
 
 
 def upgrade_phase1_columns(target_engine):
@@ -184,3 +185,32 @@ def upgrade_phase6_columns(target_engine):
         for table_name in additions:
             if table_name not in existing_tables:
                 continue
+
+def upgrade_phase7_columns(target_engine):
+    from app.models import Candidate
+
+    additions = {
+        "candidates": [
+            Candidate.__table__.c.tags,
+            Candidate.__table__.c.archived,
+            Candidate.__table__.c.merged_into_id,
+        ],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+        # Existing candidate rows predate ATS 2.1 fields. Normalize NULLs after
+        # adding the columns so response models receive stable values.
+        if "archived" in {column["name"] for column in inspect(connection).get_columns("candidates")}:
+            connection.execute(text("UPDATE candidates SET archived = FALSE WHERE archived IS NULL"))
+        if "tags" in {column["name"] for column in inspect(connection).get_columns("candidates")}:
+            connection.execute(text("UPDATE candidates SET tags = '[]' WHERE tags IS NULL"))
