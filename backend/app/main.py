@@ -3733,3 +3733,7 @@ async def health():
 @app.get("/")
 async def root():
     return {"message": "Welcome to the BluePace Tech ATS API."}
+
+# Register next-generation recruiter/candidate tooling after core routes so any
+# legacy duplicate paths retain their established handler order.
+app.include_router(next_features_router)
