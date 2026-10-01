@@ -653,6 +653,7 @@ def _interview_reminder_email(application: Application, interview: Interview, re
         "interview_mode": "Online" if interview.mode == "online" else "Offline / On-site",
         "meeting_link": interview.meeting_url or "",
         "interview_location": interview.location or "",
+        "interview_calendar_url": f"{DEPLOYED_BACKEND_ORIGIN}/public/application/{urllib.parse.quote(create_candidate_portal_token(application.id))}/interviews/{interview.id}.ics",
         "candidate_portal_url": portal_url,
         "company_name": "Blupace Tech",
     }
@@ -697,6 +698,7 @@ def _stage_email(
     interview_mode: str = "online",
     interview_location: str | None = None,
     interview_meeting_url: str | None = None,
+    interview_id: int | None = None,
 ) -> tuple[str, str]:
     candidate = application.candidate
     job_title = application.job.title
@@ -717,7 +719,10 @@ def _stage_email(
         "interview_mode": "Online" if interview_mode == "online" else "Offline / On-site",
         "meeting_link": interview_meeting_url or "",
         "interview_location": interview_location or "",
-        "interview_calendar_url": portal_url + "&calendar=interview" if interview_starts_at else "",
+        "interview_calendar_url": (
+            f"{DEPLOYED_BACKEND_ORIGIN}/public/application/{urllib.parse.quote(create_candidate_portal_token(application.id))}/interviews/{interview_id}.ics"
+            if interview_id else ""
+        ),
         "candidate_portal_url": portal_url,
         "company_name": "Blupace Tech",
     }
@@ -2297,7 +2302,6 @@ def create_interview_round(
         round_name=request.round_name,
         round_number=round_number,
         feedback_deadline=request.feedback_deadline,
-        feedback_deadline=request.feedback_deadline,
     )
     db.add(interview)
     application.stage_id = ensure_job_stages(db, application.job)["Interview"].id
@@ -2312,6 +2316,7 @@ def create_interview_round(
         interview_mode=request.mode,
         interview_location=request.location,
         interview_meeting_url=request.meeting_url,
+        interview_id=interview.id,
     )
     email_id = queue_application_email(db, application, subject, body)
     record_audit(db, user, "interview.round_scheduled", "application", application.id, after={"round_name": request.round_name, "round_number": round_number})
@@ -3033,6 +3038,7 @@ def update_application_stage(
         interview_mode=request.interview_mode,
         interview_location=request.interview_location,
         interview_meeting_url=request.interview_meeting_url,
+        interview_id=interview.id if request.stage_name == "Interview" else None,
     )
     email_id = queue_application_email(db, application, subject, body)
     automation_email_ids = run_stage_automations(db, application, stage.name)

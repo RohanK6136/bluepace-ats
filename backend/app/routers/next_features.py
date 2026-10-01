@@ -35,6 +35,7 @@ from app.security import (
     require_roles,
 )
 from app.services.email_notifications import deliver_outbox_email
+from app.main import _stage_email
 from app.services.workflow import (
     PIPELINE_STAGES,
     queue_application_email,
@@ -1091,12 +1092,14 @@ def _apply_automation_action(db: Session, application: Application, rule: Automa
         application.candidate.needs_review = True
     elif rule.action_type == "move_stage":
         target = (rule.action_value or "").strip()
-        if target in PIPELINE_STAGES and target != stage_name:
+        if target in PIPELINE_STAGES and target != stage_name and target != "Interview":
             stages = ensure_job_stages(db, application.job)
             stage = stages.get(target)
             if stage is not None:
                 application.stage_id = stage.id
                 application.status = "active" if target not in {"Hired", "Rejected"} else target.casefold()
+                subject, body = _stage_email(application, target, db=db)
+                queued.append(queue_application_email(db, application, subject, body))
                 db.add(AuditLog(
                     organization_id=application.organization_id,
                     actor_id=rule.created_by_id,
