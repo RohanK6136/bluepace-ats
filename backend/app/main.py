@@ -772,7 +772,26 @@ def login(
     credentials: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    user = db.scalar(select(User).where(User.email == credentials.username.strip().lower()))
+    login_email = credentials.username.strip().lower()
+    user = db.scalar(select(User).where(User.email == login_email))
+
+    # The single shared recruiting account is configured in Render. Reconcile it
+    # at login time as well as startup so a fresh/ephemeral database can recover
+    # the shared account without enabling public registration.
+    bootstrap_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
+    bootstrap_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+    if (
+        bootstrap_email
+        and bootstrap_password
+        and login_email == bootstrap_email
+        and credentials.password == bootstrap_password
+    ):
+        ensure_bootstrap_account()
+        user = db.scalar(select(User).where(User.email == login_email))
+        if user is not None:
+            db.expire(user)
+            user = db.scalar(select(User).where(User.email == login_email))
+
     if user is None or not user.is_active or not password_hash.verify(credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
