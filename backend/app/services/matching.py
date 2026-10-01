@@ -15,7 +15,20 @@ SKILL_CATALOG = (
     "Redis", "GraphQL", "Figma", "Excel", "Go", "Rust", "C#", "Azure", "GCP",
     "Terraform", "Linux", "Salesforce", "Tableau", "Power BI", "Swift", "Kotlin",
 )
-PREFERRED_MARKERS = ("nice to have", "preferred", "bonus", "plus", "desirable")
+SKILL_ALIASES = {
+    "reactjs": "React", "react.js": "React", "react js": "React",
+    "nodejs": "Node.js", "node.js": "Node.js", "node js": "Node.js",
+    "nextjs": "Next.js", "next.js": "Next.js", "next js": "Next.js",
+    "postgres": "PostgreSQL", "postgresql": "PostgreSQL", "postgre sql": "PostgreSQL",
+    "mongo": "MongoDB", "mongodb": "MongoDB", "k8s": "Kubernetes", "kubernetes": "Kubernetes",
+    "python3": "Python", "fast api": "FastAPI", "fastapi": "FastAPI",
+    "restful api": "REST API", "rest api": "REST API", "ml": "Machine Learning",
+}
+PREFERRED_MARKERS = ("nice to have", "preferred", "bonus", "plus", "desirable", "good to have")
+SECTION_HEADINGS = {
+    "responsibilities": ("responsibilities", "what you'll do", "what you will do", "role responsibilities", "key duties"),
+    "interview_topics": ("interview", "interview process", "technical interview", "what we assess", "assessment"),
+}
 STOP_WORDS = {
     "and", "the", "for", "with", "from", "that", "this", "have", "has", "are",
     "will", "you", "your", "our", "their", "years", "year", "experience", "work",
@@ -72,405 +85,85 @@ class CandidateMatcher:
         return result
 
     @staticmethod
-    def _extract_skills(text):
+    def normalize_skill(value: str) -> str:
+        cleaned = re.sub(r"\s+", " ", str(value or "").strip().casefold())
+        return SKILL_ALIASES.get(cleaned, str(value or "").strip())
+
+    @classmethod
+    def _extract_skills(cls, text):
         found = []
+        content = str(text or "")
+        for alias, canonical in sorted(SKILL_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+            if re.search(r"(?<![\w+#.])" + re.escape(alias) + r"(?![\w+#.])", content, re.IGNORECASE) and canonical not in found:
+                found.append(canonical)
         for skill in SKILL_CATALOG:
-            if re.search(r"(?<!\w)" + re.escape(skill) + r"(?!\w)", text, re.IGNORECASE):
+            if skill not in found and re.search(r"(?<![\w+#.])" + re.escape(skill) + r"(?![\w+#.])", content, re.IGNORECASE):
                 found.append(skill)
         return found
 
-    @classmethod
-    def _normalize_analysis(cls, data, fallback):
-        normalized = dict(fallback)
-        if not isinstance(data, dict):
-            return normalized
-        for field in ("required_skills", "preferred_skills"):
-            values = data.get(field)
-            if isinstance(values, list):
-                normalized[field] = cls.normalize_skills(values)
-        for field in ("responsibilities", "interview_topics"):
-            values = data.get(field)
-            if isinstance(values, list):
-                normalized[field] = list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))[:15]
-        for field in ("seniority", "location", "education", "work_mode"):
-            value = data.get(field)
-            if isinstance(value, str) and value.strip():
-                normalized[field] = value.strip().casefold() if field in {"seniority", "work_mode"} else value.strip()
-        minimum = data.get("minimum_experience_years")
-        if isinstance(minimum, (int, float)) and 0 <= minimum <= 60:
-            normalized["minimum_experience_years"] = int(minimum)
-            normalized["experience"] = {**(normalized.get("experience") or {}), "minimum_years": int(minimum)}
-        normalized["skill_normalization"] = {
-            str(skill): cls.normalize_skill(skill)
-            for skill in (data.get("required_skills") or []) + (data.get("preferred_skills") or [])
-        }
-        return normalized
+    @staticmethod
+    def _section(text: str, headings: tuple[str, ...]) -> str:
+        lines, collecting, chunks = str(text or "").splitlines(), False, []
+        stop = ("requirements", "qualifications", "skills", "preferred", "nice to have", "education", "experience", "benefits", "about us", "about the role", "responsibilities", "interview", "what you'll do")
+        for line in lines:
+            clean = re.sub(r"^[#*\-\s]+", "", line).strip().casefold()
+            if clean and any(clean == h or clean.startswith(h + ":") for h in headings):
+                collecting = True; continue
+            if collecting and clean and any(clean == h or clean.startswith(h + ":") for h in stop):
+                break
+            if collecting and line.strip(): chunks.append(line.strip())
+        return "\n".join(chunks)
 
+    @staticmethod
+    def _extract_experience(text: str):
+        content = str(text or "")
+        ranges = re.findall(r"\b(\d{1,2})\s*(?:-|to)\s*(\d{1,2})\+?\s*(?:years|yrs)\b", content, re.IGNORECASE)
+        singles = re.findall(r"\b(?:at least|minimum of|min(?:imum)?|more than|over)?\s*(\d{1,2})\+?\s*(?:years|yrs)(?: of)? experience\b", content, re.IGNORECASE)
+        return (int(singles[0]) if singles else int(ranges[0][0]) if ranges else None, int(ranges[0][1]) if ranges else None)
+
+    @staticmethod
+    def _infer_seniority(text: str) -> str:
+        lower = str(text or "").casefold()
+        for level, pattern in (("principal", r"\bprincipal\b"), ("staff", r"\bstaff\b"), ("lead", r"\blead\b"), ("senior", r"\bsenior\b|\bsr\.?\b"), ("mid", r"\bmid[- ]level\b|\bintermediate\b"), ("junior", r"\bjunior\b|\bjr\.?\b|\bentry[- ]level\b|\bgraduate\b"), ("intern", r"\bintern(ship)?\b")):
+            if re.search(pattern, lower): return level
+        return "unspecified"
     def parse_job_description(self, title: str, description: str, location: str | None = None, *, use_llm: bool = False):
         text = f"{title}\n{description}"
-        lower_text = text.casefold()
-
-        preferred_markers = tuple(PREFERRED_MARKERS)
-        preferred_start = min(
-            (lower_text.find(marker) for marker in preferred_markers if lower_text.find(marker) >= 0),
-            default=len(text),
-        )
-        required_text = text[:preferred_start]
-        preferred_text = text[preferred_start:]
-        required_skills = self.normalize_skills(self._extract_skills(required_text))
-        preferred_skills = self.normalize_skills(
-            [skill for skill in self._extract_skills(preferred_text) if self.normalize_skill(skill).casefold() not in {s.casefold() for s in required_skills}]
-        )
-        if preferred_start == len(text) and not required_skills:
-            required_skills = self.normalize_skills(self._extract_skills(text))
-
-        seniority = "unspecified"
-        for level, pattern in (
-            ("principal", r"\bprincipal\b"), ("staff", r"\bstaff\b"), ("lead", r"\blead(?:er|ship)?\b"),
-            ("senior", r"\bsenior\b|\bsr\.?\b"), ("mid", r"\bmid[- ]level\b|\bintermediate\b"),
-            ("junior", r"\bjunior\b|\bjr\.?\b|\bentry[- ]level\b|\bgraduate\b"),
-            ("intern", r"\bintern(ship)?\b"),
-        ):
-            if re.search(pattern, lower_text):
-                seniority = level
-                break
-
-        location_match = re.search(
-            r"\b(?:based in|located in|location\s*[:=]|in)\s+(remote|hybrid|[A-Z][A-Za-z]+(?:[ -][A-Z][A-Za-z]+){0,2})",
-            text,
-        )
-        education_match = re.search(
-            r"\b(?:bachelor(?:'s)?|master(?:'s)?|associate(?:'s)?|doctoral|doctorate|Ph\.?D\.?|M\.?B\.?A\.?|B\.?S\.?|M\.?S\.?|degree)\b[^.\n]*",
-            text, re.IGNORECASE,
-        )
-        years_match = re.search(r"\b(\d{1,2})\+?\s*(?:years|yrs)\b", text, re.IGNORECASE)
-
-        responsibility_lines = []
-        topic_lines = []
-        in_resp = False
-        in_topics = False
-        for raw_line in description.splitlines():
-            line = re.sub(r"^\s*[-•*]\s*", "", raw_line).strip()
-            if not line:
-                continue
-            heading = re.sub(r"[:\s]+$", "", line).casefold()
-            if re.search(r"^(responsibilities|what you.?ll do|duties|role responsibilities)$", heading):
-                in_resp, in_topics = True, False
-                continue
-            if re.search(r"^(interview|interview topics|technical interview|what we.?ll assess)$", heading):
-                in_resp, in_topics = False, True
-                continue
-            if re.search(r"^(requirements|qualifications|skills|preferred|nice to have|bonus)$", heading):
-                in_resp, in_topics = False, False
-                continue
-            if in_resp and len(responsibility_lines) < 12:
-                responsibility_lines.append(line)
-            elif in_topics and len(topic_lines) < 12:
-                topic_lines.append(line)
-
-        # When no explicit interview section exists, derive neutral interview topics from
-        # the normalized requirements and role signals rather than inventing questions.
-        interview_topics = self.normalize_skills(required_skills + preferred_skills)
-        if seniority != "unspecified":
-            interview_topics.append(f"{seniority.title()}-level ownership")
-        if education_match:
-            interview_topics.append("Education/background verification")
-        interview_topics = list(dict.fromkeys(interview_topics + topic_lines))[:15]
-
-        fallback = {
-            "required_skills": required_skills,
-            "preferred_skills": preferred_skills,
-            "experience": {
-                "minimum_years": int(years_match.group(1)) if years_match else None,
-                "fresher_allowed": bool(re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?|\b0\s*(?:years?|yrs?)\b", text, re.IGNORECASE)),
-            },
-            "minimum_experience_years": int(years_match.group(1)) if years_match else None,
-            "education": education_match.group(0).strip() if education_match else None,
+        lower = text.casefold()
+        positions = [lower.find(marker) for marker in PREFERRED_MARKERS if lower.find(marker) >= 0]
+        split_at = min(positions, default=len(text))
+        required_skills = self._extract_skills(text[:split_at])
+        preferred_skills = [s for s in self._extract_skills(text[split_at:]) if s not in required_skills] if split_at < len(text) else []
+        minimum, maximum = self._extract_experience(text)
+        education_match = re.search(r"\b(?:bachelor(?:'s)?|master(?:'s)?|associate(?:'s)?|doctoral|doctorate|ph\.?d\.?|m\.?b\.?a\.?|b\.?s\.?|m\.?s\.?|degree)\b[^.\n]*", text, re.IGNORECASE)
+        responsibilities_text = self._section(description, SECTION_HEADINGS["responsibilities"])
+        interview_text = self._section(description, SECTION_HEADINGS["interview_topics"])
+        responsibilities = [re.sub(r"^[•*\-]+\s*", "", line).strip() for line in responsibilities_text.splitlines() if line.strip()]
+        interview_topics = self._extract_skills(interview_text)
+        location_match = re.search(r"\b(?:based in|located in|location\s*[:=]|office in|work from)\s+(remote|hybrid|[A-Z][A-Za-z]+(?:[ -][A-Z][A-Za-z]+){0,2})", text)
+        work_mode = "remote" if re.search(r"\b(remote|work from home|wfh|fully remote)\b", lower) else "hybrid" if re.search(r"\bhybrid\b", lower) else "onsite"
+        return {
+            "required_skills": list(dict.fromkeys(required_skills)),
+            "preferred_skills": list(dict.fromkeys(preferred_skills)),
+            "skill_normalization": {alias: canonical for alias, canonical in SKILL_ALIASES.items() if re.search(r"(?<![\w+#.])" + re.escape(alias) + r"(?![\w+#.])", text, re.IGNORECASE)},
+            "seniority": self._infer_seniority(text),
             "location": location or (location_match.group(1).strip() if location_match else None),
-            "work_mode": "remote" if re.search(r"\b(remote|work from home|wfh|fully remote)\b", lower_text) else "hybrid" if re.search(r"\bhybrid\b", lower_text) else "onsite" if re.search(r"\bonsite|on-site\b", lower_text) else None,
-            "seniority": seniority,
-            "responsibilities": responsibility_lines,
-            "interview_topics": interview_topics,
-            "skill_normalization": {str(skill): self.normalize_skill(skill) for skill in self._extract_skills(text)},
+            "work_mode": work_mode,
+            "education": education_match.group(0).strip() if education_match else None,
+            "minimum_experience_years": minimum,
+            "maximum_experience_years": maximum,
+            "responsibilities": responsibilities[:20],
+            "interview_topics": interview_topics[:20],
         }
-        if not use_llm or self.llm_client is None:
-            return fallback
-
-        prompt = (
-            "Extract job-description intelligence without inventing criteria. Return JSON with required_skills, preferred_skills, "
-            "minimum_experience_years, education, location, work_mode, seniority, responsibilities, interview_topics. "
-            "Normalize equivalent skill spellings such as ReactJS, React, React.js to React. Preserve evidence; if a field is absent use null/[]. "
-            f"Title: {title}\nDescription:\n{description}"
-        )
-        try:
-            response = self.llm_client.chat.completions.create(
-                model=self.chat_model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}, temperature=0, max_tokens=1400,
-            )
-            parsed = json.loads(response.choices[0].message.content or "{}")
-            return self._normalize_analysis(parsed, fallback)
-        except Exception:
-            return fallback
-
     def analyze_job(self, job) -> dict:
         analysis = self.parse_job_description(job.title, job.description, job.location, use_llm=False)
         if job.required_skills:
-            analysis["required_skills"] = list(dict.fromkeys(job.required_skills))
+            analysis["required_skills"] = list(dict.fromkeys(self.normalize_skill(v) for v in job.required_skills))
         if job.minimum_experience_years is not None:
             analysis["minimum_experience_years"] = job.minimum_experience_years
         analysis["fresher_allowed"] = job.fresher_allowed
+        analysis["work_mode"] = job.work_mode or analysis.get("work_mode")
+        if job.location:
+            analysis["location"] = job.location
         return analysis
-
-    def embed_texts(self, texts: list[str]) -> list[list[float] | None]:
-        if not texts:
-            return []
-        if self.embedding_client is None:
-            return [None] * len(texts)
-        try:
-            response = self.embedding_client.embeddings.create(
-                model=os.getenv("MATCHING_EMBEDDING_MODEL", "text-embedding-3-small"),
-                input=[text[:12000] for text in texts],
-                dimensions=1536,
-            )
-            ordered = sorted(response.data, key=lambda item: item.index)
-            vectors = [list(item.embedding) for item in ordered]
-            return [vector if len(vector) == 1536 else None for vector in vectors]
-        except Exception:
-            return [None] * len(texts)
-
-    @staticmethod
-    def job_embedding_text(job) -> str:
-        analysis = job.jd_analysis or {}
-        return "\n".join(
-            [
-                job.title,
-                job.description,
-                str(job.location or ""),
-                "Required skills: " + ", ".join(analysis.get("required_skills", [])),
-                "Preferred skills: " + ", ".join(analysis.get("preferred_skills", [])),
-                "Seniority: " + str(analysis.get("seniority", "")),
-                "Education: " + str(analysis.get("education", "")),
-                "Minimum experience: " + str(analysis.get("minimum_experience_years", "")),
-                "Freshers allowed: " + str(analysis.get("fresher_allowed", False)),
-            ]
-        )
-
-    @staticmethod
-    def candidate_embedding_text(candidate) -> str:
-        data = candidate.resume_data or {}
-        profile = {key: value for key, value in data.items() if key != "raw_text"}
-        return f"{candidate.first_name} {candidate.last_name}\n{json.dumps(profile, ensure_ascii=True)}"
-
-    @staticmethod
-    def _fallback_candidate_summary(candidate) -> list[str]:
-        data = candidate.resume_data or {}
-        name = f"{candidate.first_name} {candidate.last_name}".strip()
-        experiences = data.get("experience") or []
-        education = data.get("education") or []
-        skills = data.get("skills") or []
-        bullets = [f"Candidate profile for {name or 'unnamed candidate'}. "]
-        if experiences:
-            first_experience = experiences[0]
-            role = first_experience.get("title") or "Professional"
-            company = first_experience.get("company")
-            duration = first_experience.get("duration")
-            details = " · ".join(value for value in (role, company, duration) if value)
-            bullets.append(f"Experience includes {details}.")
-        else:
-            bullets.append("No parsed work experience is available in the resume profile.")
-        if skills:
-            bullets.append("Key skills: " + ", ".join(str(skill) for skill in skills[:8]) + ".")
-        else:
-            bullets.append("No skills have been parsed from the resume yet.")
-        if education:
-            first_education = education[0]
-            details = " · ".join(
-                str(first_education.get(field))
-                for field in ("degree", "university", "graduation_year")
-                if first_education.get(field)
-            )
-            bullets.append(f"Education: {details}.")
-        else:
-            bullets.append("No parsed education is available in the resume profile.")
-        return bullets[:5]
-
-    def summarize_candidates(self, candidates: list) -> None:
-        pending = [candidate for candidate in candidates if not candidate.cv_summary]
-        for start in range(0, len(pending), 10):
-            batch = pending[start : start + 10]
-            if self.llm_client is None:
-                for candidate in batch:
-                    candidate.cv_summary = self._fallback_candidate_summary(candidate)
-                continue
-
-            profiles = []
-            for candidate in batch:
-                profile = {
-                    key: value
-                    for key, value in (candidate.resume_data or {}).items()
-                    if key not in {"raw_text", "email", "phone", "linkedin", "github"}
-                }
-                profiles.append({"candidate_id": candidate.id, "name": f"{candidate.first_name} {candidate.last_name}", "profile": profile})
-            prompt = (
-                "Write 3 to 5 concise, factual CV-summary bullets for each candidate. Do not infer facts. "
-                "Return JSON as {\"summaries\":[{\"candidate_id\":1,\"bullets\":[\"...\"]}]}. "
-                "Include every candidate_id exactly once.\n"
-                + json.dumps(profiles, ensure_ascii=True)[:24000]
-            )
-            summaries = {}
-            try:
-                response = self.llm_client.chat.completions.create(
-                    model=self.chat_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                    temperature=0.2,
-                    max_tokens=3000,
-                )
-                result = json.loads(response.choices[0].message.content or "{}")
-                entries = result.get("summaries") if isinstance(result, dict) else None
-                if isinstance(entries, list):
-                    for entry in entries:
-                        if not isinstance(entry, dict):
-                            continue
-                        bullets = entry.get("bullets")
-                        if not isinstance(bullets, list):
-                            continue
-                        valid = [str(bullet).strip().lstrip("-• ") for bullet in bullets if str(bullet).strip()]
-                        if 3 <= len(valid) <= 5:
-                            summaries[entry.get("candidate_id")] = valid
-            except Exception:
-                summaries = {}
-            for candidate in batch:
-                candidate.cv_summary = summaries.get(candidate.id) or self._fallback_candidate_summary(candidate)
-
-    @staticmethod
-    def cosine_similarity(left: list[float], right: list[float]) -> float:
-        if not left or not right or len(left) != len(right):
-            return 0.0
-        dot_product = sum(a * b for a, b in zip(left, right))
-        left_norm = math.sqrt(sum(value * value for value in left))
-        right_norm = math.sqrt(sum(value * value for value in right))
-        if not left_norm or not right_norm:
-            return 0.0
-        return max(-1.0, min(1.0, dot_product / (left_norm * right_norm)))
-
-    @staticmethod
-    def _tokens(text: str) -> set[str]:
-        return {token for token in re.findall(r"[a-z0-9+#.]+", text.lower()) if token not in STOP_WORDS and len(token) > 1}
-
-    @staticmethod
-    def _estimate_experience_years(experience: list[dict]) -> float:
-        total = 0.0
-        current_year = __import__("datetime").datetime.now().year
-        for item in experience:
-            duration = str(item.get("duration") or "")
-            years_value = re.search(r"(\d+(?:\.\d+)?)\s*(?:years|yrs)", duration, re.IGNORECASE)
-            if years_value:
-                total += float(years_value.group(1))
-                continue
-            year_range = re.search(r"((?:19|20)\d{2})\s*(?:-|to|–|—)\s*(present|current|(?:19|20)\d{2})", duration, re.IGNORECASE)
-            if year_range:
-                end_year = current_year if year_range.group(2).lower() in {"present", "current"} else int(year_range.group(2))
-                total += max(0, end_year - int(year_range.group(1)))
-        return total
-
-    def score_candidate(self, job, candidate) -> dict:
-        analysis = job.jd_analysis or self.analyze_job(job)
-        profile = candidate.resume_data or {}
-        candidate_skills = {str(skill).casefold(): str(skill) for skill in profile.get("skills", [])}
-        required_skills = analysis.get("required_skills", [])
-        preferred_skills = analysis.get("preferred_skills", [])
-        matched_required = [skill for skill in required_skills if skill.casefold() in candidate_skills]
-        matched_preferred = [skill for skill in preferred_skills if skill.casefold() in candidate_skills]
-        skill_gaps = [skill for skill in required_skills if skill.casefold() not in candidate_skills]
-        required_score = (len(matched_required) / len(required_skills) * 100) if required_skills else 100
-        preferred_score = (len(matched_preferred) / len(preferred_skills) * 100) if preferred_skills else 100
-        skill_score = round(required_score * 0.8 + preferred_score * 0.2)
-
-        candidate_text = self.candidate_embedding_text(candidate)
-        if job.embedding and candidate.embedding:
-            semantic_score = round((self.cosine_similarity(job.embedding, candidate.embedding) + 1) * 50)
-            semantic_mode = "embedding"
-        else:
-            jd_tokens = self._tokens(self.job_embedding_text(job))
-            candidate_tokens = self._tokens(candidate_text)
-            semantic_score = round(len(jd_tokens & candidate_tokens) / len(jd_tokens) * 100) if jd_tokens else 0
-            semantic_mode = "lexical_fallback"
-
-        experience = profile.get("experience") or []
-        minimum_years = analysis.get("minimum_experience_years")
-        if analysis.get("fresher_allowed") and not experience:
-            experience_score = 100
-        elif minimum_years is not None:
-            years = self._estimate_experience_years(experience)
-            experience_score = 100 if minimum_years == 0 else round(min(100, years / minimum_years * 100))
-        else:
-            experience_score = 100 if experience else 50
-
-        education_entries = profile.get("education") or []
-        required_education = str(analysis.get("education") or "").casefold()
-        candidate_education = " ".join(str(item) for item in education_entries).casefold()
-        education_score = (
-            100 if required_education and any(token in candidate_education for token in self._tokens(required_education))
-            else 0 if required_education
-            else 100 if education_entries
-            else 50
-        )
-
-        required_location = str(analysis.get("location") or "").strip().casefold()
-        candidate_location = str(profile.get("location") or "").strip().casefold()
-        location_score = (
-            100 if not required_location or required_location in {"remote", "hybrid"} and not candidate_location
-            else 100 if required_location in candidate_location
-            else 50 if not candidate_location
-            else 0
-        )
-
-        breakdown = {
-            "skills": skill_score,
-            "semantic": semantic_score,
-            "experience": experience_score,
-            "education": education_score,
-            "location": location_score,
-        }
-        weighted_score = (
-            skill_score * 0.30
-            + semantic_score * 0.30
-            + experience_score * 0.15
-            + education_score * 0.10
-            + location_score * 0.15
-        )
-        explanations = []
-        if matched_required:
-            explanations.append("Required skills matched: " + ", ".join(matched_required) + ".")
-        if skill_gaps:
-            explanations.append("Required skill gaps: " + ", ".join(skill_gaps) + ".")
-        if experience:
-            first_experience = experience[0]
-            role = first_experience.get("title") or first_experience.get("company")
-            if role:
-                explanations.append(f"Parsed experience includes {role}.")
-        elif analysis.get("fresher_allowed"):
-            explanations.append("This role is open to freshers; lack of work history is not penalized.")
-        if required_education:
-            explanations.append(
-                "Education requirement is represented in the parsed profile."
-                if education_score == 100
-                else "The parsed profile does not show the requested education."
-            )
-        if semantic_mode == "lexical_fallback":
-            explanations.append("Semantic embeddings are unavailable; the semantic component uses text overlap.")
-        summary = candidate.cv_summary or self._fallback_candidate_summary(candidate)
-        return {
-            "model_score": max(0, min(100, round(weighted_score))),
-            "score_breakdown": breakdown,
-            "matched_skills": list(dict.fromkeys(matched_required + matched_preferred)),
-            "skill_gaps": skill_gaps,
-            "explanations": explanations,
-            "semantic_mode": semantic_mode,
-            "cv_summary": summary,
-        }
-
-
-matching_service = CandidateMatcher()
+)
