@@ -191,6 +191,10 @@ export default function AtsWorkspace() {
   const [fitAnalysis, setFitAnalysis] = useState(null);
   const [fitJobId, setFitJobId] = useState("");
   const [fitLoading, setFitLoading] = useState(false);
+  const [assistantApplicationId, setAssistantApplicationId] = useState("");
+  const [assistantQuestion, setAssistantQuestion] = useState("Summarize this candidate against the JD.");
+  const [assistantResult, setAssistantResult] = useState(null);
+  const [assistantLoading, setAssistantLoading] = useState(false);
   const [interviewDialogApplication, setInterviewDialogApplication] = useState(null);
   const [interviewForm, setInterviewForm] = useState({ starts_at: "", duration_minutes: "60", mode: "online", location: "", meeting_url: "" });
 
@@ -707,6 +711,24 @@ export default function AtsWorkspace() {
     }
   }
 
+  async function askRecruiterAssistant() {
+    if (!assistantApplicationId || !assistantQuestion.trim()) return;
+    setAssistantLoading(true);
+    setAssistantResult(null);
+    setError("");
+    try {
+      const response = await apiRequest(token, "post", `/candidate-tools/applications/${assistantApplicationId}/assistant`, {
+        data: { question: assistantQuestion.trim() },
+      });
+      setAssistantResult(response.data);
+      setNotice("Assistant response generated from ATS evidence");
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setAssistantLoading(false);
+    }
+  }
+
   async function moveSelected(stageName = bulkStage) {
     if (!selectedApplications.length) return;
     try {
@@ -1063,6 +1085,7 @@ export default function AtsWorkspace() {
     { id: "interviews-2", label: "Interview Management" },
     { id: "offers", label: "Offer Management" },
     { id: "matching", label: "AI Match" },
+    { id: "assistant", label: "AI Recruiter Assistant" },
     { id: "emails", label: "Email Center" },
     { id: "templates", label: "Email Templates" },
     { id: "talent", label: "Talent Pools" },
@@ -1681,6 +1704,39 @@ export default function AtsWorkspace() {
             })()}
           </>}
 
+
+          {view === "assistant" && <section className="grid gap-5">
+            <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gold-700">AI recruiter copilot</p>
+              <h2 className="mt-1 text-xl font-semibold">Evidence-first assistant</h2>
+              <p className="mt-1 text-sm text-ink-500">Ask about a candidate, JD requirements, interviews, or communications. Answers are grounded in the stored JD, parsed resume, and submitted scorecards. The assistant does not move candidates or make hiring decisions.</p>
+              <div className="mt-5 grid gap-3">
+                <SelectField label="Candidate application" value={assistantApplicationId} onChange={(event) => { setAssistantApplicationId(event.target.value); setAssistantResult(null); }}>
+                  <option value="">Choose an application</option>
+                  {applications.map((item) => <option key={item.id} value={item.id}>{item.candidate_name || "Candidate"} — {item.job_title || "Role"}</option>)}
+                </SelectField>
+                <div className="flex flex-wrap gap-2">
+                  {["Summarize this candidate against the JD.","Show missing required skills.","Create interview questions based on this resume and role.","Summarize all interview feedback.","Draft a screening email.","Explain why the resume does not satisfy this requirement."].map((item) => <button key={item} type="button" onClick={() => setAssistantQuestion(item)} className="rounded-full border border-ink-100 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-50">{item}</button>)}
+                </div>
+                <textarea className={inputStyle + " min-h-24"} value={assistantQuestion} onChange={(event) => setAssistantQuestion(event.target.value)} />
+                <button type="button" disabled={!assistantApplicationId || assistantLoading} onClick={askRecruiterAssistant} className={buttonPrimary}>{assistantLoading ? "Analyzing evidence…" : "Ask assistant"}</button>
+              </div>
+            </div>
+            {assistantResult && <div className="grid gap-4">
+              <div className="rounded-2xl border border-blue-100 bg-white p-5">
+                <p className="text-xs font-semibold uppercase text-blue-700">{assistantResult.intent?.replaceAll("_", " ")}</p>
+                <h3 className="mt-1 font-semibold">Assistant response</h3>
+                <p className="mt-3 text-sm leading-6 text-ink-700">{assistantResult.summary}</p>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Required skills: evidence</h4><div className="mt-3 flex flex-wrap gap-2">{(assistantResult.matched_required_skills || []).map((skill) => <span key={skill} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{skill} · evidenced</span>)}{(assistantResult.missing_required_skills || []).map((skill) => <span key={skill} className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-800">{skill} · not evidenced</span>)}</div></div>
+                <div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Requirement explanation</h4><p className="mt-2 text-sm leading-6 text-ink-600">{assistantResult.requirement_explanation}</p></div>
+              </div>
+              <div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Interview questions</h4><ol className="mt-3 grid gap-2 text-sm text-ink-700">{(assistantResult.interview_questions || []).map((item, index) => <li key={index} className="rounded-lg bg-ink-50 p-3">{index + 1}. {item}</li>)}</ol></div>
+              <div className="grid gap-4 lg:grid-cols-2"><div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Interview feedback</h4><p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink-600">{assistantResult.interview_feedback_summary}</p></div><div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Screening email draft</h4><pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-6 text-ink-600">{assistantResult.screening_email}</pre></div></div>
+              <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4"><h4 className="font-semibold">Evidence & sources</h4><div className="mt-3 flex flex-wrap gap-2">{(assistantResult.sources || []).map((source) => <span key={source.id} className="rounded-full border border-gold-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700">{source.id} · {source.label}</span>)}</div><div className="mt-3 grid gap-1 text-xs text-ink-600">{(assistantResult.guardrails || []).map((item, index) => <p key={index}>• {item}</p>)}</div></div>
+            </div>}
+          </section>}
 
           {view === "emails" && <>
             <div className="mb-5 flex items-end justify-between gap-3"><div><p className="text-sm text-ink-500">Candidate communication audit</p><h2 className="mt-1 text-xl font-semibold">Email center</h2></div><button className={buttonSecondary} onClick={() => setView("dashboard")}>Back to dashboard</button></div>
