@@ -29,6 +29,22 @@ def create_access_token(user: User) -> str:
     )
 
 
+def create_candidate_portal_token(application_id: int) -> str:
+    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    return jwt.encode(
+        {"application_id": int(application_id), "kind": "candidate_portal", "exp": expires_at},
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM,
+    )
+
+
+def decode_candidate_portal_token(token: str) -> int:
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    if payload.get("kind") != "candidate_portal" or "application_id" not in payload:
+        raise jwt.InvalidTokenError("Invalid candidate portal token")
+    return int(payload["application_id"])
+
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
