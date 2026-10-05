@@ -25,7 +25,7 @@ const API_URL = (
     : "http://localhost:8000")
 ).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 90_000;
-const AUTH_TIMEOUT_MS = 90_000;
+const AUTH_TIMEOUT_MS = 120_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
 const MATCH_WEIGHTS = {
@@ -432,19 +432,39 @@ export default function AtsWorkspace() {
     setAuthError("");
     setAuthLoading(true);
     try {
-      // Do not send credentials while the API is still waking up. Reuse the
-      // existing health request so authentication gets a ready server.
-      await ensureApiReady();
+      // Wake the backend in parallel, but never make login wait for a separate
+      // readiness request before credentials are submitted.
+      void ensureApiReady().catch(() => {});
+
       if (authMode === "register") {
         await apiRequest(null, "post", "/auth/register", { data: authForm });
       }
+
       const credentials = new URLSearchParams();
       credentials.set("username", authForm.email);
       credentials.set("password", authForm.password);
-      const response = await apiRequest(null, "post", "/auth/token", {
-        data: credentials,
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      });
+
+      let response;
+      try {
+        response = await apiRequest(null, "post", "/auth/token", {
+          data: credentials,
+          timeout: AUTH_TIMEOUT_MS,
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        });
+      } catch (firstError) {
+        // A sleeping Render instance can take a while to wake. Only after the
+        // credential request actually fails do we wait for readiness and retry.
+        const timedOut = ["ECONNABORTED", "ETIMEDOUT"].includes(firstError.code)
+          || firstError.name === "AbortError";
+        if (!timedOut || authMode === "register") throw firstError;
+        await ensureApiReady();
+        response = await apiRequest(null, "post", "/auth/token", {
+          data: credentials,
+          timeout: AUTH_TIMEOUT_MS,
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        });
+      }
+
       sessionStorage.setItem("bluepace_token", response.data.access_token);
       if (response.data.user) {
         sessionStorage.setItem("bluepace_user", JSON.stringify(response.data.user));
@@ -452,11 +472,7 @@ export default function AtsWorkspace() {
       }
       setToken(response.data.access_token);
     } catch (authRequestError) {
-      if (!authRequestError.response && authRequestError.name === "AbortError") {
-        setAuthError("The ATS service is taking longer than expected to start. Please try signing in again.");
-      } else {
-        setAuthError(errorText(authRequestError));
-      }
+      setAuthError(errorText(authRequestError));
     } finally {
       setAuthLoading(false);
     }
