@@ -2791,74 +2791,130 @@ def dashboard_summary(
     user: User = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(get_db),
 ):
-    jobs = db.scalars(select(Job).where(Job.organization_id == user.organization_id)).all()
-    applications = db.scalars(
-        select(Application)
-        .where(Application.organization_id == user.organization_id)
-        .options(selectinload(Application.job), selectinload(Application.candidate), selectinload(Application.stage))
-        .order_by(Application.applied_at.desc())
+    org_id = user.organization_id
+
+    jobs = db.execute(
+        select(Job.id, Job.title, Job.status)
+        .where(Job.organization_id == org_id)
+    ).all()
+    stage_rows = db.execute(
+        select(Stage.name, func.count(Application.id))
+        .select_from(Application)
+        .outerjoin(Stage, Stage.id == Application.stage_id)
+        .where(Application.organization_id == org_id)
+        .group_by(Stage.name)
     ).all()
     stage_counts = {stage: 0 for stage in PIPELINE_STAGES}
-    job_counts = {}
-    source_counts = {}
-    for application in applications:
-        stage_name = application.stage.name if application.stage else "Applied"
-        stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
-        job_name = application.job.title
-        job_counts[job_name] = job_counts.get(job_name, 0) + 1
-        source = application.candidate.source or "Unknown"
-        source_counts[source] = source_counts.get(source, 0) + 1
+    for stage_name, count in stage_rows:
+        stage_counts[stage_name or "Applied"] = int(count)
 
-    application_ids = [application.id for application in applications]
+    job_rows = db.execute(
+        select(Job.title, func.count(Application.id))
+        .select_from(Application)
+        .join(Job, Job.id == Application.job_id)
+        .where(Application.organization_id == org_id)
+        .group_by(Job.title)
+        .order_by(func.count(Application.id).desc())
+        .limit(10)
+    ).all()
+
+    source_rows = db.execute(
+        select(Candidate.source, func.count(Application.id))
+        .select_from(Application)
+        .join(Candidate, Candidate.id == Application.candidate_id)
+        .where(Application.organization_id == org_id)
+        .group_by(Candidate.source)
+        .order_by(func.count(Application.id).desc())
+        .limit(10)
+    ).all()
+
+    email_rows = db.execute(
+        select(Email.status, func.count(Email.id))
+        .where(Email.organization_id == org_id)
+        .group_by(Email.status)
+    ).all()
     email_counts = {"pending": 0, "sent": 0, "failed": 0, "other": 0}
-    if application_ids:
-        for status_value, count in db.execute(
-            select(Email.status, func.count(Email.id))
-            .where(
-                Email.organization_id == user.organization_id,
-                Email.application_id.in_(application_ids),
-            )
-            .group_by(Email.status)
-        ).all():
-            email_counts[status_value if status_value in email_counts else "other"] = count
+    for status_value, count in email_rows:
+        email_counts[status_value if status_value in email_counts else "other"] = int(count)
 
     now = datetime.now(timezone.utc)
-    upcoming = []
-    if application_ids:
-        interviews = db.scalars(
-            select(Interview)
-            .where(
-                Interview.application_id.in_(application_ids),
-                Interview.starts_at >= now,
-                Interview.status == "scheduled",
-            )
-            .order_by(Interview.starts_at.asc())
-            .limit(12)
-        ).all()
-        applications_by_id = {application.id: application for application in applications}
-        for interview in interviews:
-            application = applications_by_id.get(interview.application_id)
-            if application is not None:
-                upcoming.append({
-                    "id": interview.id,
-                    "application_id": application.id,
-                    "candidate_id": application.candidate_id,
-                    "candidate_name": f"{application.candidate.first_name} {application.candidate.last_name}".strip(),
-                    "candidate_email": application.candidate.email,
-                    "job_title": application.job.title,
-                    "starts_at": interview.starts_at,
-                    "duration_minutes": interview.duration_minutes,
-                    "mode": interview.mode,
-                    "location": interview.location,
-                    "meeting_url": interview.meeting_url,
-                    "status": interview.status,
-                })
+    upcoming_rows = db.execute(
+        select(
+            Interview.id,
+            Interview.application_id,
+            Interview.starts_at,
+            Interview.duration_minutes,
+            Interview.mode,
+            Interview.location,
+            Interview.meeting_url,
+            Interview.status,
+            Application.candidate_id,
+            Candidate.first_name,
+            Candidate.last_name,
+            Candidate.email,
+            Job.title,
+        )
+        .select_from(Interview)
+        .join(Application, Application.id == Interview.application_id)
+        .join(Candidate, Candidate.id == Application.candidate_id)
+        .join(Job, Job.id == Application.job_id)
+        .where(
+            Application.organization_id == org_id,
+            Interview.starts_at >= now,
+            Interview.status == "scheduled",
+        )
+        .order_by(Interview.starts_at.asc())
+        .limit(12)
+    ).all()
+    upcoming = [
+        {
+            "id": row.id,
+            "application_id": row.application_id,
+            "candidate_id": row.candidate_id,
+            "candidate_name": f"{row.first_name} {row.last_name}".strip(),
+            "candidate_email": row.email,
+            "job_title": row.title,
+            "starts_at": row.starts_at,
+            "duration_minutes": row.duration_minutes,
+            "mode": row.mode,
+            "location": row.location,
+            "meeting_url": row.meeting_url,
+            "status": row.status,
+        }
+        for row in upcoming_rows
+    ]
+
+    recent_rows = db.execute(
+        select(
+            Application.id,
+            Application.candidate_id,
+            Application.applied_at,
+            Candidate.first_name,
+            Candidate.last_name,
+            Job.title,
+            Stage.name,
+        )
+        .select_from(Application)
+        .join(Candidate, Candidate.id == Application.candidate_id)
+        .join(Job, Job.id == Application.job_id)
+        .outerjoin(Stage, Stage.id == Application.stage_id)
+        .where(Application.organization_id == org_id)
+        .order_by(Application.applied_at.desc())
+        .limit(10)
+    ).all()
+
+    total_applications = int(
+        db.scalar(
+            select(func.count(Application.id))
+            .where(Application.organization_id == org_id)
+        ) or 0
+    )
 
     return {
         "metrics": {
             "open_jobs": sum(1 for job in jobs if job.status == "open"),
             "total_jobs": len(jobs),
-            "total_applications": len(applications),
+            "total_applications": total_applications,
             "screening": stage_counts.get("Screening", 0),
             "interviews": stage_counts.get("Interview", 0),
             "offers": stage_counts.get("Offer", 0),
@@ -2866,20 +2922,20 @@ def dashboard_summary(
             "rejected": stage_counts.get("Rejected", 0),
         },
         "stage_counts": stage_counts,
-        "job_counts": [{"name": name, "count": count} for name, count in sorted(job_counts.items(), key=lambda item: item[1], reverse=True)[:10]],
-        "source_counts": [{"name": name, "count": count} for name, count in sorted(source_counts.items(), key=lambda item: item[1], reverse=True)[:10]],
+        "job_counts": [{"name": name, "count": int(count)} for name, count in job_rows],
+        "source_counts": [{"name": name or "Unknown", "count": int(count)} for name, count in source_rows],
         "email_counts": email_counts,
         "upcoming_interviews": upcoming,
         "recent_applications": [
             {
-                "id": application.id,
-                "candidate_id": application.candidate_id,
-                "candidate_name": f"{application.candidate.first_name} {application.candidate.last_name}".strip(),
-                "job_title": application.job.title,
-                "stage_name": application.stage.name if application.stage else "Applied",
-                "applied_at": application.applied_at,
+                "id": row.id,
+                "candidate_id": row.candidate_id,
+                "candidate_name": f"{row.first_name} {row.last_name}".strip(),
+                "job_title": row.title,
+                "stage_name": row.name or "Applied",
+                "applied_at": row.applied_at,
             }
-            for application in applications[:10]
+            for row in recent_rows
         ],
     }
 
