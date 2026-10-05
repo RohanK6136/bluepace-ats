@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import axios from "axios";
 import AtsChatbot from "./AtsChatbot.jsx";
+import PublicHelpCenter from "./PublicHelpCenter.jsx";
 const ResumeLab = lazy(() => import("./App.jsx"));
 const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
 const EmailTemplatesPanel = lazy(() => import("./EmailTemplatesPanel.jsx"));
