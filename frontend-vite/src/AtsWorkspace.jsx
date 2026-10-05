@@ -25,7 +25,7 @@ const API_URL = (
     : "http://localhost:8000")
 ).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 90_000;
-const AUTH_TIMEOUT_MS = 30_000;
+const AUTH_TIMEOUT_MS = 90_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
 const MATCH_WEIGHTS = {
@@ -68,6 +68,30 @@ function shouldRetry(error) {
 }
 
 let tokenRefreshInFlight = null;
+let apiReadyInFlight = null;
+
+function ensureApiReady() {
+  if (apiReadyInFlight) return apiReadyInFlight;
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 60_000);
+
+  apiReadyInFlight = fetch(`${API_URL}/healthz`, {
+    method: "GET",
+    cache: "no-store",
+    signal: controller.signal,
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(`ATS API health check returned HTTP ${response.status}.`);
+      return response;
+    })
+    .finally(() => {
+      window.clearTimeout(timeoutId);
+      apiReadyInFlight = null;
+    });
+
+  return apiReadyInFlight;
+}
 
 async function refreshAccessToken(currentToken) {
   if (!currentToken) throw new Error("No access token available.");
@@ -294,17 +318,12 @@ export default function AtsWorkspace() {
 
   useEffect(() => {
     if (token) return undefined;
-    // Keep the backend warm while the shared login screen is open so the first
-    // credential request does not absorb a cold-start delay.
-    const warmApi = () => {
-      void fetch(`${API_URL}/healthz`, {
-        method: "GET",
-        cache: "no-store",
-        keepalive: true,
-      }).catch(() => {});
-    };
-    warmApi();
-    const intervalId = window.setInterval(warmApi, 4 * 60 * 1000);
+    // Warm the backend while the shared login screen is open. If the service is
+    // asleep, the sign-in action will await the same in-flight readiness check.
+    void ensureApiReady().catch(() => {});
+    const intervalId = window.setInterval(() => {
+      void ensureApiReady().catch(() => {});
+    }, 4 * 60 * 1000);
     return () => window.clearInterval(intervalId);
   }, [token]);
 
@@ -413,12 +432,9 @@ export default function AtsWorkspace() {
     setAuthError("");
     setAuthLoading(true);
     try {
-      // Start a lightweight wake-up request in parallel with authentication.
-      void fetch(`${API_URL}/healthz`, {
-        method: "GET",
-        cache: "no-store",
-        keepalive: true,
-      }).catch(() => {});
+      // Do not send credentials while the API is still waking up. Reuse the
+      // existing health request so authentication gets a ready server.
+      await ensureApiReady();
       if (authMode === "register") {
         await apiRequest(null, "post", "/auth/register", { data: authForm });
       }
@@ -436,7 +452,11 @@ export default function AtsWorkspace() {
       }
       setToken(response.data.access_token);
     } catch (authRequestError) {
-      setAuthError(errorText(authRequestError));
+      if (!authRequestError.response && authRequestError.name === "AbortError") {
+        setAuthError("The ATS service is taking longer than expected to start. Please try signing in again.");
+      } else {
+        setAuthError(errorText(authRequestError));
+      }
     } finally {
       setAuthLoading(false);
     }
@@ -1294,9 +1314,6 @@ export default function AtsWorkspace() {
           <p className="mt-1 text-sm text-ink-500">Use the shared recruiting account provided by your administrator.</p>
           <form
             onSubmit={signIn}
-            onFocus={() => {
-              void fetch(`${API_URL}/healthz`, { method: "GET", cache: "no-store", keepalive: true }).catch(() => {});
-            }}
             className="mt-7 grid gap-4"
           >
             <Field label="Work email" type="email" autoComplete="email" required value={authForm.email} onChange={(event) => setAuthForm({ ...authForm, email: event.target.value })} />
