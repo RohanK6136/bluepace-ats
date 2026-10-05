@@ -19,7 +19,7 @@ const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
   configuredApiUrl ||
   (import.meta.env.PROD
-    ? "https://bluepace-ats-11.onrender.com"
+    ? "https://bluepace-ats-production.up.railway.app"
     : "http://localhost:8000")
 ).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 90_000;
