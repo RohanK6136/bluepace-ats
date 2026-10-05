@@ -217,7 +217,7 @@ async def add_process_time_header(request, call_next):
 
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
-DEPLOYED_BACKEND_ORIGIN = os.getenv("BACKEND_PUBLIC_ORIGIN", "https://bluepace-ats-production.up.railway.app")
+DEPLOYED_BACKEND_ORIGIN = os.getenv("BACKEND_PUBLIC_ORIGIN", "https://bluepace-ats-11.onrender.com")
 MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024
 
 def ensure_bootstrap_account() -> None:
