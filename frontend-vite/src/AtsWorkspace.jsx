@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import axios from "axios";
+import AtsChatbot from "./AtsChatbot.jsx";
 const ResumeLab = lazy(() => import("./App.jsx"));
 const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
 const EmailTemplatesPanel = lazy(() => import("./EmailTemplatesPanel.jsx"));
@@ -2074,6 +2075,12 @@ export default function AtsWorkspace() {
           <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => setInterviewDialogApplication(null)}>Cancel</button><button type="submit" className={buttonPrimary}>Schedule & send email</button></div>
         </form>
       </div>}
+
+      <AtsChatbot
+        token={token}
+        apiRequest={apiRequest}
+        onError={(requestError) => setError(errorText(requestError))}
+      />
 
       {applicationFormOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setApplicationFormOpen(false); setApplicationResumeFile(null); } }}>
         <form onSubmit={createApplication} className="w-full max-w-lg bg-white p-5 shadow-xl">
