@@ -21,6 +21,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
 from celery.result import AsyncResult
@@ -533,6 +534,7 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Process-Time-ms"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 
 class ValidationRequest(BaseModel):
     resume_json: dict
@@ -857,7 +859,11 @@ async def public_apply(
 
     suffix, content = await _read_resume_upload(file)
     try:
-        parsed = extractor_service.extract_to_json(content, f"resume{suffix}")
+        parsed = await asyncio.to_thread(
+        extractor_service.extract_to_json,
+        content,
+        f"resume{suffix}",
+    )
     except DocumentExtractionError as error:
         raise HTTPException(status_code=422, detail=str(error))
 
@@ -1249,7 +1255,11 @@ async def create_job_from_document(
 
     suffix, content = await _read_resume_upload(file)
     try:
-        parsed = extractor_service.extract_to_json(content, f"job{suffix}")
+        parsed = await asyncio.to_thread(
+        extractor_service.extract_to_json,
+        content,
+        f"job{suffix}",
+    )
     except DocumentExtractionError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -1658,7 +1668,11 @@ async def create_candidate_from_resume(
 ):
     suffix, content = await _read_resume_upload(file)
     try:
-        parsed = extractor_service.extract_to_json(content, f"resume{suffix}")
+        parsed = await asyncio.to_thread(
+        extractor_service.extract_to_json,
+        content,
+        f"resume{suffix}",
+    )
     except DocumentExtractionError as error:
         raise HTTPException(status_code=422, detail=str(error))
 
@@ -3244,7 +3258,11 @@ async def upload_candidate_resume(
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     storage_path.write_bytes(content)
     try:
-        parsed = extractor_service.extract_to_json(content, f"resume{suffix}")
+        parsed = await asyncio.to_thread(
+        extractor_service.extract_to_json,
+        content,
+        f"resume{suffix}",
+    )
     except Exception as error:
         storage_path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=f"Resume could not be parsed: {error}")
