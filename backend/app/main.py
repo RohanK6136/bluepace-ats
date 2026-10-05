@@ -101,7 +101,7 @@ from app.schemas import (
     UserCreate,
     UserRead,
 )
-from app.security import create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles
+from app.security import create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
@@ -1047,6 +1047,15 @@ def login(
 @app.get("/auth/me", response_model=UserRead)
 def get_me(user: User = Depends(get_current_user)):
     return user
+
+
+@app.post("/auth/refresh", response_model=TokenRead)
+def refresh_token(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    return TokenRead(access_token=refresh_access_token(token, db))
+
 
 @app.post("/auth/logout")
 def logout(
