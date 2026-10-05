@@ -141,11 +141,13 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
   return (
     <main className="min-h-screen bg-[#f5f8fb] px-5 py-10 text-ink-900">
       <section className="mx-auto w-full max-w-4xl">
-        <div className="mb-6 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-md bg-ink-950 text-xs font-bold text-white">BP</div>
-            <div><p className="font-semibold">Blupace Tech</p><p className="text-xs text-ink-500">Candidate application portal</p></div>
-          </div>
+        <div className="mb-7 flex items-center justify-between gap-3">
+          <a href="https://www.blupacetech.com/" target="_blank" rel="noreferrer" className="bp-wordmark flex items-center gap-3 no-underline">
+            <span className="bp-logo-mark bp-logo-mark-light">B</span>
+            <span><span className="block text-[15px] font-semibold tracking-tight text-ink-950">blupace</span><span className="block text-[9px] font-semibold uppercase tracking-[0.24em] text-ink-400">tech</span></span>
+          </a>
+          <div className="flex items-center gap-2">
+            <span className="hidden rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 sm:inline-flex">Candidate portal</span>
           <button
             type="button"
             onClick={onToggleTheme}
@@ -156,6 +158,7 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
             <span aria-hidden="true">{theme === "dark" ? "☀️" : "🌙"}</span>
             <span className="hidden sm:inline">{theme === "dark" ? "Light" : "Dark"}</span>
           </button>
+          </div>
         </div>
 
         {message && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{message}</div>}
