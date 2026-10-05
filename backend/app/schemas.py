@@ -34,6 +34,7 @@ class UserRead(BaseModel):
 class TokenRead(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    user: Optional[UserRead] = None
 
 
 class JobCreate(BaseModel):
