@@ -454,3 +454,219 @@ html.dark [class*="shadow-panel"] {
     max-height: none !important;
   }
 }
+
+
+/* Blupace Tech enterprise visual language.
+   Uses the public brand direction: outcome-led, enterprise-grade, restrained,
+   generous whitespace, deep navy surfaces and cobalt/amber accents. */
+:root {
+  --bp-navy: #071b2e;
+  --bp-navy-2: #0d2a43;
+  --bp-blue: #1466c4;
+  --bp-blue-dark: #0b4f9d;
+  --bp-orange: #ef7c45;
+  --bp-bg: #f6f8fb;
+  --bp-text: #102338;
+  --bp-muted: #66788d;
+  --bp-border: #d9e3ed;
+}
+
+body {
+  letter-spacing: -0.005em;
+}
+
+h1, h2, h3, h4 {
+  letter-spacing: -0.02em;
+}
+
+.bp-public-header {
+  box-shadow: 0 8px 30px rgba(7, 27, 46, 0.12);
+}
+
+.bp-wordmark {
+  color: inherit !important;
+}
+
+.bp-logo-mark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #1f7fe0, #0d4f9d);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 8px 18px rgba(20,102,196,.24);
+}
+
+.bp-logo-mark-light {
+  background: var(--bp-navy);
+  box-shadow: inset 0 0 0 1px rgba(7,27,46,.08), 0 6px 14px rgba(7,27,46,.10);
+}
+
+.bp-public-hero {
+  background:
+    radial-gradient(circle at 82% 24%, rgba(20, 102, 196, 0.10), transparent 26%),
+    radial-gradient(circle at 96% 92%, rgba(239, 124, 69, 0.08), transparent 24%),
+    linear-gradient(180deg, #ffffff 0%, #f6f8fb 100%);
+}
+
+.bp-public-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -5% -55% auto;
+  width: 38rem;
+  height: 38rem;
+  border-radius: 50%;
+  border: 1px solid rgba(20, 102, 196, 0.08);
+  pointer-events: none;
+}
+
+.bp-stat-card {
+  position: relative;
+  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 16px;
+  border: 1px solid var(--bp-border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.88);
+  box-shadow: 0 16px 42px rgba(16, 35, 56, .07);
+  backdrop-filter: blur(8px);
+}
+
+.bp-stat-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 14px 0 0 14px;
+  background: var(--bp-blue);
+}
+
+.bp-stat-card span {
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 750;
+  color: var(--bp-text);
+}
+
+.bp-stat-card small {
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1.35;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .11em;
+  color: var(--bp-muted);
+}
+
+.bp-career-intro {
+  box-shadow: 0 12px 30px rgba(20,102,196,.05);
+}
+
+.bp-public-footer a {
+  color: inherit;
+}
+
+[aria-label="BluePace Help Center"] {
+  border-color: #cfdae5 !important;
+  box-shadow: 0 24px 70px rgba(7, 27, 46, .20) !important;
+}
+
+.bp-help-icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.25);
+  border-radius: 50%;
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .bp-stat-card {
+    min-height: 96px;
+    padding: 12px;
+  }
+  .bp-stat-card span {
+    font-size: 20px;
+  }
+}
+
+/* Admin workspace: make the chrome feel like an internal enterprise product,
+   rather than a template dashboard. */
+.ats-workspace-header {
+  box-shadow: 0 8px 24px rgba(7, 27, 46, .045);
+}
+
+.ats-workspace-header h1 {
+  font-size: 20px;
+  letter-spacing: -0.025em;
+}
+
+.ats-mobile-nav button {
+  border: 1px solid transparent;
+}
+
+.ats-mobile-nav button:hover {
+  border-color: var(--bp-border);
+}
+
+aside {
+  box-shadow: 12px 0 34px rgba(7,27,46,.08) !important;
+}
+
+aside nav button {
+  min-height: 40px;
+}
+
+aside nav button:hover {
+  transform: translateX(1px);
+}
+
+aside nav button.bg-white\/10 {
+  box-shadow: inset 3px 0 0 var(--bp-orange);
+}
+
+table thead th {
+  font-size: 10px !important;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+table tbody tr {
+  transition: background-color 120ms ease;
+}
+
+table tbody tr:hover {
+  background: #f8fbfe;
+}
+
+html.dark table tbody tr:hover {
+  background: #132238;
+}
+
+/* Better form rhythm across dialogs and cards. */
+label {
+  letter-spacing: .005em;
+}
+
+input, select, textarea {
+  border-radius: 9px !important;
+}
+
+button {
+  border-radius: 9px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  aside nav button,
+  table tbody tr {
+    transition: none;
+  }
+}
