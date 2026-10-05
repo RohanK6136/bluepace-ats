@@ -39,6 +39,21 @@ const buttonPrimary = "inline-flex items-center justify-center gap-2 rounded-md 
 const buttonSecondary = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
 const inputStyle = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
 
+function ThemeToggle({ theme, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="inline-flex h-10 items-center gap-2 rounded-md border border-ink-100 bg-white px-3 text-sm font-semibold text-ink-700 shadow-sm hover:bg-ink-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      <span aria-hidden="true">{theme === "dark" ? "☀️" : "🌙"}</span>
+      <span className="hidden sm:inline">{theme === "dark" ? "Light" : "Dark"}</span>
+    </button>
+  );
+}
+
 function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -168,6 +183,7 @@ function EmptyState({ title, detail }) {
 export default function AtsWorkspace() {
   const [token, setToken] = useState(() => sessionStorage.getItem("bluepace_token"));
   const [user, setUser] = useState(null);
+  const [theme, setTheme] = useState(() => localStorage.getItem("bluepace_theme") || "light");
   const [accessMode, setAccessMode] = useState(() => (
     new URLSearchParams(window.location.search).get("mode") === "admin" ? "admin" : "public"
   ));
@@ -252,6 +268,14 @@ export default function AtsWorkspace() {
   const [interviewForm, setInterviewForm] = useState({ starts_at: "", duration_minutes: "60", mode: "online", location: "", meeting_url: "" });
 
   const canWrite = user && ["admin", "recruiter"].includes(user.role);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem("bluepace_theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
 
   useEffect(() => {
     if (token || accessMode !== "public") return undefined;
@@ -983,7 +1007,7 @@ export default function AtsWorkspace() {
     setAuthError("");
   }
 
-  if (portalToken) return <CandidatePortal token={portalToken} />;
+  if (portalToken) return <CandidatePortal token={portalToken} theme={theme} onToggleTheme={toggleTheme} />;
 
   if (!token && accessMode === "public") {
     return (
@@ -997,9 +1021,12 @@ export default function AtsWorkspace() {
                 <p className="text-xs text-ink-500">Candidate Application Portal</p>
               </div>
             </div>
-            <button className={buttonSecondary} onClick={() => switchAccessMode("admin")}>
-              Admin / Recruiter Login
-            </button>
+            <div className="flex items-center gap-2">
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
+              <button className={buttonSecondary} onClick={() => switchAccessMode("admin")}>
+                Admin / Recruiter Login
+              </button>
+            </div>
           </div>
         </header>
 
@@ -1150,9 +1177,12 @@ export default function AtsWorkspace() {
                 <p className="text-xs text-ink-500">Recruiting workspace</p>
               </div>
             </div>
-            <button className={buttonSecondary} onClick={() => switchAccessMode("public")}>
-              Public Portal
-            </button>
+            <div className="flex items-center gap-2">
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
+              <button className={buttonSecondary} onClick={() => switchAccessMode("public")}>
+                Public Portal
+              </button>
+            </div>
           </div>
           <h1 className="text-2xl font-semibold">Sign in</h1>
           <p className="mt-1 text-sm text-ink-500">Use the shared recruiting account provided by your administrator.</p>
@@ -1218,10 +1248,11 @@ export default function AtsWorkspace() {
             <p className="text-xs font-medium text-ink-500">{user?.email}</p>
             <h1 className="text-lg font-semibold">{navItems.find((item) => item.id === view)?.label}</h1>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             {view === "pipeline" && canWrite && <button className={buttonPrimary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
             {view === "jobs" && canWrite && <button className={buttonPrimary} onClick={() => resetJobForm()}>New job</button>}
             {view === "candidates" && canWrite && <button className={buttonPrimary} onClick={() => setCandidateFormOpen(true)}>Add candidate</button>}
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <button className={`${buttonSecondary} lg:hidden`} onClick={signOut}>Sign out</button>
           </div>
           <nav className="flex w-full gap-1 overflow-x-auto lg:hidden" aria-label="Workspace">
