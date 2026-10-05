@@ -1392,15 +1392,14 @@ export default function AtsWorkspace() {
           />}
 
                     {view === "pipeline" && <>
-            <div className="mb-6 flex flex-col gap-4 border-b border-ink-100 pb-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="mb-6 flex flex-col gap-4 border-b border-ink-100 pb-5 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
                 <p className="text-sm text-ink-500">{applications.length} applications in this view</p>
                 <h2 className="mt-1 text-xl font-semibold tracking-tight">Applications</h2>
-                <p className="mt-1 max-w-2xl text-sm text-ink-500">Review candidates, filter the pipeline, and move applications through each hiring stage.</p>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">Review candidates, filter the pipeline, and move applications through each hiring stage.</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <button className={buttonSecondary} onClick={exportCsv}>Export CSV</button>
-                {canWrite && <button className={buttonPrimary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
               </div>
             </div>
 
@@ -1420,7 +1419,7 @@ export default function AtsWorkspace() {
                   Clear
                 </button>
               </div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7 xl:items-end">
                 <Field label="Search" placeholder="Candidate or job" value={filters.search} onChange={(event) => setFilter("search", event.target.value)} />
                 <Field label="Skill" placeholder="Python" value={filters.skill} onChange={(event) => setFilter("skill", event.target.value)} />
                 <SelectField label="Stage" value={filters.stage_name} onChange={(event) => setFilter("stage_name", event.target.value)}>
@@ -1430,8 +1429,8 @@ export default function AtsWorkspace() {
                 <Field label="Source" placeholder="Referral" value={filters.source} onChange={(event) => setFilter("source", event.target.value)} />
                 <Field label="Applied after" type="date" value={filters.applied_after} onChange={(event) => setFilter("applied_after", event.target.value)} />
                 <Field label="Applied before" type="date" value={filters.applied_before} onChange={(event) => setFilter("applied_before", event.target.value)} />
-                <div className="flex items-end md:col-span-2 xl:col-span-2">
-                  <button type="submit" className={buttonPrimary + " w-full"}>Apply filters</button>
+                <div className="flex items-end">
+                  <button type="submit" className={buttonPrimary + " w-full h-[42px]"}>Apply</button>
                 </div>
               </div>
             </form>
@@ -1454,31 +1453,31 @@ export default function AtsWorkspace() {
 
             <div className="overflow-hidden rounded-xl border border-ink-100 bg-white shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
+                <table className="w-full min-w-[1100px] table-fixed border-collapse text-left text-sm">
                   <colgroup>
-                    <col className="w-12" />
-                    <col className="w-[25%]" />
+                    <col className="w-[4%]" />
+                    <col className="w-[22%]" />
                     <col className="w-[18%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[26%]" />
+                    <col className="w-[9%]" />
                     <col className="w-[11%]" />
-                    <col className="w-[21%]" />
-                    <col className="w-28" />
-                    <col className="w-40" />
                   </colgroup>
                   <thead className="border-b border-ink-100 bg-[#fafaf8] text-[11px] font-semibold uppercase tracking-wide text-ink-500">
                     <tr>
-                      <th className="px-4 py-3 text-center"><span className="sr-only">Select</span></th>
-                      <th className="px-4 py-3">Candidate</th>
-                      <th className="px-4 py-3">Job</th>
-                      <th className="px-4 py-3">Source</th>
-                      <th className="px-4 py-3">Skills</th>
-                      <th className="px-4 py-3">Applied</th>
-                      <th className="px-4 py-3">Stage</th>
+                      <th className="px-3 py-3 text-center align-middle"><span className="sr-only">Select</span></th>
+                      <th className="px-3 py-3 align-middle">Candidate</th>
+                      <th className="px-3 py-3 align-middle">Job</th>
+                      <th className="px-3 py-3 align-middle">Source</th>
+                      <th className="px-3 py-3 align-middle">Skills</th>
+                      <th className="px-3 py-3 text-center align-middle">Applied</th>
+                      <th className="px-3 py-3 align-middle">Stage</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-ink-50">
                     {applications.map((application) => (
-                      <tr key={application.id} className="align-top hover:bg-[#fcfcfa]">
-                        <td className="px-4 py-4 text-center align-middle">
+                      <tr key={application.id} className="hover:bg-[#fcfcfa]">
+                        <td className="px-3 py-4 text-center align-middle">
                           <input
                             aria-label={`Select ${application.candidate.first_name}`}
                             type="checkbox"
@@ -1488,29 +1487,29 @@ export default function AtsWorkspace() {
                             className="h-4 w-4"
                           />
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="px-3 py-4 align-middle">
                           <button className="block max-w-full truncate text-left font-semibold text-ink-900 hover:text-ink-600" title={`${application.candidate.first_name} ${application.candidate.last_name}`} onClick={() => { setSelectedCandidate(application.candidate_id); setView("candidates"); }}>
                             {application.candidate.first_name} {application.candidate.last_name}
                           </button>
                           <div className="mt-1 max-w-full truncate text-xs text-ink-500" title={application.candidate.email}>{application.candidate.email}</div>
                         </td>
-                        <td className="px-4 py-4 align-middle">
-                          <div className="font-medium text-ink-900">{application.job_title}</div>
+                        <td className="px-3 py-4 align-middle">
+                          <div className="truncate font-medium text-ink-900" title={application.job_title}>{application.job_title}</div>
                         </td>
-                        <td className="px-4 py-4 align-middle text-ink-600">
+                        <td className="px-3 py-4 align-middle text-ink-600">
                           <span className="inline-flex max-w-full truncate rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium" title={application.candidate.source || "Not specified"}>
                             {application.candidate.source || "Not specified"}
                           </span>
                         </td>
-                        <td className="px-4 py-4 text-xs leading-5 text-ink-600">
+                        <td className="px-3 py-4 align-middle text-xs leading-5 text-ink-600">
                           <div className="line-clamp-2" title={(application.candidate.resume_data?.skills || []).join(", ")}>
                             {(application.candidate.resume_data?.skills || []).slice(0, 5).join(", ") || "No skills extracted"}
                           </div>
                         </td>
-                        <td className="px-4 py-4 align-middle whitespace-nowrap text-xs text-ink-500">
+                        <td className="px-3 py-4 align-middle whitespace-nowrap text-center text-xs text-ink-500">
                           {new Date(application.applied_at).toLocaleDateString()}
                         </td>
-                        <td className="px-4 py-4 align-middle">
+                        <td className="px-3 py-4 align-middle">
                           <select
                             aria-label={`Stage for ${application.candidate.first_name}`}
                             className="w-full min-w-32 rounded-md border border-ink-100 bg-white px-2.5 py-2 text-xs font-medium text-ink-800 outline-none focus:border-ink-300 focus:ring-2 focus:ring-ink-100"
