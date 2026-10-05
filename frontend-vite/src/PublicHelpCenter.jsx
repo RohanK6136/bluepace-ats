@@ -89,7 +89,7 @@ function SupportHeader({ portal }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-ink-100 px-5 py-4">
       <div>
-        <p className="text-sm font-semibold text-ink-900">BluePace Help Center</p>
+        <p className="text-sm font-semibold text-ink-900">blupace Help Center</p>
         <p className="mt-0.5 text-xs text-ink-500">
           {portal ? "Help for your candidate application portal" : "Help with applications and careers"}
         </p>
@@ -106,7 +106,7 @@ export default function PublicHelpCenter({ portal = false }) {
     {
       id: 1,
       role: "assistant",
-      text: "Hi! I can help with applying, application updates, interviews, documents, and offers.",
+      text: "Hello. I can help with applications, interview updates, documents, offers, and using the candidate portal.",
     },
   ]);
 
@@ -145,7 +145,7 @@ export default function PublicHelpCenter({ portal = false }) {
         aria-label="Open BluePace Help Center"
         title="Help Center"
       >
-        <span aria-hidden="true">?</span>
+        <span className="bp-help-icon" aria-hidden="true">?</span>
       </button>
 
       {open && (
