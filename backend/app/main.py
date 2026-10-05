@@ -1041,7 +1041,8 @@ def login(
     record_audit(db, user, "auth.login", "user", user.id, after={"ip": request.client.host if request.client else None})
     # create_access_token persists the AuthSession and commits the transaction,
     # so keep audit + session creation in one database commit.
-    return TokenRead(access_token=create_access_token(user, db=db))
+    access_token = create_access_token(user, db=db, ip_address=request.client.host if request.client else None, user_agent=request.headers.get("user-agent"))
+    return TokenRead(access_token=access_token, user=UserRead.model_validate(user))
 
 
 @app.get("/auth/me", response_model=UserRead)
