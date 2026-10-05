@@ -454,9 +454,11 @@ export default function AtsWorkspace() {
       } catch (firstError) {
         // A sleeping Render instance can take a while to wake. Only after the
         // credential request actually fails do we wait for readiness and retry.
-        const timedOut = ["ECONNABORTED", "ETIMEDOUT"].includes(firstError.code)
+        const transientAuthFailure = !firstError.response
+          || [502, 503, 504].includes(firstError.response.status)
+          || ["ECONNABORTED", "ETIMEDOUT"].includes(firstError.code)
           || firstError.name === "AbortError";
-        if (!timedOut || authMode === "register") throw firstError;
+        if (!transientAuthFailure || authMode === "register") throw firstError;
         await ensureApiReady();
         response = await apiRequest(null, "post", "/auth/token", {
           data: credentials,
