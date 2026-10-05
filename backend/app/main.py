@@ -1003,22 +1003,20 @@ def login(
     login_email = credentials.username.strip().lower()
     user = db.scalar(select(User).where(User.email == login_email))
 
-    # The single shared recruiting account is configured in Render. Reconcile it
-    # at login time as well as startup so a fresh/ephemeral database can recover
-    # the shared account without enabling public registration.
+    # Only repair the shared bootstrap account when it is actually missing.
+    # Re-hashing the configured password on every successful login made sign-in
+    # unnecessarily slow and also caused an extra write transaction.
     bootstrap_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
     bootstrap_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
     if (
-        bootstrap_email
+        user is None
+        and bootstrap_email
         and bootstrap_password
         and login_email == bootstrap_email
         and credentials.password == bootstrap_password
     ):
         ensure_bootstrap_account()
         user = db.scalar(select(User).where(User.email == login_email))
-        if user is not None:
-            db.expire(user)
-            user = db.scalar(select(User).where(User.email == login_email))
 
     now = datetime.now(timezone.utc)
     if user is not None and user.locked_until is not None and user.locked_until > now:
@@ -1041,7 +1039,8 @@ def login(
     user.failed_login_attempts = 0
     user.locked_until = None
     record_audit(db, user, "auth.login", "user", user.id, after={"ip": request.client.host if request.client else None})
-    db.commit()
+    # create_access_token persists the AuthSession and commits the transaction,
+    # so keep audit + session creation in one database commit.
     return TokenRead(access_token=create_access_token(user, db=db))
 
 
