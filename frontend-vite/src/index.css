@@ -578,17 +578,53 @@ h1, h2, h3, h4 {
   box-shadow: 0 24px 70px rgba(7, 27, 46, .20) !important;
 }
 
-.bp-help-icon {
+.bp-help-launcher {
+  min-height: 44px;
+  backdrop-filter: blur(8px);
+}
+
+.bp-help-launcher-icon {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 27px;
+  height: 27px;
   place-items: center;
-  border: 1px solid rgba(255,255,255,.25);
+  border: 1px solid rgba(255,255,255,.18);
   border-radius: 50%;
-  font-size: 14px;
+  background: rgba(255,255,255,.08);
+  color: #8fc4ff;
+}
+
+.bp-help-launcher-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.bp-help-launcher-label {
+  letter-spacing: -.005em;
 }
 
 @media (max-width: 640px) {
+  .bp-help-launcher {
+    right: 14px;
+    bottom: 14px;
+    min-height: 46px;
+    padding: 0.65rem 0.75rem;
+  }
+
+  .bp-help-launcher-label {
+    display: none;
+  }
+
+  .bp-help-launcher-icon {
+    width: 29px;
+    height: 29px;
+  }
+
+  .bp-help-launcher-icon svg {
+    width: 17px;
+    height: 17px;
+  }
+
   .bp-stat-card {
     min-height: 96px;
     padding: 12px;
