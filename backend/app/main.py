@@ -1425,15 +1425,6 @@ def rank_job_candidates(
     if not job.jd_analysis:
         job.jd_analysis = matching_service.analyze_job(job)
 
-    candidate_stage_names = {}
-    stage_rows = db.execute(
-        select(Application.candidate_id, Stage.name)
-        .join(Stage, Application.stage_id == Stage.id)
-        .where(Application.organization_id == user.organization_id)
-    ).all()
-    for candidate_id, stage_value in stage_rows:
-        candidate_stage_names.setdefault(candidate_id, set()).add(stage_value)
-
     candidates = list(
         db.scalars(
             select(Candidate)
@@ -1446,23 +1437,36 @@ def rank_job_candidates(
         ).all()
     )
 
+    candidate_ids = [candidate.id for candidate in candidates]
+    existing_matches = {}
+    if candidate_ids:
+        existing_matches = {
+            match.candidate_id: match
+            for match in db.scalars(
+                select(CandidateJobMatch)
+                .where(
+                    CandidateJobMatch.organization_id == user.organization_id,
+                    CandidateJobMatch.job_id == job.id,
+                    CandidateJobMatch.candidate_id.in_(candidate_ids),
+                )
+                .options(selectinload(CandidateJobMatch.candidate))
+            ).all()
+        }
+
     results = []
     for candidate in candidates:
         score = matching_service.score_candidate(job, candidate)
-        match = db.scalar(
-            select(CandidateJobMatch).where(
-                CandidateJobMatch.organization_id == user.organization_id,
-                CandidateJobMatch.job_id == job.id,
-                CandidateJobMatch.candidate_id == candidate.id,
-            )
-        )
+        match = existing_matches.get(candidate.id)
         if match is None:
             match = CandidateJobMatch(
                 organization_id=user.organization_id,
                 job_id=job.id,
                 candidate_id=candidate.id,
+                candidate=candidate,
             )
             db.add(match)
+        else:
+            match.candidate = candidate
         match.model_score = score["model_score"]
         match.score_breakdown = score["score_breakdown"]
         match.matched_skills = score["matched_skills"]
@@ -1483,8 +1487,6 @@ def rank_job_candidates(
     )
     db.commit()
 
-    for match in results:
-        db.refresh(match)
     results.sort(
         key=lambda match: match.recruiter_override if match.recruiter_override is not None else match.model_score,
         reverse=True,
