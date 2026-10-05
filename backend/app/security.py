@@ -17,7 +17,8 @@ if not JWT_SECRET and os.getenv("APP_ENV", "development") not in {"development",
     raise RuntimeError("JWT_SECRET must be configured outside development and test environments")
 JWT_SECRET = JWT_SECRET or "local-development-only-change-me"
 JWT_ALGORITHM = "HS256"
-TOKEN_LIFETIME_MINUTES = 12 * 60
+TOKEN_LIFETIME_MINUTES = 7 * 24 * 60
+TOKEN_REFRESH_GRACE_MINUTES = 60
 password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
@@ -106,6 +107,52 @@ def require_roles(*roles: Role):
         return user
 
     return dependency
+
+def refresh_access_token(token: str, db: Session) -> str:
+    """Rotate an access token while its persisted session is still valid.
+
+    A short grace period allows sleeping browser tabs to recover without forcing
+    recruiters back through the login screen, while revocation still blocks refresh.
+    """
+    unauthorized = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired access token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(
+            token,
+            JWT_SECRET,
+            algorithms=[JWT_ALGORITHM],
+            options={"verify_exp": False},
+        )
+        user_id = int(payload["sub"])
+        jti = str(payload.get("jti") or "")
+        expires_at = datetime.fromtimestamp(float(payload["exp"]), tz=timezone.utc)
+    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError, OverflowError):
+        raise unauthorized
+
+    now = datetime.now(timezone.utc)
+    if not jti or expires_at + timedelta(minutes=TOKEN_REFRESH_GRACE_MINUTES) <= now:
+        raise unauthorized
+
+    user = db.get(User, user_id)
+    session = db.scalar(
+        select(AuthSession).where(
+            AuthSession.jti == jti,
+            AuthSession.user_id == user_id,
+        )
+    )
+    if user is None or not user.is_active or session is None:
+        raise unauthorized
+    session_expires_at = _as_utc(session.expires_at)
+    if _as_utc(session.revoked_at) is not None or session_expires_at is None or session_expires_at + timedelta(minutes=TOKEN_REFRESH_GRACE_MINUTES) <= now:
+        raise unauthorized
+
+    session.revoked_at = now
+    db.commit()
+    return create_access_token(user, db=db)
+
 def revoke_access_token(token: str, db: Session) -> bool:
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
