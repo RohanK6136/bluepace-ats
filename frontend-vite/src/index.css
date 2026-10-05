@@ -336,3 +336,121 @@ html.dark [class*="shadow-panel"] {
     transition: none;
   }
 }
+
+
+/* Mobile-first ATS workspace refinements. */
+.ats-mobile-nav {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.ats-mobile-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.ats-applications-table > div,
+.ats-jobs-table > div {
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+  .ats-workspace-header {
+    align-items: flex-start;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .ats-workspace-header > div:first-child {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .ats-workspace-header > div:nth-child(2) {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .ats-workspace-header .ats-mobile-nav {
+    margin-top: 0.15rem;
+  }
+
+  .ats-applications-table table {
+    min-width: 820px !important;
+  }
+
+  .ats-jobs-table {
+    overflow-x: visible;
+  }
+
+  .ats-jobs-table > div {
+    min-width: 0 !important;
+  }
+
+  .ats-jobs-grid:first-child {
+    display: none !important;
+  }
+
+  .ats-jobs-grid:not(:first-child) {
+    display: block !important;
+    padding: 1rem !important;
+  }
+
+  .ats-jobs-grid:not(:first-child) > div,
+  .ats-jobs-grid:not(:first-child) > span {
+    display: block;
+    width: 100%;
+    margin-top: 0.75rem;
+  }
+
+  .ats-jobs-grid:not(:first-child) > div:first-child {
+    margin-top: 0;
+  }
+
+  .ats-jobs-grid:not(:first-child) > div:nth-child(2) {
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--bp-border);
+  }
+
+  .ats-jobs-grid:not(:first-child) > span {
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--bp-border);
+  }
+
+  .ats-jobs-grid:not(:first-child) > div:nth-child(4) {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--bp-border);
+  }
+
+  .ats-jobs-grid:not(:first-child) .bg-ink-50 {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 480px) {
+  .ats-workspace-header .theme-toggle-text {
+    display: none;
+  }
+
+  .ats-applications-table {
+    border-radius: 0.75rem;
+  }
+
+  .ats-mobile-nav button {
+    font-size: 0.75rem !important;
+    padding: 0.55rem 0.7rem !important;
+  }
+}
+
+/* Chatbot: use the full mobile viewport while preserving a compact desktop popover. */
+@media (max-width: 640px) {
+  [aria-label="BluePace ATS chatbot"] {
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+
+  [aria-label="BluePace ATS chatbot"] .max-h-\[min\(680px\,calc\(100dvh-7rem\)\)\] {
+    max-height: none !important;
+  }
+}
