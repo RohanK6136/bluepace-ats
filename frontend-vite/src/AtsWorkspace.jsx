@@ -25,6 +25,7 @@ const API_URL = (
     : "http://localhost:8000")
 ).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 90_000;
+const AUTH_TIMEOUT_MS = 30_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
 const MATCH_WEIGHTS = {
@@ -95,13 +96,15 @@ async function refreshAccessToken(currentToken) {
 async function apiRequest(token, method, path, options = {}) {
   let requestToken = token || sessionStorage.getItem("bluepace_token") || "";
   let refreshed = false;
+  const isAuthRequest = /^\/auth\/(token|register|logout)$/.test(path);
+  const requestTimeout = options.timeout ?? (isAuthRequest ? AUTH_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await axios.request({
         baseURL: API_URL,
         method,
         url: path,
-        timeout: REQUEST_TIMEOUT_MS,
+        timeout: requestTimeout,
         ...options,
         headers: {
           ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}),
@@ -109,11 +112,13 @@ async function apiRequest(token, method, path, options = {}) {
         },
       });
     } catch (error) {
+      if (isAuthRequest) throw error;
       const canRefresh = Boolean(requestToken)
         && !refreshed
         && error.response?.status === 401
         && !path.startsWith("/auth/token")
         && !path.startsWith("/auth/refresh")
+        && !path.startsWith("/auth/logout")
         && Boolean(sessionStorage.getItem("bluepace_token"));
       if (canRefresh) {
         try {
@@ -184,7 +189,15 @@ function EmptyState({ title, detail }) {
 
 export default function AtsWorkspace() {
   const [token, setToken] = useState(() => sessionStorage.getItem("bluepace_token"));
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("bluepace_user");
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+  const [authLoading, setAuthLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("bluepace_theme") || "light");
   const [accessMode, setAccessMode] = useState(() => (
     new URLSearchParams(window.location.search).get("mode") === "admin" ? "admin" : "public"
@@ -280,6 +293,14 @@ export default function AtsWorkspace() {
   const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
 
   useEffect(() => {
+    if (token) return undefined;
+    // Warm the Render API while the login screen is open so the first auth call
+    // is not also responsible for waking a sleeping backend instance.
+    axios.get(`${API_URL}/healthz`, { timeout: 5_000 }).catch(() => {});
+    return undefined;
+  }, [token]);
+
+  useEffect(() => {
     if (token || accessMode !== "public") return undefined;
     let active = true;
     const params = Object.fromEntries(Object.entries(publicFilters).filter(([, value]) => value));
@@ -296,11 +317,15 @@ export default function AtsWorkspace() {
       setLoading(true);
       try {
         const [userResponse, jobsResponse] = await Promise.all([
-          apiRequest(token, "get", "/auth/me"),
+          user
+            ? Promise.resolve({ data: user })
+            : apiRequest(token, "get", "/auth/me"),
           apiRequest(token, "get", "/jobs", { params: { limit: 100 } }),
         ]);
         if (!active) return;
-        setUser(userResponse.data);
+        const resolvedUser = userResponse.data;
+        setUser(resolvedUser);
+        sessionStorage.setItem("bluepace_user", JSON.stringify(resolvedUser));
         setJobs(jobsResponse.data);
         setMatchJobId((current) => current || String(jobsResponse.data.find((job) => job.status === "open")?.id || jobsResponse.data[0]?.id || ""));
         setError("");
@@ -378,6 +403,7 @@ export default function AtsWorkspace() {
   async function signIn(event) {
     event.preventDefault();
     setAuthError("");
+    setAuthLoading(true);
     try {
       if (authMode === "register") {
         await apiRequest(null, "post", "/auth/register", { data: authForm });
@@ -390,27 +416,38 @@ export default function AtsWorkspace() {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
       sessionStorage.setItem("bluepace_token", response.data.access_token);
+      if (response.data.user) {
+        sessionStorage.setItem("bluepace_user", JSON.stringify(response.data.user));
+        setUser(response.data.user);
+      }
       setToken(response.data.access_token);
     } catch (authRequestError) {
       setAuthError(errorText(authRequestError));
+    } finally {
+      setAuthLoading(false);
     }
   }
 
-  async function signOut() {
+  function signOut() {
     const currentToken = token;
-    try {
-      if (currentToken) await apiRequest(currentToken, "post", "/auth/logout");
-    } catch (_) {
-      // Always clear local state even when the server session is already expired.
-    } finally {
-      sessionStorage.removeItem("bluepace_token");
-      setToken(null);
-      setUser(null);
-      setJobs([]);
-      setCandidates([]);
-      setApplications([]);
-      setNotice("");
-      setError("");
+    // Clear local auth state first. Revocation is best-effort and must never hold
+    // the user on the workspace while a sleeping/slow API is responding.
+    sessionStorage.removeItem("bluepace_token");
+    sessionStorage.removeItem("bluepace_user");
+    setToken(null);
+    setUser(null);
+    setJobs([]);
+    setCandidates([]);
+    setApplications([]);
+    setNotice("");
+    setError("");
+
+    if (currentToken) {
+      void fetch(`${API_URL}/auth/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${currentToken}` },
+        keepalive: true,
+      }).catch(() => {});
     }
   }
 
