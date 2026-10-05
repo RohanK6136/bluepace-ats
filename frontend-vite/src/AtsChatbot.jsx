@@ -60,7 +60,7 @@ export default function AtsChatbot({ token, apiRequest, onError }) {
     <>
       {open && (
         <section
-          className="fixed bottom-24 right-4 z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl sm:right-6 dark:border-slate-700 dark:bg-slate-900"
+          className="fixed bottom-24 right-4 z-50 flex w-[min(380px,calc(100vw-2rem))] max-h-[min(680px,calc(100dvh-7rem))] flex-col overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl sm:right-6 dark:border-slate-700 dark:bg-slate-900"
           aria-label="BluePace ATS chatbot"
         >
           <div className="flex items-center justify-between bg-ink-950 px-4 py-3 text-white">
@@ -78,7 +78,7 @@ export default function AtsChatbot({ token, apiRequest, onError }) {
             </button>
           </div>
 
-          <div className="max-h-[52vh] min-h-72 space-y-3 overflow-y-auto bg-[#f8fafc] p-4 dark:bg-slate-950">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain bg-[#f8fafc] p-4 dark:bg-slate-950">
             {messages.map((item, index) => (
               <div key={index} className={`flex ${item.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
