@@ -294,10 +294,18 @@ export default function AtsWorkspace() {
 
   useEffect(() => {
     if (token) return undefined;
-    // Warm the Render API while the login screen is open so the first auth call
-    // is not also responsible for waking a sleeping backend instance.
-    axios.get(`${API_URL}/healthz`, { timeout: 5_000 }).catch(() => {});
-    return undefined;
+    // Keep the backend warm while the shared login screen is open so the first
+    // credential request does not absorb a cold-start delay.
+    const warmApi = () => {
+      void fetch(`${API_URL}/healthz`, {
+        method: "GET",
+        cache: "no-store",
+        keepalive: true,
+      }).catch(() => {});
+    };
+    warmApi();
+    const intervalId = window.setInterval(warmApi, 4 * 60 * 1000);
+    return () => window.clearInterval(intervalId);
   }, [token]);
 
   useEffect(() => {
@@ -405,6 +413,12 @@ export default function AtsWorkspace() {
     setAuthError("");
     setAuthLoading(true);
     try {
+      // Start a lightweight wake-up request in parallel with authentication.
+      void fetch(`${API_URL}/healthz`, {
+        method: "GET",
+        cache: "no-store",
+        keepalive: true,
+      }).catch(() => {});
       if (authMode === "register") {
         await apiRequest(null, "post", "/auth/register", { data: authForm });
       }
@@ -1278,7 +1292,13 @@ export default function AtsWorkspace() {
           </div>
           <h1 className="text-2xl font-semibold">Sign in</h1>
           <p className="mt-1 text-sm text-ink-500">Use the shared recruiting account provided by your administrator.</p>
-          <form onSubmit={signIn} className="mt-7 grid gap-4">
+          <form
+            onSubmit={signIn}
+            onFocus={() => {
+              void fetch(`${API_URL}/healthz`, { method: "GET", cache: "no-store", keepalive: true }).catch(() => {});
+            }}
+            className="mt-7 grid gap-4"
+          >
             <Field label="Work email" type="email" autoComplete="email" required value={authForm.email} onChange={(event) => setAuthForm({ ...authForm, email: event.target.value })} />
             <Field label="Password" type="password" autoComplete={authMode === "login" ? "current-password" : "new-password"} minLength={12} required value={authForm.password} onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })} />
             {authError && <p role="alert" className="text-sm text-rose-700">{authError}</p>}
