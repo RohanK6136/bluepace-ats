@@ -324,15 +324,29 @@ export default function AtsWorkspace() {
 
   async function refreshWorkspace() {
     if (!token) return;
-    const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
-    const [jobsResponse, candidateResponse, applicationResponse] = await Promise.all([
-      apiRequest(token, "get", "/jobs", { params: { limit: 100 } }),
-      apiRequest(token, "get", "/candidates", { params: { limit: 100 } }),
-      apiRequest(token, "get", "/applications", { params: { ...params, limit: 100 } }),
-    ]);
+    const needsCandidates = new Set(["candidates", "matches", "merge", "tools", "talent", "portal"]);
+    const needsApplications = new Set(["pipeline", "matches", "interviews", "offers", "tools", "automation"]);
+    const requests = [];
+    requests.push(apiRequest(token, "get", "/jobs", { params: { limit: 100 } }));
+    requests.push(
+      needsCandidates.has(view)
+        ? apiRequest(token, "get", "/candidates", { params: { limit: 100 } })
+        : Promise.resolve(null),
+    );
+    requests.push(
+      needsApplications.has(view)
+        ? apiRequest(token, "get", "/applications", {
+            params: {
+              ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)),
+              limit: 100,
+            },
+          })
+        : Promise.resolve(null),
+    );
+    const [jobsResponse, candidateResponse, applicationResponse] = await Promise.all(requests);
     setJobs(jobsResponse.data);
-    setCandidates(candidateResponse.data);
-    setApplications(applicationResponse.data);
+    if (candidateResponse) setCandidates(candidateResponse.data);
+    if (applicationResponse) setApplications(applicationResponse.data);
   }
 
   async function signIn(event) {
