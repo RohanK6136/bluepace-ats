@@ -297,6 +297,7 @@ class DocumentExtractor:
         Confidence describes extraction certainty, not candidate quality.
         """
         lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        indexed_lines = [(line, line.casefold()) for line in lines]
         evidence = []
         confidence = {}
 
@@ -315,12 +316,12 @@ class DocumentExtractor:
             matched = []
             for item in values[:20]:
                 if isinstance(item, dict):
-                    search_values = [str(v) for v in item.values() if v]
+                    search_values = [str(v).strip().casefold() for v in item.values() if v]
                 else:
-                    search_values = [str(item)]
+                    search_values = [str(item).strip().casefold()]
                 line_match = next(
-                    (line for line in lines if any(
-                        token.strip() and token.strip().lower() in line.lower()
+                    (line for line, lower_line in indexed_lines if any(
+                        token and token in lower_line
                         for token in search_values[:5]
                     )),
                     None,
