@@ -1014,34 +1014,67 @@ export default function AtsWorkspace() {
   if (!token && accessMode === "public") {
     return (
       <main className="min-h-screen bg-[#f3f4f1] text-ink-900">
-        <header className="border-b border-ink-100 bg-white/95 px-5 py-4">
-          <div className="mx-auto flex max-w-6xl items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-md bg-ink-950 text-xs font-bold text-gold-300">BP</div>
-              <div>
-                <p className="font-semibold">BluePace Tech</p>
-                <p className="text-xs text-ink-500">Candidate Application Portal</p>
-              </div>
-            </div>
+        <header className="bp-public-header border-b border-white/10 bg-ink-950 px-5 py-4 text-white">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-5">
+            <a href="https://www.blupacetech.com/" target="_blank" rel="noreferrer" className="bp-wordmark flex items-center gap-3 text-white no-underline">
+              <span className="bp-logo-mark">B</span>
+              <span>
+                <span className="block text-[15px] font-semibold tracking-tight">blupace</span>
+                <span className="block text-[9px] font-semibold uppercase tracking-[0.24em] text-white/55">tech</span>
+              </span>
+            </a>
             <div className="flex items-center gap-2">
+              <span className="hidden text-xs text-white/60 sm:inline">Talent &amp; Workforce</span>
+              <a href="https://www.blupacetech.com/" target="_blank" rel="noreferrer" className="hidden rounded-md px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10 hover:text-white sm:inline-flex">
+                Company site
+              </a>
               <ThemeToggle theme={theme} onToggle={toggleTheme} />
-              <button className={buttonSecondary} onClick={() => switchAccessMode("admin")}>
+              <button className="border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={() => switchAccessMode("admin")}>
                 Admin / Recruiter Login
               </button>
             </div>
           </div>
         </header>
 
-        <section className="mx-auto max-w-6xl px-5 py-12">
-          <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">BluePace Careers</p>
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">Find your next opportunity.</h1>
-            <p className="mt-4 text-base leading-7 text-ink-500">
-              Browse open positions and submit your resume without creating an account.
-            </p>
+        <section className="bp-public-hero relative overflow-hidden border-b border-ink-100">
+          <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 sm:py-16 lg:grid-cols-[1.35fr_0.65fr] lg:items-end lg:py-20">
+            <div className="max-w-3xl">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-orange-500"></span>
+                Careers at Blupace Tech
+              </p>
+              <h1 className="mt-5 text-4xl font-semibold tracking-[-0.035em] text-ink-950 sm:text-5xl lg:text-6xl">
+                Enterprise talent, built to move at your pace.
+              </h1>
+              <p className="mt-5 max-w-2xl text-base leading-7 text-ink-600 sm:text-lg">
+                Explore technology opportunities across software, AI, data, cloud, cybersecurity, infrastructure and workplace services.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                <a href="#jobs" className={buttonPrimary + " no-underline"}>Explore open roles</a>
+                <a href="https://www.blupacetech.com/recruitment-staff-augmentation" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-ink-100 bg-white px-4 py-2 text-sm font-semibold text-ink-800 no-underline shadow-sm hover:bg-ink-50">
+                  About Talent &amp; Workforce
+                </a>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 lg:pb-1">
+              <div className="bp-stat-card"><span>20+</span><small>Years</small></div>
+              <div className="bp-stat-card"><span>10+</span><small>Countries</small></div>
+              <div className="bp-stat-card"><span>3</span><small>Specialist businesses</small></div>
+            </div>
           </div>
+        </section>
 
-          <div id="jobs" className="mt-10">
+        <section className="mx-auto max-w-7xl px-5 pb-4 pt-10">
+          <div className="bp-career-intro rounded-2xl border border-blue-100 bg-blue-50/60 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6">
+            <div>
+              <p className="text-sm font-semibold text-ink-900">A candidate experience designed around clarity.</p>
+              <p className="mt-1 text-sm leading-6 text-ink-600">Apply without creating an account, keep your email current, and use your secure candidate portal for updates.</p>
+            </div>
+            <span className="mt-3 inline-flex w-fit rounded-full border border-blue-100 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700 sm:mt-0">Secure application flow</span>
+          </div>
+        </section>
+
+        <section id="jobs" className="mx-auto max-w-7xl px-5 py-8">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-xl font-semibold">Open Positions</h2>
               {publicJobs.length > 0 && <span className="text-sm text-ink-500">{publicJobs.length} position(s)</span>}
@@ -1165,6 +1198,26 @@ export default function AtsWorkspace() {
         )}
 
         <PublicHelpCenter />
+
+        <footer className="bp-public-footer mt-16 border-t border-ink-100 bg-ink-950 px-5 py-10 text-white">
+          <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <p className="text-lg font-semibold">blupace<span className="text-orange-400">.</span>tech</p>
+              <p className="mt-2 max-w-sm text-sm leading-6 text-white/60">Enterprise technology, global capability centres, and talent &amp; workforce solutions.</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Careers</p>
+              <a className="mt-3 block text-sm text-white/75 hover:text-white" href="#jobs">Open positions</a>
+              <a className="mt-2 block text-sm text-white/75 hover:text-white" href="https://www.blupacetech.com/recruitment-staff-augmentation" target="_blank" rel="noreferrer">Talent &amp; Workforce</a>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Connect</p>
+              <a className="mt-3 block text-sm text-white/75 hover:text-white" href="mailto:hello@blupacetech.com">hello@blupacetech.com</a>
+              <a className="mt-2 block text-sm text-white/75 hover:text-white" href="https://www.blupacetech.com/" target="_blank" rel="noreferrer">blupacetech.com</a>
+            </div>
+          </div>
+          <div className="mx-auto mt-8 max-w-7xl border-t border-white/10 pt-5 text-[11px] text-white/40">© Blupace Tech · Careers &amp; Talent</div>
+        </footer>
       </main>
     );
   }
