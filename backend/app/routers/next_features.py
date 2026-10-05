@@ -1209,6 +1209,10 @@ def recruiter_chatbot(
     """Organization-scoped recruiting chatbot grounded in live ATS records."""
     message = request.message.strip()
 
+    job_count = db.scalar(select(func.count(Job.id)).where(Job.organization_id == user.organization_id)) or 0
+    application_count = db.scalar(select(func.count(Application.id)).where(Application.organization_id == user.organization_id)) or 0
+    candidate_count = db.scalar(select(func.count(Candidate.id)).where(Candidate.organization_id == user.organization_id)) or 0
+
     jobs = db.scalars(
         select(Job)
         .where(Job.organization_id == user.organization_id)
@@ -1237,9 +1241,11 @@ def recruiter_chatbot(
     context = {
         "workspace": {
             "user_role": user.role.value if hasattr(user.role, "value") else str(user.role),
-            "jobs_count": len(jobs),
-            "applications_sample_count": len(applications),
-            "candidates_sample_count": len(candidates),
+            "jobs_count": job_count,
+            "applications_count": application_count,
+            "candidates_count": candidate_count,
+            "applications_context_count": len(applications),
+            "candidates_context_count": len(candidates),
             "stage_counts_in_sample": stage_counts,
         },
         "jobs": [
@@ -1288,11 +1294,11 @@ def recruiter_chatbot(
     lower = message.casefold()
     deterministic = None
     if "how many" in lower and ("application" in lower or "applicant" in lower):
-        deterministic = f"There are {len(applications)} applications in the current workspace sample."
+        deterministic = f"There are {application_count} applications in the current workspace."
     elif "how many" in lower and "job" in lower:
-        deterministic = f"There are {len(jobs)} jobs in the current workspace."
+        deterministic = f"There are {job_count} jobs in the current workspace."
     elif "stage" in lower and ("count" in lower or "many" in lower):
-        deterministic = "Current application stage counts in the loaded workspace sample: " + ", ".join(
+        deterministic = "Current application stage counts in the most recent application records loaded for the workspace: " + ", ".join(
             f"{stage}: {count}" for stage, count in sorted(stage_counts.items())
         ) + "."
 
