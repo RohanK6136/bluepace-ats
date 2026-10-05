@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import PublicHelpCenter from "./PublicHelpCenter.jsx";
 
 const API_URL = (
   import.meta.env.VITE_API_URL?.trim() ||
@@ -327,6 +328,7 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
             Keep this secure link for future status updates. You do not need to create a separate account.
           </div>
         </section>
+        <PublicHelpCenter portal />
       </section>
     </main>
   );
