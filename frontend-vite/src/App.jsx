@@ -42,7 +42,7 @@ function apiErrorMessage(error, fallback) {
   return error.message || fallback;
 }
 
-export default function App() {
+export default function App({ theme = "light", onToggleTheme = () => {} }) {
   const [file, setFile] = useState(null);
   const [jsonData, setJsonData] = useState(null);
   const [jobDescription, setJobDescription] = useState("");
@@ -53,13 +53,6 @@ export default function App() {
   const [validationError, setValidationError] = useState("");
   const [uploadTiming, setUploadTiming] = useState(null);
   const [validationTiming, setValidationTiming] = useState(null);
-
-  const [theme, setTheme] = useState("dark");
-  useEffect(() => {
-    if (theme === "dark") document.documentElement.classList.add("dark");
-    else document.documentElement.classList.remove("dark");
-  }, [theme]);
-  const toggleTheme = () => setTheme(theme === "light" ? "dark" : "light");
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files?.[0] || null;
@@ -175,7 +168,7 @@ export default function App() {
               <p className="text-[11px] text-indigo-600 dark:text-indigo-300/80 font-semibold tracking-[0.2em] uppercase">AI-Powered ATS</p>
             </div>
           </div>
-          <button onClick={toggleTheme} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+          <button onClick={onToggleTheme} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
             {theme === "light" ? "🌙" : "☀️"}
           </button>
         </div>
