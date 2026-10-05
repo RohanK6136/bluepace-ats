@@ -102,6 +102,10 @@ class AssistantRequest(BaseModel):
     question: str = Field(default="Give me a factual summary of this application.", max_length=2000)
 
 
+class ChatbotRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+
+
 class AutomationRuleCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     trigger_event: str = Field(default="stage_changed", pattern="^(stage_changed|scorecards_complete)$")
@@ -1195,6 +1199,144 @@ Evidence:
             "The assistant does not make hiring decisions or move candidates between stages.",
         ],
     }
+
+@router.post("/chatbot")
+def recruiter_chatbot(
+    request: ChatbotRequest,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Organization-scoped recruiting chatbot grounded in live ATS records."""
+    message = request.message.strip()
+
+    jobs = db.scalars(
+        select(Job)
+        .where(Job.organization_id == user.organization_id)
+        .order_by(Job.created_at.desc())
+        .limit(40)
+    ).all()
+    applications = db.scalars(
+        select(Application)
+        .where(Application.organization_id == user.organization_id)
+        .options(selectinload(Application.job), selectinload(Application.candidate), selectinload(Application.stage))
+        .order_by(Application.applied_at.desc())
+        .limit(60)
+    ).all()
+    candidates = db.scalars(
+        select(Candidate)
+        .where(Candidate.organization_id == user.organization_id)
+        .order_by(Candidate.created_at.desc())
+        .limit(40)
+    ).all()
+
+    stage_counts = {}
+    for application in applications:
+        stage = application.stage.name if application.stage else "Applied"
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
+
+    context = {
+        "workspace": {
+            "user_role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            "jobs_count": len(jobs),
+            "applications_sample_count": len(applications),
+            "candidates_sample_count": len(candidates),
+            "stage_counts_in_sample": stage_counts,
+        },
+        "jobs": [
+            {
+                "id": job.id,
+                "title": job.title,
+                "department": job.department,
+                "location": job.location,
+                "work_mode": job.work_mode,
+                "employment_type": job.employment_type,
+                "status": job.status,
+                "required_skills": job.required_skills or [],
+                "minimum_experience_years": job.minimum_experience_years,
+                "fresher_allowed": job.fresher_allowed,
+            }
+            for job in jobs
+        ],
+        "applications": [
+            {
+                "id": application.id,
+                "candidate_id": application.candidate_id,
+                "candidate_name": f"{application.candidate.first_name} {application.candidate.last_name}".strip(),
+                "candidate_email": application.candidate.email,
+                "job_title": application.job.title,
+                "stage": application.stage.name if application.stage else "Applied",
+                "status": application.status,
+                "applied_at": application.applied_at.isoformat() if application.applied_at else None,
+                "skills": (application.candidate.resume_data or {}).get("skills", [])[:15],
+            }
+            for application in applications
+        ],
+        "candidates": [
+            {
+                "id": candidate.id,
+                "name": f"{candidate.first_name} {candidate.last_name}".strip(),
+                "email": candidate.email,
+                "source": candidate.source,
+                "skills": (candidate.resume_data or {}).get("skills", [])[:15],
+                "years_of_experience": (candidate.resume_data or {}).get("years_of_experience"),
+                "location": (candidate.resume_data or {}).get("current_location"),
+            }
+            for candidate in candidates
+        ],
+    }
+
+    lower = message.casefold()
+    deterministic = None
+    if "how many" in lower and ("application" in lower or "applicant" in lower):
+        deterministic = f"There are {len(applications)} applications in the current workspace sample."
+    elif "how many" in lower and "job" in lower:
+        deterministic = f"There are {len(jobs)} jobs in the current workspace."
+    elif "stage" in lower and ("count" in lower or "many" in lower):
+        deterministic = "Current application stage counts in the loaded workspace sample: " + ", ".join(
+            f"{stage}: {count}" for stage, count in sorted(stage_counts.items())
+        ) + "."
+
+    if not os.getenv("OPENROUTER_API_KEY"):
+        return {
+            "answer": deterministic or "The chatbot is connected to the ATS data, but an OPENROUTER_API_KEY is not configured, so natural-language AI responses are unavailable. I can still return basic workspace counts.",
+            "sources": ["Live ATS jobs, applications, and candidate records"],
+            "ai_enabled": False,
+        }
+
+    prompt = f"""
+You are the BluePace ATS recruiting workspace chatbot.
+Answer the user's question using ONLY the supplied live ATS context.
+Be concise, practical, and factual.
+Do not invent records, skills, stages, scores, interview results, or policies.
+Do not make hiring decisions or recommend hire/reject.
+When data is missing, say it is not available.
+Use candidate names and emails only when necessary to answer the request.
+You may help with jobs, applications, candidates, pipeline stages, skills, experience, locations, and recruiter workflow questions.
+
+User question:
+{message}
+
+ATS context:
+{json.dumps(context, ensure_ascii=False)[:45000]}
+"""
+    try:
+        response = llm_validator._request_completion(prompt)
+        parsed = llm_validator._parse_llm_response(response.choices[0].message.content)
+        answer = parsed.get("answer") or parsed.get("summary") or parsed.get("response")
+        if not answer:
+            answer = str(response.choices[0].message.content).strip()
+        return {
+            "answer": str(answer).strip(),
+            "sources": ["Live ATS jobs, applications, and candidate records"],
+            "ai_enabled": True,
+        }
+    except Exception:
+        return {
+            "answer": deterministic or "I couldn't generate an AI response right now. Please retry, or use the relevant ATS page for the live record.",
+            "sources": ["Live ATS jobs, applications, and candidate records"],
+            "ai_enabled": False,
+        }
+
 
 def _render_automation(template: str, application: Application, stage_name: str) -> str:
     candidate = application.candidate
