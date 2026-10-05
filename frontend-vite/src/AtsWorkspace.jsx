@@ -49,7 +49,35 @@ function shouldRetry(error) {
   return [502, 503, 504].includes(error.response.status);
 }
 
+let tokenRefreshInFlight = null;
+
+async function refreshAccessToken(currentToken) {
+  if (!currentToken) throw new Error("No access token available.");
+  if (!tokenRefreshInFlight) {
+    tokenRefreshInFlight = axios.post(
+      `${API_URL}/auth/refresh`,
+      null,
+      {
+        timeout: 15_000,
+        headers: { Authorization: `Bearer ${currentToken}` },
+      },
+    )
+      .then((response) => {
+        const refreshedToken = response.data?.access_token;
+        if (!refreshedToken) throw new Error("The ATS API did not return a refreshed access token.");
+        sessionStorage.setItem("bluepace_token", refreshedToken);
+        return refreshedToken;
+      })
+      .finally(() => {
+        tokenRefreshInFlight = null;
+      });
+  }
+  return tokenRefreshInFlight;
+}
+
 async function apiRequest(token, method, path, options = {}) {
+  let requestToken = token || sessionStorage.getItem("bluepace_token") || "";
+  let refreshed = false;
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await axios.request({
@@ -59,11 +87,27 @@ async function apiRequest(token, method, path, options = {}) {
         timeout: REQUEST_TIMEOUT_MS,
         ...options,
         headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}),
           ...options.headers,
         },
       });
     } catch (error) {
+      const canRefresh = Boolean(requestToken)
+        && !refreshed
+        && error.response?.status === 401
+        && !path.startsWith("/auth/token")
+        && !path.startsWith("/auth/refresh")
+        && Boolean(sessionStorage.getItem("bluepace_token"));
+      if (canRefresh) {
+        try {
+          requestToken = await refreshAccessToken(requestToken);
+          refreshed = true;
+          continue;
+        } catch (refreshError) {
+          sessionStorage.removeItem("bluepace_token");
+          throw refreshError;
+        }
+      }
       if (attempt >= RETRY_DELAYS_MS.length || !shouldRetry(error)) throw error;
       await wait(RETRY_DELAYS_MS[attempt]);
     }
