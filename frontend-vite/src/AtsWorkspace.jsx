@@ -1,19 +1,19 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import axios from "axios";
-import ResumeLab from "./App.jsx";
-import CandidatePortal from "./CandidatePortal.jsx";
-import EmailTemplatesPanel from "./EmailTemplatesPanel.jsx";
-import ScorecardPanel from "./ScorecardPanel.jsx";
-import TalentPoolsPanel from "./TalentPoolsPanel.jsx";
-import AnalyticsPanel from "./AnalyticsPanel.jsx";
-import ApplicationEnhancements from "./ApplicationEnhancements.jsx";
-import RecruiterToolsPanel from "./RecruiterToolsPanel.jsx";
-import InterviewPanel from "./InterviewPanel.jsx";
-import AutomationPanel from "./AutomationPanel.jsx";
-import CommandCenterPanel from "./CommandCenterPanel.jsx";
-import CandidateMergeCenter from "./CandidateMergeCenter.jsx";
-import InterviewManagement2 from "./InterviewManagement2.jsx";
-import OfferManagement from "./OfferManagement.jsx";
+const ResumeLab = lazy(() => import("./App.jsx"));
+const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
+const EmailTemplatesPanel = lazy(() => import("./EmailTemplatesPanel.jsx"));
+const ScorecardPanel = lazy(() => import("./ScorecardPanel.jsx"));
+const TalentPoolsPanel = lazy(() => import("./TalentPoolsPanel.jsx"));
+const AnalyticsPanel = lazy(() => import("./AnalyticsPanel.jsx"));
+const ApplicationEnhancements = lazy(() => import("./ApplicationEnhancements.jsx"));
+const RecruiterToolsPanel = lazy(() => import("./RecruiterToolsPanel.jsx"));
+const InterviewPanel = lazy(() => import("./InterviewPanel.jsx"));
+const AutomationPanel = lazy(() => import("./AutomationPanel.jsx"));
+const CommandCenterPanel = lazy(() => import("./CommandCenterPanel.jsx"));
+const CandidateMergeCenter = lazy(() => import("./CandidateMergeCenter.jsx"));
+const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
+const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -208,26 +208,6 @@ export default function AtsWorkspace() {
   const [interviewForm, setInterviewForm] = useState({ starts_at: "", duration_minutes: "60", mode: "online", location: "", meeting_url: "" });
 
   const canWrite = user && ["admin", "recruiter"].includes(user.role);
-
-  useEffect(() => {
-    if (token || accessMode !== "public") return undefined;
-    let active = true;
-    async function loadPublicJobs() {
-      setPublicLoading(true);
-      setPublicError("");
-      try {
-        const response = await apiRequest(null, "get", "/public/jobs");
-        if (active) setPublicJobs(Array.isArray(response.data) ? response.data : []);
-      } catch (requestError) {
-        if (active) setPublicError(errorText(requestError));
-      } finally {
-        if (active) setPublicLoading(false);
-      }
-    }
-    loadPublicJobs();
-    return () => { active = false; };
-  }, [token, accessMode]);
-
 
   useEffect(() => {
     if (token || accessMode !== "public") return undefined;
@@ -1164,7 +1144,8 @@ export default function AtsWorkspace() {
           </nav>
         </header>
 
-        <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-7 sm:py-8">
+        <Suspense fallback={<div className="mx-auto max-w-[1440px] rounded-xl border border-ink-100 bg-white p-6 text-sm text-ink-500">Loading workspace module…</div>}>
+          <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-7 sm:py-8">
           {notice && <div role="status" className="mb-4 flex items-center justify-between border-l-2 border-emerald-600 bg-white px-4 py-3 text-sm text-ink-700"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice("")}>×</button></div>}
           {error && <div role="alert" className="mb-4 flex items-center justify-between border-l-2 border-rose-600 bg-white px-4 py-3 text-sm text-rose-800"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
           {loading && <div className="mb-3 text-xs text-ink-500">Loading workspace…</div>}
@@ -1853,7 +1834,8 @@ export default function AtsWorkspace() {
           </>}
           {view === "tools" && <RecruiterToolsPanel token={token} candidates={candidates} applications={applications} canWrite={canWrite} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
           {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}\n          {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab /></section>}
-        </main>
+          </main>
+        </Suspense>
       </div>
 
       {interviewDialogApplication && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setInterviewDialogApplication(null); }}>
