@@ -1163,6 +1163,8 @@ export default function AtsWorkspace() {
             </div>
           </div>
         )}
+
+        <PublicHelpCenter />
       </main>
     );
   }
