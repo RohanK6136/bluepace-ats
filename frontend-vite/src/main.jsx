@@ -36,3 +36,6 @@ const cleanup = () => removeStraySeparatorText(rootElement);
 queueMicrotask(cleanup);
 window.setTimeout(cleanup, 0);
 window.setTimeout(cleanup, 100);
+
+const separatorObserver = new MutationObserver(cleanup);
+separatorObserver.observe(rootElement, { childList: true, subtree: true });
