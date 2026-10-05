@@ -141,11 +141,19 @@ export default function PublicHelpCenter({ portal = false }) {
       <button
         type="button"
         onClick={openSection}
-        className="fixed bottom-5 right-5 z-[70] inline-flex h-14 w-14 items-center justify-center rounded-full bg-ink-950 text-lg font-bold text-gold-300 shadow-[0_14px_34px_rgba(15,23,42,0.25)] transition hover:-translate-y-0.5 hover:bg-ink-900 focus:outline-none focus:ring-4 focus:ring-gold-200"
+        className="bp-help-launcher fixed bottom-5 right-5 z-[70] inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-ink-950 px-3.5 py-2.5 text-sm font-semibold text-white shadow-[0_16px_40px_rgba(7,27,46,0.20)] transition hover:-translate-y-0.5 hover:bg-ink-900 focus:outline-none focus:ring-4 focus:ring-blue-100"
         aria-label="Open BluePace Help Center"
         title="Help Center"
       >
-        <span className="bp-help-icon" aria-hidden="true">?</span>
+        <span className="bp-help-launcher-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4.75 13.25v-1.5a7.25 7.25 0 0 1 14.5 0v1.5" />
+            <path d="M4.75 13.25H7.5v4.5H6.25a1.5 1.5 0 0 1-1.5-1.5z" />
+            <path d="M19.25 13.25H16.5v4.5h1.25a1.5 1.5 0 0 0 1.5-1.5z" />
+            <path d="M16.5 18a3.25 3.25 0 0 1-3.25 2.25h-1.5" />
+          </svg>
+        </span>
+        <span className="bp-help-launcher-label">Help Center</span>
       </button>
 
       {open && (
