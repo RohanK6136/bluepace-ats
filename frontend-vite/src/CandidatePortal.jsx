@@ -6,7 +6,7 @@ const API_URL = (
   (import.meta.env.PROD ? "https://bluepace-ats-11.onrender.com" : "http://localhost:8000")
 ).replace(/\/+$/, "");
 
-export default function CandidatePortal({ token }) {
+export default function CandidatePortal({ token, theme = "light", onToggleTheme = () => {} }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -140,9 +140,21 @@ export default function CandidatePortal({ token }) {
   return (
     <main className="min-h-screen bg-[#f5f8fb] px-5 py-10 text-ink-900">
       <section className="mx-auto w-full max-w-4xl">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-md bg-ink-950 text-xs font-bold text-white">BP</div>
-          <div><p className="font-semibold">Blupace Tech</p><p className="text-xs text-ink-500">Candidate application portal</p></div>
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-md bg-ink-950 text-xs font-bold text-white">BP</div>
+            <div><p className="font-semibold">Blupace Tech</p><p className="text-xs text-ink-500">Candidate application portal</p></div>
+          </div>
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-ink-100 bg-white px-3 text-sm font-semibold text-ink-700 shadow-sm hover:bg-ink-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            <span aria-hidden="true">{theme === "dark" ? "☀️" : "🌙"}</span>
+            <span className="hidden sm:inline">{theme === "dark" ? "Light" : "Dark"}</span>
+          </button>
         </div>
 
         {message && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{message}</div>}
