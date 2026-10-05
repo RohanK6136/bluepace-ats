@@ -1282,8 +1282,13 @@ export default function AtsWorkspace() {
             <Field label="Work email" type="email" autoComplete="email" required value={authForm.email} onChange={(event) => setAuthForm({ ...authForm, email: event.target.value })} />
             <Field label="Password" type="password" autoComplete={authMode === "login" ? "current-password" : "new-password"} minLength={12} required value={authForm.password} onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })} />
             {authError && <p role="alert" className="text-sm text-rose-700">{authError}</p>}
-            <button className={`${buttonPrimary} mt-1 w-full py-3`} type="submit">
-              Sign in
+            <button
+              className={`${buttonPrimary} mt-1 w-full py-3`}
+              type="submit"
+              disabled={authLoading}
+              aria-busy={authLoading}
+            >
+              {authLoading ? "Signing in…" : "Sign in"}
             </button>
           </form>
         </section>
