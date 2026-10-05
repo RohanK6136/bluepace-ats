@@ -1589,9 +1589,9 @@ export default function AtsWorkspace() {
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Upload & create job" : jobEntryMode === "link" ? "Import & create job" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
             </form>}
             <div className="mb-5"><p className="text-sm text-ink-500">{jobs.length} total jobs</p><h2 className="mt-1 text-xl font-semibold">Job openings</h2></div>
-            <div className="border-y border-ink-100 bg-white">
-              <div className="grid grid-cols-[minmax(180px,2fr)_1fr_1fr_100px] gap-3 border-b border-ink-100 bg-[#fafaf8] px-4 py-3 text-[11px] font-semibold uppercase text-ink-500"><span>Role</span><span>Location</span><span>Created</span><span>Status</span></div>
-              {jobs.map((job) => <div key={job.id} className="grid grid-cols-1 gap-2 border-b border-ink-50 px-4 py-4 last:border-0 sm:grid-cols-[minmax(180px,2fr)_1fr_1fr_100px] sm:items-center sm:gap-3">
+            <div className="overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-sm"><div className="min-w-[980px]">
+              <div className="grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-100 bg-[#fafaf8] px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-500"><span>Role</span><span>Location</span><span>Created</span><span>Status</span></div>
+              {jobs.map((job) => <div key={job.id} className="grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-50 px-5 py-5 last:border-0">
                 <div>{job.jd_analysis?.source_url ? <a className="font-semibold underline decoration-ink-200 underline-offset-4 hover:decoration-ink-700" href={job.jd_analysis.source_url} target="_blank" rel="noreferrer">{job.title}</a> : <button className="font-semibold hover:underline" onClick={() => resetJobForm(job)}>{job.title}</button>}<p className="mt-0.5 text-xs text-ink-500">{job.department || "Unassigned department"} · {job.employment_type || "Employment type not set"} · {workModeLabel(job.work_mode)}</p><p className="mt-1 text-xs text-ink-500">{job.minimum_experience_years === null ? "Experience unspecified" : `${job.minimum_experience_years}+ years`}{job.fresher_allowed ? " · Freshers welcome" : ""}{job.required_skills?.length ? ` · ${job.required_skills.join(", ")}` : ""}</p>
                 {job.jd_analysis && <div className="mt-2 rounded-lg bg-ink-50 p-3 text-xs text-ink-600">
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -1605,11 +1605,12 @@ export default function AtsWorkspace() {
                   {job.jd_analysis.interview_topics?.length > 0 && <div className="mt-2"><b>Interview topics:</b> {job.jd_analysis.interview_topics.join(", ")}</div>}
                 </div>}
                 {job.jd_analysis?.source_url && <p className="mt-1 text-[11px] text-ink-400">Imported from job link</p>}</div>
-                <span className="text-sm text-ink-600">{job.location || "Remote / unspecified"}</span>
-                <span className="text-xs text-ink-500">{new Date(job.created_at).toLocaleDateString()}</span>
-                <div className="flex items-center justify-between gap-2"><button className="text-xs font-medium text-blue-700 underline underline-offset-2" onClick={() => analyzeJob(job)}>Refresh JD intelligence</button><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${job.status === "open" ? "bg-emerald-50 text-emerald-800" : job.status === "archived" ? "bg-ink-100 text-ink-500" : "bg-gold-50 text-ink-700"}`}>{job.status}</span>{canWrite && job.status !== "archived" && <button className="text-xs font-medium text-ink-500 underline underline-offset-2" onClick={() => archiveJob(job)}>Archive</button>}</div>
+                <div className="self-start break-words pt-0.5 text-sm text-ink-600">{job.location || "Remote / unspecified"}</div>
+                <span className="self-start whitespace-nowrap pt-0.5 text-xs text-ink-500">{new Date(job.created_at).toLocaleDateString()}</span>
+                <div className="flex min-w-0 flex-col items-start gap-2 self-start"><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${job.status === "open" ? "bg-emerald-50 text-emerald-800" : job.status === "archived" ? "bg-ink-100 text-ink-500" : "bg-gold-50 text-ink-700"}`}>{job.status}</span><div className="flex flex-wrap items-center gap-x-4 gap-y-2"><button className="text-xs font-medium text-blue-700 underline underline-offset-2" onClick={() => analyzeJob(job)}>Refresh JD intelligence</button>{canWrite && job.status !== "archived" && <button className="text-xs font-medium text-ink-500 underline underline-offset-2" onClick={() => archiveJob(job)}>Archive</button>}</div></div>
               </div>)}
               {!jobs.length && <EmptyState title="No jobs yet" detail="Create a job to begin building your pipeline." />}
+              </div>
             </div>
           </>}
 
