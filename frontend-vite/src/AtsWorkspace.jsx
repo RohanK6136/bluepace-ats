@@ -1244,7 +1244,7 @@ export default function AtsWorkspace() {
       </aside>
 
       <div className="lg:pl-60">
-        <header className="sticky top-0 z-20 flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b border-ink-100 bg-white/95 px-4 py-3 backdrop-blur sm:px-7">
+        <header className="ats-workspace-header sticky top-0 z-20 flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b border-ink-100 bg-white/95 px-4 py-3 backdrop-blur sm:px-7">
           <div>
             <p className="text-xs font-medium text-ink-500">{user?.email}</p>
             <h1 className="text-lg font-semibold">{navItems.find((item) => item.id === view)?.label}</h1>
@@ -1256,7 +1256,7 @@ export default function AtsWorkspace() {
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <button className={`${buttonSecondary} lg:hidden`} onClick={signOut}>Sign out</button>
           </div>
-          <nav className="flex w-full gap-1 overflow-x-auto lg:hidden" aria-label="Workspace">
+          <nav className="ats-mobile-nav flex w-full gap-1 overflow-x-auto pb-0.5 lg:hidden" aria-label="Workspace">
             {navItems.map((item) => <button key={item.id} onClick={() => setView(item.id)} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
           </nav>
         </header>
@@ -1452,8 +1452,8 @@ export default function AtsWorkspace() {
               </div>
             )}
 
-            <div className="overflow-hidden rounded-xl border border-ink-100 bg-white shadow-sm">
-              <div className="overflow-x-auto">
+            <div className="ats-applications-table overflow-hidden rounded-xl border border-ink-100 bg-white shadow-sm">
+              <div className="overflow-x-auto overscroll-x-contain">
                 <table className="w-full min-w-[1100px] table-fixed border-collapse text-left text-sm">
                   <colgroup>
                     <col className="w-[4%]" />
@@ -1590,9 +1590,9 @@ export default function AtsWorkspace() {
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Upload & create job" : jobEntryMode === "link" ? "Import & create job" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
             </form>}
             <div className="mb-5"><p className="text-sm text-ink-500">{jobs.length} total jobs</p><h2 className="mt-1 text-xl font-semibold">Job openings</h2></div>
-            <div className="overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-sm"><div className="min-w-[980px]">
-              <div className="grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-100 bg-[#fafaf8] px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-500"><span>Role</span><span>Location</span><span>Created</span><span>Status</span></div>
-              {jobs.map((job) => <div key={job.id} className="grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-50 px-5 py-5 last:border-0">
+            <div className="ats-jobs-table overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-sm"><div className="min-w-[980px]">
+              <div className="ats-jobs-grid grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-100 bg-[#fafaf8] px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-500"><span>Role</span><span>Location</span><span>Created</span><span>Status</span></div>
+              {jobs.map((job) => <div key={job.id} className="ats-jobs-grid grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-50 px-5 py-5 last:border-0">
                 <div>{job.jd_analysis?.source_url ? <a className="font-semibold underline decoration-ink-200 underline-offset-4 hover:decoration-ink-700" href={job.jd_analysis.source_url} target="_blank" rel="noreferrer">{job.title}</a> : <button className="font-semibold hover:underline" onClick={() => resetJobForm(job)}>{job.title}</button>}<p className="mt-0.5 text-xs text-ink-500">{job.department || "Unassigned department"} · {job.employment_type || "Employment type not set"} · {workModeLabel(job.work_mode)}</p><p className="mt-1 text-xs text-ink-500">{job.minimum_experience_years === null ? "Experience unspecified" : `${job.minimum_experience_years}+ years`}{job.fresher_allowed ? " · Freshers welcome" : ""}{job.required_skills?.length ? ` · ${job.required_skills.join(", ")}` : ""}</p>
                 {job.jd_analysis && <div className="mt-2 rounded-lg bg-ink-50 p-3 text-xs text-ink-600">
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
