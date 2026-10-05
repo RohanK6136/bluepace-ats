@@ -33,6 +33,14 @@ STOP_WORDS = {
 }
 
 
+_SKILL_PATTERNS = {}
+for _skill_name in dict.fromkeys((*SKILL_CATALOG, *SKILL_ALIASES.keys())):
+    _escaped = re.escape(str(_skill_name).strip())
+    _SKILL_PATTERNS[str(_skill_name).casefold()] = re.compile(
+        r"(?<![\\w+#.])" + _escaped + r"(?![\\w+#])(?:\\.(?![A-Za-z]))?",
+        re.IGNORECASE,
+    )
+
 MATCH_WEIGHTS = {
     "required_skill_coverage": 0.25,
     "preferred_skill_coverage": 0.10,
@@ -63,8 +71,9 @@ class CandidateMatcher:
 
     @staticmethod
     def normalize_skill(value: str) -> str:
-        cleaned = re.sub(r"\s+", " ", str(value or "").strip().casefold())
-        return SKILL_ALIASES.get(cleaned, str(value or "").strip())
+        raw = str(value or "").strip()
+        cleaned = re.sub(r"\s+", " ", raw.casefold())
+        return SKILL_ALIASES.get(cleaned, raw)
 
     @classmethod
     def _skill_pattern(cls, value):
