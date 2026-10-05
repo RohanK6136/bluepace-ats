@@ -269,18 +269,14 @@ export default function AtsWorkspace() {
     async function loadWorkspace() {
       setLoading(true);
       try {
-        const [userResponse, jobsResponse, candidateResponse, applicationResponse] = await Promise.all([
+        const [userResponse, jobsResponse] = await Promise.all([
           apiRequest(token, "get", "/auth/me"),
           apiRequest(token, "get", "/jobs", { params: { limit: 100 } }),
-          apiRequest(token, "get", "/candidates", { params: { limit: 100 } }),
-          apiRequest(token, "get", "/applications", { params: { limit: 100 } }),
         ]);
         if (!active) return;
         setUser(userResponse.data);
         setJobs(jobsResponse.data);
         setMatchJobId((current) => current || String(jobsResponse.data.find((job) => job.status === "open")?.id || jobsResponse.data[0]?.id || ""));
-        setCandidates(candidateResponse.data);
-        setApplications(applicationResponse.data);
         setError("");
       } catch (loadError) {
         if (!active) return;
@@ -294,6 +290,37 @@ export default function AtsWorkspace() {
     loadWorkspace();
     return () => { active = false; };
   }, [token]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const needsCandidates = new Set(["candidates", "matches", "merge", "tools", "talent", "portal"]);
+    const needsApplications = new Set(["pipeline", "matches", "interviews", "offers", "tools", "automation"]);
+    if (!needsCandidates.has(view) && !needsApplications.has(view)) return undefined;
+    let active = true;
+    async function loadViewData() {
+      try {
+        const requests = [];
+        if (needsCandidates.has(view) && !candidates.length) {
+          requests.push(apiRequest(token, "get", "/candidates", { params: { limit: 100 } }));
+        } else {
+          requests.push(Promise.resolve(null));
+        }
+        if (needsApplications.has(view) && !applications.length) {
+          requests.push(apiRequest(token, "get", "/applications", { params: { limit: 100 } }));
+        } else {
+          requests.push(Promise.resolve(null));
+        }
+        const [candidateResponse, applicationResponse] = await Promise.all(requests);
+        if (!active) return;
+        if (candidateResponse) setCandidates(candidateResponse.data);
+        if (applicationResponse) setApplications(applicationResponse.data);
+      } catch (loadError) {
+        if (active) setError(errorText(loadError));
+      }
+    }
+    loadViewData();
+    return () => { active = false; };
+  }, [token, view]);
 
   async function refreshWorkspace() {
     if (!token) return;
