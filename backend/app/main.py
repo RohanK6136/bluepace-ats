@@ -249,11 +249,17 @@ def ensure_bootstrap_account() -> None:
             )
             db.add(user)
         else:
-            user.organization_id = organization.id
-            user.full_name = full_name
-            user.password_hash = password_hash.hash(password)
-            user.role = Role.admin
-            user.is_active = True
+            user_changed = (
+                user.organization_id != organization.id
+                or user.full_name != full_name
+                or user.role != Role.admin
+                or not user.is_active
+            )
+            if user_changed:
+                user.organization_id = organization.id
+                user.full_name = full_name
+                user.role = Role.admin
+                user.is_active = True
 
         db.commit()
 
