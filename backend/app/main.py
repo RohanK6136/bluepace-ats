@@ -1854,13 +1854,30 @@ def list_candidates(
     user: User = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(get_db),
 ):
-    candidates = list(
-        db.scalars(
-            select(Candidate)
-            .where(Candidate.organization_id == user.organization_id)
-            .order_by(Candidate.created_at.desc())
-        ).all()
+    base = (
+        select(Candidate)
+        .where(Candidate.organization_id == user.organization_id)
+        .order_by(Candidate.created_at.desc())
     )
+    if not include_archived:
+        base = base.where(Candidate.archived.is_(False))
+
+    has_advanced_filters = any(
+        value not in (None, "")
+        for value in (
+            search, skill, source, location, tags, stage_name,
+            min_experience_years, max_experience_years, notice_period,
+            education, job_history, availability, preferred_location,
+            work_authorization, has_applied_job_id,
+        )
+    )
+
+    # The common candidate-list path is already ordered and paginated by SQL.
+    # Avoid materializing the entire organization just to return the first page.
+    if not has_advanced_filters:
+        return list(db.scalars(base.offset(offset).limit(limit)).all())
+
+    candidates = list(db.scalars(base).all())
 
     def haystack(candidate: Candidate) -> str:
         profile = candidate.resume_data or {}
@@ -1889,26 +1906,40 @@ def list_candidates(
     for candidate_id, stage_value in stage_rows:
         candidate_stage_names.setdefault(candidate_id, set()).add(stage_value)
 
+    applied_candidate_ids: set[int] = set()
+    if has_applied_job_id is not None:
+        applied_candidate_ids = set(
+            db.scalars(
+                select(Application.candidate_id).where(
+                    Application.organization_id == user.organization_id,
+                    Application.job_id == has_applied_job_id,
+                )
+            ).all()
+        )
+
+    search_texts = [value for value in (notice_period, education, job_history, availability, preferred_location, work_authorization) if value]
+    required_skills = [value.strip().casefold() for value in (skill or "").split(",") if value.strip()]
+    required_tags = [value.strip().casefold() for value in (tags or "").split(",") if value.strip()]
+
     filtered = []
     for candidate in candidates:
         profile = candidate.resume_data or {}
         content = haystack(candidate)
+
         if search and not _candidate_search_matches(content, search):
             continue
-        if skill:
+        if required_skills:
             candidate_skill_values = [str(value).casefold() for value in profile.get("skills") or []]
-            required_skills = [value.strip().casefold() for value in skill.split(",") if value.strip()]
-            if required_skills and not all(
+            if not all(
                 any(required == current or required in current for current in candidate_skill_values)
                 for required in required_skills
             ):
                 continue
         if source and source.casefold() not in (candidate.source or "").casefold():
             continue
-        candidate_tag_values = [str(value).casefold() for value in (candidate.tags or [])]
-        if tags:
-            required_tags = [value.strip().casefold() for value in tags.split(",") if value.strip()]
-            if required_tags and not all(any(req == item or req in item for item in candidate_tag_values) for req in required_tags):
+        if required_tags:
+            candidate_tag_values = [str(value).casefold() for value in (candidate.tags or [])]
+            if not all(any(req == item or req in item for item in candidate_tag_values) for req in required_tags):
                 continue
         if location:
             candidate_location = str(profile.get("location") or profile.get("address") or "")
@@ -1923,26 +1954,12 @@ def list_candidates(
             stage_values = candidate_stage_names.get(candidate.id, set())
             if stage_name.casefold() not in {value.casefold() for value in stage_values}:
                 continue
-        profile_lower = json.dumps(profile, ensure_ascii=False).casefold()
-        if any(
-            query_value and query_value.casefold() not in profile_lower
-            for query_value in (notice_period, education, job_history, availability, preferred_location, work_authorization)
-        ):
+        if search_texts:
+            profile_lower = json.dumps(profile, ensure_ascii=False).casefold()
+            if any(query_value.casefold() not in profile_lower for query_value in search_texts):
+                continue
+        if has_applied_job_id is not None and candidate.id not in applied_candidate_ids:
             continue
-        if stage_name:
-            stage_values = candidate_stage_names.get(candidate.id, set())
-            if stage_name.casefold() not in {value.casefold() for value in stage_values}:
-                continue
-        if has_applied_job_id is not None:
-            applied = db.scalar(
-                select(Application.id).where(
-                    Application.organization_id == user.organization_id,
-                    Application.candidate_id == candidate.id,
-                    Application.job_id == has_applied_job_id,
-                )
-            )
-            if applied is None:
-                continue
         filtered.append(candidate)
 
     return filtered[offset : offset + limit]
