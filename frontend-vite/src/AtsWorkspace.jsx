@@ -1502,7 +1502,7 @@ export default function AtsWorkspace() {
               </div>
               <div className="flex gap-2">
                 {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
-                {canWrite && <button className={buttonSecondary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add candidate</button>}
+                {canWrite && <button className={buttonSecondary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
               </div>
             </div>
 
