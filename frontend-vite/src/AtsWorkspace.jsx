@@ -1180,11 +1180,6 @@ export default function AtsWorkspace() {
                 <a href="#jobs" className={buttonPrimary + " no-underline"}>Explore open roles</a>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3 lg:pb-1">
-              <div className="bp-stat-card"><span>20+</span><small>Years</small></div>
-              <div className="bp-stat-card"><span>10+</span><small>Countries</small></div>
-              <div className="bp-stat-card"><span>3</span><small>Specialist businesses</small></div>
-            </div>
           </div>
         </section>
 
