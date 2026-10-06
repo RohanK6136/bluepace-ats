@@ -89,6 +89,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [bulkJobs, setBulkJobs] = useState([]);
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkError, setBulkError] = useState("");
+  const [expandedBulkJobId, setExpandedBulkJobId] = useState(null);
 
   const quality = jsonData?.resume_quality || {};
   const evidence = jsonData?.extraction_evidence || [];
@@ -192,7 +193,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     try {
       const response = await axios.get(`${API_URL}/resume-processing/jobs`, {
         timeout: REQUEST_TIMEOUT_MS,
-        params: { batch_id: batchId, limit: 1000 },
+        params: { batch_id: batchId, limit: 1000, include_result: true },
         headers: { Authorization: `Bearer ${token}` },
       });
       const rows = Array.isArray(response.data) ? response.data : [];
@@ -206,6 +207,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             id: row.job_id,
             status: row.status,
             error: row.error_message || null,
+            result: row.result || null,
           };
         });
       });
@@ -317,9 +319,26 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                 </div>
                 <div className="mt-3 max-h-48 overflow-auto border-y border-ink-100">
                   {bulkJobs.slice(0, 100).map((job, index) => (
-                    <div key={`${job.filename}-${index}`} className="flex items-center justify-between gap-3 border-b border-ink-50 py-2 text-xs">
-                      <span className="min-w-0 truncate">{job.filename}</span>
-                      <span className="shrink-0 font-semibold capitalize text-ink-600">{job.status}</span>
+                    <div key={`${job.filename}-${index}`} className="border-b border-ink-50 py-2 text-xs">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate">{job.filename}</span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="font-semibold capitalize text-ink-600">{job.status}</span>
+                          {job.status === "completed" && job.result && (
+                            <button
+                              type="button"
+                              className="font-semibold text-blue-700 hover:underline"
+                              onClick={() => setExpandedBulkJobId((current) => current === job.id ? null : job.id)}
+                            >
+                              {expandedBulkJobId === job.id ? "Hide result" : "View result"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {job.error && <p className="mt-1 text-rose-700">{job.error}</p>}
+                      {expandedBulkJobId === job.id && job.result && (
+                        <pre className="mt-2 max-h-72 overflow-auto rounded border border-ink-100 bg-[#fafaf8] p-3 text-[11px] leading-5 text-ink-700">{JSON.stringify(job.result, null, 2)}</pre>
+                      )}
                     </div>
                   ))}
                   {bulkJobs.length > 100 && <p className="py-2 text-xs text-ink-400">Showing the first 100 files.</p>}
