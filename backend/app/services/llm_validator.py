@@ -12,7 +12,7 @@ OPENROUTER_TIMEOUT_SECONDS = 20.0
 
 # Task-based routing: deterministic code first, fast model for routine AI,
 # stronger model only for genuinely ambiguous reasoning.
-DEFAULT_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-3.5-flash")
+DEFAULT_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-3.8-flash")
 ASSISTANT_MODEL = os.getenv("OPENROUTER_ASSISTANT_MODEL", DEFAULT_MODEL)
 DEEP_REASONING_MODEL = os.getenv("OPENROUTER_DEEP_REASONING_MODEL", "openai/gpt-5.5")
 VALIDATION_MODEL = os.getenv("OPENROUTER_VALIDATION_MODEL", DEFAULT_MODEL)
