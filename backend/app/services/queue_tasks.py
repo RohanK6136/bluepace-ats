@@ -1,4 +1,9 @@
 import base64
+import os
+from datetime import datetime, timezone
+
+from app.database import SessionLocal
+from app.models import ResumeProcessingJob
 
 from celery_app import celery_app
 from app.services.extractor import extractor_service
@@ -33,6 +38,49 @@ def validate_resume_task(resume_json: dict, job_description: str):
 def enrich_resume_slm_task(resume_json: dict):
     enrichment = slm_service.enrich_resume(resume_json)
     return {"status": "success", "slm_enrichment": enrichment}
+
+
+
+
+@celery_app.task(name="ats.process_resume_ingest_job", bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 3})
+def process_resume_ingest_job(self, job_id: int):
+    with SessionLocal() as db:
+        job = db.get(ResumeProcessingJob, job_id)
+        if job is None:
+            return {"status": "missing", "job_id": job_id}
+
+        job.status = "processing"
+        job.started_at = datetime.now(timezone.utc)
+        job.error_message = None
+        db.commit()
+
+        try:
+            with open(job.storage_path, "rb") as handle:
+                file_content = handle.read()
+            extracted = extractor_service.extract_to_json(file_content, job.filename)
+            extracted = enrich_extracted_with_slm(extracted)
+
+            # Keep queue results compact. The original uploaded file remains
+            # available at storage_path; raw_text is intentionally not duplicated
+            # into the jobs table.
+            result_data = {key: value for key, value in extracted.items() if key != "raw_text"}
+            job.result_data = result_data
+            job.status = "completed"
+            job.completed_at = datetime.now(timezone.utc)
+            db.commit()
+
+            try:
+                os.unlink(job.storage_path)
+            except OSError:
+                pass
+
+            return {"status": "completed", "job_id": job.id}
+        except Exception as error:
+            job.status = "failed"
+            job.error_message = str(error)[:4000]
+            job.completed_at = datetime.now(timezone.utc)
+            db.commit()
+            raise
 
 
 @celery_app.task(name="ats.process_resume_batch")
