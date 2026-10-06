@@ -4068,6 +4068,7 @@ async def queue_resume_processing(
     file: UploadFile = File(...),
     batch_id: str | None = Form(default=None),
     job_description: str | None = Form(default=None),
+    job_id: int | None = Form(default=None),
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -4083,6 +4084,13 @@ async def queue_resume_processing(
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     storage_path.write_bytes(content)
 
+    target_job_id = None
+    if job_id is not None:
+        target_job = _get_org_record(db, Job, int(job_id), user.organization_id)
+        if target_job.status != "open":
+            raise HTTPException(status_code=409, detail="The selected job is not open")
+        target_job_id = target_job.id
+
     job = ResumeProcessingJob(
         batch_id=resolved_batch_id,
         organization_id=user.organization_id,
@@ -4093,8 +4101,13 @@ async def queue_resume_processing(
         size_bytes=len(content),
         status="queued",
     )
+    metadata = {}
     if job_description and job_description.strip():
-        job.result_data = {"_job_description": job_description.strip()[:50000]}
+        metadata["_job_description"] = job_description.strip()[:50000]
+    if target_job_id is not None:
+        metadata["_job_id"] = target_job_id
+    if metadata:
+        job.result_data = metadata
     db.add(job)
     db.commit()
     db.refresh(job)
