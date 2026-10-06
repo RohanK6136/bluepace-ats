@@ -1838,6 +1838,79 @@ def create_candidate(
     return candidate
 
 
+@app.get("/candidates/semantic-search")
+def semantic_candidate_search(
+    q: str = Query(min_length=2, max_length=2000),
+    limit: int = Query(default=20, ge=1, le=50),
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """
+    Semantic candidate retrieval for recruiter search.
+
+    Embeddings are retrieval infrastructure, not a hiring score. Results are
+    ranked by similarity only and should be inspected with the candidate evidence.
+    """
+    query_vector = matching_service.embed_texts([q])[0]
+    base = select(Candidate).where(
+        Candidate.organization_id == user.organization_id,
+        Candidate.archived.is_(False),
+    )
+
+    if query_vector is not None and db.bind.dialect.name == "postgresql":
+        rows = db.execute(
+            select(
+                Candidate,
+                (1 - Candidate.embedding.cosine_distance(query_vector)).label("similarity"),
+            )
+            .where(
+                Candidate.organization_id == user.organization_id,
+                Candidate.archived.is_(False),
+                Candidate.embedding.is_not(None),
+            )
+            .order_by(Candidate.embedding.cosine_distance(query_vector))
+            .limit(limit)
+        ).all()
+        return [
+            {
+                "candidate_id": candidate.id,
+                "name": f"{candidate.first_name} {candidate.last_name}".strip(),
+                "email": candidate.email,
+                "similarity": round(float(similarity) * 100, 1),
+                "skills": (candidate.resume_data or {}).get("skills") or [],
+                "location": (candidate.resume_data or {}).get("location"),
+                "retrieval_mode": "embedding",
+            }
+            for candidate, similarity in rows
+        ]
+
+    # Safe fallback for local/test environments or when an embedding provider
+    # is unavailable. This is retrieval only, never a hiring score.
+    candidates = list(db.scalars(base.limit(250)).all())
+    query_tokens = set(matching_service._tokens(q))
+    ranked = []
+    for candidate in candidates:
+        profile = candidate.resume_data or {}
+        text = matching_service.candidate_embedding_text(candidate)
+        tokens = set(matching_service._tokens(text))
+        overlap = len(query_tokens & tokens) / max(len(query_tokens), 1)
+        if overlap > 0:
+            ranked.append((overlap, candidate))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [
+        {
+            "candidate_id": candidate.id,
+            "name": f"{candidate.first_name} {candidate.last_name}".strip(),
+            "email": candidate.email,
+            "similarity": round(score * 100, 1),
+            "skills": (candidate.resume_data or {}).get("skills") or [],
+            "location": (candidate.resume_data or {}).get("location"),
+            "retrieval_mode": "lexical_fallback",
+        }
+        for score, candidate in ranked[:limit]
+    ]
+
+
 @app.get("/candidates", response_model=list[CandidateRead])
 def list_candidates(
     limit: int = Query(default=50, ge=1, le=100),
