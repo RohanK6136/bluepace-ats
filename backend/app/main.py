@@ -1727,27 +1727,75 @@ def application_fit_analysis(
         if skill.casefold() in project_text
     ]
 
+    pct = int(score.get("model_score", 0))
+    fit = "Strong Fit" if pct >= 75 else "Potential Fit" if pct >= 50 else "Low Fit"
     alignment = (
-        "Strong role alignment" if score["model_score"] >= 75
-        else "Partial role alignment" if score["model_score"] >= 50
+        "Strong role alignment" if pct >= 75
+        else "Partial role alignment" if pct >= 50
         else "Limited role alignment"
     )
+    required = score.get("matched_required_skills", [])
+    preferred = score.get("matched_preferred_skills", [])
+    gaps = score.get("skill_gaps", [])
+    experience_years = score.get("experience_years", matching_service._estimate_experience_years(experience))
+    education = profile.get("highest_education") or profile.get("education") or []
+    breakdown = score.get("score_breakdown", {})
+    strengths = []
+    if required:
+        strengths.append("Required skills: " + ", ".join(required[:10]))
+    if preferred:
+        strengths.append("Preferred skills: " + ", ".join(preferred[:10]))
+    if score.get("project_evidence", {}).get("coverage"):
+        strengths.append(f"Project evidence coverage: {score['project_evidence']['coverage']}%")
+    if not strengths:
+        strengths.append("No strong skill evidence was identified.")
+    summary = (
+        f"{candidate.first_name} {candidate.last_name}".strip()
+        + f" is a {fit.lower()} for {job.title} with an overall match of {pct}%. "
+        + "The assessment uses resume skills, experience, education, and project evidence."
+    )
+    coding_catalog = {"python", "java", "javascript", "typescript", "c++", "c#", "sql", "react", "node.js", "django", "fastapi", "rest api"}
+    required_coding = [skill for skill in (job.jd_analysis or {}).get("required_skills", []) if str(skill).casefold() in coding_catalog]
+    matched_coding = [skill for skill in required_coding if skill in required]
+    coding_score = round(len(matched_coding) / len(required_coding) * 100) if required_coding else breakdown.get("skills", 0)
     return {
         "application_id": application.id,
         "candidate_id": candidate.id,
         "candidate_name": f"{candidate.first_name} {candidate.last_name}".strip(),
         "job_id": job.id,
         "job_title": job.title,
-        "match_score": score["model_score"],
+        "match_score": pct,
+        "fit": fit,
+        "recommendation": fit,
+        "summary": summary,
+        "strengths": strengths,
+        "gaps": gaps,
         "alignment": alignment,
         "matched_skills": score["matched_skills"],
-        "skill_gaps": score["skill_gaps"],
-        "experience_years_estimate": matching_service._estimate_experience_years(experience),
+        "skill_gaps": gaps,
+        "required_skills_met": required,
+        "preferred_skills_met": preferred,
+        "mandatory_skills_met": required,
+        "mandatory_skills_missed": gaps,
+        "missing_skills": gaps,
+        "mandatory_skills_match_score": breakdown.get("skills", 0),
+        "coding_skills_score": coding_score,
+        "behavioral_skills_score": breakdown.get("experience", 0),
+        "experience_score": breakdown.get("experience", 0),
+        "experience_years": experience_years,
+        "required_experience_years": score.get("required_experience_years"),
+        "experience_years_estimate": experience_years,
+        "highest_education": profile.get("highest_education"),
+        "extracted_education": education,
+        "education": education,
         "experience": evidence,
         "projects": [str(project).strip() for project in projects[:10] if str(project).strip()],
+        "project_evidence": score.get("project_evidence", {}),
+        "match_evidence": score.get("match_evidence", {}),
         "project_skill_matches": list(dict.fromkeys(project_skill_matches)),
-        "education": profile.get("education") or [],
         "explanations": score["explanations"],
+        "decision_support_only": True,
+        "semantic_mode": score.get("semantic_mode"),
         "note": "Job-related screening evidence only. Final hiring decisions remain with the recruiting team.",
     }
 
