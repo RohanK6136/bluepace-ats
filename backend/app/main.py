@@ -209,12 +209,6 @@ async def lifespan(_app: FastAPI):
     initialize_database()
     ensure_bootstrap_account()
     reminder_task = None if APP_ENV == "test" else asyncio.create_task(interview_reminder_loop())
-    resume_dispatcher_task = None
-    if (
-        APP_ENV not in {"development", "test"}
-        and os.getenv("ENABLE_DB_RESUME_DISPATCHER", "true").strip().lower() == "true"
-    ):
-        resume_dispatcher_task = asyncio.create_task(resume_queue_dispatcher_loop())
     try:
         yield
     finally:
@@ -222,12 +216,6 @@ async def lifespan(_app: FastAPI):
             reminder_task.cancel()
             try:
                 await reminder_task
-            except asyncio.CancelledError:
-                pass
-        if resume_dispatcher_task is not None:
-            resume_dispatcher_task.cancel()
-            try:
-                await resume_dispatcher_task
             except asyncio.CancelledError:
                 pass
 
@@ -3957,6 +3945,7 @@ def list_audit_logs(
 
 @app.post("/resume-processing/queue", response_class=JSONResponse, status_code=status.HTTP_202_ACCEPTED)
 async def queue_resume_processing(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     batch_id: str | None = Form(default=None),
     user: User = Depends(require_roles(*WRITE_ROLES)),
@@ -3988,9 +3977,11 @@ async def queue_resume_processing(
     db.commit()
     db.refresh(job)
 
-    if os.getenv("ENABLE_DB_RESUME_DISPATCHER", "true").strip().lower() == "true":
-        job.task_id = f"db-dispatcher:{job.id}"
+    if os.getenv("ENABLE_BACKGROUND_RESUME_PROCESSING", "true").strip().lower() == "true":
+        job.task_id = f"background:{job.id}"
         db.commit()
+        from app.services.queue_tasks import process_resume_ingest_job
+        background_tasks.add_task(process_resume_ingest_job.run, job.id)
     else:
         try:
             from app.services.queue_tasks import process_resume_ingest_job
