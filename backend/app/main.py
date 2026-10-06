@@ -1103,6 +1103,26 @@ def create_user(
 
 
 
+def _refresh_candidate_embedding(candidate_id: int, organization_id: int) -> None:
+    """Build a candidate embedding off the request path."""
+    try:
+        with SessionLocal() as session:
+            candidate = session.scalar(
+                select(Candidate).where(
+                    Candidate.id == candidate_id,
+                    Candidate.organization_id == organization_id,
+                )
+            )
+            if candidate is None:
+                return
+            vector = matching_service.embed_texts([matching_service.candidate_embedding_text(candidate)])[0]
+            if vector is not None:
+                candidate.embedding = vector
+                session.commit()
+    except Exception:
+        traceback.print_exc()
+
+
 def _candidate_search_matches(content: str, query: str) -> bool:
     """Evaluate recruiter Boolean search safely against normalized candidate text."""
     tokens = re.findall(r'"[^"]*"|\(|\)|\bAND\b|\bOR\b|\bNOT\b|[^\s()]+', query, flags=re.IGNORECASE)
@@ -1784,6 +1804,8 @@ async def create_candidate_from_resume(
     if job_id is not None and "email_id" in locals() and background_tasks is not None:
         background_tasks.add_task(deliver_outbox_email, email_id)
     db.refresh(candidate)
+    if background_tasks is not None:
+        background_tasks.add_task(_refresh_candidate_embedding, candidate.id, user.organization_id)
     return candidate
 
 
@@ -1835,6 +1857,8 @@ def create_candidate(
         db.rollback()
         raise HTTPException(status_code=409, detail="This candidate already exists in your organization")
     db.refresh(candidate)
+    if candidate.resume_data:
+        _refresh_candidate_embedding(candidate.id, user.organization_id)
     return candidate
 
 
