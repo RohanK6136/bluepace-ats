@@ -4129,16 +4129,27 @@ def build_resume_job_summary(resume: dict, job_description: str) -> dict:
         f"{resume.get('name') or 'Candidate'} is a {fit.lower()} for this role with an overall match of "
         f"{pct}%. Key evidence is based on resume skills, experience, education, and project content."
     )
+    breakdown = score.get("score_breakdown", {})
     return {
         "match_score": pct,
         "fit": fit,
+        "recommendation": fit,
         "summary": summary,
         "strengths": strengths,
         "gaps": gaps,
         "required_skills_met": required,
         "preferred_skills_met": preferred,
+        "mandatory_skills_met": required,
+        "mandatory_skills_missed": gaps,
+        "missing_skills": gaps,
+        "mandatory_skills_match_score": breakdown.get("skills", 0),
+        "coding_skills_score": breakdown.get("skills", 0),
+        "behavioral_skills_score": breakdown.get("experience", 0),
+        "experience_score": breakdown.get("experience", 0),
         "experience_years": experience_years,
         "required_experience_years": score.get("required_experience_years"),
+        "highest_education": resume.get("highest_education"),
+        "extracted_education": education,
         "education": education,
         "project_evidence": score.get("project_evidence", {}),
         "match_evidence": score.get("match_evidence", {}),
