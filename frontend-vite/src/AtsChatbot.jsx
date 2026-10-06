@@ -89,9 +89,6 @@ export default function AtsChatbot({ token, apiRequest, onError }) {
                   }
                 >
                   <p className="whitespace-pre-wrap">{item.text}</p>
-                  {item.role === "assistant" && item.ai === false && (
-                    <p className="mt-2 text-[10px] text-ink-400">Basic fallback response</p>
-                  )}
                 </div>
               </div>
             ))}
@@ -139,7 +136,6 @@ export default function AtsChatbot({ token, apiRequest, onError }) {
                 ↗
               </button>
             </div>
-            <p className="mt-2 text-[10px] text-ink-400">Enter to send · Shift+Enter for a new line</p>
           </div>
         </section>
       )}
