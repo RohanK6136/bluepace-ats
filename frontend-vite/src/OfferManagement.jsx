@@ -75,12 +75,15 @@ export default function OfferManagement({ token, apiRequest, applications = [], 
 
   return <section>
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div><p className="text-sm text-ink-500">Offer lifecycle, approvals, revisions and acceptance evidence</p><h2 className="mt-1 text-xl font-semibold">Offer Management</h2></div>
+      <div><p className="text-sm text-ink-500">Offer lifecycle</p><h2 className="mt-1 text-xl font-semibold">Offers</h2></div>
       <button className="inline-flex items-center justify-center rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold" onClick={loadOffers}>Refresh</button>
     </div>
-    <div className="mb-5 grid grid-cols-2 gap-2 overflow-x-auto rounded-xl border border-ink-100 bg-white p-3 sm:grid-cols-4 lg:grid-cols-8">
-      {stages.map((stage) => <div key={stage} className="min-w-24 rounded-lg bg-ink-50 p-2"><p className="text-[10px] font-semibold uppercase text-ink-500">{label(stage)}</p><p className="mt-1 text-lg font-bold">{offers.filter((o) => o.status === stage).length}</p></div>)}
-    </div>
+    <details className="mb-5 border-y border-ink-100 py-3">
+      <summary className="cursor-pointer text-sm font-semibold text-ink-800">View offer lifecycle</summary>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+        {stages.map((stage) => <div key={stage} className="rounded-lg bg-ink-50 p-2"><p className="text-[10px] font-semibold uppercase text-ink-500">{label(stage)}</p><p className="mt-1 text-lg font-bold">{offers.filter((o) => o.status === stage).length}</p></div>)}
+      </div>
+    </details>
     <div className="grid gap-5 xl:grid-cols-[1fr_1.35fr]">
       <section className="rounded-xl border border-ink-100 bg-white p-4">
         <div className="flex items-center justify-between"><h3 className="font-semibold">Offers</h3><span className="text-xs text-ink-500">{offers.length} total</span></div>
