@@ -125,8 +125,6 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [resumeLabJobs, setResumeLabJobs] = useState([]);
   const [resumeLabJobId, setResumeLabJobId] = useState("");
   const [resumeLabSyncStatus, setResumeLabSyncStatus] = useState("");
-  const [resumeLabJobs, setResumeLabJobs] = useState([]);
-  const [resumeLabJobId, setResumeLabJobId] = useState("");
 
   const quality = jsonData?.resume_quality || {};
   const evidence = jsonData?.extraction_evidence || [];
