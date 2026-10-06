@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 const input = "w-full rounded-md border border-ink-100 bg-white px-3 py-2 text-sm";
 const primary = "rounded-md bg-[#1769d3] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50";
 const secondary = "rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800";
 
 export default function InterviewManagement2({ token, apiRequest, applications = [], onNotice, onError }) {
-  const [dashboard, setDashboard] = useState(null);
   const [availability, setAvailability] = useState([]);
   const [applicationId, setApplicationId] = useState(applications[0]?.id ? String(applications[0].id) : "");
   const [rounds, setRounds] = useState([]);
@@ -16,14 +15,12 @@ export default function InterviewManagement2({ token, apiRequest, applications =
   useEffect(() => { setApplicationId(applications[0]?.id ? String(applications[0].id) : ""); }, [applications]);
   useEffect(() => {
     Promise.allSettled([
-      apiRequest(token, "get", "/interviewer-dashboard"),
       apiRequest(token, "get", "/interviewers/availability"),
       apiRequest(token, "get", "/recruiting-users"),
-    ]).then(([d,a,u]) => {
-      if (d.status === "fulfilled") setDashboard(d.value.data);
+    ]).then(([a,u]) => {
       if (a.status === "fulfilled") setAvailability(a.value.data || []);
       if (u.status === "fulfilled") setUsers(u.value.data || []);
-      const failed = [d,a,u].find((result) => result.status === "rejected");
+      const failed = [a,u].find((result) => result.status === "rejected");
       if (failed) onError(failed.reason);
     });
   }, [token]);
@@ -56,8 +53,6 @@ export default function InterviewManagement2({ token, apiRequest, applications =
   }
 
   const selected = applications.find(a=>a.id===Number(applicationId));
-  const pending = dashboard?.scorecards_pending || 0;
-  const overdue = dashboard?.scorecards_overdue || 0;
 
   return <section className="space-y-5">
     <div><p className="text-sm text-ink-500">Scheduling & feedback</p><h2 className="mt-1 text-2xl font-semibold">Interviews</h2></div>
