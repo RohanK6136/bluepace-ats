@@ -3992,6 +3992,7 @@ async def queue_resume_processing(
 def list_resume_processing_jobs(
     batch_id: str | None = None,
     limit: int = Query(default=100, ge=1, le=1000),
+    include_result: bool = False,
     user: User = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -4011,7 +4012,7 @@ def list_resume_processing_jobs(
             "status": job.status,
             "size_bytes": job.size_bytes,
             "task_id": job.task_id,
-            "result": job.result_data,
+            "result": job.result_data if include_result else None,
             "error_message": job.error_message,
             "created_at": job.created_at,
             "started_at": job.started_at,
