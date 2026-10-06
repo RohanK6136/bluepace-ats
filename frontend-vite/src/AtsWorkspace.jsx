@@ -1337,7 +1337,7 @@ export default function AtsWorkspace() {
               <div className="grid h-11 w-11 place-items-center rounded-md bg-ink-950 text-sm font-bold text-gold-300">BP</div>
               <div>
                 <p className="font-semibold tracking-tight">blupace<span className="text-orange-500">.</span>tech</p>
-                <p className="text-xs text-ink-500">Recruiting workspace</p>
+                
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1395,7 +1395,7 @@ export default function AtsWorkspace() {
           <div className="grid h-9 w-9 place-items-center rounded-md bg-gold-500 text-xs font-bold text-ink-950">BP</div>
           <div>
             <p className="text-sm font-semibold tracking-tight">blupace<span className="text-orange-400">.</span>tech</p>
-            <p className="text-[11px] text-ink-400">Recruiting workspace</p>
+            
           </div>
         </div>
         <nav className="grid gap-0.5 px-3 py-4" aria-label="Workspace">
