@@ -798,7 +798,7 @@ def _serialize_candidate_match(match: CandidateJobMatch, job: Job | None = None)
         "experience_years": matching_service._estimate_experience_years(match.candidate.resume_data.get("experience") or []),
         "required_experience_years": analysis.get("minimum_experience_years"),
         "project_evidence": {"coverage": breakdown.get("project_evidence", 0)},
-        "match_evidence": getattr(match, "match_evidence", None) or {},
+        "match_evidence": matching_service.score_candidate(job, match.candidate).get("match_evidence", {}),
         "explanations": match.explanations or [],
         "semantic_mode": match.semantic_mode,
         "decision_support_only": True,
