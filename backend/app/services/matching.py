@@ -467,6 +467,70 @@ class CandidateMatcher:
         weights = MATCH_WEIGHTS
         model_score = round(sum(breakdown[key] * weight for key, weight in weights.items()))
 
+        # Evidence trace: keep the match explainable by pointing back to parsed
+        # resume fields and source lines where available. This is never a hiring
+        # decision and never treats missing evidence as proof that a candidate
+        # lacks a skill.
+        evidence_by_field = {}
+        for item in (profile.get("extraction_evidence") or []):
+            if not isinstance(item, dict):
+                continue
+            field = str(item.get("field") or "").strip()
+            if field:
+                evidence_by_field.setdefault(field, []).append({
+                    "confidence": item.get("confidence"),
+                    "source_lines": item.get("source_lines") or [],
+                })
+
+        required_skill_evidence = [
+            {"skill": skill, "evidenced": True, "sources": evidence_by_field.get("skills", [])[:3]}
+            for skill in matched_required
+        ]
+        preferred_skill_evidence = [
+            {"skill": skill, "evidenced": True, "sources": evidence_by_field.get("skills", [])[:3]}
+            for skill in matched_preferred
+        ]
+
+        project_evidence = []
+        for item in project_items[:10]:
+            if isinstance(item, dict):
+                project_text_item = " ".join(str(v) for v in item.values() if v is not None)
+                project_name = str(item.get("name") or item.get("title") or "Project")
+            else:
+                project_text_item = str(item)
+                project_name = "Project"
+            matched_project_skills = [
+                skill for skill in required_skills
+                if skill.casefold() in project_text_item.casefold()
+                or self._tokens(skill).issubset(self._tokens(project_text_item))
+            ]
+            if matched_project_skills:
+                project_evidence.append({
+                    "project": project_name,
+                    "matched_required_skills": matched_project_skills,
+                    "excerpt": project_text_item[:500],
+                })
+
+        match_evidence = {
+            "required_skills": required_skill_evidence,
+            "preferred_skills": preferred_skill_evidence,
+            "experience": {
+                "parsed_years": years,
+                "required_years": minimum_years,
+                "resume_fields": ["experience"] if experience else [],
+            },
+            "education": {
+                "required": analysis.get("education"),
+                "resume_fields": ["education"] if education_entries else [],
+            },
+            "location": {
+                "required": analysis.get("location"),
+                "current": profile.get("current_location") or profile.get("location"),
+                "preferred": profile.get("preferred_location"),
+            },
+            "projects": project_evidence,
+        }
+
         explanations = []
         if matched_required:
             explanations.append("Required skills found: " + ", ".join(matched_required) + ".")
@@ -508,6 +572,7 @@ class CandidateMatcher:
                 "coverage": project_evidence_score,
                 "matched_required_skills": project_skill_matches,
             },
+            "match_evidence": match_evidence,
             "explanations": explanations,
             "decision_support_only": True,
             "semantic_mode": semantic_mode,
