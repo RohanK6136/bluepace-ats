@@ -216,13 +216,14 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
 
   useEffect(() => {
     if (!bulkBatchId || !token || !bulkJobs.length) return undefined;
-    const terminal = new Set(["completed", "failed"]);
+    const terminalCount = bulkJobs.filter((job) => ["completed", "failed"].includes(job.status)).length;
+    if (terminalCount === bulkJobs.length) return undefined;
     const intervalId = window.setInterval(() => {
       void refreshBulkJobs();
     }, 2000);
     void refreshBulkJobs();
     return () => window.clearInterval(intervalId);
-  }, [bulkBatchId, token, bulkJobs.length]);
+  }, [bulkBatchId, token, bulkJobs.length, bulkJobs.filter((job) => ["completed", "failed"].includes(job.status)).length]);
 
   async function handleValidate() {
     if (!jsonData || !jobDescription.trim()) {
