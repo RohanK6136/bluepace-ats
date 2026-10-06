@@ -1178,9 +1178,6 @@ export default function AtsWorkspace() {
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <a href="#jobs" className={buttonPrimary + " no-underline"}>Explore open roles</a>
-                <a href="https://www.blupacetech.com/recruitment-staff-augmentation" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-ink-100 bg-white px-4 py-2 text-sm font-semibold text-ink-800 no-underline shadow-sm hover:bg-ink-50">
-                  About Talent &amp; Workforce
-                </a>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3 lg:pb-1">
@@ -1329,12 +1326,11 @@ export default function AtsWorkspace() {
           <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <p className="text-lg font-semibold">blupace<span className="text-orange-400">.</span>tech</p>
-              <p className="mt-2 max-w-sm text-sm leading-6 text-white/60">Enterprise technology, global capability centres, and talent &amp; workforce solutions.</p>
+              <p className="mt-2 max-w-sm text-sm leading-6 text-white/60">Enterprise technology and global capability centres.</p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Careers</p>
               <a className="mt-3 block text-sm text-white/75 hover:text-white" href="#jobs">Open positions</a>
-              <a className="mt-2 block text-sm text-white/75 hover:text-white" href="https://www.blupacetech.com/recruitment-staff-augmentation" target="_blank" rel="noreferrer">Talent &amp; Workforce</a>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Connect</p>
