@@ -5,6 +5,7 @@ import os
 import asyncio
 import re
 import socket
+import subprocess
 import ipaddress
 import json
 import traceback
@@ -122,16 +123,17 @@ from app.services.workflow import (
 
 
 def _run_inline_celery_worker():
-    """Run a Celery worker inside this Render service for queued processing."""
+    """Run a dedicated Celery worker child process without blocking Uvicorn."""
     from app.database import engine
 
     engine.dispose()
-    concurrency = max(1, min(int(os.getenv("RESUME_WORKER_CONCURRENCY", "4")), 16))
+    concurrency = max(1, min(int(os.getenv("RESUME_WORKER_CONCURRENCY", "2")), 8))
+    pool = os.getenv("RESUME_WORKER_POOL", "solo").strip() or "solo"
     celery_app.worker_main(
         [
             "worker",
-            "--loglevel=WARNING",
-            "--pool=prefork",
+            "--loglevel=INFO",
+            f"--pool={pool}",
             f"--concurrency={concurrency}",
             "--hostname=resume-worker@%h",
         ]
@@ -191,13 +193,21 @@ async def lifespan(_app: FastAPI):
         APP_ENV not in {"development", "test"}
         and os.getenv("ENABLE_INLINE_CELERY_WORKER", "false").strip().lower() == "true"
     ):
-        import multiprocessing
-        worker_process = multiprocessing.Process(
-            target=_run_inline_celery_worker,
-            name="resume-celery-worker",
-            daemon=False,
+        concurrency = max(1, min(int(os.getenv("RESUME_WORKER_CONCURRENCY", "2")), 8))
+        pool = os.getenv("RESUME_WORKER_POOL", "solo").strip() or "solo"
+        worker_process = subprocess.Popen(
+            [
+                "celery",
+                "-A",
+                "celery_app",
+                "worker",
+                "--loglevel=INFO",
+                f"--pool={pool}",
+                f"--concurrency={concurrency}",
+                "--hostname=resume-worker@%h",
+            ],
+            cwd=str(Path(__file__).resolve().parent.parent),
         )
-        worker_process.start()
     try:
         yield
     finally:
@@ -207,9 +217,12 @@ async def lifespan(_app: FastAPI):
                 await reminder_task
             except asyncio.CancelledError:
                 pass
-        if worker_process is not None and worker_process.is_alive():
+        if worker_process is not None and worker_process.poll() is None:
             worker_process.terminate()
-            worker_process.join(timeout=10)
+            try:
+                worker_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                worker_process.kill()
 
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
