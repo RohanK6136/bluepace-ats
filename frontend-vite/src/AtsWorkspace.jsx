@@ -6,13 +6,10 @@ const ResumeLab = lazy(() => import("./App.jsx"));
 const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
 const EmailTemplatesPanel = lazy(() => import("./EmailTemplatesPanel.jsx"));
 const ScorecardPanel = lazy(() => import("./ScorecardPanel.jsx"));
-const TalentPoolsPanel = lazy(() => import("./TalentPoolsPanel.jsx"));
-const AnalyticsPanel = lazy(() => import("./AnalyticsPanel.jsx"));
 const ApplicationEnhancements = lazy(() => import("./ApplicationEnhancements.jsx"));
 const RecruiterToolsPanel = lazy(() => import("./RecruiterToolsPanel.jsx"));
 const InterviewPanel = lazy(() => import("./InterviewPanel.jsx"));
 const AutomationPanel = lazy(() => import("./AutomationPanel.jsx"));
-const CommandCenterPanel = lazy(() => import("./CommandCenterPanel.jsx"));
 const CandidateMergeCenter = lazy(() => import("./CandidateMergeCenter.jsx"));
 const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
 const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
@@ -1473,13 +1470,6 @@ export default function AtsWorkspace() {
           {error && <div role="alert" className="mb-4 flex items-center justify-between border-l-2 border-rose-600 bg-white px-4 py-3 text-sm text-rose-800"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
           {loading && <div className="mb-3 text-xs text-ink-500">Loading workspace…</div>}
 
-
-          {view === "command" && <CommandCenterPanel
-            token={token}
-            apiRequest={apiRequest}
-            onNotice={setNotice}
-            onError={(requestError) => setError(errorText(requestError))}
-          />}
 
           {view === "interviews-2" && <InterviewManagement2 token={token} apiRequest={apiRequest} applications={applications} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
