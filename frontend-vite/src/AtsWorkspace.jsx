@@ -254,7 +254,9 @@ export default function AtsWorkspace() {
   const [publicForm, setPublicForm] = useState({ full_name: "", email: "", phone: "" });
   const [publicError, setPublicError] = useState("");
   const [publicSuccess, setPublicSuccess] = useState("");
-      const [authForm, setAuthForm] = useState({ email: "", password: "" });
+  const [publicFilters, setPublicFilters] = useState({ search: "", department: "", location: "", work_mode: "" });
+  const [authMode, setAuthMode] = useState("login");
+  const [authForm, setAuthForm] = useState({ organization_name: "", full_name: "", email: "", password: "" });
   const [authError, setAuthError] = useState("");
   const [view, setView] = useState("dashboard");
   const [moreOpen, setMoreOpen] = useState(false);
@@ -458,6 +460,10 @@ export default function AtsWorkspace() {
       // readiness request before credentials are submitted.
       void ensureApiReady().catch(() => {});
 
+      if (authMode === "register") {
+        await apiRequest(null, "post", "/auth/register", { data: authForm });
+      }
+
       const credentials = new URLSearchParams();
       credentials.set("username", authForm.email);
       credentials.set("password", authForm.password);
@@ -476,7 +482,7 @@ export default function AtsWorkspace() {
           || [502, 503, 504].includes(firstError.response.status)
           || ["ECONNABORTED", "ETIMEDOUT"].includes(firstError.code)
           || firstError.name === "AbortError";
-        if (!transientAuthFailure) throw firstError;
+        if (!transientAuthFailure || authMode === "register") throw firstError;
         await ensureApiReady();
         response = await apiRequest(null, "post", "/auth/token", {
           data: credentials,
@@ -1146,7 +1152,10 @@ export default function AtsWorkspace() {
               </span>
             </a>
             <div className="flex items-center gap-2">
-<ThemeToggle theme={theme} onToggle={toggleTheme} />
+              <a href="https://www.blupacetech.com/" target="_blank" rel="noreferrer" className="hidden rounded-md px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10 hover:text-white sm:inline-flex">
+                Company site
+              </a>
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
               <button className="border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={() => switchAccessMode("admin")}>
                 Admin / Recruiter Login
               </button>
@@ -1155,22 +1164,40 @@ export default function AtsWorkspace() {
         </header>
 
         <section className="bp-public-hero relative overflow-hidden border-b border-ink-100">
-          <div className="mx-auto max-w-7xl px-5 py-14 sm:py-16 lg:py-20">
+          <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 sm:py-16 lg:grid-cols-[1.35fr_0.65fr] lg:items-end lg:py-20">
             <div className="max-w-3xl">
               <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">
                 <span className="h-1.5 w-1.5 rounded-full bg-orange-500"></span>
                 Careers at Blupace Tech
               </p>
               <h1 className="mt-5 text-4xl font-semibold tracking-[-0.035em] text-ink-950 sm:text-5xl lg:text-6xl">
-                Technology careers at Blupace Tech.
+                Enterprise talent, built to move at your pace.
               </h1>
               <p className="mt-5 max-w-2xl text-base leading-7 text-ink-600 sm:text-lg">
-                Explore open roles across software, AI, data, cloud, cybersecurity, infrastructure and workplace services.
+                Explore technology opportunities across software, AI, data, cloud, cybersecurity, infrastructure and workplace services.
               </p>
-              <div className="mt-8">
+              <div className="mt-8 flex flex-wrap items-center gap-3">
                 <a href="#jobs" className={buttonPrimary + " no-underline"}>Explore open roles</a>
+                <a href="https://www.blupacetech.com/recruitment-staff-augmentation" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-ink-100 bg-white px-4 py-2 text-sm font-semibold text-ink-800 no-underline shadow-sm hover:bg-ink-50">
+                  About Talent &amp; Workforce
+                </a>
               </div>
             </div>
+            <div className="grid grid-cols-3 gap-3 lg:pb-1">
+              <div className="bp-stat-card"><span>20+</span><small>Years</small></div>
+              <div className="bp-stat-card"><span>10+</span><small>Countries</small></div>
+              <div className="bp-stat-card"><span>3</span><small>Specialist businesses</small></div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-5 pb-4 pt-10">
+          <div className="bp-career-intro rounded-2xl border border-blue-100 bg-blue-50/60 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6">
+            <div>
+              <p className="text-sm font-semibold text-ink-900">A candidate experience designed around clarity.</p>
+              <p className="mt-1 text-sm leading-6 text-ink-600">Apply without creating an account, keep your email current, and use your secure candidate portal for updates.</p>
+            </div>
+            <span className="mt-3 inline-flex w-fit rounded-full border border-blue-100 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700 sm:mt-0">Secure application flow</span>
           </div>
         </section>
 
@@ -1214,7 +1241,8 @@ export default function AtsWorkspace() {
                     )}
                   </div>
                   <p className="mt-4 line-clamp-4 whitespace-pre-line text-sm leading-6 text-ink-600">{job.description}</p>
-{job.required_skills?.length > 0 && (
+              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Work mode: <span className="normal-case tracking-normal text-ink-700">{workModeLabel(job.work_mode)}</span></p>
+                  {job.required_skills?.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
                       {job.required_skills.slice(0, 8).map((skill) => (
                         <span key={skill} className="rounded-full border border-ink-100 bg-[#f8f8f5] px-2.5 py-1 text-xs text-ink-600">{skill}</span>
@@ -1301,12 +1329,13 @@ export default function AtsWorkspace() {
           <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <p className="text-lg font-semibold">blupace<span className="text-orange-400">.</span>tech</p>
-              <p className="mt-2 max-w-sm text-sm leading-6 text-white/60">Enterprise technology and digital careers at Blupace Tech.</p>
+              <p className="mt-2 max-w-sm text-sm leading-6 text-white/60">Enterprise technology, global capability centres, and talent &amp; workforce solutions.</p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Careers</p>
               <a className="mt-3 block text-sm text-white/75 hover:text-white" href="#jobs">Open positions</a>
-</div>
+              <a className="mt-2 block text-sm text-white/75 hover:text-white" href="https://www.blupacetech.com/recruitment-staff-augmentation" target="_blank" rel="noreferrer">Talent &amp; Workforce</a>
+            </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Connect</p>
               <a className="mt-3 block text-sm text-white/75 hover:text-white" href="mailto:hello@blupacetech.com">hello@blupacetech.com</a>
