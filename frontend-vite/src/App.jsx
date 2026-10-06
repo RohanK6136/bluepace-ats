@@ -122,11 +122,13 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     const started = performance.now();
     const body = new FormData();
     body.append("file", file);
+    if (jobDescription.trim()) body.append("job_description", jobDescription.trim());
     try {
       const response = await postToApi("/extract/", body);
       if (!response.data?.data || typeof response.data.data !== "object") throw new Error("The ATS API returned an invalid extraction response.");
       setJsonData(response.data.data);
-      setUploadTiming({
+      if (response.data?.validation) setValidationResult(response.data.validation);
+      setUploadTiming({}
         totalMs: Math.round(performance.now() - started),
         serverMs: Number(response.headers["x-process-time-ms"] || 0),
       });
@@ -162,6 +164,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
         const body = new FormData();
         body.append("file", file);
         body.append("batch_id", batchId);
+        if (jobDescription.trim()) body.append("job_description", jobDescription.trim());
         try {
           const response = await postToApi("/resume-processing/queue", body, {}, token);
           setBulkJobs((current) => current.map((job, jobIndex) => (
@@ -293,7 +296,18 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               </div>
               {bulkBatchId && <span className="text-xs text-ink-500">Batch {bulkBatchId}</span>}
             </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div className="mt-5 grid gap-3">
+              <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
+                Job description for matching
+                <textarea
+                  rows={5}
+                  value={jobDescription}
+                  onChange={(event) => setJobDescription(event.target.value)}
+                  placeholder="Paste the specific job description. Each resume will be scored against this role."
+                  className="w-full resize-y rounded-md border border-ink-100 bg-[#fafaf8] p-3 text-sm leading-6 outline-none focus:border-gold-500"
+                />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
               <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
                 Resumes
                 <input
@@ -308,6 +322,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               <button type="button" onClick={queueBulkResumes} disabled={bulkUploading || !bulkFiles.length} className="inline-flex items-center justify-center rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#10131c] disabled:opacity-50">
                 {bulkUploading ? "Uploading…" : `Queue ${bulkFiles.length || 0} resumes`}
               </button>
+              </div>
             </div>
             {bulkError && <p role="alert" className="mt-3 text-sm text-rose-700">{bulkError}</p>}
             {bulkJobs.length > 0 && (
