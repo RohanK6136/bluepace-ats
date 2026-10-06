@@ -274,6 +274,7 @@ export default function AtsWorkspace() {
   const [collabTagColor, setCollabTagColor] = useState("#1769d3");
   const [emails, setEmails] = useState([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
+  const [emailDeliveryStatus, setEmailDeliveryStatus] = useState(null);
   const [semanticQuery, setSemanticQuery] = useState("");
   const [semanticResults, setSemanticResults] = useState([]);
   const [candidateFilters, setCandidateFilters] = useState({
@@ -559,8 +560,15 @@ export default function AtsWorkspace() {
     let active = true;
     setEmailsLoading(true);
     setError("");
-    apiRequest(token, "get", "/emails", { params: { limit: 200 } })
-      .then((response) => { if (active) setEmails(Array.isArray(response.data) ? response.data : []); })
+    Promise.all([
+      apiRequest(token, "get", "/emails", { params: { limit: 200 } }),
+      apiRequest(token, "get", "/email-delivery/status"),
+    ])
+      .then(([emailResponse, deliveryResponse]) => {
+        if (!active) return;
+        setEmails(Array.isArray(emailResponse.data) ? emailResponse.data : []);
+        setEmailDeliveryStatus(deliveryResponse.data || null);
+      })
       .catch((requestError) => {
         if (!active) return;
         if (requestError.response?.status === 401) {
@@ -568,6 +576,7 @@ export default function AtsWorkspace() {
           setToken(null);
           setUser(null);
           setEmails([]);
+          setEmailDeliveryStatus(null);
           setError("Your session has expired. Please sign in again to open Email Center.");
           return;
         }
@@ -576,6 +585,16 @@ export default function AtsWorkspace() {
       .finally(() => { if (active) setEmailsLoading(false); });
     return () => { active = false; };
   }, [token, view]);
+
+  async function retryEmail(emailId) {
+    try {
+      const response = await apiRequest(token, "post", `/emails/${emailId}/retry`);
+      setNotice(response.data?.status === "queued" ? "Email retry queued. Refresh Email Center shortly to see delivery status." : "Email retry requested.");
+      setEmails((current) => current.map((item) => item.id === emailId ? { ...item, status: "pending", error_message: null } : item));
+    } catch (requestError) {
+      setError(errorText(requestError));
+    }
+  }
 
   useEffect(() => {
     if (!token || !selectedCandidate) {
@@ -2237,12 +2256,21 @@ export default function AtsWorkspace() {
 
           {view === "emails" && <>
             <div className="mb-5 flex items-end justify-between gap-3"><div><p className="text-sm text-ink-500">Candidate communication audit</p><h2 className="mt-1 text-xl font-semibold">Email center</h2></div><button className={buttonSecondary} onClick={() => setView("dashboard")}>Back to dashboard</button></div>
+            {emailDeliveryStatus && !emailDeliveryStatus.configured && (
+              <div className="mb-4 border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p className="font-semibold">Email delivery is not configured.</p>
+                <p className="mt-1">Set {emailDeliveryStatus.missing.join(", ")} on the backend service, then retry failed or pending emails.</p>
+              </div>
+            )}
+            {emailDeliveryStatus?.configured && (
+              <div className="mb-4 text-xs text-ink-500">Delivery: {emailDeliveryStatus.provider} · sender configured</div>
+            )}
             {emailsLoading && <div className="mb-4 rounded-xl border border-ink-100 bg-white p-5 text-sm text-ink-500">Loading email history…</div>}
             <div className="overflow-x-auto border-y border-ink-100 bg-white">
-              <table className="w-full min-w-[850px] border-collapse text-left text-sm">
-                <thead className="border-b border-ink-100 bg-[#fafaf8] text-[11px] uppercase text-ink-500"><tr><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Event</th><th className="px-4 py-3">Recipient</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Sent</th><th className="px-4 py-3">Error</th></tr></thead>
+              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+                <thead className="border-b border-ink-100 bg-[#fafaf8] text-[11px] uppercase text-ink-500"><tr><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Event</th><th className="px-4 py-3">Recipient</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Sent</th><th className="px-4 py-3">Error</th><th className="px-4 py-3">Action</th></tr></thead>
                 <tbody className="divide-y divide-ink-50">
-                  {emails.map((email) => <tr key={email.id} className="hover:bg-[#fcfcfa]"><td className="px-4 py-3"><button className="font-semibold hover:underline" onClick={() => { if (email.application_id) { const application = applications.find((item) => item.id === email.application_id); if (application) { setSelectedCandidate(application.candidate_id); setView("candidates"); } } }}>{email.candidate_name}</button><p className="text-xs text-ink-500">{email.job_title || "—"}</p></td><td className="px-4 py-3 text-xs">{email.subject}</td><td className="px-4 py-3 text-xs text-ink-600">{email.recipient}</td><td className="px-4 py-3 text-xs font-semibold">{email.status}</td><td className="px-4 py-3 text-xs text-ink-500">{email.sent_at ? new Date(email.sent_at).toLocaleString() : "—"}</td><td className="max-w-72 px-4 py-3 text-xs text-rose-700">{email.error_message || "—"}</td></tr>)}
+                  {emails.map((email) => <tr key={email.id} className="hover:bg-[#fcfcfa]"><td className="px-4 py-3"><button className="font-semibold hover:underline" onClick={() => { if (email.application_id) { const application = applications.find((item) => item.id === email.application_id); if (application) { setSelectedCandidate(application.candidate_id); setView("candidates"); } } }}>{email.candidate_name}</button><p className="text-xs text-ink-500">{email.job_title || "—"}</p></td><td className="px-4 py-3 text-xs">{email.subject}</td><td className="px-4 py-3 text-xs text-ink-600">{email.recipient}</td><td className="px-4 py-3 text-xs font-semibold">{email.status}</td><td className="px-4 py-3 text-xs text-ink-500">{email.sent_at ? new Date(email.sent_at).toLocaleString() : "—"}</td><td className="max-w-72 px-4 py-3 text-xs text-rose-700">{email.error_message || "—"}</td><td className="px-4 py-3">{email.status !== "sent" && canWrite ? <button type="button" className="text-xs font-semibold text-ink-900 underline underline-offset-2" onClick={() => retryEmail(email.id)}>Retry</button> : "—"}</td></tr>)}
                 </tbody>
               </table>
               {!emails.length && <EmptyState title="No email events yet" detail="Application and pipeline notifications will appear here." />}
