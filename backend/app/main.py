@@ -122,22 +122,43 @@ from app.services.workflow import (
 )
 
 
-def _run_inline_celery_worker():
-    """Run a dedicated Celery worker child process without blocking Uvicorn."""
-    from app.database import engine
+_resume_dispatcher_in_flight: set[int] = set()
 
-    engine.dispose()
-    concurrency = max(1, min(int(os.getenv("RESUME_WORKER_CONCURRENCY", "2")), 8))
-    pool = os.getenv("RESUME_WORKER_POOL", "solo").strip() or "solo"
-    celery_app.worker_main(
-        [
-            "worker",
-            "--loglevel=INFO",
-            f"--pool={pool}",
-            f"--concurrency={concurrency}",
-            "--hostname=resume-worker@%h",
-        ]
-    )
+
+async def _run_resume_job_background(job_id: int) -> None:
+    try:
+        from app.services.queue_tasks import process_resume_ingest_job
+        await asyncio.to_thread(process_resume_ingest_job.run, job_id)
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _resume_dispatcher_in_flight.discard(job_id)
+
+
+async def resume_queue_dispatcher_loop() -> None:
+    """DB-backed resume dispatcher used when no external Celery worker is attached."""
+    concurrency = max(1, min(int(os.getenv("RESUME_DISPATCHER_CONCURRENCY", "2")), 8))
+    while True:
+        try:
+            available = concurrency - len(_resume_dispatcher_in_flight)
+            if available > 0:
+                with SessionLocal() as db:
+                    job_ids = list(db.scalars(
+                        select(ResumeProcessingJob.id)
+                        .where(ResumeProcessingJob.status == "queued")
+                        .order_by(ResumeProcessingJob.id.asc())
+                        .limit(min(available, 8))
+                    ).all())
+                for job_id in job_ids:
+                    if job_id in _resume_dispatcher_in_flight:
+                        continue
+                    _resume_dispatcher_in_flight.add(job_id)
+                    asyncio.create_task(_run_resume_job_background(job_id))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            traceback.print_exc()
+        await asyncio.sleep(0.25)
 
 
 async def interview_reminder_loop():
@@ -188,26 +209,12 @@ async def lifespan(_app: FastAPI):
     initialize_database()
     ensure_bootstrap_account()
     reminder_task = None if APP_ENV == "test" else asyncio.create_task(interview_reminder_loop())
-    worker_process = None
+    resume_dispatcher_task = None
     if (
         APP_ENV not in {"development", "test"}
-        and os.getenv("ENABLE_INLINE_CELERY_WORKER", "false").strip().lower() == "true"
+        and os.getenv("ENABLE_DB_RESUME_DISPATCHER", "true").strip().lower() == "true"
     ):
-        concurrency = max(1, min(int(os.getenv("RESUME_WORKER_CONCURRENCY", "2")), 8))
-        pool = os.getenv("RESUME_WORKER_POOL", "solo").strip() or "solo"
-        worker_process = subprocess.Popen(
-            [
-                "celery",
-                "-A",
-                "celery_app",
-                "worker",
-                "--loglevel=INFO",
-                f"--pool={pool}",
-                f"--concurrency={concurrency}",
-                "--hostname=resume-worker@%h",
-            ],
-            cwd=str(Path(__file__).resolve().parent.parent),
-        )
+        resume_dispatcher_task = asyncio.create_task(resume_queue_dispatcher_loop())
     try:
         yield
     finally:
@@ -217,12 +224,12 @@ async def lifespan(_app: FastAPI):
                 await reminder_task
             except asyncio.CancelledError:
                 pass
-        if worker_process is not None and worker_process.poll() is None:
-            worker_process.terminate()
+        if resume_dispatcher_task is not None:
+            resume_dispatcher_task.cancel()
             try:
-                worker_process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                worker_process.kill()
+                await resume_dispatcher_task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
@@ -3981,17 +3988,21 @@ async def queue_resume_processing(
     db.commit()
     db.refresh(job)
 
-    try:
-        from app.services.queue_tasks import process_resume_ingest_job
-        task = process_resume_ingest_job.delay(job.id)
-        job.task_id = task.id
+    if os.getenv("ENABLE_DB_RESUME_DISPATCHER", "true").strip().lower() == "true":
+        job.task_id = f"db-dispatcher:{job.id}"
         db.commit()
-    except Exception as error:
-        job.status = "failed"
-        job.error_message = f"Queue submission failed: {error}"[:4000]
-        db.commit()
-        storage_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=503, detail="Resume was stored but could not be queued. Retry the upload.") from error
+    else:
+        try:
+            from app.services.queue_tasks import process_resume_ingest_job
+            task = process_resume_ingest_job.delay(job.id)
+            job.task_id = task.id
+            db.commit()
+        except Exception as error:
+            job.status = "failed"
+            job.error_message = f"Queue submission failed: {error}"[:4000]
+            db.commit()
+            storage_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=503, detail="Resume was stored but could not be queued. Retry the upload.") from error
 
     return {
         "job_id": job.id,
