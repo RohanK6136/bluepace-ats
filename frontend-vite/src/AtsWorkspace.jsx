@@ -8,7 +8,6 @@ const ScorecardPanel = lazy(() => import("./ScorecardPanel.jsx"));
 const ApplicationEnhancements = lazy(() => import("./ApplicationEnhancements.jsx"));
 const RecruiterToolsPanel = lazy(() => import("./RecruiterToolsPanel.jsx"));
 const InterviewPanel = lazy(() => import("./InterviewPanel.jsx"));
-const AutomationPanel = lazy(() => import("./AutomationPanel.jsx"));
 const CandidateMergeCenter = lazy(() => import("./CandidateMergeCenter.jsx"));
 const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
 const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
@@ -395,8 +394,8 @@ export default function AtsWorkspace() {
 
   useEffect(() => {
     if (!token) return undefined;
-    const needsCandidates = new Set(["candidates", "matches", "merge", "tools", "talent", "portal"]);
-    const needsApplications = new Set(["pipeline", "matches", "interviews", "offers", "tools", "automation"]);
+    const needsCandidates = new Set(["candidates", "merge-center"]);
+    const needsApplications = new Set(["pipeline", "interviews-2", "offers"]);
     if (!needsCandidates.has(view) && !needsApplications.has(view)) return undefined;
     let active = true;
     async function loadViewData() {
@@ -426,8 +425,8 @@ export default function AtsWorkspace() {
 
   async function refreshWorkspace() {
     if (!token) return;
-    const needsCandidates = new Set(["candidates", "matches", "merge", "tools", "talent", "portal"]);
-    const needsApplications = new Set(["pipeline", "matches", "interviews", "offers", "tools", "automation"]);
+    const needsCandidates = new Set(["candidates", "merge-center"]);
+    const needsApplications = new Set(["pipeline", "interviews-2", "offers"]);
     const requests = [];
     requests.push(apiRequest(token, "get", "/jobs", { params: { limit: 100 } }));
     requests.push(
@@ -1395,7 +1394,6 @@ export default function AtsWorkspace() {
     { id: "assistant", label: "AI Assistant" },
     { id: "resume", label: "Resume Lab" },
   ];
-  const primaryNavItems = navItems;
   const secondaryNavItems = [
     { id: "merge-center", label: "Merge Center" },
     { id: "emails", label: "Email Center" },
@@ -2292,7 +2290,6 @@ export default function AtsWorkspace() {
               {!emails.length && <EmptyState title="No email events yet" detail="Application and pipeline notifications will appear here." />}
             </div>
           </>}
-          {view === "tools" && <RecruiterToolsPanel token={token} candidates={candidates} applications={applications} canWrite={canWrite} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
           {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}\n          {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab theme={theme} onToggleTheme={toggleTheme} /></section>}
           </main>
         </Suspense>
