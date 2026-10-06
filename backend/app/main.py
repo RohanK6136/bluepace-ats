@@ -4175,6 +4175,129 @@ def list_resume_processing_jobs(
     ]
 
 
+class ResumeLabSyncRequest(BaseModel):
+    resume_json: dict
+    job_id: int | None = None
+    job_fit: dict | None = None
+
+
+@app.post("/resume-processing/sync", response_class=JSONResponse)
+def sync_resume_lab_result(
+    request: ResumeLabSyncRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    from app.services.queue_tasks import validate_resume_structure
+    from app.services.workflow import ensure_job_stages, queue_application_email
+
+    extracted = dict(request.resume_json or {})
+    validation = validate_resume_structure(extracted)
+    candidate_email = str(extracted.get("email") or "").strip().lower()
+    if not candidate_email:
+        raise HTTPException(status_code=422, detail="The resume must contain an email address to sync it into the ATS.")
+
+    name_parts = str(extracted.get("name") or "Applicant Candidate").strip().split()
+    first_name = (name_parts[0] if name_parts else "Applicant")[:100]
+    last_name = (" ".join(name_parts[1:]) if len(name_parts) > 1 else "Candidate")[:100]
+
+    candidate = db.scalar(select(Candidate).where(
+        Candidate.organization_id == user.organization_id,
+        Candidate.email == candidate_email,
+    ))
+    if candidate is None:
+        candidate = Candidate(
+            organization_id=user.organization_id,
+            created_by_id=user.id,
+            first_name=first_name,
+            last_name=last_name,
+            email=candidate_email,
+            phone=str(extracted.get("phone") or "")[:50] or None,
+            linkedin_url=str(extracted.get("linkedin") or "")[:500] or None,
+            source="Resume Lab",
+        )
+        db.add(candidate)
+        db.flush()
+    else:
+        candidate.first_name = first_name
+        candidate.last_name = last_name
+        candidate.phone = str(extracted.get("phone") or candidate.phone or "")[:50] or None
+        candidate.linkedin_url = str(extracted.get("linkedin") or candidate.linkedin_url or "")[:500] or None
+        candidate.source = candidate.source or "Resume Lab"
+
+    clean_resume = {key: value for key, value in extracted.items() if key != "raw_text"}
+    clean_resume["structure_validation"] = validation
+    if request.job_fit:
+        clean_resume["job_fit"] = request.job_fit
+        candidate.cv_summary = [str(request.job_fit.get("summary") or "").strip()] + [
+            str(item).strip() for item in (request.job_fit.get("strengths") or [])[:5] if str(item).strip()
+        ]
+        candidate.cv_summary = [item for item in candidate.cv_summary if item]
+    candidate.resume_data = clean_resume
+    candidate.needs_review = validation["status"] != "valid"
+
+    application_id = None
+    match_score = None
+    if request.job_id is not None:
+        job = _get_org_record(db, Job, request.job_id, user.organization_id)
+        if job.status != "open":
+            raise HTTPException(status_code=409, detail="The selected job is not open")
+        application = db.scalar(select(Application).where(
+            Application.job_id == job.id,
+            Application.candidate_id == candidate.id,
+        ))
+        email_id = None
+        if application is None:
+            stages = ensure_job_stages(db, job)
+            application = Application(
+                organization_id=user.organization_id,
+                job_id=job.id,
+                candidate_id=candidate.id,
+                stage_id=stages["Applied"].id,
+                status="active",
+            )
+            db.add(application)
+            db.flush()
+            subject, body = _stage_email(application, "Applied", db=db)
+            email_id = queue_application_email(db, application, subject, body)
+        application_id = application.id
+
+        if not job.jd_analysis:
+            job.jd_analysis = matching_service.analyze_job(job)
+        score = matching_service.score_candidate(job, candidate)
+        match_score = score["model_score"]
+        match = db.scalar(select(CandidateJobMatch).where(
+            CandidateJobMatch.organization_id == user.organization_id,
+            CandidateJobMatch.job_id == job.id,
+            CandidateJobMatch.candidate_id == candidate.id,
+        ))
+        if match is None:
+            match = CandidateJobMatch(
+                organization_id=user.organization_id,
+                job_id=job.id,
+                candidate_id=candidate.id,
+            )
+            db.add(match)
+        match.model_score = score["model_score"]
+        match.score_breakdown = score["score_breakdown"]
+        match.matched_skills = score["matched_skills"]
+        match.skill_gaps = score["skill_gaps"]
+        match.explanations = score["explanations"]
+        match.semantic_mode = score["semantic_mode"]
+
+    db.commit()
+    if application_id and "email_id" in locals() and email_id:
+        background_tasks.add_task(deliver_outbox_email, email_id)
+    return {
+        "status": "synced",
+        "candidate_id": candidate.id,
+        "application_id": application_id,
+        "match_score": match_score,
+        "validation": validation,
+        "needs_review": candidate.needs_review,
+    }
+
+
 @app.get("/resume-processing/jobs/{job_id}", response_class=JSONResponse)
 def get_resume_processing_job(
     job_id: int,
