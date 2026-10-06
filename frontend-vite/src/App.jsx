@@ -11,10 +11,17 @@ const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-async function postToApi(path, data, config = {}) {
+async function postToApi(path, data, config = {}, authToken = "") {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await axios.post(`${API_URL}${path}`, data, { timeout: REQUEST_TIMEOUT_MS, ...config });
+      return await axios.post(`${API_URL}${path}`, data, {
+        timeout: REQUEST_TIMEOUT_MS,
+        ...config,
+        headers: {
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...(config.headers || {}),
+        },
+      });
     } catch (error) {
       const status = error.response?.status;
       const retryable = !error.response || [502, 503, 504].includes(status);
@@ -64,7 +71,7 @@ function FieldValue({ value }) {
   return <span>{String(value)}</span>;
 }
 
-export default function App({ theme = "light", onToggleTheme = () => {} }) {
+export default function App({ theme = "light", onToggleTheme = () => {}, token = "" }) {
   const [file, setFile] = useState(null);
   const [jsonData, setJsonData] = useState(null);
   const [jobDescription, setJobDescription] = useState("");
@@ -77,6 +84,11 @@ export default function App({ theme = "light", onToggleTheme = () => {} }) {
   const [validationTiming, setValidationTiming] = useState(null);
   const [showJson, setShowJson] = useState(false);
   const [showRawText, setShowRawText] = useState(false);
+  const [bulkFiles, setBulkFiles] = useState([]);
+  const [bulkBatchId, setBulkBatchId] = useState("");
+  const [bulkJobs, setBulkJobs] = useState([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkError, setBulkError] = useState("");
 
   const quality = jsonData?.resume_quality || {};
   const evidence = jsonData?.extraction_evidence || [];
@@ -122,6 +134,95 @@ export default function App({ theme = "light", onToggleTheme = () => {} }) {
       setUploadError(apiErrorMessage(error, "Extraction failed. Please retry."));
     } finally { setLoading(false); }
   }
+
+  async function queueBulkResumes() {
+    if (!token) {
+      setBulkError("Sign in to the recruiter workspace before using high-volume resume intake.");
+      return;
+    }
+    const validFiles = bulkFiles.filter((item) => /\.(pdf|docx)$/i.test(item.name) && item.size <= 10 * 1024 * 1024);
+    if (!validFiles.length) {
+      setBulkError("Choose at least one PDF or DOCX resume up to 10MB.");
+      return;
+    }
+
+    const batchId = bulkBatchId || (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `batch-${Date.now()}`);
+    setBulkBatchId(batchId);
+    setBulkError("");
+    setBulkUploading(true);
+    setBulkJobs(validFiles.map((file) => ({ filename: file.name, status: "uploading" })));
+
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(16, validFiles.length) }, async () => {
+      while (nextIndex < validFiles.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const file = validFiles[index];
+        const body = new FormData();
+        body.append("file", file);
+        body.append("batch_id", batchId);
+        try {
+          const response = await postToApi("/resume-processing/queue", body, {}, token);
+          setBulkJobs((current) => current.map((job, jobIndex) => (
+            jobIndex === index
+              ? {
+                  ...job,
+                  status: "queued",
+                  id: response.data?.job_id,
+                  acceptedMs: response.data?.accepted_handler_ms,
+                }
+              : job
+          )));
+        } catch (error) {
+          setBulkJobs((current) => current.map((job, jobIndex) => (
+            jobIndex === index
+              ? { ...job, status: "failed", error: apiErrorMessage(error, "Upload failed.") }
+              : job
+          )));
+        }
+      }
+    });
+
+    await Promise.all(workers);
+    setBulkUploading(false);
+  }
+
+  async function refreshBulkJobs(batchId = bulkBatchId) {
+    if (!token || !batchId) return;
+    try {
+      const response = await axios.get(`${API_URL}/resume-processing/jobs`, {
+        timeout: REQUEST_TIMEOUT_MS,
+        params: { batch_id: batchId, limit: 1000 },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const rows = Array.isArray(response.data) ? response.data : [];
+      setBulkJobs((current) => {
+        const byName = new Map(rows.map((row) => [row.filename, row]));
+        return current.map((job) => {
+          const row = byName.get(job.filename);
+          if (!row) return job;
+          return {
+            ...job,
+            id: row.job_id,
+            status: row.status,
+            error: row.error_message || null,
+          };
+        });
+      });
+    } catch (error) {
+      setBulkError(apiErrorMessage(error, "Could not refresh batch status."));
+    }
+  }
+
+  useEffect(() => {
+    if (!bulkBatchId || !token || !bulkJobs.length) return undefined;
+    const terminal = new Set(["completed", "failed"]);
+    const intervalId = window.setInterval(() => {
+      void refreshBulkJobs();
+    }, 2000);
+    void refreshBulkJobs();
+    return () => window.clearInterval(intervalId);
+  }, [bulkBatchId, token, bulkJobs.length]);
 
   async function handleValidate() {
     if (!jsonData || !jobDescription.trim()) {
@@ -175,6 +276,57 @@ export default function App({ theme = "light", onToggleTheme = () => {} }) {
             The first pass uses deterministic PDF/DOCX extraction. Structured fields are validated before they enter the ATS; AI enrichment stays optional.
           </p>
         </div>
+
+        {token && (
+          <section className="mb-6 border border-ink-100 bg-white p-5 sm:p-6">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold text-ink-500">High-volume intake</p>
+                <h3 className="mt-1 text-lg font-semibold">Queue thousands of resumes</h3>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-600">
+                  Upload resumes in parallel. The API acknowledges each accepted file and moves extraction to the background queue instead of parsing during the upload request.
+                </p>
+              </div>
+              {bulkBatchId && <span className="text-xs text-ink-500">Batch {bulkBatchId}</span>}
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
+                Resumes
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx"
+                  className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
+                  onChange={(event) => setBulkFiles(Array.from(event.target.files || []))}
+                />
+                <span className="text-[11px] font-normal text-ink-400">Select hundreds or thousands. Each file must be PDF/DOCX and ≤10MB.</span>
+              </label>
+              <button type="button" onClick={queueBulkResumes} disabled={bulkUploading || !bulkFiles.length} className="inline-flex items-center justify-center rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#10131c] disabled:opacity-50">
+                {bulkUploading ? "Uploading…" : `Queue ${bulkFiles.length || 0} resumes`}
+              </button>
+            </div>
+            {bulkError && <p role="alert" className="mt-3 text-sm text-rose-700">{bulkError}</p>}
+            {bulkJobs.length > 0 && (
+              <div className="mt-5 border-t border-ink-100 pt-4">
+                <div className="flex flex-wrap gap-4 text-xs text-ink-500">
+                  <span>Accepted/queued: {bulkJobs.filter((job) => job.status !== "uploading" && job.status !== "failed").length}</span>
+                  <span>Processing: {bulkJobs.filter((job) => job.status === "processing").length}</span>
+                  <span>Completed: {bulkJobs.filter((job) => job.status === "completed").length}</span>
+                  <span>Failed: {bulkJobs.filter((job) => job.status === "failed").length}</span>
+                </div>
+                <div className="mt-3 max-h-48 overflow-auto border-y border-ink-100">
+                  {bulkJobs.slice(0, 100).map((job, index) => (
+                    <div key={`${job.filename}-${index}`} className="flex items-center justify-between gap-3 border-b border-ink-50 py-2 text-xs">
+                      <span className="min-w-0 truncate">{job.filename}</span>
+                      <span className="shrink-0 font-semibold capitalize text-ink-600">{job.status}</span>
+                    </div>
+                  ))}
+                  {bulkJobs.length > 100 && <p className="py-2 text-xs text-ink-400">Showing the first 100 files.</p>}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
           <section className="border border-ink-100 bg-white p-5 sm:p-6">
