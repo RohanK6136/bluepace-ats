@@ -1867,10 +1867,10 @@ export default function AtsWorkspace() {
               </div>
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">Add candidate</button><button className={buttonSecondary} type="button" onClick={() => setCandidateFormOpen(false)}>Cancel</button></div>
             </form>}
-            <form onSubmit={searchCandidates} className="mb-5 rounded-xl border border-ink-100 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Advanced candidate search</p><p className="mt-1 text-sm text-ink-500">Combine structured filters with Boolean search across the candidate profile and resume.</p></div>
-                <span className="rounded-full bg-ink-50 px-2.5 py-1 text-[11px] font-semibold text-ink-600">Recruiter search</span>
+            <form onSubmit={searchCandidates} className="mb-5 border-b border-ink-100 pb-5">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div><p className="text-xs font-medium text-ink-500">Candidate directory</p><h2 className="mt-1 text-2xl font-semibold tracking-tight">Candidates</h2><p className="mt-1 text-sm text-ink-500">Search structured resume evidence and open a profile when you need more detail.</p></div>
+                <span className="text-xs text-ink-500">{candidates.length} profiles</span>
               </div>
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <Field label="Boolean search" placeholder="Python AND SQL NOT Java" value={candidateFilters.search} onChange={(event) => setCandidateFilters({ ...candidateFilters, search: event.target.value })} />
@@ -1901,15 +1901,24 @@ export default function AtsWorkspace() {
             </form>
 
             <div className="overflow-x-auto border-y border-ink-100 bg-white">
-              <table className="w-full min-w-[650px] border-collapse text-left text-sm">
-                <thead className="border-b border-ink-100 bg-[#fafaf8] text-[11px] uppercase text-ink-500"><tr><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Source</th><th className="px-4 py-3">Skills</th><th className="px-4 py-3">Resume</th></tr></thead>
+              <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                <thead className="border-b border-ink-100 text-[11px] uppercase tracking-wide text-ink-500"><tr><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Current signal</th><th className="px-4 py-3">Skills</th><th className="px-4 py-3">Resume</th><th className="px-4 py-3">Open</th></tr></thead>
                 <tbody className="divide-y divide-ink-50">
-                  {candidates.map((candidate) => <tr key={candidate.id} className="hover:bg-[#fcfcfa]">
-                    <td className="px-4 py-3"><button className="font-semibold hover:underline" onClick={() => setSelectedCandidate(candidate.id)}>{candidate.first_name} {candidate.last_name}</button><p className="text-xs text-ink-500">{candidate.email}{candidate.phone ? ` · ${candidate.phone}` : ""}</p></td>
-                    <td className="px-4 py-3 text-ink-600">{candidate.source || "—"}</td>
-                    <td className="max-w-72 px-4 py-3 text-xs text-ink-600">{(candidate.resume_data?.skills || []).slice(0, 8).join(", ") || "Not parsed"}</td>
-                    <td className="px-4 py-3 text-xs">{candidate.resume_storage_key ? <span className="text-emerald-700">Parsed</span> : <span className="text-ink-400">No resume</span>}</td>
-                  </tr>)}
+                  {candidates.map((candidate) => {
+                    const profile = candidate.resume_data || {};
+                    const signals = [
+                      profile.years_of_experience != null ? `${profile.years_of_experience} yrs experience` : null,
+                      profile.current_location || null,
+                      profile.resume_quality?.missing_fields?.length ? `${profile.resume_quality.missing_fields.length} review signal${profile.resume_quality.missing_fields.length === 1 ? "" : "s"}` : null,
+                    ].filter(Boolean);
+                    return <tr key={candidate.id} className="hover:bg-[#fcfcfa]">
+                      <td className="px-4 py-3 align-top"><button className="font-semibold text-ink-900 hover:underline" onClick={() => setSelectedCandidate(candidate.id)}>{candidate.first_name} {candidate.last_name}</button><p className="mt-1 text-xs text-ink-500">{candidate.email}{candidate.phone ? ` · ${candidate.phone}` : ""}</p></td>
+                      <td className="px-4 py-3 align-top text-xs text-ink-600">{signals.length ? signals.join(" · ") : "Profile needs review"}</td>
+                      <td className="max-w-72 px-4 py-3 align-top text-xs text-ink-600">{(profile.skills || []).slice(0, 6).join(", ") || "Not parsed"}</td>
+                      <td className="px-4 py-3 align-top text-xs">{candidate.resume_storage_key ? <span className="font-medium text-emerald-700">Parsed</span> : <span className="text-ink-400">No resume</span>}</td>
+                      <td className="px-4 py-3 align-top"><button type="button" className="text-sm font-semibold underline underline-offset-4" onClick={() => setSelectedCandidate(candidate.id)}>Open profile</button></td>
+                    </tr>;
+                  })}
                 </tbody>
               </table>
               {!candidates.length && <EmptyState title="No candidates yet" detail="Add a profile and upload a resume to parse it." />}
@@ -1919,11 +1928,11 @@ export default function AtsWorkspace() {
               if (!candidate) return null;
               const profile = candidate.resume_data || {};
               return <section className="mt-5 border-y border-ink-100 bg-white p-4 sm:p-5">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-4 border-b border-ink-100 pb-5">
                   <div>
-                    <p className="text-xs uppercase text-ink-500">Candidate profile</p>
-                    <h3 className="mt-1 text-lg font-semibold">{candidate.first_name} {candidate.last_name}</h3>
-                    <p className="text-sm text-ink-500">{candidate.email}{candidate.phone && " · " + candidate.phone}</p>
+                    <p className="text-xs font-medium text-ink-500">Candidate evidence</p>
+                    <h3 className="mt-1 text-2xl font-semibold tracking-tight">{candidate.first_name} {candidate.last_name}</h3>
+                    <p className="mt-1 text-sm text-ink-500">{candidate.email}{candidate.phone && " · " + candidate.phone}{candidate.source ? " · " + candidate.source : ""}</p>
                     {candidateActivity?.applications?.[0] && <div className="mt-3 flex flex-wrap gap-2">
                       <button type="button" className={buttonSecondary} disabled={portalLinkLoading} onClick={() => generatePortalLink(candidateActivity.applications[0].id)}>{portalLinkLoading ? "Generating…" : "Candidate portal link"}</button>
                       {portalLink && <button type="button" className={buttonSecondary} onClick={() => navigator.clipboard?.writeText(portalLink).then(() => setNotice("Candidate portal link copied")).catch(() => setNotice(portalLink))}>Copy portal link</button>}
