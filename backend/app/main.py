@@ -3061,6 +3061,66 @@ def dashboard_summary(
     }
 
 
+@app.get("/email-delivery/status")
+def email_delivery_status(
+    user: User = Depends(require_roles(*READ_ROLES)),
+):
+    provider = os.getenv("EMAIL_PROVIDER", "").strip().lower() or "smtp"
+    sender = (
+        os.getenv("EMAIL_FROM")
+        or os.getenv("SMTP_FROM")
+        or os.getenv("SMTP_USER")
+        or ""
+    ).strip()
+
+    if provider == "brevo":
+        missing = []
+        if not os.getenv("BREVO_API_KEY", "").strip():
+            missing.append("BREVO_API_KEY")
+        if not sender:
+            missing.append("EMAIL_FROM")
+    else:
+        missing = []
+        if not os.getenv("SMTP_HOST", "").strip():
+            missing.append("SMTP_HOST")
+        if not sender:
+            missing.append("SMTP_FROM or SMTP_USER")
+        smtp_port = os.getenv("SMTP_PORT", "587").strip()
+        try:
+            int(smtp_port)
+        except ValueError:
+            missing.append("SMTP_PORT")
+
+    return {
+        "provider": provider,
+        "configured": not missing,
+        "missing": missing,
+        "sender_configured": bool(sender),
+    }
+
+
+@app.post("/emails/{email_id}/retry")
+def retry_email(
+    email_id: int,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    email = _get_org_record(db, Email, email_id, user.organization_id)
+    if email.status == "sent":
+        raise HTTPException(status_code=409, detail="This email has already been sent.")
+    email.status = "pending"
+    email.error_message = None
+    email.sent_at = None
+    db.commit()
+    background_tasks.add_task(deliver_outbox_email, email.id)
+    return {
+        "status": "queued",
+        "email_id": email.id,
+        "recipient": email.recipient,
+    }
+
+
 @app.get("/emails")
 def list_emails(
     limit: int = Query(default=100, ge=1, le=500),
