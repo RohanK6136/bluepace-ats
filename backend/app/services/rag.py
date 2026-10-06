@@ -140,10 +140,9 @@ class RagService:
     def ensure_application_index(self, application_id: int, organization_id: int) -> dict:
         with SessionLocal() as db:
             application = db.scalar(
-                select(Application)
-                .where(
-                    __import__("app.models", fromlist=["Application"]).Application.id == application_id,
-                    __import__("app.models", fromlist=["Application"]).Application.organization_id == organization_id,
+                select(Application).where(
+                    Application.id == application_id,
+                    Application.organization_id == organization_id,
                 )
             )
             if application is None:
@@ -175,8 +174,6 @@ class RagService:
         return result
 
     def retrieve_for_application(self, db, application_id: int, organization_id: int, query: str, limit: int = 8) -> list[dict]:
-        from app.models import Application
-
         candidate = db.scalar(select(Application.candidate_id).where(
             Application.id == application_id,
             Application.organization_id == organization_id,
