@@ -2220,7 +2220,7 @@ export default function AtsWorkspace() {
               <div className="rounded-2xl border border-blue-100 bg-white p-5">
                 <p className="text-xs font-semibold uppercase text-blue-700">{assistantResult.intent?.replaceAll("_", " ")}</p>
                 <h3 className="mt-1 font-semibold">Assistant response</h3>
-                <p className="mt-3 text-sm leading-6 text-ink-700">{assistantResult.summary}</p>
+                <p className="mt-3 text-sm leading-6 text-ink-700">{assistantResult.summary}</p><p className="mt-2 text-xs text-ink-500">Evidence coverage {assistantResult.data_coverage ?? 0}% · Grounding confidence {assistantResult.confidence || "medium"}</p>
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Required skills: evidence</h4><div className="mt-3 flex flex-wrap gap-2">{(assistantResult.matched_required_skills || []).map((skill) => <span key={skill} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{skill} · evidenced</span>)}{(assistantResult.missing_required_skills || []).map((skill) => <span key={skill} className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-800">{skill} · not evidenced</span>)}</div></div>
