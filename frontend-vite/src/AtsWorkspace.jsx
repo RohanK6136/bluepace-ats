@@ -1383,20 +1383,21 @@ export default function AtsWorkspace() {
     );
   }
 
+  // Keep the everyday hiring path short. Advanced tools stay available under More.
   const navItems = [
     { id: "dashboard", label: "Dashboard" },
-    { id: "pipeline", label: "Applications", count: applications.length },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
+    { id: "pipeline", label: "Applications", count: applications.length },
     { id: "interviews-2", label: "Interviews" },
-    { id: "offers", label: "Offers" },
-    { id: "matching", label: "AI Match" },
-    { id: "assistant", label: "AI Assistant" },
-    { id: "resume", label: "Resume Lab" },
   ];
   const secondaryNavItems = [
-    { id: "merge-center", label: "Merge Center" },
+    { id: "offers", label: "Offers" },
+    { id: "resume", label: "Resume Lab" },
+    { id: "matching", label: "AI Match" },
+    { id: "assistant", label: "AI Assistant" },
     { id: "emails", label: "Email Center" },
+    { id: "merge-center", label: "Merge Center" },
   ];
 
   return (
@@ -1493,13 +1494,45 @@ export default function AtsWorkspace() {
           {view === "dashboard" && <>
             <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
               <div>
-                <h2 className="mt-1 text-2xl font-semibold tracking-tight">What needs attention?</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Hiring workspace</p>
+                <h2 className="mt-1 text-2xl font-semibold tracking-tight">Move candidates from application to hire</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-600">
+                  One simple path: create a job, add candidates, review applications, schedule interviews, then make an offer.
+                </p>
               </div>
               <div className="flex gap-2">
-                {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>New job</button>}
-                {canWrite && <button className={buttonSecondary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
+                {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
+                {canWrite && <button className={buttonSecondary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add candidate</button>}
               </div>
             </div>
+
+            <section className="mb-8 rounded-xl border border-ink-100 bg-white p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Simple hiring flow</p>
+                  <p className="mt-1 text-sm text-ink-600">Follow the same five steps every time.</p>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-5">
+                {[
+                  ["jobs", "1", "Create job"],
+                  ["candidates", "2", "Add candidates"],
+                  ["pipeline", "3", "Review applications"],
+                  ["interviews-2", "4", "Interview"],
+                  ["offers", "5", "Offer / hire"],
+                ].map(([stepId, number, label]) => (
+                  <button
+                    key={stepId}
+                    type="button"
+                    onClick={() => { setView(stepId); setError(""); setMoreOpen(false); }}
+                    className="flex items-center gap-3 rounded-lg border border-ink-100 bg-ink-50 px-3 py-3 text-left transition hover:border-blue-200 hover:bg-white"
+                  >
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink-950 text-xs font-semibold text-white">{number}</span>
+                    <span className="text-xs font-semibold text-ink-800">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
 
             {dashboardLoading && <p className="mb-6 text-sm text-ink-500">Loading dashboard…</p>}
             {dashboardData && <>
