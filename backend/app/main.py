@@ -204,7 +204,6 @@ async def interview_reminder_loop():
         await asyncio.sleep(60)
 
 
-@asynccontextmanager
 async def _delayed_resume_dispatcher_start():
     await asyncio.sleep(2)
     if os.getenv("ENABLE_DB_RESUME_DISPATCHER", "true").strip().lower() == "true":
