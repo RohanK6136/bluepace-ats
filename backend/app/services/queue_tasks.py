@@ -11,6 +11,29 @@ from app.services.llm_validator import llm_validator
 from app.services.slm_service import slm_service
 
 
+def validate_resume_structure(extracted: dict) -> dict:
+    """Fast deterministic schema/quality validation for extracted resumes."""
+    required = ("name", "email", "phone", "skills", "experience", "education")
+    missing = [key for key in required if not extracted.get(key)]
+    warnings = []
+    if extracted.get("email") and "@" not in str(extracted["email"]):
+        warnings.append("email_format")
+    if extracted.get("skills") is not None and not isinstance(extracted.get("skills"), list):
+        warnings.append("skills_not_list")
+    if extracted.get("experience") is not None and not isinstance(extracted.get("experience"), list):
+        warnings.append("experience_not_list")
+    if extracted.get("education") is not None and not isinstance(extracted.get("education"), list):
+        warnings.append("education_not_list")
+    score = max(0, round((len(required) - len(missing)) / len(required) * 100))
+    return {
+        "status": "valid" if not missing and not warnings else "needs_review",
+        "score": score,
+        "missing_fields": missing,
+        "warnings": warnings,
+        "fields_present": [key for key in required if extracted.get(key)],
+    }
+
+
 def enrich_extracted_with_slm(extracted: dict) -> dict:
     if not slm_service.enabled:
         return extracted
@@ -64,6 +87,7 @@ def process_resume_ingest_job(self, job_id: int):
             # available at storage_path; raw_text is intentionally not duplicated
             # into the jobs table.
             result_data = {key: value for key, value in extracted.items() if key != "raw_text"}
+            result_data["structure_validation"] = validate_resume_structure(extracted)
             job.result_data = result_data
 
             # Public applications create the candidate/application immediately.
