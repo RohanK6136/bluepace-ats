@@ -1450,116 +1450,110 @@ export default function AtsWorkspace() {
           {view === "merge-center" && <CandidateMergeCenter token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
           {view === "dashboard" && <>
-            <div className="mb-6"><p className="text-sm text-ink-500">Recruitment overview</p><h2 className="mt-1 text-2xl font-semibold">Recruiter dashboard</h2></div>
-            {dashboardLoading && <div className="mb-5 rounded-xl border border-ink-100 bg-white p-5 text-sm text-ink-500">Loading dashboard…</div>}
-            {dashboardData && <>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-                {[
-                  ["Open jobs", dashboardData.metrics.open_jobs],
-                  ["Applicants", dashboardData.metrics.total_applications],
-                  ["Screening", dashboardData.metrics.screening],
-                  ["Interviews", dashboardData.metrics.interviews],
-                  ["Offers", dashboardData.metrics.offers],
-                  ["Hired", dashboardData.metrics.hired],
-                ].map(([label, value]) => <div key={label} className="rounded-xl border border-ink-100 bg-white p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-500">{label}</p><p className="mt-2 text-3xl font-bold text-ink-900">{value}</p></div>)}
+            <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium text-ink-500">Recruitment workspace</p>
+                <h2 className="mt-1 text-2xl font-semibold tracking-tight">What needs attention?</h2>
               </div>
+              <div className="flex gap-2">
+                {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>New job</button>}
+                {canWrite && <button className={buttonSecondary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
+              </div>
+            </div>
 
-              <div className="mt-5 grid gap-5 xl:grid-cols-3">
-                <section className="rounded-xl border border-ink-100 bg-white p-5">
-                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Pipeline</p><h3 className="mt-1 font-semibold">Applications by stage</h3></div><button className={buttonSecondary} onClick={() => setView("pipeline")}>Open pipeline</button></div>
-                  <div className="mt-5 grid gap-3">
+            {dashboardLoading && <p className="mb-6 text-sm text-ink-500">Loading dashboard…</p>}
+            {dashboardData && <>
+              <section className="grid gap-5 lg:grid-cols-[1.4fr_0.6fr]">
+                <div className="border-b border-ink-200 pb-6">
+                  <div className="flex flex-wrap items-baseline justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Hiring pipeline</p>
+                      <p className="mt-2 text-sm text-ink-600">Where candidates are right now</p>
+                    </div>
+                    <button className="text-sm font-semibold text-ink-900 underline underline-offset-4" onClick={() => setView("pipeline")}>Open applications</button>
+                  </div>
+                  <div className="mt-5 grid grid-cols-3 gap-x-6 gap-y-5 sm:grid-cols-6">
                     {STAGES.map((stage) => {
                       const value = dashboardData.stage_counts?.[stage] || 0;
-                      const total = Math.max(dashboardData.metrics.total_applications, 1);
-                      return <div key={stage}><div className="mb-1 flex justify-between text-xs"><span>{stage}</span><span className="font-semibold">{value}</span></div><div className="h-2 overflow-hidden rounded-full bg-ink-50"><div className="h-full rounded-full bg-[#1769d3]" style={{ width: String(Math.min(100, (value / total) * 100)) + "%" }} /></div></div>;
+                      return <button key={stage} onClick={() => setView("pipeline")} className="text-left">
+                        <p className="text-xs text-ink-500">{stage}</p>
+                        <p className="mt-1 text-2xl font-semibold">{value}</p>
+                      </button>;
                     })}
                   </div>
-                </section>
+                </div>
 
-                <section className="rounded-xl border border-ink-100 bg-white p-5">
-                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Hiring demand</p><h3 className="mt-1 font-semibold">Applications by job</h3></div><button className={buttonSecondary} onClick={() => setView("jobs")}>Jobs</button></div>
-                  <div className="mt-5 grid gap-3">
-                    {(dashboardData.job_counts || []).slice(0, 7).map((item) => <div key={item.name} className="flex items-center justify-between gap-3 border-b border-ink-50 pb-2 text-sm last:border-0"><span className="truncate">{item.name}</span><span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800">{item.count}</span></div>)}
-                    {!dashboardData.job_counts?.length && <p className="text-sm text-ink-500">No application data yet.</p>}
+                <div className="border-b border-ink-200 pb-6 lg:border-l lg:border-b-0 lg:pl-6">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Workspace</p>
+                  <div className="mt-3 grid gap-3 text-sm">
+                    <button onClick={() => setView("jobs")} className="flex justify-between border-b border-ink-100 pb-3 text-left"><span>Open jobs</span><span className="font-semibold">{dashboardData.metrics.open_jobs}</span></button>
+                    <button onClick={() => setView("candidates")} className="flex justify-between border-b border-ink-100 pb-3 text-left"><span>Total candidates</span><span className="font-semibold">{candidates.length}</span></button>
+                    <button onClick={() => setView("interviews-2")} className="flex justify-between text-left"><span>Upcoming interviews</span><span className="font-semibold">{dashboardData.upcoming_interviews?.length || 0}</span></button>
                   </div>
-                </section>
+                </div>
+              </section>
 
-                <section className="rounded-xl border border-ink-100 bg-white p-5">
-                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Communication</p><h3 className="mt-1 font-semibold">Email delivery</h3></div><button className={buttonSecondary} onClick={() => setView("emails")}>Email center</button></div>
-                  <div className="mt-5 grid grid-cols-3 gap-3">
-                    <div className="rounded-xl bg-emerald-50 p-3 text-emerald-800"><p className="text-[11px] uppercase">Sent</p><p className="mt-1 text-2xl font-bold">{dashboardData.email_counts?.sent || 0}</p></div>
-                    <div className="rounded-xl bg-amber-50 p-3 text-amber-800"><p className="text-[11px] uppercase">Pending</p><p className="mt-1 text-2xl font-bold">{dashboardData.email_counts?.pending || 0}</p></div>
-                    <div className="rounded-xl bg-rose-50 p-3 text-rose-800"><p className="text-[11px] uppercase">Failed</p><p className="mt-1 text-2xl font-bold">{dashboardData.email_counts?.failed || 0}</p></div>
+              <section className="mt-8 grid gap-8 lg:grid-cols-2">
+                <div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Attention</p><h3 className="mt-1 text-lg font-semibold">Latest applications</h3></div>
+                    <button className="text-sm font-semibold underline underline-offset-4" onClick={() => setView("pipeline")}>View all</button>
                   </div>
-                </section>
-              </div>
-
-              <div className="mt-5 grid gap-5 xl:grid-cols-2">
-                <section className="rounded-xl border border-ink-100 bg-white p-5">
-                  <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Recruitment analytics</p><h3 className="mt-1 font-semibold">Funnel visibility</h3></div>
-                  <div className="mt-4 grid gap-2">
-                    {STAGES.map((stage, index) => {
-                      const value = dashboardData.stage_counts?.[stage] || 0;
-                      const previous = index === 0 ? dashboardData.metrics.total_applications : (dashboardData.stage_counts?.[STAGES[index - 1]] || 0);
-                      const rate = previous > 0 ? Math.round((value / previous) * 100) : 0;
-                      return <div key={stage} className="flex items-center justify-between gap-4 border-b border-ink-50 py-2 text-sm last:border-0"><span>{stage}</span><span className="text-xs text-ink-500">{value} · {rate}% vs prior stage</span></div>;
-                    })}
-                  </div>
-                </section>
-                <section className="rounded-xl border border-ink-100 bg-white p-5">
-                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Source tracking</p><h3 className="mt-1 font-semibold">Applications by source</h3></div><span className="text-xs text-ink-400">Top sources</span></div>
-                  <div className="mt-4 grid gap-3">
-                    {(dashboardData.source_counts || []).slice(0, 8).map((item) => {
-                      const total = Math.max(dashboardData.metrics.total_applications, 1);
-                      return <div key={item.name} className="grid gap-1"><div className="flex justify-between text-sm"><span>{item.name}</span><span className="font-semibold">{item.count}</span></div><div className="h-2 rounded-full bg-ink-50"><div className="h-full rounded-full bg-[#1769d3]" style={{ width: String(Math.min(100, (item.count / total) * 100)) + "%" }} /></div></div>;
-                    })}
-                    {!dashboardData.source_counts?.length && <p className="text-sm text-ink-500">No source data yet.</p>}
-                  </div>
-                </section>
-              </div>
-
-              <div className="mt-5 grid gap-5 xl:grid-cols-2">
-                <section className="rounded-xl border border-ink-100 bg-white p-5">
-                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Calendar</p><h3 className="mt-1 font-semibold">Upcoming interviews</h3></div><button className={buttonSecondary} onClick={() => setView("pipeline")}>Manage</button></div>
-                  <div className="mt-4 grid gap-3">
-                    {(dashboardData.upcoming_interviews || []).slice(0, 6).map((interview) => <div key={interview.id} className="rounded-lg border border-ink-100 p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{interview.candidate_name}</p><p className="text-xs text-ink-500">{interview.job_title}</p></div><span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800">{interview.mode === "offline" ? "Offline" : "Online"}</span></div><p className="mt-2 text-sm">{new Date(interview.starts_at).toLocaleString()} · {interview.duration_minutes} min</p><p className="mt-1 text-xs text-ink-500">{interview.mode === "offline" ? interview.location : interview.meeting_url}</p></div>)}
-                    {!dashboardData.upcoming_interviews?.length && <p className="text-sm text-ink-500">No upcoming scheduled interviews.</p>}
-                  </div>
-                </section>
-
-                <section className="rounded-xl border border-ink-100 bg-white p-5">
-                  <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Recent</p><h3 className="mt-1 font-semibold">Latest applications</h3></div>
-                  <div className="mt-4 divide-y divide-ink-50">
-                    {(dashboardData.recent_applications || []).map((application) => <button key={application.id} className="flex w-full items-center justify-between gap-3 py-3 text-left hover:bg-ink-50" onClick={() => { setSelectedCandidate(application.candidate_id); setView("candidates"); }}><div><p className="font-medium">{application.candidate_name}</p><p className="text-xs text-ink-500">{application.job_title} · {new Date(application.applied_at).toLocaleDateString()}</p></div><span className="rounded-full bg-ink-50 px-2 py-1 text-[11px] font-semibold text-ink-700">{application.stage_name}</span></button>)}
+                  <div className="mt-3 divide-y divide-ink-100">
+                    {(dashboardData.recent_applications || []).slice(0, 6).map((application) => <button key={application.id} className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-ink-50" onClick={() => { setSelectedCandidate(application.candidate_id); setView("candidates"); }}>
+                      <div className="min-w-0"><p className="truncate font-medium">{application.candidate_name}</p><p className="truncate text-xs text-ink-500">{application.job_title} · {new Date(application.applied_at).toLocaleDateString()}</p></div>
+                      <span className="shrink-0 text-xs font-semibold text-ink-600">{application.stage_name}</span>
+                    </button>)}
                     {!dashboardData.recent_applications?.length && <p className="py-5 text-sm text-ink-500">No applications yet.</p>}
                   </div>
-                </section>
-              </div>
+                </div>
+
+                <div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Schedule</p><h3 className="mt-1 text-lg font-semibold">Upcoming interviews</h3></div>
+                    <button className="text-sm font-semibold underline underline-offset-4" onClick={() => setView("interviews-2")}>Manage</button>
+                  </div>
+                  <div className="mt-3 divide-y divide-ink-100">
+                    {(dashboardData.upcoming_interviews || []).slice(0, 5).map((interview) => <button key={interview.id} className="w-full py-3 text-left hover:bg-ink-50" onClick={() => setView("interviews-2")}>
+                      <div className="flex items-start justify-between gap-4"><p className="font-medium">{interview.candidate_name}</p><span className="text-xs text-ink-500">{interview.mode === "offline" ? "Offline" : "Online"}</span></div>
+                      <p className="mt-1 text-xs text-ink-500">{interview.job_title} · {new Date(interview.starts_at).toLocaleString()} · {interview.duration_minutes} min</p>
+                    </button>)}
+                    {!dashboardData.upcoming_interviews?.length && <p className="py-5 text-sm text-ink-500">No upcoming interviews.</p>}
+                  </div>
+                </div>
+              </section>
+
+              <details className="mt-8 border-t border-ink-200 pt-4">
+                <summary className="cursor-pointer text-sm font-semibold text-ink-700">Operational details</summary>
+                <div className="mt-5 grid gap-8 md:grid-cols-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Applications by job</p>
+                    <div className="mt-3 grid gap-2">
+                      {(dashboardData.job_counts || []).slice(0, 7).map((item) => <div key={item.name} className="flex justify-between gap-3 text-sm"><span className="truncate">{item.name}</span><span className="font-semibold">{item.count}</span></div>)}
+                      {!dashboardData.job_counts?.length && <p className="text-sm text-ink-500">No data.</p>}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Email delivery</p>
+                    <div className="mt-3 grid gap-2 text-sm">
+                      <div className="flex justify-between"><span>Sent</span><span className="font-semibold">{dashboardData.email_counts?.sent || 0}</span></div>
+                      <div className="flex justify-between"><span>Pending</span><span className="font-semibold">{dashboardData.email_counts?.pending || 0}</span></div>
+                      <div className="flex justify-between"><span>Failed</span><span className="font-semibold">{dashboardData.email_counts?.failed || 0}</span></div>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Application sources</p>
+                    <div className="mt-3 grid gap-2">
+                      {(dashboardData.source_counts || []).slice(0, 5).map((item) => <div key={item.name} className="flex justify-between gap-3 text-sm"><span className="truncate">{item.name}</span><span className="font-semibold">{item.count}</span></div>)}
+                      {!dashboardData.source_counts?.length && <p className="text-sm text-ink-500">No data.</p>}
+                    </div>
+                  </div>
+                </div>
+              </details>
             </>}
           </>}
 
-          {view === "analytics" && <AnalyticsPanel
-            token={token}
-            apiRequest={apiRequest}
-            onError={(requestError) => setError(errorText(requestError))}
-          />}
-
-          {view === "talent" && <TalentPoolsPanel
-            token={token}
-            candidates={candidates}
-            apiRequest={apiRequest}
-            onNotice={setNotice}
-            onError={(requestError) => setError(errorText(requestError))}
-          />}
-
-          {view === "templates" && <EmailTemplatesPanel
-            token={token}
-            apiRequest={apiRequest}
-            onNotice={setNotice}
-            onError={(requestError) => setError(errorText(requestError))}
-          />}
-
-                    {view === "pipeline" && <>
+          {view === "pipeline" && <>
             <div className="mb-6 flex flex-col gap-4 border-b border-ink-100 pb-5 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
                 <p className="text-sm text-ink-500">{applications.length} applications in this view</p>
