@@ -42,6 +42,7 @@ from app.security import (
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
+from app.services.rag import rag_service
 from app.services.workflow import (
     PIPELINE_STAGES,
     queue_application_email,
@@ -1148,7 +1149,19 @@ def recruiter_assistant(
     if scorecards:
         sources.append({"id": "SCORECARDS", "label": "Submitted interview scorecards", "fields": ["ratings", "recommendation", "submitted_at"]})
 
-    retrieved_evidence = _retrieve_relevant_evidence(question, evidence, limit=8)
+    rag_status = rag_service.ensure_application_index(application.id, user.organization_id)
+    retrieved_evidence = rag_service.retrieve_for_application(
+        db,
+        application.id,
+        user.organization_id,
+        question,
+        limit=8,
+    )
+    if not retrieved_evidence:
+        retrieved_evidence = _retrieve_relevant_evidence(question, evidence, limit=8)
+        retrieval_method = "deterministic_keyword_retrieval"
+    else:
+        retrieval_method = "pgvector_rag" if any(item.get("retrieval_mode") == "embedding" for item in retrieved_evidence) else "lexical_rag_fallback"
 
     fallback = {
         "summary": (
@@ -1292,7 +1305,7 @@ Retrieved evidence:
         application.id,
         after={
             "intent": intent,
-            "retrieval_method": "deterministic_keyword_retrieval",
+            "retrieval_method": retrieval_method,
             "retrieved_evidence_count": len(retrieved_evidence),
             "llm_generated": bool(generated),
             "grounding_confidence": grounding_confidence,
@@ -1319,7 +1332,7 @@ Retrieved evidence:
         "data_coverage": evidence_coverage,
         "evidence": evidence,
         "retrieved_evidence": retrieved_evidence,
-        "retrieval": {"method": "deterministic_keyword_retrieval", "top_k": len(retrieved_evidence)},
+        "retrieval": {"method": retrieval_method, "top_k": len(retrieved_evidence), "index": rag_status},
         "sources": sources,
         "guardrails": [
             "Evidence is limited to the stored JD, parsed resume, and submitted scorecards.",
