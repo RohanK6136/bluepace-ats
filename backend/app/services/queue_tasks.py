@@ -88,6 +88,14 @@ def process_resume_ingest_job(self, job_id: int):
             # into the jobs table.
             result_data = {key: value for key, value in extracted.items() if key != "raw_text"}
             result_data["structure_validation"] = validate_resume_structure(extracted)
+
+            requested_jd = None
+            if isinstance(job.result_data, dict):
+                requested_jd = job.result_data.get("_job_description")
+            if requested_jd:
+                from app.main import build_resume_job_summary
+                result_data["job_fit"] = build_resume_job_summary(extracted, requested_jd)
+
             job.result_data = result_data
 
             # Public applications create the candidate/application immediately.
