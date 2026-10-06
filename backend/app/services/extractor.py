@@ -494,9 +494,22 @@ Resume text:
             parsed["years_of_experience"] = self._experience_years_from_entries(parsed.get("experience"))
         parsed["resume_quality"] = self._resume_quality_flags(raw_text, parsed)
         parsed["extraction_evidence"], parsed["extraction_confidence"] = self._evidence_and_confidence(raw_text, parsed)
-        parsed["resume_intelligence_version"] = 3
+        parsed["resume_intelligence_version"] = 4
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
+
+        # Validate the structured payload before returning it. Extraction remains
+        # deterministic by default; this step only normalizes shape and types.
+        try:
+            from app.schemas import ResumeData
+            validated = ResumeData.model_validate(parsed).model_dump()
+            validated["raw_text"] = raw_text
+            parsed = {**parsed, **validated}
+        except Exception as error:
+            raise DocumentExtractionError(
+                f"Structured resume validation failed: {error}"
+            ) from error
+
         return parsed
 
 extractor_service = DocumentExtractor()
