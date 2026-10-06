@@ -90,11 +90,74 @@ def process_resume_ingest_job(self, job_id: int):
             result_data["structure_validation"] = validate_resume_structure(extracted)
 
             requested_jd = None
+            requested_job_id = None
             if isinstance(job.result_data, dict):
                 requested_jd = job.result_data.get("_job_description")
+                requested_job_id = job.result_data.get("_job_id")
             if requested_jd:
                 from app.main import build_resume_job_summary
                 result_data["job_fit"] = build_resume_job_summary(extracted, requested_jd)
+
+            # Turn completed Resume Lab uploads into reusable ATS records. When a
+            # target job was selected, also create the Applied application so the
+            # existing email templates, pipeline, and matching workflow receive
+            # the same validated resume data.
+            if not job.candidate_id:
+                from app.models import Candidate, Application, Job
+                from app.services.workflow import ensure_job_stages, queue_application_email
+                from app.main import _stage_email
+
+                candidate_email = str(extracted.get("email") or "").strip().lower()
+                if candidate_email:
+                    name_parts = str(extracted.get("name") or "Applicant Candidate").strip().split()
+                    first_name = (name_parts[0] if name_parts else "Applicant")[:100]
+                    last_name = (" ".join(name_parts[1:]) if len(name_parts) > 1 else "Candidate")[:100]
+                    candidate = db.query(Candidate).filter(
+                        Candidate.organization_id == job.organization_id,
+                        Candidate.email == candidate_email,
+                    ).first()
+                    if candidate is None:
+                        candidate = Candidate(
+                            organization_id=job.organization_id,
+                            created_by_id=job.created_by_id,
+                            first_name=first_name,
+                            last_name=last_name,
+                            email=candidate_email[:320],
+                            phone=str(extracted.get("phone") or "")[:50] or None,
+                            linkedin_url=str(extracted.get("linkedin") or "")[:500] or None,
+                            source="Resume Lab",
+                        )
+                        db.add(candidate)
+                        db.flush()
+                    job.candidate_id = candidate.id
+                    candidate.resume_data = result_data
+                    candidate.phone = str(extracted.get("phone") or candidate.phone or "")[:50] or None
+                    candidate.linkedin_url = str(extracted.get("linkedin") or candidate.linkedin_url or "")[:500] or None
+                    candidate.needs_review = result_data["structure_validation"]["status"] != "valid"
+
+                    if requested_job_id:
+                        target_job = db.get(Job, int(requested_job_id))
+                        if target_job is not None and target_job.organization_id == job.organization_id and target_job.status == "open":
+                            application = db.query(Application).filter(
+                                Application.job_id == target_job.id,
+                                Application.candidate_id == candidate.id,
+                            ).first()
+                            if application is None:
+                                stages = ensure_job_stages(db, target_job)
+                                application = Application(
+                                    organization_id=job.organization_id,
+                                    job_id=target_job.id,
+                                    candidate_id=candidate.id,
+                                    stage_id=stages["Applied"].id,
+                                    status="active",
+                                )
+                                db.add(application)
+                                db.flush()
+                                subject, body = _stage_email(application, "Applied", db=db)
+                                email_id = queue_application_email(db, application, subject, body)
+                                job.application_id = application.id
+                            else:
+                                job.application_id = application.id
 
             job.result_data = result_data
 
