@@ -2153,6 +2153,11 @@ export default function AtsWorkspace() {
                               {fitAnalysis.decision_support_only && <span className="rounded-full bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600">Decision support</span>}
                             </div>
                             <p className="mt-2 max-w-4xl text-sm leading-6 text-ink-600">{fitAnalysis.summary || "Role-fit evidence generated from the candidate resume and selected job description."}</p>
+                            <div className="mt-3 rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Final recommendation</p>
+                              <p className="mt-1 text-sm font-semibold text-ink-900">{fitAnalysis.final_recommendation || fitAnalysis.recommendation || "Recruiter review required"}</p>
+                              <p className="mt-1 text-[11px] leading-5 text-ink-500">Based on current resume-to-JD evidence. This is decision support and not an automated hiring decision.</p>
+                            </div>
                           </div>
                           <div className="shrink-0 rounded-xl border border-blue-100 bg-blue-50 px-5 py-3 text-center">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Match score</p>
