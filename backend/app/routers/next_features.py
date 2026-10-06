@@ -102,6 +102,16 @@ class AssistantRequest(BaseModel):
     question: str = Field(default="Give me a factual summary of this application.", max_length=2000)
 
 
+class AssistantOutput(BaseModel):
+    """Validated, bounded schema for recruiter-assistant generation."""
+    summary: str = ""
+    missing_required_skills: list[str] = Field(default_factory=list)
+    interview_questions: list[str] = Field(default_factory=list, max_length=10)
+    screening_email: str = ""
+    interview_feedback_summary: str = ""
+    requirement_explanation: str = ""
+
+
 class ChatbotRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
 
@@ -1211,7 +1221,11 @@ Retrieved evidence:
         except Exception:
             generated = None
 
-    generated = generated if isinstance(generated, dict) else {}
+    try:
+        validated_generated = AssistantOutput.model_validate(generated or {}, strict=False)
+        generated = validated_generated.model_dump()
+    except Exception:
+        generated = {}
 
     generated_missing = [
         str(value).strip()
