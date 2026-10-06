@@ -205,33 +205,21 @@ async def interview_reminder_loop():
 
 
 @asynccontextmanager
+async def _delayed_resume_dispatcher_start():
+    await asyncio.sleep(2)
+    if os.getenv("ENABLE_DB_RESUME_DISPATCHER", "true").strip().lower() == "true":
+        await resume_queue_dispatcher_loop()
+
+
+@asynccontextmanager
 async def lifespan(_app: FastAPI):
     initialize_database()
     ensure_bootstrap_account()
 
     reminder_task = None if APP_ENV == "test" else asyncio.create_task(interview_reminder_loop())
     resume_dispatcher_task = None
-    if APP_ENV != "test" and os.getenv("ENABLE_DB_RESUME_DISPATCHER", "true").strip().lower() == "true":
-        # Recover jobs left in processing after a deploy/restart. The source file is
-        # still valid when the job was uploaded to the current instance.
-        with SessionLocal() as db:
-            stale_before = datetime.now(timezone.utc) - __import__("datetime").timedelta(minutes=15)
-            stale_jobs = list(db.scalars(
-                select(ResumeProcessingJob)
-                .where(
-                    ResumeProcessingJob.status == "processing",
-                    ResumeProcessingJob.started_at.is_not(None),
-                    ResumeProcessingJob.started_at < stale_before,
-                )
-                .limit(500)
-            ).all())
-            for stale_job in stale_jobs:
-                stale_job.status = "queued"
-                stale_job.started_at = None
-                stale_job.error_message = None
-            if stale_jobs:
-                db.commit()
-        resume_dispatcher_task = asyncio.create_task(resume_queue_dispatcher_loop())
+    if APP_ENV != "test":
+        resume_dispatcher_task = asyncio.create_task(_delayed_resume_dispatcher_start())
 
     try:
         yield
