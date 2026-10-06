@@ -10,6 +10,13 @@ load_dotenv()
 
 OPENROUTER_TIMEOUT_SECONDS = 20.0
 
+# Task-based routing: deterministic code first, fast model for routine AI,
+# stronger model only for genuinely ambiguous reasoning.
+DEFAULT_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-3.5-flash")
+ASSISTANT_MODEL = os.getenv("OPENROUTER_ASSISTANT_MODEL", DEFAULT_MODEL)
+DEEP_REASONING_MODEL = os.getenv("OPENROUTER_DEEP_REASONING_MODEL", "openai/gpt-5.5")
+VALIDATION_MODEL = os.getenv("OPENROUTER_VALIDATION_MODEL", DEFAULT_MODEL)
+
 class LLMValidator:
     def __init__(self):
         api_key = os.getenv("OPENROUTER_API_KEY")
@@ -22,7 +29,7 @@ class LLMValidator:
             timeout=OPENROUTER_TIMEOUT_SECONDS,
             max_retries=0,
         )
-        self.model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct")
+        self.model = DEFAULT_MODEL
         configured_fallbacks = os.getenv(
             "OPENROUTER_FALLBACK_MODELS",
             "meta-llama/llama-3.3-70b-instruct,google/gemini-2.5-flash",
@@ -53,7 +60,8 @@ class LLMValidator:
         except (TypeError, ValueError):
             return min(0.5 * (2 ** attempt), 2.0)
 
-    def _request_completion(self, prompt):
+    def _request_completion(self, prompt, model=None, temperature=0.1, max_tokens=3000):
+        selected_model = model or self.model
         extra_body = {
             "provider": {
                 "sort": "throughput",
@@ -66,11 +74,11 @@ class LLMValidator:
         for attempt in range(self.rate_limit_retries + 1):
             try:
                 return self.client.chat.completions.create(
-                    model=self.model,
+                    model=selected_model,
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
-                    temperature=0.1,
-                    max_tokens=3000,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
                     extra_body=extra_body,
                 )
             except Exception as error:
@@ -79,6 +87,24 @@ class LLMValidator:
                 delay = self._retry_delay(error, attempt)
                 print(f"OpenRouter rate-limited validation; retrying after {delay:.1f}s")
                 self.sleep(delay)
+
+    def request_assistant(self, prompt, deep=False):
+        """Run recruiter-assistant generation with an explicit task policy."""
+        return self._request_completion(
+            prompt,
+            model=DEEP_REASONING_MODEL if deep else ASSISTANT_MODEL,
+            temperature=0.1,
+            max_tokens=2200,
+        )
+
+    def request_validation(self, prompt):
+        """Run secondary resume/JD validation after deterministic extraction."""
+        return self._request_completion(
+            prompt,
+            model=VALIDATION_MODEL,
+            temperature=0.0,
+            max_tokens=2200,
+        )
 
     @staticmethod
     def _normalize_score(value, default=0):
@@ -168,7 +194,7 @@ class LLMValidator:
         """
         try:
             print("Sending resume validation request through OpenRouter")
-            response = self._request_completion(prompt)
+            response = self.request_validation(prompt)
             content = response.choices[0].message.content
             print("Received resume validation response")
             parsed = self._parse_llm_response(content)
