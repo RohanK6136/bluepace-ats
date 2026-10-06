@@ -341,12 +341,12 @@ export default function AtsWorkspace() {
 
   useEffect(() => {
     if (token) return undefined;
-    // Warm the backend while the shared login screen is open. If the service is
-    // asleep, the sign-in action will await the same in-flight readiness check.
+    // Keep the login screen's ATS connection warm. The first request may wake a
+    // sleeping Render instance; subsequent checks reuse this connection.
     void ensureApiReady().catch(() => {});
     const intervalId = window.setInterval(() => {
       void ensureApiReady().catch(() => {});
-    }, 4 * 60 * 1000);
+    }, 10 * 60 * 1000);
     return () => window.clearInterval(intervalId);
   }, [token]);
 
@@ -455,9 +455,13 @@ export default function AtsWorkspace() {
     setAuthError("");
     setAuthLoading(true);
     try {
-      // Wake the backend in parallel, but never make login wait for a separate
-      // readiness request before credentials are submitted.
-      void ensureApiReady().catch(() => {});
+      // Do the readiness check before credential verification. If the login page
+      // has already warmed the API, this resolves immediately. If Render has
+      // spun down the Free instance, this makes the wake-up happen once instead
+      // of racing the credential request against the cold start.
+      if (authMode === "login") {
+        await ensureApiReady();
+      }
 
       if (authMode === "register") {
         await apiRequest(null, "post", "/auth/register", { data: authForm });
@@ -475,8 +479,9 @@ export default function AtsWorkspace() {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
         });
       } catch (firstError) {
-        // A sleeping Render instance can take a while to wake. Only after the
-        // credential request actually fails do we wait for readiness and retry.
+        // The API preflight normally removes the cold-start race. Keep one retry
+        // for transient gateway failures so a brief Render/network hiccup does
+        // not force the recruiter to submit the form again.
         const transientAuthFailure = !firstError.response
           || [502, 503, 504].includes(firstError.response.status)
           || ["ECONNABORTED", "ETIMEDOUT"].includes(firstError.code)
