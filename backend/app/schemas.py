@@ -289,6 +289,7 @@ class CandidateMatchRead(BaseModel):
     experience_years: float = 0
     required_experience_years: Optional[int] = None
     project_evidence: dict = Field(default_factory=dict)
+    match_evidence: dict = Field(default_factory=dict)
     explanations: list[str]
     semantic_mode: str
     decision_support_only: bool = True
