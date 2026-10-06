@@ -1170,9 +1170,6 @@ export default function AtsWorkspace() {
               </span>
             </a>
             <div className="flex items-center gap-2">
-              <a href="https://www.blupacetech.com/" target="_blank" rel="noreferrer" className="hidden rounded-md px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10 hover:text-white sm:inline-flex">
-                Company site
-              </a>
               <ThemeToggle theme={theme} onToggle={toggleTheme} />
               <button className="border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={() => switchAccessMode("admin")}>
                 Admin / Recruiter Login
@@ -1337,7 +1334,6 @@ export default function AtsWorkspace() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Connect</p>
               <a className="mt-3 block text-sm text-white/75 hover:text-white" href="mailto:hello@blupacetech.com">hello@blupacetech.com</a>
-              <a className="mt-2 block text-sm text-white/75 hover:text-white" href="https://www.blupacetech.com/" target="_blank" rel="noreferrer">blupacetech.com</a>
             </div>
           </div>
           <div className="mx-auto mt-8 max-w-7xl border-t border-white/10 pt-5 text-[11px] text-white/40">© Blupace Tech · Careers &amp; Talent</div>
@@ -1478,7 +1474,6 @@ export default function AtsWorkspace() {
           {view === "dashboard" && <>
             <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-xs font-medium text-ink-500">Recruitment workspace</p>
                 <h2 className="mt-1 text-2xl font-semibold tracking-tight">What needs attention?</h2>
               </div>
               <div className="flex gap-2">
