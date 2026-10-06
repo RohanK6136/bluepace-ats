@@ -198,9 +198,10 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       });
       const rows = Array.isArray(response.data) ? response.data : [];
       setBulkJobs((current) => {
+        const byId = new Map(rows.map((row) => [String(row.job_id), row]));
         const byName = new Map(rows.map((row) => [row.filename, row]));
         return current.map((job) => {
-          const row = byName.get(job.filename);
+          const row = job.id ? (byId.get(String(job.id)) || byName.get(job.filename)) : byName.get(job.filename);
           if (!row) return job;
           return {
             ...job,
