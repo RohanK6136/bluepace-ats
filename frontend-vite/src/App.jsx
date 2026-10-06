@@ -137,7 +137,11 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   useEffect(() => {
     if (!token) return undefined;
     let active = true;
-    postToApi("/jobs", null, { method: "get" }, token)
+    axios.get(`${API_URL}/jobs`, {
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("bluepace_token") || token}` },
+      params: { limit: 100 },
+    })
       .then((response) => {
         if (!active) return;
         const rows = Array.isArray(response.data) ? response.data.filter((job) => job.status === "open") : [];
