@@ -1403,15 +1403,13 @@ export default function AtsWorkspace() {
     { id: "matching", label: "AI Match" },
     { id: "assistant", label: "AI Assistant" },
     { id: "resume", label: "Resume Lab" },
-    { id: "command", label: "Command Center" },
+  ];
+  const primaryNavItems = navItems;
+  const secondaryNavItems = [
     { id: "merge-center", label: "Merge Center" },
     { id: "emails", label: "Email Center" },
     { id: "templates", label: "Email Templates" },
-    { id: "talent", label: "Talent Pools" },
-    { id: "analytics", label: "Analytics" },
   ];
-  const primaryNavItems = navItems.slice(0, 9);
-  const secondaryNavItems = navItems.slice(9);
 
   return (
     <div className="min-h-screen bg-[#f3f4f1] text-ink-900">
