@@ -60,10 +60,7 @@ export default function InterviewManagement2({ token, apiRequest, applications =
   const overdue = dashboard?.scorecards_overdue || 0;
 
   return <section className="space-y-5">
-    <div><p className="text-sm text-ink-500">Scheduling & feedback</p><h2 className="mt-1 text-2xl font-semibold">Interview Management 2.0</h2><p className="mt-1 text-sm text-ink-500">Panels, round types, availability, rescheduling and scorecard tracking.</p></div>
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {[["Upcoming",dashboard?.interviews?.length||0],["Pending feedback",pending],["Overdue feedback",overdue],["Completed scorecards",dashboard?.completed_scorecards||0]].map(([label,value])=><div key={label} className="rounded-xl border border-ink-100 bg-white p-4"><p className="text-xs uppercase tracking-wide text-ink-500">{label}</p><p className="mt-2 text-3xl font-bold">{value}</p></div>)}
-    </div>
+    <div><p className="text-sm text-ink-500">Scheduling & feedback</p><h2 className="mt-1 text-2xl font-semibold">Interviews</h2></div>
     <div className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
       <div className="rounded-xl border border-ink-100 bg-white p-5">
         <h3 className="font-semibold">Schedule panel interview</h3>
@@ -88,7 +85,7 @@ export default function InterviewManagement2({ token, apiRequest, applications =
       </div>
     </div>
     <div className="rounded-xl border border-ink-100 bg-white p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">{selected ? "Interview rounds · "+selected.candidate?.first_name+" "+selected.candidate?.last_name : "Interview rounds"}</h3><p className="text-xs text-ink-500">Reschedule or cancel from the existing interview command center.</p></div><button className={secondary} onClick={loadRounds} disabled={loading}>{loading?"Loading…":"Refresh"}</button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">{selected ? "Interview rounds · "+selected.candidate?.first_name+" "+selected.candidate?.last_name : "Interview rounds"}</h3><p className="text-xs text-ink-500">Review and manage scheduled interview rounds.</p></div><button className={secondary} onClick={loadRounds} disabled={loading}>{loading?"Loading…":"Refresh"}</button></div>
       <div className="mt-4 divide-y divide-ink-50">{rounds.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><p className="font-semibold">Round {r.round_number} · {r.round_name} <span className="ml-2 rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-800">{r.round_type}</span></p><p className="text-sm text-ink-500">{new Date(r.starts_at).toLocaleString()} · {r.status}{r.feedback_deadline?" · feedback by "+new Date(r.feedback_deadline).toLocaleString():""}</p>{r.cancellation_reason&&<p className="text-xs text-red-600">Cancelled: {r.cancellation_reason}</p>}</div>{r.status==="scheduled"&&<div className="flex gap-2"><a className={secondary} href={(import.meta.env.VITE_API_URL||"https://bluepace-ats-11.onrender.com")+"/interviews/"+r.id+"/ics"}>Calendar</a><button className={secondary} onClick={()=>cancel(r.id)}>Cancel</button></div>}</div>)}{!rounds.length&&<p className="py-8 text-center text-sm text-ink-500">No rounds for this application.</p>}</div>
     </div>
   </section>;
