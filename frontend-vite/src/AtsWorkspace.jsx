@@ -1223,7 +1223,6 @@ export default function AtsWorkspace() {
                     )}
                   </div>
                   <p className="mt-4 line-clamp-4 whitespace-pre-line text-sm leading-6 text-ink-600">{job.description}</p>
-              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Work mode: <span className="normal-case tracking-normal text-ink-700">{workModeLabel(job.work_mode)}</span></p>
                   {job.required_skills?.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
                       {job.required_skills.slice(0, 8).map((skill) => (
