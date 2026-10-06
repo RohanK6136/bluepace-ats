@@ -1452,9 +1452,30 @@ export default function AtsWorkspace() {
             <button className={`${buttonSecondary} lg:hidden`} onClick={signOut}>Sign out</button>
           </div>
           <nav className="ats-mobile-nav flex w-full gap-1 overflow-x-auto pb-0.5 lg:hidden" aria-label="Workspace">
-            {primaryNavItems.map((item) => <button key={item.id} onClick={() => { setView(item.id); setMoreOpen(false); }} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
-            <button type="button" onClick={() => setMoreOpen((open) => !open)} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${secondaryNavItems.some((item) => item.id === view) ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>More</button>
+            {primaryNavItems.map((item) => <button key={item.id} type="button" onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
+            <button
+              type="button"
+              onClick={() => setMoreOpen((open) => !open)}
+              aria-expanded={moreOpen}
+              className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${secondaryNavItems.some((item) => item.id === view) ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}
+            >
+              More {moreOpen ? "−" : "+"}
+            </button>
           </nav>
+          {moreOpen && (
+            <div className="ats-mobile-more mt-2 flex gap-1 overflow-x-auto border-t border-ink-100 pt-2 lg:hidden" aria-label="More workspace">
+              {secondaryNavItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }}
+                  className={`whitespace-nowrap rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-medium ${view === item.id ? "border-ink-950 bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
         </header>
 
         <Suspense fallback={<div className="mx-auto max-w-[1440px] rounded-xl border border-ink-100 bg-white p-6 text-sm text-ink-500">Loading workspace module…</div>}>
