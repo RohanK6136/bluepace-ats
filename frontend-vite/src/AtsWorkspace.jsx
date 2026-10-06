@@ -4,7 +4,6 @@ import AtsChatbot from "./AtsChatbot.jsx";
 import PublicHelpCenter from "./PublicHelpCenter.jsx";
 const ResumeLab = lazy(() => import("./App.jsx"));
 const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
-const EmailTemplatesPanel = lazy(() => import("./EmailTemplatesPanel.jsx"));
 const ScorecardPanel = lazy(() => import("./ScorecardPanel.jsx"));
 const ApplicationEnhancements = lazy(() => import("./ApplicationEnhancements.jsx"));
 const RecruiterToolsPanel = lazy(() => import("./RecruiterToolsPanel.jsx"));
@@ -1385,7 +1384,6 @@ export default function AtsWorkspace() {
   const secondaryNavItems = [
     { id: "merge-center", label: "Merge Center" },
     { id: "emails", label: "Email Center" },
-    { id: "templates", label: "Email Templates" },
   ];
 
   return (
