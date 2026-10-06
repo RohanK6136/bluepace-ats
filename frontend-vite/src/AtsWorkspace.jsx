@@ -1762,7 +1762,7 @@ export default function AtsWorkspace() {
                   <div className="mt-2"><b>Required:</b> {(job.jd_analysis.required_skills || []).join(", ") || "None"} · <b>Preferred:</b> {(job.jd_analysis.preferred_skills || []).join(", ") || "None"}</div>
                   {job.jd_analysis.responsibilities?.length > 0 && <div className="mt-2"><b>Responsibilities:</b> {job.jd_analysis.responsibilities.slice(0, 3).join(" · ")}</div>}
                   {job.jd_analysis.interview_topics?.length > 0 && <div className="mt-2"><b>Interview topics:</b> {job.jd_analysis.interview_topics.join(", ")}</div>}
-                </div>}
+                </div></details>}
                 {job.jd_analysis?.source_url && <p className="mt-1 text-[11px] text-ink-400">Imported from job link</p>}</div>
                 <div className="self-start break-words pt-0.5 text-sm text-ink-600">{job.location || "Remote / unspecified"}</div>
                 <span className="self-start whitespace-nowrap pt-0.5 text-xs text-ink-500">{new Date(job.created_at).toLocaleDateString()}</span>
