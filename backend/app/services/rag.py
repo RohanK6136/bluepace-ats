@@ -4,7 +4,7 @@ import traceback
 from sqlalchemy import delete, select
 
 from app.database import SessionLocal
-from app.models import Candidate, Job, RagChunk
+from app.models import Application, Candidate, Job, RagChunk
 from app.services.matching import matching_service
 
 
@@ -140,7 +140,7 @@ class RagService:
     def ensure_application_index(self, application_id: int, organization_id: int) -> dict:
         with SessionLocal() as db:
             application = db.scalar(
-                select(__import__("app.models", fromlist=["Application"]).Application)
+                select(Application)
                 .where(
                     __import__("app.models", fromlist=["Application"]).Application.id == application_id,
                     __import__("app.models", fromlist=["Application"]).Application.organization_id == organization_id,
