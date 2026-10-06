@@ -1274,6 +1274,22 @@ Retrieved evidence:
         f"Interview records: {len(interviews)}; submitted scorecards: {len(scorecards)}",
     ]
 
+    record_audit(
+        db,
+        user,
+        "assistant.requested",
+        "application",
+        application.id,
+        after={
+            "intent": intent,
+            "retrieval_method": "deterministic_keyword_retrieval",
+            "retrieved_evidence_count": len(retrieved_evidence),
+            "llm_generated": bool(generated),
+            "decision_support_only": True,
+        },
+    )
+    db.commit()
+
     return {
         "application_id": application.id,
         "question": question,
