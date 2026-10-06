@@ -75,6 +75,10 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [file, setFile] = useState(null);
   const [jsonData, setJsonData] = useState(null);
   const [jobDescription, setJobDescription] = useState("");
+  const [jdFile, setJdFile] = useState(null);
+  const [jobDescriptionUrl, setJobDescriptionUrl] = useState("");
+  const [jdLoading, setJdLoading] = useState(false);
+  const [jdError, setJdError] = useState("");
   const [validationResult, setValidationResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -99,6 +103,51 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     () => requiredFields.filter((field) => jsonData?.[field] && (!Array.isArray(jsonData[field]) || jsonData[field].length)).length,
     [jsonData],
   );
+
+  async function loadJobDescriptionFromFile() {
+    if (!jdFile) {
+      setJdError("Choose a JD PDF or DOCX file first.");
+      return;
+    }
+    setJdLoading(true);
+    setJdError("");
+    try {
+      const body = new FormData();
+      body.append("file", jdFile);
+      const response = await postToApi("/resume-processing/job-description", body, {}, token);
+      setJobDescription(response.data?.description || "");
+      setJobDescriptionUrl("");
+      if (!response.data?.description) throw new Error("No job description text was extracted.");
+    } catch (error) {
+      setJdError(apiErrorMessage(error, "Could not read the JD file."));
+    } finally {
+      setJdLoading(false);
+    }
+  }
+
+  async function loadJobDescriptionFromUrl() {
+    const value = jobDescriptionUrl.trim();
+    if (!value) {
+      setJdError("Enter a public job description URL first.");
+      return;
+    }
+    setJdLoading(true);
+    setJdError("");
+    try {
+      const body = new FormData();
+      body.append("job_url", value);
+      const response = await postToApi("/resume-processing/job-description", body, {}, token);
+      setJobDescription(response.data?.description || "");
+      if (response.data?.title) {
+        setJdError("");
+      }
+      if (!response.data?.description) throw new Error("No job description text was extracted from the link.");
+    } catch (error) {
+      setJdError(apiErrorMessage(error, "Could not import the job description from that link."));
+    } finally {
+      setJdLoading(false);
+    }
+  }
 
   function handleFileChange(event) {
     const selected = event.target.files?.[0] || null;
@@ -307,11 +356,24 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                 <textarea
                   rows={5}
                   value={jobDescription}
-                  onChange={(event) => setJobDescription(event.target.value)}
-                  placeholder="Paste the specific job description. Each resume will be scored against this role."
+                  onChange={(event) => { setJobDescription(event.target.value); setJdError(""); }}
+                  placeholder="Paste the specific job description. Or import it from a file or public link below."
                   className="w-full resize-y rounded-md border border-ink-100 bg-[#fafaf8] p-3 text-sm leading-6 outline-none focus:border-gold-500"
                 />
               </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
+                  <p className="text-xs font-semibold text-ink-700">Upload JD</p>
+                  <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={(event) => { setJdFile(event.target.files?.[0] || null); setJdError(""); }} />
+                  <button type="button" onClick={loadJobDescriptionFromFile} disabled={!jdFile || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use uploaded JD"}</button>
+                </div>
+                <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
+                  <p className="text-xs font-semibold text-ink-700">Upload link</p>
+                  <input value={jobDescriptionUrl} onChange={(event) => { setJobDescriptionUrl(event.target.value); setJdError(""); }} placeholder="https://..." className="mt-2 w-full rounded-md border border-ink-100 bg-white px-3 py-2 text-xs outline-none focus:border-gold-500" />
+                  <button type="button" onClick={loadJobDescriptionFromUrl} disabled={!jobDescriptionUrl.trim() || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use JD link"}</button>
+                </div>
+              </div>
+              {jdError && <p role="alert" className="text-xs text-rose-700">{jdError}</p>}
               <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
               <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
                 Resumes
@@ -393,12 +455,25 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               <textarea
                 rows={6}
                 value={jobDescription}
-                onChange={(event) => setJobDescription(event.target.value)}
+                onChange={(event) => { setJobDescription(event.target.value); setJdError(""); }}
                 placeholder="Paste the specific job description to calculate fit, strengths, skill gaps and evidence."
                 className="w-full resize-y border border-ink-100 bg-[#fafaf8] p-3 text-sm leading-6 outline-none focus:border-gold-500"
               />
               <span className="text-[11px] font-normal text-ink-400">The candidate summary is decision-support only and is based on resume-to-JD evidence.</span>
             </label>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="border border-ink-100 bg-[#fafaf8] p-3">
+                <p className="text-xs font-semibold text-ink-700">Upload JD</p>
+                <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={(event) => { setJdFile(event.target.files?.[0] || null); setJdError(""); }} />
+                <button type="button" onClick={loadJobDescriptionFromFile} disabled={!jdFile || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use uploaded JD"}</button>
+              </div>
+              <div className="border border-ink-100 bg-[#fafaf8] p-3">
+                <p className="text-xs font-semibold text-ink-700">Upload link</p>
+                <input value={jobDescriptionUrl} onChange={(event) => { setJobDescriptionUrl(event.target.value); setJdError(""); }} placeholder="https://..." className="mt-2 w-full border border-ink-100 bg-white px-3 py-2 text-xs outline-none focus:border-gold-500" />
+                <button type="button" onClick={loadJobDescriptionFromUrl} disabled={!jobDescriptionUrl.trim() || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use JD link"}</button>
+              </div>
+            </div>
+            {jdError && <p role="alert" className="mt-3 text-xs text-rose-700">{jdError}</p>}
             <label className="mt-5 grid cursor-pointer gap-2 border border-dashed border-ink-200 bg-[#fafaf8] p-6 text-center hover:border-gold-400">
               <input className="sr-only" type="file" accept=".pdf,.docx" onChange={handleFileChange} />
               <span className="text-sm font-semibold">{file ? file.name : "Choose PDF or DOCX"}</span>
