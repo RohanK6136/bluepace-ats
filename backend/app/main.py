@@ -195,7 +195,7 @@ async def lifespan(_app: FastAPI):
         worker_process = multiprocessing.Process(
             target=_run_inline_celery_worker,
             name="resume-celery-worker",
-            daemon=True,
+            daemon=False,
         )
         worker_process.start()
     try:
