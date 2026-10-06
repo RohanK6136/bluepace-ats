@@ -238,6 +238,7 @@ export default function AtsWorkspace() {
   const [authForm, setAuthForm] = useState({ organization_name: "", full_name: "", email: "", password: "" });
   const [authError, setAuthError] = useState("");
   const [view, setView] = useState("dashboard");
+  const [moreOpen, setMoreOpen] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [applications, setApplications] = useState([]);
@@ -1370,7 +1371,6 @@ export default function AtsWorkspace() {
   ];
   const primaryNavItems = navItems.slice(0, 9);
   const secondaryNavItems = navItems.slice(9);
-  const [moreOpen, setMoreOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-[#f3f4f1] text-ink-900">
