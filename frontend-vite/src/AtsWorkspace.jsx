@@ -1353,21 +1353,24 @@ export default function AtsWorkspace() {
 
   const navItems = [
     { id: "dashboard", label: "Dashboard" },
-    { id: "command", label: "Command Center" },
     { id: "pipeline", label: "Applications", count: applications.length },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
-    { id: "merge-center", label: "Merge Center" },
-    { id: "interviews-2", label: "Interview Management" },
-    { id: "offers", label: "Offer Management" },
+    { id: "interviews-2", label: "Interviews" },
+    { id: "offers", label: "Offers" },
     { id: "matching", label: "AI Match" },
-    { id: "assistant", label: "AI Recruiter Assistant" },
+    { id: "assistant", label: "AI Assistant" },
+    { id: "resume", label: "Resume Lab" },
+    { id: "command", label: "Command Center" },
+    { id: "merge-center", label: "Merge Center" },
     { id: "emails", label: "Email Center" },
     { id: "templates", label: "Email Templates" },
     { id: "talent", label: "Talent Pools" },
     { id: "analytics", label: "Analytics" },
-    { id: "resume", label: "Resume Lab" },
   ];
+  const primaryNavItems = navItems.slice(0, 9);
+  const secondaryNavItems = navItems.slice(9);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-[#f3f4f1] text-ink-900">
@@ -1379,13 +1382,25 @@ export default function AtsWorkspace() {
             <p className="text-[11px] text-ink-400">Recruiting workspace</p>
           </div>
         </div>
-        <nav className="grid gap-1 px-3 py-5" aria-label="Workspace">
-          {navItems.map((item) => (
-            <button key={item.id} onClick={() => { setView(item.id); setError(""); }} className={`flex items-center justify-between rounded-md px-3 py-2.5 text-left text-sm transition ${view === item.id ? "bg-white/10 text-gold-300" : "text-ink-100 hover:bg-white/5 hover:text-white"}`}>
+        <nav className="grid gap-0.5 px-3 py-4" aria-label="Workspace">
+          <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-400">Workspace</p>
+          {primaryNavItems.map((item) => (
+            <button key={item.id} onClick={() => { setView(item.id); setError(""); setMoreOpen(false); }} className={`flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${view === item.id ? "bg-white/10 text-white" : "text-ink-100 hover:bg-white/5 hover:text-white"}`}>
               <span>{item.label}</span>
               {item.count !== undefined && <span className="text-xs text-ink-400">{item.count}</span>}
             </button>
           ))}
+          <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} className="mt-2 flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm text-ink-100 hover:bg-white/5 hover:text-white">
+            <span>More</span><span aria-hidden="true">{moreOpen ? "−" : "+"}</span>
+          </button>
+          {moreOpen && <div className="mt-0.5 grid gap-0.5 border-l border-white/10 pl-2">
+            {secondaryNavItems.map((item) => (
+              <button key={item.id} onClick={() => { setView(item.id); setError(""); }} className={`flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${view === item.id ? "bg-white/10 text-white" : "text-ink-300 hover:bg-white/5 hover:text-white"}`}>
+                <span>{item.label}</span>
+                {item.count !== undefined && <span className="text-xs text-ink-400">{item.count}</span>}
+              </button>
+            ))}
+          </div>}
         </nav>
         <div className="sticky bottom-0 mt-auto border-t border-white/10 bg-ink-950 px-5 py-4">
           <p className="truncate text-sm font-medium">{user?.full_name}</p>
@@ -1408,7 +1423,8 @@ export default function AtsWorkspace() {
             <button className={`${buttonSecondary} lg:hidden`} onClick={signOut}>Sign out</button>
           </div>
           <nav className="ats-mobile-nav flex w-full gap-1 overflow-x-auto pb-0.5 lg:hidden" aria-label="Workspace">
-            {navItems.map((item) => <button key={item.id} onClick={() => setView(item.id)} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
+            {primaryNavItems.map((item) => <button key={item.id} onClick={() => { setView(item.id); setMoreOpen(false); }} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
+            <button type="button" onClick={() => setMoreOpen((open) => !open)} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${secondaryNavItems.some((item) => item.id === view) ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>More</button>
           </nav>
         </header>
 
