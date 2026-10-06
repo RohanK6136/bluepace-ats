@@ -2208,6 +2208,7 @@ export default function AtsWorkspace() {
                         <p className="mt-2 text-xs leading-5 text-ink-600">{fitAnalysis.note}</p>
                       </div>
                     </div>
+                    </>
                   )}
                 </div>
                 <ScorecardPanel
