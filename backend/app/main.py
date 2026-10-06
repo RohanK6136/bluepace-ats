@@ -3931,6 +3931,117 @@ def list_audit_logs(
         for entry in entries
     ]
 
+
+@app.post("/resume-processing/queue", response_class=JSONResponse, status_code=status.HTTP_202_ACCEPTED)
+async def queue_resume_processing(
+    file: UploadFile = File(...),
+    batch_id: str | None = Form(default=None),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    started = perf_counter()
+    suffix, content = await _read_resume_upload(file)
+    resolved_batch_id = (batch_id or uuid4().hex).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", resolved_batch_id):
+        raise HTTPException(status_code=400, detail="Invalid batch_id.")
+
+    storage_dir = Path(os.getenv("RESUME_QUEUE_STORAGE_DIR", os.getenv("RESUME_STORAGE_DIR", "./private_uploads")))
+    storage_key = Path(str(user.organization_id)) / "resume_queue" / resolved_batch_id / f"{uuid4().hex}{suffix}"
+    storage_path = storage_dir / storage_key
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage_path.write_bytes(content)
+
+    job = ResumeProcessingJob(
+        batch_id=resolved_batch_id,
+        organization_id=user.organization_id,
+        created_by_id=user.id,
+        filename=file.filename or f"resume{suffix}",
+        storage_path=str(storage_path),
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+        status="queued",
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    try:
+        from app.services.queue_tasks import process_resume_ingest_job
+        task = process_resume_ingest_job.delay(job.id)
+        job.task_id = task.id
+        db.commit()
+    except Exception as error:
+        job.status = "failed"
+        job.error_message = f"Queue submission failed: {error}"[:4000]
+        db.commit()
+        storage_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=503, detail="Resume was stored but could not be queued. Retry the upload.") from error
+
+    return {
+        "job_id": job.id,
+        "batch_id": resolved_batch_id,
+        "filename": job.filename,
+        "status": "queued",
+        "size_bytes": job.size_bytes,
+        "accepted_handler_ms": round((perf_counter() - started) * 1000, 2),
+        "message": "Resume accepted. Extraction is running asynchronously.",
+    }
+
+
+@app.get("/resume-processing/jobs", response_class=JSONResponse)
+def list_resume_processing_jobs(
+    batch_id: str | None = None,
+    limit: int = Query(default=100, ge=1, le=1000),
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    statement = select(ResumeProcessingJob).where(
+        ResumeProcessingJob.organization_id == user.organization_id,
+    )
+    if batch_id:
+        statement = statement.where(ResumeProcessingJob.batch_id == batch_id)
+    jobs = db.scalars(
+        statement.order_by(ResumeProcessingJob.id.desc()).limit(limit)
+    ).all()
+    return [
+        {
+            "job_id": job.id,
+            "batch_id": job.batch_id,
+            "filename": job.filename,
+            "status": job.status,
+            "size_bytes": job.size_bytes,
+            "task_id": job.task_id,
+            "result": job.result_data,
+            "error_message": job.error_message,
+            "created_at": job.created_at,
+            "started_at": job.started_at,
+            "completed_at": job.completed_at,
+        }
+        for job in jobs
+    ]
+
+
+@app.get("/resume-processing/jobs/{job_id}", response_class=JSONResponse)
+def get_resume_processing_job(
+    job_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = _get_org_record(db, ResumeProcessingJob, job_id, user.organization_id)
+    return {
+        "job_id": job.id,
+        "batch_id": job.batch_id,
+        "filename": job.filename,
+        "status": job.status,
+        "size_bytes": job.size_bytes,
+        "task_id": job.task_id,
+        "result": job.result_data,
+        "error_message": job.error_message,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+    }
+
 @app.post("/extract/", response_class=JSONResponse)
 async def extract_document(file: UploadFile = File(...)):
     try:
