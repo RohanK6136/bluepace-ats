@@ -4130,6 +4130,10 @@ def build_resume_job_summary(resume: dict, job_description: str) -> dict:
         f"{pct}%. Key evidence is based on resume skills, experience, education, and project content."
     )
     breakdown = score.get("score_breakdown", {})
+    coding_catalog = {"python", "java", "javascript", "typescript", "c++", "c#", "sql", "react", "node.js", "django", "fastapi", "rest api"}
+    required_coding = [skill for skill in analysis.get("required_skills", []) if str(skill).casefold() in coding_catalog]
+    matched_coding = [skill for skill in required_coding if skill in required]
+    coding_score = round(len(matched_coding) / len(required_coding) * 100) if required_coding else breakdown.get("skills", 0)
     return {
         "match_score": pct,
         "fit": fit,
@@ -4143,7 +4147,7 @@ def build_resume_job_summary(resume: dict, job_description: str) -> dict:
         "mandatory_skills_missed": gaps,
         "missing_skills": gaps,
         "mandatory_skills_match_score": breakdown.get("skills", 0),
-        "coding_skills_score": breakdown.get("skills", 0),
+        "coding_skills_score": coding_score,
         "behavioral_skills_score": breakdown.get("experience", 0),
         "experience_score": breakdown.get("experience", 0),
         "experience_years": experience_years,
