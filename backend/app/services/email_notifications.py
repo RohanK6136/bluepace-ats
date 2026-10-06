@@ -4,6 +4,7 @@ import os
 import smtplib
 import urllib.error
 import urllib.request
+import traceback
 from datetime import datetime, timezone
 from email.message import EmailMessage
 
@@ -122,4 +123,10 @@ def deliver_outbox_email(email_id: int):
         except (OSError, smtplib.SMTPException, urllib.error.URLError, ValueError, RuntimeError, json.JSONDecodeError) as error:
             email_record.status = "failed"
             email_record.error_message = str(error)[:2000]
+            print(
+                f"EMAIL_DELIVERY_FAILED id={email_record.id} recipient={email_record.recipient} "
+                f"provider={provider or 'smtp'} error={error}",
+                flush=True,
+            )
+            traceback.print_exc()
         db.commit()
