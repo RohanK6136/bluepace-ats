@@ -3964,6 +3964,7 @@ async def queue_resume_processing(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     batch_id: str | None = Form(default=None),
+    job_description: str | None = Form(default=None),
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -3989,6 +3990,8 @@ async def queue_resume_processing(
         size_bytes=len(content),
         status="queued",
     )
+    if job_description and job_description.strip():
+        job.result_data = {"_job_description": job_description.strip()[:50000]}
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -4077,12 +4080,86 @@ def get_resume_processing_job(
         "completed_at": job.completed_at,
     }
 
+def build_resume_job_summary(resume: dict, job_description: str) -> dict:
+    from types import SimpleNamespace
+
+    analysis = matching_service.parse_job_description("Resume Lab Validation", job_description)
+    job = SimpleNamespace(
+        title="Resume Lab Validation",
+        description=job_description,
+        department=None,
+        location=analysis.get("location"),
+        employment_type=None,
+        work_mode=analysis.get("work_mode") or "onsite",
+        status="open",
+        required_skills=analysis.get("required_skills", []),
+        minimum_experience_years=analysis.get("minimum_experience_years"),
+        fresher_allowed=bool(analysis.get("fresher_allowed")),
+        jd_analysis=analysis,
+        embedding=None,
+    )
+    name = str(resume.get("name") or "Applicant Candidate").strip().split()
+    candidate = SimpleNamespace(
+        first_name=name[0] if name else "Applicant",
+        last_name=" ".join(name[1:]) if len(name) > 1 else "Candidate",
+        email=resume.get("email") or "",
+        phone=resume.get("phone"),
+        resume_data=resume,
+        embedding=None,
+        cv_summary=[],
+    )
+    score = matching_service.score_candidate(job, candidate)
+    required = score.get("matched_required_skills", [])
+    preferred = score.get("matched_preferred_skills", [])
+    gaps = score.get("skill_gaps", [])
+    pct = int(score.get("model_score", 0))
+    fit = "Strong Fit" if pct >= 75 else "Potential Fit" if pct >= 50 else "Low Fit"
+    experience_years = score.get("experience_years", resume.get("years_of_experience", 0))
+    education = resume.get("highest_education") or resume.get("education") or []
+    strengths = []
+    if required:
+        strengths.append("Required skills: " + ", ".join(required[:10]))
+    if preferred:
+        strengths.append("Preferred skills: " + ", ".join(preferred[:10]))
+    if score.get("project_evidence", {}).get("coverage"):
+        strengths.append(f"Project evidence coverage: {score['project_evidence']['coverage']}%")
+    if not strengths:
+        strengths.append("No strong skill evidence was identified.")
+    summary = (
+        f"{resume.get('name') or 'Candidate'} is a {fit.lower()} for this role with an overall match of "
+        f"{pct}%. Key evidence is based on resume skills, experience, education, and project content."
+    )
+    return {
+        "match_score": pct,
+        "fit": fit,
+        "summary": summary,
+        "strengths": strengths,
+        "gaps": gaps,
+        "required_skills_met": required,
+        "preferred_skills_met": preferred,
+        "experience_years": experience_years,
+        "required_experience_years": score.get("required_experience_years"),
+        "education": education,
+        "project_evidence": score.get("project_evidence", {}),
+        "match_evidence": score.get("match_evidence", {}),
+        "explanations": score.get("explanations", []),
+        "decision_support_only": True,
+        "semantic_mode": score.get("semantic_mode"),
+    }
+
+
 @app.post("/extract/", response_class=JSONResponse)
-async def extract_document(file: UploadFile = File(...)):
+async def extract_document(
+    file: UploadFile = File(...),
+    job_description: str | None = Form(default=None),
+):
     try:
         suffix, content = await _read_resume_upload(file)
         structured_data = extractor_service.extract_to_json(content, f"resume{suffix}")
-        return {"filename": file.filename, "status": "success", "data": structured_data}
+        payload = {"filename": file.filename, "status": "success", "data": structured_data}
+        if job_description and job_description.strip():
+            payload["validation"] = build_resume_job_summary(structured_data, job_description.strip())
+        return payload
     except HTTPException:
         raise
     except DocumentExtractionError as e:
