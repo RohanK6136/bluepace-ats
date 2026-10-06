@@ -2200,35 +2200,60 @@ export default function AtsWorkspace() {
 
 
           {view === "assistant" && <section className="grid gap-5">
-            <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gold-700">AI recruiter copilot</p>
-              <h2 className="mt-1 text-xl font-semibold">Evidence-first assistant</h2>
-              <p className="mt-1 text-sm text-ink-500">Ask about a candidate, JD requirements, interviews, or communications. Answers are grounded in the stored JD, parsed resume, and submitted scorecards. The assistant does not move candidates or make hiring decisions.</p>
+            <div className="border-b border-ink-200 pb-5">
+              <p className="text-xs font-medium text-ink-500">Decision support</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight">AI Assistant</h2>
+              <p className="mt-1 max-w-3xl text-sm text-ink-500">Ask about one application. Answers use the job, parsed resume, match evidence, and submitted interview scorecards.</p>
               <div className="mt-5 grid gap-3">
-                <SelectField label="Candidate application" value={assistantApplicationId} onChange={(event) => { setAssistantApplicationId(event.target.value); setAssistantResult(null); }}>
+                <SelectField label="Application" value={assistantApplicationId} onChange={(event) => { setAssistantApplicationId(event.target.value); setAssistantResult(null); }}>
                   <option value="">Choose an application</option>
                   {applications.map((item) => <option key={item.id} value={item.id}>{item.candidate_name || "Candidate"} — {item.job_title || "Role"}</option>)}
                 </SelectField>
                 <div className="flex flex-wrap gap-2">
-                  {["Summarize this candidate against the JD.","Show missing required skills.","Create interview questions based on this resume and role.","Summarize all interview feedback.","Draft a screening email.","Explain why the resume does not satisfy this requirement."].map((item) => <button key={item} type="button" onClick={() => setAssistantQuestion(item)} className="rounded-full border border-ink-100 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-50">{item}</button>)}
+                  {["Summarize against the JD.","Show missing required skills.","Create interview questions."].map((item) => <button key={item} type="button" onClick={() => setAssistantQuestion(item)} className="rounded-full border border-ink-100 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-50">{item}</button>)}
                 </div>
-                <textarea className={inputStyle + " min-h-24"} value={assistantQuestion} onChange={(event) => setAssistantQuestion(event.target.value)} />
+                <textarea className={inputStyle + " min-h-24"} value={assistantQuestion} onChange={(event) => setAssistantQuestion(event.target.value)} placeholder="Ask a question about this application…" />
                 <button type="button" disabled={!assistantApplicationId || assistantLoading} onClick={askRecruiterAssistant} className={buttonPrimary}>{assistantLoading ? "Analyzing evidence…" : "Ask assistant"}</button>
               </div>
             </div>
             {assistantResult && <div className="grid gap-4">
-              <div className="rounded-2xl border border-blue-100 bg-white p-5">
-                <p className="text-xs font-semibold uppercase text-blue-700">{assistantResult.intent?.replaceAll("_", " ")}</p>
-                <h3 className="mt-1 font-semibold">Assistant response</h3>
-                <p className="mt-3 text-sm leading-6 text-ink-700">{assistantResult.summary}</p><p className="mt-2 text-xs text-ink-500">Evidence coverage {assistantResult.data_coverage ?? 0}% · Grounding confidence {assistantResult.confidence || "medium"}</p>
+              <div className="border-b border-ink-200 pb-5">
+                <p className="text-xs font-medium uppercase tracking-wide text-ink-500">{assistantResult.intent?.replaceAll("_", " ")}</p>
+                <h3 className="mt-1 text-lg font-semibold">Response</h3>
+                <p className="mt-3 text-sm leading-6 text-ink-700">{assistantResult.summary}</p>
+                <p className="mt-2 text-xs text-ink-500">Evidence coverage {assistantResult.data_coverage ?? 0}% · Confidence {assistantResult.confidence || "medium"}</p>
               </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Required skills: evidence</h4><div className="mt-3 flex flex-wrap gap-2">{(assistantResult.matched_required_skills || []).map((skill) => <span key={skill} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{skill} · evidenced</span>)}{(assistantResult.missing_required_skills || []).map((skill) => <span key={skill} className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-800">{skill} · not evidenced</span>)}</div></div>
-                <div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Requirement explanation</h4><p className="mt-2 text-sm leading-6 text-ink-600">{assistantResult.requirement_explanation}</p></div>
-              </div>
-              <div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Interview questions</h4><ol className="mt-3 grid gap-2 text-sm text-ink-700">{(assistantResult.interview_questions || []).map((item, index) => <li key={index} className="rounded-lg bg-ink-50 p-3">{index + 1}. {item}</li>)}</ol></div>
-              <div className="grid gap-4 lg:grid-cols-2"><div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Interview feedback</h4><p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink-600">{assistantResult.interview_feedback_summary}</p></div><div className="rounded-xl border border-ink-100 bg-white p-4"><h4 className="font-semibold">Screening email draft</h4><pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-6 text-ink-600">{assistantResult.screening_email}</pre></div></div>
-              <details className="rounded-xl border border-ink-100 bg-white p-4"><summary className="cursor-pointer font-semibold text-ink-700">View evidence & guardrails</summary><div className="mt-3 flex flex-wrap gap-2">{(assistantResult.sources || []).map((source) => <span key={source.id} className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1.5 text-xs font-semibold text-ink-700">{source.id} · {source.label}</span>)}</div>{assistantResult.retrieved_evidence?.length > 0 && <div className="mt-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Retrieved evidence</p><div className="mt-2 grid gap-2">{assistantResult.retrieved_evidence.slice(0, 8).map((item, index) => <div key={`${item.source_id}-${item.field}-${index}`} className="rounded-lg border border-ink-100 bg-ink-50 p-3"><p className="text-xs font-semibold text-ink-700">{item.source_id} · {item.field}</p><p className="mt-1 text-xs leading-5 text-ink-600">{item.text}</p></div>)}</div></div>}<div className="mt-3 grid gap-1 text-xs text-ink-600">{(assistantResult.guardrails || []).map((item, index) => <p key={index}>• {item}</p>)}</div></details>
+              <details className="border-y border-ink-100 py-3">
+                <summary className="cursor-pointer text-sm font-semibold text-ink-800">View recruiting details</summary>
+                <div className="mt-4 grid gap-5">
+                  <div>
+                    <p className="text-sm font-semibold">Required skills</p>
+                    <div className="mt-2 flex flex-wrap gap-2">{(assistantResult.matched_required_skills || []).map((skill) => <span key={skill} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{skill} · evidenced</span>)}{(assistantResult.missing_required_skills || []).map((skill) => <span key={skill} className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-800">{skill} · not evidenced</span>)}</div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Requirement explanation</p>
+                    <p className="mt-2 text-sm leading-6 text-ink-600">{assistantResult.requirement_explanation}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Interview questions</p>
+                    <ol className="mt-2 grid gap-2 text-sm text-ink-700">{(assistantResult.interview_questions || []).map((item, index) => <li key={index} className="border-b border-ink-100 py-2">{index + 1}. {item}</li>)}</ol>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Interview feedback</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-600">{assistantResult.interview_feedback_summary}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Screening email draft</p>
+                    <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6 text-ink-600">{assistantResult.screening_email}</pre>
+                  </div>
+                </div>
+              </details>
+              <details className="border-y border-ink-100 py-3">
+                <summary className="cursor-pointer text-sm font-semibold text-ink-800">View evidence & guardrails</summary>
+                <div className="mt-4 flex flex-wrap gap-2">{(assistantResult.sources || []).map((source) => <span key={source.id} className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1.5 text-xs font-semibold text-ink-700">{source.id} · {source.label}</span>)}</div>
+                {assistantResult.retrieved_evidence?.length > 0 && <div className="mt-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Retrieved evidence</p><div className="mt-2 grid gap-2">{assistantResult.retrieved_evidence.slice(0, 8).map((item, index) => <div key={`${item.source_id}-${item.field}-${index}`} className="rounded-lg border border-ink-100 bg-ink-50 p-3"><p className="text-xs font-semibold text-ink-700">{item.source_id} · {item.field}</p><p className="mt-1 text-xs leading-5 text-ink-600">{item.text}</p></div>)}</div></div>}
+                <div className="mt-4 grid gap-1 text-xs text-ink-600">{(assistantResult.guardrails || []).map((item, index) => <p key={index}>• {item}</p>)}</div>
+              </details>
             </div>}
           </section>}
 
