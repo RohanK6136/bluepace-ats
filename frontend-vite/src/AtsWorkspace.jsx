@@ -2321,11 +2321,13 @@ export default function AtsWorkspace() {
         </form>
       </div>}
 
-      <AtsChatbot
-        token={token}
-        apiRequest={apiRequest}
-        onError={(requestError) => setError(errorText(requestError))}
-      />
+      {token && (
+        <AtsChatbot
+          token={token}
+          apiRequest={apiRequest}
+          onError={(requestError) => setError(errorText(requestError))}
+        />
+      )}
 
       {applicationFormOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setApplicationFormOpen(false); setApplicationResumeFile(null); } }}>
         <form onSubmit={createApplication} className="w-full max-w-lg bg-white p-5 shadow-xl">
