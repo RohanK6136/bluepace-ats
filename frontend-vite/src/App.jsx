@@ -128,7 +128,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       if (!response.data?.data || typeof response.data.data !== "object") throw new Error("The ATS API returned an invalid extraction response.");
       setJsonData(response.data.data);
       if (response.data?.validation) setValidationResult(response.data.validation);
-      setUploadTiming({}
+      setUploadTiming({
         totalMs: Math.round(performance.now() - started),
         serverMs: Number(response.headers["x-process-time-ms"] || 0),
       });
