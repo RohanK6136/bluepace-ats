@@ -274,13 +274,25 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   }
 
   async function refreshBulkJobs(batchId = bulkBatchId) {
-    if (!token || !batchId) return;
+    if (!batchId) return;
+    let requestToken = sessionStorage.getItem("bluepace_token") || token || "";
     try {
-      const response = await axios.get(`${API_URL}/resume-processing/jobs`, {
-        timeout: REQUEST_TIMEOUT_MS,
-        params: { batch_id: batchId, limit: 1000, include_result: true },
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      let response;
+      try {
+        response = await axios.get(`${API_URL}/resume-processing/jobs`, {
+          timeout: REQUEST_TIMEOUT_MS,
+          params: { batch_id: batchId, limit: 1000, include_result: true },
+          headers: requestToken ? { Authorization: `Bearer ${requestToken}` } : {},
+        });
+      } catch (error) {
+        if (error.response?.status !== 401 || !requestToken) throw error;
+        requestToken = await refreshResumeLabToken(requestToken);
+        response = await axios.get(`${API_URL}/resume-processing/jobs`, {
+          timeout: REQUEST_TIMEOUT_MS,
+          params: { batch_id: batchId, limit: 1000, include_result: true },
+          headers: { Authorization: `Bearer ${requestToken}` },
+        });
+      }
       const rows = Array.isArray(response.data) ? response.data : [];
       setBulkJobs((current) => {
         const byId = new Map(rows.map((row) => [String(row.job_id), row]));
