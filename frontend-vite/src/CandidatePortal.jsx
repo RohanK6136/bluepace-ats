@@ -173,7 +173,6 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
           <div className="mt-7 grid gap-4 sm:grid-cols-3">
             <div className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4"><p className="text-xs uppercase text-ink-500">Status</p><p className="mt-1 font-semibold capitalize">{data.status}</p></div>
             <div className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4"><p className="text-xs uppercase text-ink-500">Applied</p><p className="mt-1 font-semibold">{new Date(data.applied_at).toLocaleDateString()}</p></div>
-            <div className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4"><p className="text-xs uppercase text-ink-500">Reference</p><p className="mt-1 font-semibold">BP-{String(data.application_id).padStart(6, "0")}</p></div>
           </div>
 
           <div className="mt-7 border-t border-ink-100 pt-6">
