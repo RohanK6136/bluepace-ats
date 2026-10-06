@@ -1411,7 +1411,7 @@ export default function AtsWorkspace() {
         </div>
         <nav className="grid gap-0.5 px-3 py-4" aria-label="Workspace">
           <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-400">Workspace</p>
-          {primaryNavItems.map((item) => (
+          {navItems.map((item) => (
             <button key={item.id} onClick={() => { setView(item.id); setError(""); setMoreOpen(false); }} className={`flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${view === item.id ? "bg-white/10 text-white" : "text-ink-100 hover:bg-white/5 hover:text-white"}`}>
               <span>{item.label}</span>
               {item.count !== undefined && <span className="text-xs text-ink-400">{item.count}</span>}
@@ -1450,7 +1450,7 @@ export default function AtsWorkspace() {
             <button className={`${buttonSecondary} lg:hidden`} onClick={signOut}>Sign out</button>
           </div>
           <nav className="ats-mobile-nav flex w-full gap-1 overflow-x-auto pb-0.5 lg:hidden" aria-label="Workspace">
-            {primaryNavItems.map((item) => <button key={item.id} type="button" onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
+            {navItems.map((item) => <button key={item.id} type="button" onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
             <button
               type="button"
               onClick={() => setMoreOpen((open) => !open)}
