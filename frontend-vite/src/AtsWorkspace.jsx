@@ -1146,10 +1146,7 @@ export default function AtsWorkspace() {
               </span>
             </a>
             <div className="flex items-center gap-2">
-              <a href="https://www.blupacetech.com/" target="_blank" rel="noreferrer" className="hidden rounded-md px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10 hover:text-white sm:inline-flex">
-                Company site
-              </a>
-              <ThemeToggle theme={theme} onToggle={toggleTheme} />
+<ThemeToggle theme={theme} onToggle={toggleTheme} />
               <button className="border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={() => switchAccessMode("admin")}>
                 Admin / Recruiter Login
               </button>
@@ -1158,23 +1155,22 @@ export default function AtsWorkspace() {
         </header>
 
         <section className="bp-public-hero relative overflow-hidden border-b border-ink-100">
-          <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 sm:py-16 lg:grid-cols-[1.35fr_0.65fr] lg:items-end lg:py-20">
+          <div className="mx-auto max-w-7xl px-5 py-14 sm:py-16 lg:py-20">
             <div className="max-w-3xl">
               <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">
                 <span className="h-1.5 w-1.5 rounded-full bg-orange-500"></span>
                 Careers at Blupace Tech
               </p>
               <h1 className="mt-5 text-4xl font-semibold tracking-[-0.035em] text-ink-950 sm:text-5xl lg:text-6xl">
-                Enterprise talent, built to move at your pace.
+                Technology careers at Blupace Tech.
               </h1>
               <p className="mt-5 max-w-2xl text-base leading-7 text-ink-600 sm:text-lg">
-                Explore technology opportunities across software, AI, data, cloud, cybersecurity, infrastructure and workplace services.
+                Explore open roles across software, AI, data, cloud, cybersecurity, infrastructure and workplace services.
               </p>
-              <div className="mt-8 flex flex-wrap items-center gap-3">
+              <div className="mt-8">
                 <a href="#jobs" className={buttonPrimary + " no-underline"}>Explore open roles</a>
-</div>
+              </div>
             </div>
-</div>
           </div>
         </section>
 
