@@ -122,6 +122,8 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkError, setBulkError] = useState("");
   const [expandedBulkJobId, setExpandedBulkJobId] = useState(null);
+  const [resumeLabJobs, setResumeLabJobs] = useState([]);
+  const [resumeLabJobId, setResumeLabJobId] = useState("");
 
   const quality = jsonData?.resume_quality || {};
   const evidence = jsonData?.extraction_evidence || [];
@@ -131,6 +133,20 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     () => requiredFields.filter((field) => jsonData?.[field] && (!Array.isArray(jsonData[field]) || jsonData[field].length)).length,
     [jsonData],
   );
+
+  useEffect(() => {
+    if (!token) return undefined;
+    let active = true;
+    postToApi("/jobs", null, { method: "get" }, token)
+      .then((response) => {
+        if (!active) return;
+        const rows = Array.isArray(response.data) ? response.data.filter((job) => job.status === "open") : [];
+        setResumeLabJobs(rows);
+        setResumeLabJobId((current) => current || String(rows[0]?.id || ""));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [token]);
 
   async function loadJobDescriptionFromFile() {
     if (!jdFile) {
@@ -247,6 +263,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
         body.append("file", file);
         body.append("batch_id", batchId);
         if (jobDescription.trim()) body.append("job_description", jobDescription.trim());
+        if (resumeLabJobId) body.append("job_id", String(resumeLabJobId));
         try {
           const response = await postToApi("/resume-processing/queue", body, {}, token);
           setBulkJobs((current) => current.map((job, jobIndex) => (
@@ -393,6 +410,10 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             <div className="mt-5 grid gap-3">
               <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
                 Job description for matching
+                <select value={resumeLabJobId} onChange={(event) => setResumeLabJobId(event.target.value)} className="w-full rounded-md border border-ink-100 bg-white p-3 text-sm outline-none focus:border-gold-500">
+                  <option value="">No ATS job — Resume Lab only</option>
+                  {resumeLabJobs.map((job) => <option key={job.id} value={job.id}>Sync to: {job.title}</option>)}
+                </select>
                 <textarea
                   rows={5}
                   value={jobDescription}
