@@ -118,6 +118,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
 
   async function handleExtract() {
     if (!file) { setUploadError("Choose a PDF or DOCX resume first."); return; }
+    if (!jobDescription.trim()) { setUploadError("Paste the job description first so the candidate fit can be calculated."); return; }
     setLoading(true); setJsonData(null); setValidationResult(null); setUploadError(""); setUploadTiming(null);
     const started = performance.now();
     const body = new FormData();
@@ -141,6 +142,10 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   async function queueBulkResumes() {
     if (!token) {
       setBulkError("Sign in to the recruiter workspace before using high-volume resume intake.");
+      return;
+    }
+    if (!jobDescription.trim()) {
+      setBulkError("Paste the job description before queueing resumes so every candidate can be evaluated for fit.");
       return;
     }
     const validFiles = bulkFiles.filter((item) => /\.(pdf|docx)$/i.test(item.name) && item.size <= 10 * 1024 * 1024);
@@ -319,7 +324,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                 />
                 <span className="text-[11px] font-normal text-ink-400">Select hundreds or thousands. Each file must be PDF/DOCX and ≤10MB.</span>
               </label>
-              <button type="button" onClick={queueBulkResumes} disabled={bulkUploading || !bulkFiles.length} className="inline-flex items-center justify-center rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#10131c] disabled:opacity-50">
+              <button type="button" onClick={queueBulkResumes} disabled={bulkUploading || !bulkFiles.length || !jobDescription.trim()} className="inline-flex items-center justify-center rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#10131c] disabled:opacity-50">
                 {bulkUploading ? "Uploading…" : `Queue ${bulkFiles.length || 0} resumes`}
               </button>
               </div>
@@ -352,6 +357,16 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                         </div>
                       </div>
                       {job.error && <p className="mt-1 text-rose-700">{job.error}</p>}
+                      {job.result?.job_fit && (
+                        <div className="mt-2 rounded border border-ink-100 bg-[#fafaf8] p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-semibold">{job.result.job_fit.fit}</span>
+                            <span className="text-sm font-semibold">{job.result.job_fit.match_score}% match</span>
+                          </div>
+                          <p className="mt-1 text-xs leading-5 text-ink-600">{job.result.job_fit.summary}</p>
+                          {job.result.job_fit.gaps?.length > 0 && <p className="mt-1 text-[11px] text-rose-700">Gaps: {job.result.job_fit.gaps.slice(0, 5).join(", ")}</p>}
+                        </div>
+                      )}
                       {expandedBulkJobId === job.id && job.result && (
                         <pre className="mt-2 max-h-72 overflow-auto rounded border border-ink-100 bg-[#fafaf8] p-3 text-[11px] leading-5 text-ink-700">{JSON.stringify(job.result, null, 2)}</pre>
                       )}
@@ -373,6 +388,17 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               </div>
               {uploadTiming && <span className="text-right text-[11px] text-ink-500">Server {uploadTiming.serverMs.toFixed(0)} ms<br />Round trip {uploadTiming.totalMs} ms</span>}
             </div>
+            <label className="mt-5 grid gap-1.5 text-xs font-semibold text-ink-700">
+              Job description for candidate fit
+              <textarea
+                rows={6}
+                value={jobDescription}
+                onChange={(event) => setJobDescription(event.target.value)}
+                placeholder="Paste the specific job description to calculate fit, strengths, skill gaps and evidence."
+                className="w-full resize-y border border-ink-100 bg-[#fafaf8] p-3 text-sm leading-6 outline-none focus:border-gold-500"
+              />
+              <span className="text-[11px] font-normal text-ink-400">The candidate summary is decision-support only and is based on resume-to-JD evidence.</span>
+            </label>
             <label className="mt-5 grid cursor-pointer gap-2 border border-dashed border-ink-200 bg-[#fafaf8] p-6 text-center hover:border-gold-400">
               <input className="sr-only" type="file" accept=".pdf,.docx" onChange={handleFileChange} />
               <span className="text-sm font-semibold">{file ? file.name : "Choose PDF or DOCX"}</span>
