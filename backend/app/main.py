@@ -1729,6 +1729,11 @@ def application_fit_analysis(
 
     pct = int(score.get("model_score", 0))
     fit = "Strong Fit" if pct >= 75 else "Potential Fit" if pct >= 50 else "Low Fit"
+    final_recommendation = (
+        "Recommend for next stage" if pct >= 75
+        else "Consider for next stage — review highlighted skill gaps" if pct >= 50
+        else "Do not recommend for next stage based on current resume evidence"
+    )
     alignment = (
         "Strong role alignment" if pct >= 75
         else "Partial role alignment" if pct >= 50
@@ -1766,7 +1771,8 @@ def application_fit_analysis(
         "job_title": job.title,
         "match_score": pct,
         "fit": fit,
-        "recommendation": fit,
+        "recommendation": final_recommendation,
+        "final_recommendation": final_recommendation,
         "summary": summary,
         "strengths": strengths,
         "gaps": gaps,
