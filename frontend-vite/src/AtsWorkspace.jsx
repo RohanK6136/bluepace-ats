@@ -2143,7 +2143,40 @@ export default function AtsWorkspace() {
                     </div>
                   </div>
                   {fitAnalysis && (
-                    <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                    <>
+                      <div className="mt-5 rounded-xl border border-ink-100 bg-white p-4 shadow-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Candidate fit summary</p>
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <h5 className="text-lg font-semibold text-ink-900">{fitAnalysis.fit || fitAnalysis.alignment}</h5>
+                              {fitAnalysis.decision_support_only && <span className="rounded-full bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600">Decision support</span>}
+                            </div>
+                            <p className="mt-2 max-w-4xl text-sm leading-6 text-ink-600">{fitAnalysis.summary || "Role-fit evidence generated from the candidate resume and selected job description."}</p>
+                          </div>
+                          <div className="shrink-0 rounded-xl border border-blue-100 bg-blue-50 px-5 py-3 text-center">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Match score</p>
+                            <p className="mt-1 text-3xl font-bold text-ink-900">{fitAnalysis.match_score}%</p>
+                          </div>
+                        </div>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                          <div className="rounded-lg bg-[#fafaf8] p-3"><p className="text-[11px] uppercase tracking-wide text-ink-500">Required skills</p><p className="mt-1 text-sm font-semibold text-ink-900">{fitAnalysis.mandatory_skills_match_score ?? fitAnalysis.match_score}%</p></div>
+                          <div className="rounded-lg bg-[#fafaf8] p-3"><p className="text-[11px] uppercase tracking-wide text-ink-500">Coding skills</p><p className="mt-1 text-sm font-semibold text-ink-900">{fitAnalysis.coding_skills_score ?? "—"}%</p></div>
+                          <div className="rounded-lg bg-[#fafaf8] p-3"><p className="text-[11px] uppercase tracking-wide text-ink-500">Experience</p><p className="mt-1 text-sm font-semibold text-ink-900">{fitAnalysis.experience_years ?? fitAnalysis.experience_years_estimate ?? "—"} years</p></div>
+                          <div className="rounded-lg bg-[#fafaf8] p-3"><p className="text-[11px] uppercase tracking-wide text-ink-500">Experience fit</p><p className="mt-1 text-sm font-semibold text-ink-900">{fitAnalysis.experience_score ?? "—"}%</p></div>
+                        </div>
+                        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Strengths</p>
+                            <div className="mt-2 grid gap-2">{(fitAnalysis.strengths || []).map((item, index) => <div key={index} className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 text-xs leading-5 text-emerald-900">{item}</div>)}{!(fitAnalysis.strengths || []).length && <p className="text-sm text-ink-500">No strong strengths were identified.</p>}</div>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Gaps / missing requirements</p>
+                            <div className="mt-2 flex flex-wrap gap-2">{(fitAnalysis.missing_skills || fitAnalysis.skill_gaps || []).map((item) => <span key={item} className="rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-800">{item}</span>)}{!(fitAnalysis.missing_skills || fitAnalysis.skill_gaps || []).length && <p className="text-sm text-emerald-700">No skill gaps identified.</p>}</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-5 grid gap-4 lg:grid-cols-3">
                       <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 lg:col-span-1">
                         <p className="text-xs font-semibold uppercase text-blue-700">Screening evidence</p>
                         <p className="mt-2 text-2xl font-bold text-ink-900">{fitAnalysis.match_score}%</p>
