@@ -11,26 +11,54 @@ const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
+let resumeLabRefreshInFlight = null;
+
+async function refreshResumeLabToken(currentToken) {
+  if (!currentToken) throw new Error("No access token available.");
+  if (!resumeLabRefreshInFlight) {
+    resumeLabRefreshInFlight = axios.post(
+      `${API_URL}/auth/refresh`,
+      null,
+      { timeout: 15_000, headers: { Authorization: `Bearer ${currentToken}` } },
+    )
+      .then((response) => {
+        const refreshedToken = response.data?.access_token;
+        if (!refreshedToken) throw new Error("The ATS API did not return a refreshed access token.");
+        sessionStorage.setItem("bluepace_token", refreshedToken);
+        return refreshedToken;
+      })
+      .finally(() => { resumeLabRefreshInFlight = null; });
+  }
+  return resumeLabRefreshInFlight;
+}
+
 async function postToApi(path, data, config = {}, authToken = "") {
+  let requestToken = sessionStorage.getItem("bluepace_token") || authToken || "";
+  let refreshed = false;
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await axios.post(`${API_URL}${path}`, data, {
         timeout: REQUEST_TIMEOUT_MS,
         ...config,
         headers: {
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}),
           ...(config.headers || {}),
         },
       });
     } catch (error) {
+      if (error.response?.status === 401 && requestToken && !refreshed && !path.startsWith("/auth/")) {
+        requestToken = await refreshResumeLabToken(requestToken);
+        refreshed = true;
+        continue;
+      }
       const status = error.response?.status;
       const retryable = !error.response || [502, 503, 504].includes(status);
       if (!retryable || attempt >= RETRY_DELAYS_MS.length) throw error;
       await wait(RETRY_DELAYS_MS[attempt]);
+      requestToken = sessionStorage.getItem("bluepace_token") || requestToken;
     }
   }
 }
-
 function apiErrorMessage(error, fallback) {
   const detail = error.response?.data?.detail;
   if (typeof detail === "string") return detail;
