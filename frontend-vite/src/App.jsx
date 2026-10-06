@@ -124,6 +124,9 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [expandedBulkJobId, setExpandedBulkJobId] = useState(null);
   const [resumeLabJobs, setResumeLabJobs] = useState([]);
   const [resumeLabJobId, setResumeLabJobId] = useState("");
+  const [resumeLabSyncStatus, setResumeLabSyncStatus] = useState("");
+  const [resumeLabJobs, setResumeLabJobs] = useState([]);
+  const [resumeLabJobId, setResumeLabJobId] = useState("");
 
   const quality = jsonData?.resume_quality || {};
   const evidence = jsonData?.extraction_evidence || [];
@@ -226,6 +229,23 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       if (!response.data?.data || typeof response.data.data !== "object") throw new Error("The ATS API returned an invalid extraction response.");
       setJsonData(response.data.data);
       if (response.data?.validation) setValidationResult(response.data.validation);
+      setResumeLabSyncStatus("");
+      if (token) {
+        try {
+          const syncResponse = await postToApi("/resume-processing/sync", {
+            resume_json: response.data.data,
+            job_id: resumeLabJobId ? Number(resumeLabJobId) : null,
+            job_fit: response.data.validation || null,
+          }, {}, token);
+          setResumeLabSyncStatus(
+            syncResponse.data?.application_id
+              ? "Validated and synced to Candidates, Applications, matching, and the Applied email template."
+              : "Validated and synced to the ATS Candidate record.",
+          );
+        } catch (syncError) {
+          setResumeLabSyncStatus("Validation succeeded, but ATS sync needs attention: " + apiErrorMessage(syncError, "sync failed"));
+        }
+      }
       setUploadTiming({
         totalMs: Math.round(performance.now() - started),
         serverMs: Number(response.headers["x-process-time-ms"] || 0),
@@ -517,6 +537,13 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               {uploadTiming && <span className="text-right text-[11px] text-ink-500">Server {uploadTiming.serverMs.toFixed(0)} ms<br />Round trip {uploadTiming.totalMs} ms</span>}
             </div>
             <label className="mt-5 grid gap-1.5 text-xs font-semibold text-ink-700">
+              Target ATS job (optional)
+              <select value={resumeLabJobId} onChange={(event) => setResumeLabJobId(event.target.value)} className="w-full border border-ink-100 bg-white p-3 text-sm outline-none focus:border-gold-500">
+                <option value="">Resume Lab only</option>
+                {resumeLabJobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
+              </select>
+            </label>
+            <label className="mt-5 grid gap-1.5 text-xs font-semibold text-ink-700">
               Job description for candidate fit
               <textarea
                 rows={6}
@@ -604,6 +631,8 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             {validationError && <p role="alert" className="mt-3 text-sm text-rose-700">{validationError}</p>}
           </section>
         )}
+
+        {resumeLabSyncStatus && <div role="status" className="mt-6 border-l-2 border-emerald-600 bg-white px-4 py-3 text-sm text-ink-700">{resumeLabSyncStatus}</div>}
 
         {validationResult && (
           <section className="mt-6 border border-ink-100 bg-white p-5 sm:p-6">
