@@ -65,6 +65,48 @@ def process_resume_ingest_job(self, job_id: int):
             # into the jobs table.
             result_data = {key: value for key, value in extracted.items() if key != "raw_text"}
             job.result_data = result_data
+
+            # Public applications create the candidate/application immediately.
+            # Once extraction finishes, enrich that existing record and recompute
+            # the deterministic job match without blocking the applicant request.
+            if job.candidate_id:
+                from app.models import Candidate, Application, CandidateJobMatch, Job
+                from app.services.matching import matching_service
+
+                candidate = db.get(Candidate, job.candidate_id)
+                if candidate is not None:
+                    candidate.resume_data = result_data
+                    if not candidate.phone and extracted.get("phone"):
+                        candidate.phone = str(extracted["phone"])[:50]
+                    if not candidate.linkedin_url and extracted.get("linkedin"):
+                        candidate.linkedin_url = str(extracted["linkedin"])[:500]
+
+                    if job.application_id:
+                        application = db.get(Application, job.application_id)
+                    else:
+                        application = None
+                    if application is not None:
+                        linked_job = db.get(Job, application.job_id)
+                        if linked_job is not None:
+                            score = matching_service.score_candidate(linked_job, candidate)
+                            existing_match = db.query(CandidateJobMatch).filter(
+                                CandidateJobMatch.job_id == linked_job.id,
+                                CandidateJobMatch.candidate_id == candidate.id,
+                            ).first()
+                            if existing_match is None:
+                                existing_match = CandidateJobMatch(
+                                    organization_id=job.organization_id,
+                                    job_id=linked_job.id,
+                                    candidate_id=candidate.id,
+                                )
+                                db.add(existing_match)
+                            existing_match.model_score = score["model_score"]
+                            existing_match.score_breakdown = score["score_breakdown"]
+                            existing_match.matched_skills = score["matched_skills"]
+                            existing_match.skill_gaps = score["skill_gaps"]
+                            existing_match.explanations = score["explanations"]
+                            existing_match.semantic_mode = score["semantic_mode"]
+
             job.status = "completed"
             job.completed_at = datetime.now(timezone.utc)
             db.commit()
