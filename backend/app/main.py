@@ -881,13 +881,13 @@ def public_jobs(
 @app.post("/public/jobs/{job_id}/apply")
 async def public_apply(
     job_id: int,
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     full_name: str | None = Form(default=None),
     email: str | None = Form(default=None),
     phone: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
+    started = perf_counter()
     organization = _public_organization(db)
     job = db.scalar(
         select(Job).where(
@@ -899,25 +899,15 @@ async def public_apply(
     if job is None:
         raise HTTPException(status_code=404, detail="Open job not found")
 
+    if not (email or "").strip():
+        raise HTTPException(status_code=422, detail="Email is required to submit an application")
+
     suffix, content = await _read_resume_upload(file)
-    try:
-        parsed = await asyncio.to_thread(
-        extractor_service.extract_to_json,
-        content,
-        f"resume{suffix}",
-    )
-    except DocumentExtractionError as error:
-        raise HTTPException(status_code=422, detail=str(error))
-
-    candidate_name = full_name or parsed.get("name")
+    candidate_email = (email or "").strip().lower()
+    candidate_name = (full_name or "").strip() or Path(file.filename or "").stem
     first_name, last_name = _split_candidate_name(candidate_name)
-    candidate_email = (email or parsed.get("email") or "").strip().lower()
-    if not candidate_email:
-        raise HTTPException(status_code=422, detail="Email is required either in the form or the resume")
-    candidate_phone = (phone or parsed.get("phone") or "").strip() or None
+    candidate_phone = (phone or "").strip() or None
 
-    # This application path is deliberately local-only for speed: no LLM parsing,
-    # no embeddings, and no AI summary generation are placed on the request path.
     admin_id = _public_admin_id(db, organization.id)
     candidate = db.scalar(
         select(Candidate).where(
@@ -934,6 +924,10 @@ async def public_apply(
             email=candidate_email,
             phone=candidate_phone,
             source="Public Career Portal",
+            resume_data={
+                "processing_status": "queued",
+                "resume_filename": file.filename,
+            },
         )
         db.add(candidate)
         db.flush()
@@ -942,10 +936,6 @@ async def public_apply(
         candidate.last_name = last_name
         candidate.phone = candidate_phone or candidate.phone
         candidate.source = candidate.source or "Public Career Portal"
-
-    candidate.resume_data = {
-        key: value for key, value in parsed.items() if key != "raw_text"
-    }
 
     existing_application = db.scalar(
         select(Application.id).where(
@@ -958,7 +948,7 @@ async def public_apply(
         raise HTTPException(status_code=409, detail="You have already applied for this position")
 
     storage_key = f"{organization.id}/public/{candidate.id}/{os.urandom(16).hex()}{suffix}"
-    storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
+    storage_dir = Path(os.getenv("RESUME_QUEUE_STORAGE_DIR", os.getenv("RESUME_STORAGE_DIR", "./private_uploads")))
     storage_path = storage_dir / storage_key
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     storage_path.write_bytes(content)
@@ -975,31 +965,44 @@ async def public_apply(
     db.add(application)
     db.flush()
 
-    if not job.jd_analysis:
-        job.jd_analysis = matching_service.analyze_job(job)
-    score = matching_service.score_candidate(job, candidate)
-    match = CandidateJobMatch(
-        organization_id=organization.id,
-        job_id=job.id,
-        candidate_id=candidate.id,
-        model_score=score["model_score"],
-        score_breakdown=score["score_breakdown"],
-        matched_skills=score["matched_skills"],
-        skill_gaps=score["skill_gaps"],
-        explanations=score["explanations"],
-        semantic_mode=score["semantic_mode"],
-    )
-    db.add(match)
     subject, body = _stage_email(application, "Applied", db=db)
     email_id = queue_application_email(db, application, subject, body)
+
+    batch_id = uuid4().hex
+    processing_job = ResumeProcessingJob(
+        batch_id=batch_id,
+        organization_id=organization.id,
+        created_by_id=admin_id,
+        candidate_id=candidate.id,
+        application_id=application.id,
+        filename=file.filename or f"resume{suffix}",
+        storage_path=str(storage_path),
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+        status="queued",
+    )
+    db.add(processing_job)
     db.commit()
-    if background_tasks is not None:
-        background_tasks.add_task(deliver_outbox_email, email_id)
+    db.refresh(processing_job)
+
+    try:
+        from app.services.queue_tasks import process_resume_ingest_job
+        task = process_resume_ingest_job.delay(processing_job.id)
+        processing_job.task_id = task.id
+        db.commit()
+    except Exception as error:
+        processing_job.status = "failed"
+        processing_job.error_message = f"Queue submission failed: {error}"[:4000]
+        db.commit()
+        storage_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=503, detail="Your application could not be placed in the processing queue. Please retry.") from error
 
     return {
-        "status": "success",
+        "status": "accepted",
         "application_id": application.id,
-        "message": f"Application submitted for {job.title}.",
+        "processing_job_id": processing_job.id,
+        "message": f"Application submitted for {job.title}. Your resume is being processed in the background.",
+        "accepted_handler_ms": round((perf_counter() - started) * 1000, 2),
     }
 
 
