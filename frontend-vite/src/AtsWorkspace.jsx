@@ -1825,7 +1825,19 @@ export default function AtsWorkspace() {
                       <td className="min-w-32 px-3 py-4"><p className="text-lg font-semibold tabular-nums">{match.effective_score}<span className="text-xs font-normal text-ink-500"> / 100</span></p>{match.recruiter_override !== null && <p className="text-[11px] text-gold-600">Model: {match.model_score}</p>}<div className="mt-1 h-1.5 w-24 bg-ink-100"><div className="h-full bg-gold-500" style={{ width: `${match.effective_score}%` }} /></div><p className="mt-2 text-[10px] text-ink-500">{Object.entries(MATCH_WEIGHTS).map(([key, weight]) => `${key.replaceAll("_", " ")} ${match.score_breakdown[key] ?? 0}·${weight}%`).join(" · ")}</p><p className="mt-1 text-[10px] text-ink-400">Decision-support signal; recruiter review remains required.</p></td>
                       <td className="max-w-48 px-3 py-4 text-xs text-emerald-800">{match.matched_skills.join(", ") || "No direct skill matches"}</td>
                       <td className="max-w-48 px-3 py-4 text-xs text-rose-800">{match.skill_gaps.join(", ") || "No required skill gaps"}</td>
-                      <td className="max-w-64 px-3 py-4"><ul className="grid gap-1 text-xs text-ink-600">{match.explanations.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul></td>
+                      <td className="max-w-64 px-3 py-4">
+                        <ul className="grid gap-1 text-xs text-ink-600">{match.explanations.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul>
+                        {match.match_evidence?.required_skills?.length > 0 && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-[11px] font-semibold text-blue-700">View evidence</summary>
+                            <div className="mt-2 grid gap-1.5 text-[11px] text-ink-500">
+                              {match.match_evidence.required_skills.slice(0, 6).map((item) => (
+                                <div key={item.skill}><span className="font-semibold text-ink-700">{item.skill}</span> · evidenced{item.sources?.[0]?.source_lines?.length ? ` · ${item.sources[0].source_lines[0]}` : ""}</div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </td>
                       <td className="min-w-64 px-3 py-4"><ul className="grid gap-1 text-xs text-ink-600">{match.cv_summary.map((item, itemIndex) => <li key={itemIndex}>• {item}</li>)}</ul></td>
                       <td className="min-w-56 px-3 py-4"><div className="grid gap-2"><label className="grid gap-1 text-[11px] font-medium text-ink-500">Override score<input className={`${inputStyle} py-1.5`} type="number" min="0" max="100" value={overrideValue} placeholder={String(match.model_score)} disabled={!canWrite} onChange={(event) => changeMatchFeedback(match.id, "recruiter_override", event.target.value)} /></label><label className="grid gap-1 text-[11px] font-medium text-ink-500">Review note<input className={`${inputStyle} py-1.5`} value={noteValue} placeholder="Optional rationale" disabled={!canWrite} onChange={(event) => changeMatchFeedback(match.id, "recruiter_note", event.target.value)} /></label>{canWrite && <button className={buttonSecondary} onClick={() => saveMatchFeedback(match)}>Save review</button>}</div></td>
                     </tr>;
