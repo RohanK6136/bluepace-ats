@@ -278,6 +278,8 @@ export default function AtsWorkspace() {
   const [collabTagColor, setCollabTagColor] = useState("#1769d3");
   const [emails, setEmails] = useState([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
+  const [semanticQuery, setSemanticQuery] = useState("");
+  const [semanticResults, setSemanticResults] = useState([]);
   const [candidateFilters, setCandidateFilters] = useState({
     search: "", skill: "", source: "", location: "", tags: "", stage_name: "",
     min_experience_years: "", max_experience_years: "", notice_period: "", education: "",
@@ -1059,6 +1061,21 @@ export default function AtsWorkspace() {
     setSelectedApplications((current) => current.includes(id)
       ? current.filter((selectedId) => selectedId !== id)
       : [...current, id]);
+  }
+
+  async function semanticSearch(event) {
+    event?.preventDefault();
+    if (!token || !semanticQuery.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const response = await apiRequest(token, "get", "/candidates/semantic-search", { params: { q: semanticQuery.trim(), limit: 10 } });
+      setSemanticResults(response.data || []);
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function searchCandidates(event) {
@@ -1879,6 +1896,23 @@ export default function AtsWorkspace() {
               </div>
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">Add candidate</button><button className={buttonSecondary} type="button" onClick={() => setCandidateFormOpen(false)}>Cancel</button></div>
             </form>}
+            <form onSubmit={semanticSearch} className="mb-4 border-b border-ink-100 pb-4">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[260px] flex-1">
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Semantic search
+                    <input className={inputStyle} placeholder="e.g. Python backend engineer with FastAPI and AWS" value={semanticQuery} onChange={(event) => setSemanticQuery(event.target.value)} />
+                  </label>
+                </div>
+                <button className={buttonSecondary} type="submit">Find similar profiles</button>
+                {semanticResults.length > 0 && <button className={buttonSecondary} type="button" onClick={() => setSemanticResults([])}>Clear</button>}
+              </div>
+              {semanticResults.length > 0 && <div className="mt-3 grid gap-1.5">
+                {semanticResults.map((result) => <div key={result.candidate_id} className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-50 py-2 text-xs">
+                  <div><button type="button" className="font-semibold text-ink-900 hover:underline" onClick={() => setSelectedCandidate(result.candidate_id)}>{result.name}</button><span className="ml-2 text-ink-500">{result.location || "Location not evidenced"}</span></div>
+                  <span className="text-ink-500">{result.similarity}% similarity · {result.retrieval_mode === "embedding" ? "semantic" : "text fallback"}</span>
+                </div>)}
+              </div>}
+            </form>
             <form onSubmit={searchCandidates} className="mb-5 border-b border-ink-100 pb-5">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div><p className="text-xs font-medium text-ink-500">Candidate directory</p><h2 className="mt-1 text-2xl font-semibold tracking-tight">Candidates</h2><p className="mt-1 text-sm text-ink-500">Search structured resume evidence and open a profile when you need more detail.</p></div>
