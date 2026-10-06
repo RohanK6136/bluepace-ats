@@ -588,6 +588,55 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
     }
 
 
+@app.post("/resume-processing/job-description", response_class=JSONResponse)
+async def resume_lab_job_description(
+    file: UploadFile | None = File(default=None),
+    job_url: str | None = Form(default=None),
+):
+    """Load a job description from PDF/DOCX or a public job URL."""
+    cleaned_url = (job_url or "").strip()
+    if file is None and not cleaned_url:
+        raise HTTPException(status_code=400, detail="Provide a JD PDF/DOCX file or a public job URL.")
+
+    if file is not None and cleaned_url:
+        raise HTTPException(status_code=400, detail="Provide either a JD file or a public job URL, not both.")
+
+    if file is not None:
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix not in {".pdf", ".docx"}:
+            raise HTTPException(status_code=400, detail="JD upload must be a PDF or DOCX file.")
+        content = await file.read(10 * 1024 * 1024 + 1)
+        if len(content) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="JD file must be 10MB or smaller.")
+        if not content:
+            raise HTTPException(status_code=400, detail="The uploaded JD file is empty.")
+        try:
+            extracted = extractor_service.extract_to_json(content, f"job-description{suffix}")
+        except DocumentExtractionError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        description = str(extracted.get("raw_text") or "").strip()
+        if len(description) < 40:
+            raise HTTPException(status_code=422, detail="Could not extract a usable job description from that file.")
+        return {
+            "status": "success",
+            "source": "file",
+            "filename": file.filename,
+            "title": "",
+            "description": description,
+        }
+
+    final_url, title, payload = _fetch_job_page(cleaned_url)
+    return {
+        "status": "success",
+        "source": "url",
+        "source_url": final_url,
+        "title": title,
+        "description": payload["description"],
+        "location": payload.get("location"),
+        "employment_type": payload.get("employment_type"),
+    }
+
+
 allowed_origins = get_allowed_origins()
 
 app.add_middleware(
