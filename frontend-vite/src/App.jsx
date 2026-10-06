@@ -426,6 +426,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                             <span className="text-sm font-semibold">{job.result.job_fit.match_score}% match</span>
                           </div>
                           <p className="mt-1 text-xs leading-5 text-ink-600">{job.result.job_fit.summary}</p>
+                          <p className="mt-2 text-xs font-semibold text-ink-900">Recommendation: {job.result.job_fit.final_recommendation || job.result.job_fit.recommendation || "Manual review"}</p>
                           {job.result.job_fit.gaps?.length > 0 && <p className="mt-1 text-[11px] text-rose-700">Gaps: {job.result.job_fit.gaps.slice(0, 5).join(", ")}</p>}
                         </div>
                       )}
@@ -543,7 +544,12 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
           <section className="mt-6 border border-ink-100 bg-white p-5 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-ink-100 pb-5">
               <div><p className="text-xs font-semibold text-ink-500">Validation result</p><h3 className="mt-1 text-xl font-semibold">{validationResult.summary}</h3></div>
-              <div className="text-right"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">Match signal</p><p className="mt-1 text-3xl font-semibold">{Number(validationResult.match_score || 0)}%</p><p className="text-xs text-ink-500">{validationResult.recommendation || "Manual review"}</p></div>
+              <div className="text-right"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">Match signal</p><p className="mt-1 text-3xl font-semibold">{Number(validationResult.match_score || 0)}%</p><p className="text-xs text-ink-500">{validationResult.fit || "Manual review"}</p></div>
+            </div>
+            <div className="mb-1 rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-blue-700">Final recommendation</p>
+              <p className="mt-1 text-sm font-semibold text-ink-900">{validationResult.final_recommendation || validationResult.recommendation || "Manual review required"}</p>
+              <p className="mt-1 text-xs leading-5 text-ink-600">Evidence-based decision support from the current resume and job description. Final hiring decisions remain with the recruiting team.</p>
             </div>
             <div className="grid gap-4 py-5 sm:grid-cols-3">
               {[["Required skills", validationResult.mandatory_skills_match_score], ["Coding skills", validationResult.coding_skills_score], ["Experience", validationResult.behavioral_skills_score]].map(([label, value]) => <div key={label} className="flex items-center justify-between border-b border-ink-50 py-2 text-sm"><span>{label}</span><strong>{Number(value || 0)}%</strong></div>)}
