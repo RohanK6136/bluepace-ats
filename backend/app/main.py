@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from time import perf_counter
 from datetime import date, datetime, time, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status, Request
 from fastapi.responses import JSONResponse, Response
@@ -57,6 +58,7 @@ from app.models import (
     AuthSession,
     Stage,
     User,
+    ResumeProcessingJob,
 )
 from app.schemas import (
     ApplicationCreate,
@@ -119,6 +121,23 @@ from app.services.workflow import (
 )
 
 
+def _run_inline_celery_worker():
+    """Run a Celery worker inside this Render service for queued processing."""
+    from app.database import engine
+
+    engine.dispose()
+    concurrency = max(1, min(int(os.getenv("RESUME_WORKER_CONCURRENCY", "4")), 16))
+    celery_app.worker_main(
+        [
+            "worker",
+            "--loglevel=WARNING",
+            "--pool=prefork",
+            f"--concurrency={concurrency}",
+            "--hostname=resume-worker@%h",
+        ]
+    )
+
+
 async def interview_reminder_loop():
     while True:
         try:
@@ -167,6 +186,18 @@ async def lifespan(_app: FastAPI):
     initialize_database()
     ensure_bootstrap_account()
     reminder_task = None if APP_ENV == "test" else asyncio.create_task(interview_reminder_loop())
+    worker_process = None
+    if (
+        APP_ENV not in {"development", "test"}
+        and os.getenv("ENABLE_INLINE_CELERY_WORKER", "false").strip().lower() == "true"
+    ):
+        import multiprocessing
+        worker_process = multiprocessing.Process(
+            target=_run_inline_celery_worker,
+            name="resume-celery-worker",
+            daemon=True,
+        )
+        worker_process.start()
     try:
         yield
     finally:
@@ -176,6 +207,9 @@ async def lifespan(_app: FastAPI):
                 await reminder_task
             except asyncio.CancelledError:
                 pass
+        if worker_process is not None and worker_process.is_alive():
+            worker_process.terminate()
+            worker_process.join(timeout=10)
 
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
