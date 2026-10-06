@@ -126,10 +126,13 @@ _resume_dispatcher_in_flight: set[int] = set()
 
 
 async def _run_resume_job_background(job_id: int) -> None:
+    print(f"[resume-dispatcher] starting job_id={job_id}", flush=True)
     try:
         from app.services.queue_tasks import process_resume_ingest_job
-        await asyncio.to_thread(process_resume_ingest_job.run, job_id)
-    except Exception:
+        result = await asyncio.to_thread(process_resume_ingest_job.run, job_id)
+        print(f"[resume-dispatcher] finished job_id={job_id} result={result}", flush=True)
+    except Exception as error:
+        print(f"[resume-dispatcher] failed job_id={job_id}: {error}", flush=True)
         traceback.print_exc()
     finally:
         _resume_dispatcher_in_flight.discard(job_id)
@@ -153,6 +156,7 @@ async def resume_queue_dispatcher_loop() -> None:
                     if job_id in _resume_dispatcher_in_flight:
                         continue
                     _resume_dispatcher_in_flight.add(job_id)
+                    print(f"[resume-dispatcher] claimed job_id={job_id}", flush=True)
                     asyncio.create_task(_run_resume_job_background(job_id))
         except asyncio.CancelledError:
             raise
