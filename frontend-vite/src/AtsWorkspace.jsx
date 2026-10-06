@@ -1174,16 +1174,6 @@ export default function AtsWorkspace() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-5 pb-4 pt-10">
-          <div className="bp-career-intro rounded-2xl border border-blue-100 bg-blue-50/60 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6">
-            <div>
-              <p className="text-sm font-semibold text-ink-900">A candidate experience designed around clarity.</p>
-              <p className="mt-1 text-sm leading-6 text-ink-600">Apply without creating an account, keep your email current, and use your secure candidate portal for updates.</p>
-            </div>
-            <span className="mt-3 inline-flex w-fit rounded-full border border-blue-100 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700 sm:mt-0">Secure application flow</span>
-          </div>
-        </section>
-
         <section id="jobs" className="mx-auto max-w-7xl px-5 py-8">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-xl font-semibold">Open Positions</h2>
