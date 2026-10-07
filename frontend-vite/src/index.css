@@ -1363,3 +1363,337 @@ html.dark .bp-metric-card small {
 html.dark .bp-dashboard-secondary > div {
   border-color: #26364a;
 }
+
+
+/* Faithful visual treatment for the linked Wix Recruitment Agency (Contemporary)
+   composition: dark editorial hero, asymmetric split, restrained navigation and
+   a strong job-board CTA while keeping BluePace's ATS identity and functionality. */
+.bp-template-hero {
+  background: #17191d !important;
+  color: #fff;
+  min-height: 620px;
+}
+
+.bp-template-hero-inner {
+  min-height: 620px;
+}
+
+.bp-template-hero-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+}
+
+.bp-template-hero-copy h1 {
+  max-width: 680px;
+  margin-top: 18px;
+  font-size: clamp(3.1rem, 6.2vw, 5.9rem) !important;
+  line-height: .94 !important;
+  letter-spacing: -.06em !important;
+  font-weight: 780 !important;
+  color: #fff !important;
+}
+
+.bp-template-kicker {
+  color: #a9b9ff !important;
+  font-size: 10px !important;
+  line-height: 1.4 !important;
+  font-weight: 800 !important;
+  letter-spacing: .19em !important;
+  text-transform: uppercase;
+}
+
+.bp-template-lede {
+  max-width: 600px !important;
+  margin-top: 22px !important;
+  color: rgba(255,255,255,.68) !important;
+  font-size: 17px !important;
+  line-height: 1.65 !important;
+}
+
+.bp-template-hero-copy .bg-[#c49a4a] {
+  background: #5d72ff !important;
+}
+
+.bp-template-hero-copy .border-ink-100 {
+  border-color: rgba(255,255,255,.18) !important;
+  background: rgba(255,255,255,.06) !important;
+  color: #fff !important;
+}
+
+.bp-template-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 155px auto;
+  align-items: center;
+  max-width: 760px;
+  min-height: 58px;
+  padding: 5px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 13px;
+  background: rgba(255,255,255,.08);
+  box-shadow: 0 20px 50px rgba(0,0,0,.20);
+}
+
+.bp-template-search input,
+.bp-template-search select {
+  min-width: 0;
+  height: 48px;
+  border: 0 !important;
+  background: transparent !important;
+  color: #fff !important;
+  outline: none;
+  box-shadow: none !important;
+  padding: 0 14px;
+}
+
+.bp-template-search input::placeholder {
+  color: rgba(255,255,255,.48);
+}
+
+.bp-template-search select {
+  border-left: 1px solid rgba(255,255,255,.12) !important;
+}
+
+.bp-template-search option {
+  color: #111827;
+}
+
+.bp-template-search button {
+  min-height: 48px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 9px;
+  background: #fff;
+  color: #17191d;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.bp-template-visual {
+  position: relative;
+  min-height: 620px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 68% 24%, rgba(130,148,255,.24), transparent 26%),
+    linear-gradient(145deg, #c9d4d0 0%, #9eada7 47%, #52645d 100%);
+}
+
+.bp-template-visual-grid {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(105deg, transparent 0 48%, rgba(255,255,255,.08) 48.2% 48.6%, transparent 48.8%),
+    linear-gradient(20deg, transparent 0 62%, rgba(0,0,0,.08) 62.2% 62.7%, transparent 62.9%);
+  opacity: .9;
+}
+
+.bp-template-visual::before,
+.bp-template-visual::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(2px);
+}
+
+.bp-template-visual::before {
+  width: 390px;
+  height: 390px;
+  left: 10%;
+  top: 22%;
+  background: linear-gradient(145deg, rgba(245,238,226,.92), rgba(125,141,134,.72));
+  box-shadow: 220px -80px 0 -30px rgba(38,49,47,.72);
+  opacity: .7;
+}
+
+.bp-template-visual::after {
+  width: 230px;
+  height: 230px;
+  right: 8%;
+  bottom: 7%;
+  background: rgba(17,26,25,.34);
+  box-shadow: -140px -205px 0 -40px rgba(245,238,226,.78);
+}
+
+.bp-template-visual-copy {
+  position: absolute;
+  left: 11%;
+  bottom: 13%;
+  max-width: 340px;
+  display: grid;
+  gap: 12px;
+  padding: 22px;
+  border: 1px solid rgba(255,255,255,.20);
+  border-radius: 18px;
+  background: rgba(13,18,18,.36);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 26px 70px rgba(0,0,0,.18);
+}
+
+.bp-visual-pill {
+  width: max-content;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.12);
+  color: rgba(255,255,255,.76);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.bp-template-visual-copy strong {
+  color: #fff;
+  font-size: 30px;
+  line-height: .98;
+  letter-spacing: -.045em;
+}
+
+.bp-visual-line {
+  width: 46px;
+  height: 2px;
+  background: #fff;
+  opacity: .7;
+}
+
+.bp-visual-note {
+  color: rgba(255,255,255,.66);
+  font-size: 11px;
+}
+
+.bp-visual-card {
+  position: absolute;
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.92);
+  color: #17202a;
+  box-shadow: 0 20px 50px rgba(0,0,0,.16);
+}
+
+.bp-visual-card span {
+  color: #667085;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.bp-visual-card b {
+  font-size: 13px;
+}
+
+.bp-visual-card small {
+  color: #667085;
+  font-size: 10px;
+}
+
+.bp-visual-card-one {
+  right: 8%;
+  top: 13%;
+  width: 230px;
+  transform: rotate(2deg);
+}
+
+.bp-visual-card-two {
+  right: 7%;
+  bottom: 12%;
+  width: 150px;
+  transform: rotate(-3deg);
+}
+
+.bp-visual-card-two b {
+  color: #155eef;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.bp-public-process {
+  border-top: 0 !important;
+}
+
+.bp-public-process > div > div {
+  padding-top: 25px;
+  padding-bottom: 25px;
+}
+
+.bp-public-jobs-grid article {
+  min-height: 320px;
+}
+
+@media (max-width: 1023px) {
+  .bp-template-hero,
+  .bp-template-hero-inner {
+    min-height: auto;
+  }
+
+  .bp-template-hero-inner {
+    grid-template-columns: 1fr;
+  }
+
+  .bp-template-visual {
+    min-height: 470px;
+  }
+}
+
+@media (max-width: 640px) {
+  .bp-template-hero-copy {
+    padding-top: 70px !important;
+    padding-bottom: 48px !important;
+  }
+
+  .bp-template-hero-copy h1 {
+    font-size: clamp(2.65rem, 13vw, 4rem) !important;
+  }
+
+  .bp-template-lede {
+    font-size: 15px !important;
+  }
+
+  .bp-template-search {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .bp-template-search input,
+  .bp-template-search select {
+    height: 48px;
+  }
+
+  .bp-template-search select {
+    border-top: 1px solid rgba(255,255,255,.12) !important;
+    border-left: 0 !important;
+  }
+
+  .bp-template-search button {
+    width: 100%;
+  }
+
+  .bp-template-visual {
+    min-height: 410px;
+  }
+
+  .bp-template-visual-copy {
+    left: 6%;
+    right: 6%;
+    bottom: 9%;
+    max-width: none;
+  }
+
+  .bp-visual-card-one {
+    right: 6%;
+    top: 8%;
+    width: 200px;
+  }
+
+  .bp-visual-card-two {
+    right: 6%;
+    bottom: 36%;
+  }
+}
+
+html.dark .bp-template-hero {
+  background: #0a0e14 !important;
+}
