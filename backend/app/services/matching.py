@@ -6,6 +6,8 @@ import re
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from app.services.model_router import EMBEDDING_MODEL, MATCHING_MODEL
+
 load_dotenv()
 
 SKILL_CATALOG = (
@@ -61,10 +63,10 @@ class CandidateMatcher:
         self.embedding_client = OpenAI(api_key=openai_key) if openai_key else None
         if router_key:
             self.llm_client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=router_key)
-            self.chat_model = os.getenv("MATCHING_CHAT_MODEL", "qwen/qwen-2.5-72b-instruct")
+            self.chat_model = MATCHING_MODEL
         elif openai_key:
             self.llm_client = OpenAI(api_key=openai_key)
-            self.chat_model = os.getenv("MATCHING_CHAT_MODEL", "gpt-4o-mini")
+            self.chat_model = MATCHING_MODEL
         else:
             self.llm_client = None
             self.chat_model = None
@@ -191,7 +193,7 @@ class CandidateMatcher:
             return [None] * len(texts)
         try:
             response = self.embedding_client.embeddings.create(
-                model=os.getenv("MATCHING_EMBEDDING_MODEL", "text-embedding-3-small"),
+                model=EMBEDDING_MODEL,
                 input=[text[:12000] for text in texts],
                 dimensions=1536,
             )
