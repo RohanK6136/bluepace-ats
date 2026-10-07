@@ -136,8 +136,7 @@ def test_fast_resume_validation_does_not_require_auth(client):
 
 def test_public_jobs_and_resume_application(client, monkeypatch):
     monkeypatch.setenv("PUBLIC_ORGANIZATION_ID", "1")
-    from app.services import queue_tasks
-    monkeypatch.setattr(queue_tasks.process_resume_ingest_job, "delay", lambda _job_id: SimpleNamespace(id="test-task"))
+    monkeypatch.setattr(api, "_enqueue_resume_ingest", lambda _job_id: SimpleNamespace(id="test-task"))
     headers = register_and_login(client, email="public-owner@example.com", organization="Public ATS")
 
     created = client.post(
