@@ -1166,17 +1166,24 @@ export default function AtsWorkspace() {
       <main className="min-h-screen bg-[#f3f4f1] text-ink-900">
         <header className="bp-public-header border-b border-white/10 bg-ink-950 px-5 py-4 text-white">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-5">
-            <a href="https://www.blupacetech.com/" target="_blank" rel="noreferrer" className="bp-wordmark flex items-center gap-3 text-white no-underline">
-              <span className="bp-logo-mark">B</span>
+            <a href="/" className="bp-wordmark flex items-center gap-3 no-underline">
+              <span className="bp-logo-mark">BP</span>
               <span>
-                <span className="block text-[15px] font-semibold tracking-tight">blupace</span>
-                <span className="block text-[9px] font-semibold uppercase tracking-[0.24em] text-white/55">tech</span>
+                <span className="block text-[15px] font-bold tracking-tight">BluePace ATS</span>
+                <span className="block text-[9px] font-semibold uppercase tracking-[0.22em] text-ink-400">Talent workspace</span>
               </span>
             </a>
-            <div className="flex items-center gap-2">
+            <nav className="hidden items-center gap-7 text-sm font-medium text-ink-600 md:flex" aria-label="Public navigation">
+              <a className="hover:text-blue-700" href="#jobs">Open roles</a>
+              <a className="hover:text-blue-700" href="#how-it-works">How it works</a>
+              <button className="font-semibold text-blue-700 hover:text-blue-800" onClick={() => switchAccessMode("admin")}>
+                Recruiter sign in
+              </button>
+            </nav>
+            <div className="flex items-center gap-2 md:hidden">
               <ThemeToggle theme={theme} onToggle={toggleTheme} />
-              <button className="border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={() => switchAccessMode("admin")}>
-                Admin / Recruiter Login
+              <button className="border-ink-100 bg-white text-ink-800" onClick={() => switchAccessMode("admin")}>
+                Sign in
               </button>
             </div>
           </div>
@@ -1197,12 +1204,43 @@ export default function AtsWorkspace() {
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <a href="#jobs" className={buttonPrimary + " no-underline"}>Explore open roles</a>
+                <button type="button" className={buttonSecondary} onClick={() => switchAccessMode("admin")}>Recruiter sign in</button>
               </div>
+            </div>
+
+            <div className="bp-hero-preview hidden lg:block" aria-label="BluePace ATS candidate intelligence preview">
+              <div className="bp-preview-top">
+                <span className="bp-preview-dot"></span>
+                Candidate intelligence
+              </div>
+              <div className="bp-preview-card">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-400">Python Backend Engineer</p>
+                  <p className="mt-2 text-xl font-bold text-ink-950">Asha Tester</p>
+                  <p className="mt-1 text-xs text-ink-500">3 years · Hyderabad · Applied today</p>
+                </div>
+                <div className="bp-preview-score">92<span>%</span></div>
+              </div>
+              <div className="bp-preview-list">
+                <div><span>✓</span> Python</div>
+                <div><span>✓</span> PostgreSQL</div>
+                <div><span>✓</span> API development</div>
+                <div className="muted"><span>!</span> Kubernetes — review</div>
+              </div>
+              <p className="bp-preview-foot">Evidence-backed matching · Recruiter review stays in control</p>
             </div>
           </div>
         </section>
 
-        <section id="jobs" className="mx-auto max-w-7xl px-5 py-8">
+        <section id="how-it-works" className="bp-public-process border-y border-ink-100 bg-white">
+          <div className="mx-auto grid max-w-7xl gap-4 px-5 py-7 sm:grid-cols-3">
+            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">01</p><h3 className="mt-2 text-sm font-bold">Capture applications</h3><p className="mt-1 text-sm leading-6 text-ink-500">Collect resumes and role requirements in one place.</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">02</p><h3 className="mt-2 text-sm font-bold">Match with evidence</h3><p className="mt-1 text-sm leading-6 text-ink-500">Combine structured fields, semantic retrieval and clear skill gaps.</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">03</p><h3 className="mt-2 text-sm font-bold">Review and move</h3><p className="mt-1 text-sm leading-6 text-ink-500">Keep decisions with recruiters while the ATS handles the busywork.</p></div>
+          </div>
+        </section>
+
+        <section id="jobs" className="mx-auto max-w-7xl px-5 py-10">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-xl font-semibold">Open Positions</h2>
               {publicJobs.length > 0 && <span className="text-sm text-ink-500">{publicJobs.length} position(s)</span>}
@@ -1227,7 +1265,7 @@ export default function AtsWorkspace() {
               </div>
             )}
 
-            <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <div className="bp-public-jobs-grid mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               {publicJobs.map((job) => (
                 <article key={job.id} className="rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
                   <div className="flex items-start justify-between gap-4">
@@ -1348,7 +1386,7 @@ export default function AtsWorkspace() {
 
   if (!token) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f3f4f1] px-5 py-12 text-ink-900">
+      <main className="bp-login-shell flex min-h-screen items-center justify-center bg-[#f3f4f1] px-5 py-12 text-ink-900">
         <section className="w-full max-w-md">
           <div className="mb-8 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -1406,7 +1444,7 @@ export default function AtsWorkspace() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#f3f4f1] text-ink-900">
+    <div className="bp-admin-shell min-h-screen bg-[#f3f4f1] text-ink-900">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto bg-ink-950 text-white lg:flex">
         <div className="flex h-[72px] items-center gap-3 border-b border-white/10 px-5">
           <div className="grid h-9 w-9 place-items-center rounded-md bg-gold-500 text-xs font-bold text-ink-950">BP</div>
