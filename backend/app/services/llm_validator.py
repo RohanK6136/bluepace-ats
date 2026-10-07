@@ -67,6 +67,7 @@ class LLMValidator:
         if self.fallback_models:
             extra_body["models"] = self.fallback_models
 
+        self.last_call_meta = {}
         started = time.perf_counter()
         attempted_models = []
         for attempt in range(self.rate_limit_retries + 1):
