@@ -1153,14 +1153,21 @@ def recruiter_assistant(
         application.id,
         user.organization_id,
         question,
-        limit=8,
+        limit=12,
     )
     if not retrieved_evidence:
-        retrieved_evidence = _retrieve_relevant_evidence(question, evidence, limit=8)
+        retrieved_evidence = _retrieve_relevant_evidence(question, evidence, limit=12)
         retrieval_method = "deterministic_keyword_retrieval"
     else:
-        retrieval_method = "pgvector_rag" if any(item.get("retrieval_mode") == "embedding" for item in retrieved_evidence) else "lexical_rag_fallback"
+        retrieval_method = (
+            "hybrid_embedding_lexical"
+            if any(item.get("retrieval_mode") == "hybrid_embedding_lexical" for item in retrieved_evidence)
+            else "pgvector_rag"
+            if any(item.get("retrieval_mode") == "embedding" for item in retrieved_evidence)
+            else "lexical_rag_fallback"
+        )
 
+    retrieved_evidence, retrieval_metadata = rag_service.prepare_context(retrieved_evidence, limit=5)
     evidence_coverage = round(sum(evidence_checks) / len(evidence_checks) * 100)
     grounding_confidence = "high" if evidence_coverage >= 80 and retrieved_evidence else "medium" if evidence_coverage >= 45 and retrieved_evidence else "low"
 
@@ -1308,6 +1315,8 @@ Retrieved evidence:
             "intent": intent,
             "retrieval_method": retrieval_method,
             "retrieved_evidence_count": len(retrieved_evidence),
+            "rag_context_chars": retrieval_metadata["context_chars"],
+            "prompt_injection_flags": retrieval_metadata["prompt_injection_flags"],
             "llm_generated": bool(generated),
             "grounding_confidence": grounding_confidence,
             "data_coverage": evidence_coverage,
@@ -1333,7 +1342,13 @@ Retrieved evidence:
         "data_coverage": evidence_coverage,
         "evidence": evidence,
         "retrieved_evidence": retrieved_evidence,
-        "retrieval": {"method": retrieval_method, "top_k": len(retrieved_evidence), "index": rag_status},
+        "retrieval": {
+            "method": retrieval_method,
+            "top_k": len(retrieved_evidence),
+            "index": rag_status,
+            "context_chars": retrieval_metadata["context_chars"],
+            "prompt_injection_flags": retrieval_metadata["prompt_injection_flags"],
+        },
         "sources": sources,
         "guardrails": [
             "Evidence is limited to the stored JD, parsed resume, and submitted scorecards.",
