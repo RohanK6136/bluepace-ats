@@ -1322,6 +1322,7 @@ Retrieved evidence:
             "ai_latency_ms": (getattr(llm_validator, "last_call_meta", {}) or {}).get("latency_ms"),
             "ai_prompt_tokens": (getattr(llm_validator, "last_call_meta", {}) or {}).get("prompt_tokens"),
             "ai_completion_tokens": (getattr(llm_validator, "last_call_meta", {}) or {}).get("completion_tokens"),
+            "ai_prompt_version": (getattr(llm_validator, "last_call_meta", {}) or {}).get("prompt_version"),
             "grounding_confidence": grounding_confidence,
             "data_coverage": evidence_coverage,
             "decision_support_only": True,
