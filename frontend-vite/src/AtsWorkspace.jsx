@@ -11,6 +11,7 @@ const InterviewPanel = lazy(() => import("./InterviewPanel.jsx"));
 const CandidateMergeCenter = lazy(() => import("./CandidateMergeCenter.jsx"));
 const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
 const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
+const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -395,7 +396,7 @@ export default function AtsWorkspace() {
   useEffect(() => {
     if (!token) return undefined;
     const needsCandidates = new Set(["candidates", "merge-center"]);
-    const needsApplications = new Set(["pipeline", "interviews-2", "offers"]);
+    const needsApplications = new Set(["pipeline", "compare", "interviews-2", "offers"]);
     if (!needsCandidates.has(view) && !needsApplications.has(view)) return undefined;
     let active = true;
     async function loadViewData() {
@@ -1446,6 +1447,7 @@ export default function AtsWorkspace() {
     { id: "interviews-2", label: "Interviews" },
   ];
   const secondaryNavItems = [
+    { id: "compare", label: "Compare candidates" },
     { id: "offers", label: "Offers" },
     { id: "resume", label: "Resume Lab" },
     { id: "matching", label: "AI Match" },
@@ -1495,7 +1497,7 @@ export default function AtsWorkspace() {
         <header className="ats-workspace-header sticky top-0 z-20 flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b border-ink-100 bg-white/95 px-4 py-3 backdrop-blur sm:px-7">
           <div>
             <p className="text-xs font-medium text-ink-500">{user?.email}</p>
-            <h1 className="text-lg font-semibold">{navItems.find((item) => item.id === view)?.label}</h1>
+            <h1 className="text-lg font-semibold">{navItems.find((item) => item.id === view)?.label || secondaryNavItems.find((item) => item.id === view)?.label}</h1>
           </div>
           <div className="flex items-center gap-2">
             {view === "pipeline" && canWrite && <button className={buttonPrimary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
@@ -1544,6 +1546,8 @@ export default function AtsWorkspace() {
 
 
           {view === "merge-center" && <CandidateMergeCenter token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
+
+          {view === "compare" && <CandidateComparisonPanel token={token} apiRequest={apiRequest} applications={applications} jobs={jobs} onNotice={setNotice} onError={(requestError) => { if (requestError) setError(errorText(requestError)); else setError(""); }} />}
 
           {view === "dashboard" && <>
             <div className="bp-dashboard-hero mb-7 flex flex-wrap items-end justify-between gap-5">
