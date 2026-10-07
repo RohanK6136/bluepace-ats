@@ -294,6 +294,9 @@ class CandidateMatchRead(BaseModel):
     semantic_mode: str
     decision_support_only: bool = True
     cv_summary: list[str]
+    rerank_score: Optional[int] = None
+    rerank_mode: Optional[str] = None
+    model_score_before_rerank: Optional[int] = None
 
 class Experience(BaseModel):
     company: Optional[str] = None
