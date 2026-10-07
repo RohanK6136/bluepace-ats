@@ -11,6 +11,17 @@ from app.services.matching import matching_service
 class RagService:
     CHUNK_SIZE = 1100
     CHUNK_OVERLAP = 180
+    MAX_RETRIEVAL_CHUNKS = 5
+    MAX_CONTEXT_CHARS = 14000
+    INJECTION_PATTERNS = (
+        r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions",
+        r"system\s*:",
+        r"assistant\s*:",
+        r"developer\s*:",
+        r"reveal\s+(?:the\s+)?system\s+prompt",
+        r"follow\s+these\s+instructions",
+        r"you\s+are\s+now\s+",
+    )
 
     @staticmethod
     def _chunks(text: str) -> list[str]:
@@ -68,6 +79,47 @@ class RagService:
         if analysis.get("interview_topics"):
             values.append(("interview_topics", str(analysis.get("interview_topics"))))
         return values
+
+    @classmethod
+    def _scan_untrusted_text(cls, text: str) -> tuple[str, bool]:
+        """Mark likely indirect-prompt-injection text without treating it as executable."""
+        cleaned = str(text or "")
+        for pattern in cls.INJECTION_PATTERNS:
+            if re.search(pattern, cleaned, re.IGNORECASE):
+                return cleaned, True
+        return cleaned, False
+
+    @classmethod
+    def prepare_context(cls, items: list[dict], limit: int = 5) -> tuple[list[dict], dict]:
+        """Bound and annotate retrieved RAG context before it reaches an LLM."""
+        selected = []
+        seen = set()
+        chars = 0
+        flagged = 0
+        for item in items[: max(1, min(limit, cls.MAX_RETRIEVAL_CHUNKS))]:
+            key = (item.get("source_id"), item.get("field"), item.get("text"))
+            if key in seen:
+                continue
+            seen.add(key)
+            raw_text = item.get("text", "")
+            safe_text, suspicious = cls._scan_untrusted_text(raw_text)
+            remaining = cls.MAX_CONTEXT_CHARS - chars
+            if remaining <= 0:
+                break
+            safe_text = safe_text[:remaining]
+            selected.append({
+                **item,
+                "text": safe_text,
+                "untrusted": True,
+                "prompt_injection_suspected": suspicious,
+            })
+            chars += len(safe_text)
+            flagged += int(suspicious)
+        return selected, {
+            "chunks": len(selected),
+            "context_chars": chars,
+            "prompt_injection_flags": flagged,
+        }
 
     def index_candidate(self, candidate_id: int, organization_id: int) -> int:
         with SessionLocal() as db:
