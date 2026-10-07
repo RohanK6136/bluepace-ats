@@ -245,6 +245,7 @@ class RagService:
         )
 
         if query_vector is not None and db.bind.dialect.name == "postgresql":
+            candidate_terms = set(re.findall(r"[a-z0-9][a-z0-9+#.-]{1,}", query.casefold()))
             rows = db.execute(
                 select(
                     RagChunk,
@@ -259,8 +260,19 @@ class RagService:
                     ),
                 )
                 .order_by(RagChunk.embedding.cosine_distance(query_vector))
-                .limit(limit)
+                .limit(min(limit * 3, 24))
             ).all()
+
+            # Hybrid retrieval: semantic similarity finds related passages, then
+            # a lightweight lexical boost keeps exact requested skills/names visible.
+            reranked = []
+            for index, (chunk, similarity) in enumerate(rows):
+                tokens = set(re.findall(r"[a-z0-9][a-z0-9+#.-]{1,}", chunk.content.casefold()))
+                overlap = len(candidate_terms & tokens) / max(len(candidate_terms), 1)
+                hybrid_score = (float(similarity) * 0.82) + (overlap * 0.18)
+                reranked.append((hybrid_score, -index, chunk, float(similarity)))
+            reranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+
             return [
                 {
                     "source_id": "RESUME" if chunk.source_type == "candidate" else "JD",
@@ -268,9 +280,10 @@ class RagService:
                     "field": chunk.field,
                     "text": chunk.content,
                     "similarity": round(float(similarity) * 100, 1),
-                    "retrieval_mode": "embedding",
+                    "hybrid_score": round(float(hybrid_score) * 100, 1),
+                    "retrieval_mode": "hybrid_embedding_lexical",
                 }
-                for chunk, similarity in rows
+                for hybrid_score, _, chunk, similarity in reranked[:limit]
             ]
 
         terms = set(re.findall(r"[a-z0-9][a-z0-9+#.-]{1,}", query.casefold()))
