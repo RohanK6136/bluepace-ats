@@ -176,10 +176,16 @@ def test_public_jobs_and_resume_application(client, monkeypatch):
     assert applied.json()["status"] == "accepted"
     assert applied.json()["processing_mode"] in {"external_queue", "db_dispatcher"}
 
+    applications = client.get("/applications", headers=headers)
+    assert applications.status_code == 200
+    assert len(applications.json()) == 1
+    assert applications.json()[0]["candidate"]["email"] == "jane@example.com"
+
     matches = client.get(f"/jobs/{job_id}/matches", headers=headers)
     assert matches.status_code == 200
-    assert len(matches.json()) == 1
-    assert 0 <= matches.json()[0]["model_score"] <= 100
+    # Resume extraction runs asynchronously; ranking becomes available after
+    # the processing job completes.
+    assert matches.json() == []
 
 
 def test_job_crud_requires_auth_and_round_trips(client):
