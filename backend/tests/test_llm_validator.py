@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from app.services.llm_validator import LLMValidator
+from app.services.llm_validator import LLMValidator, VALIDATION_MODEL
 
 
 VALID_RESPONSE = """
@@ -52,7 +52,7 @@ def test_validator_sends_ordered_fallback_models_and_throughput_routing(monkeypa
 
     assert result["match_score"] == 82
     request = validator.client.chat.completions.calls[0]
-    assert request["model"] == "qwen/qwen-2.5-72b-instruct"
+    assert request["model"] == VALIDATION_MODEL
     assert request["extra_body"]["models"] == [
         "meta-llama/llama-3.3-70b-instruct",
         "google/gemini-2.5-flash",
