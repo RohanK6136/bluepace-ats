@@ -1147,7 +1147,7 @@ def recruiter_assistant(
     if scorecards:
         sources.append({"id": "SCORECARDS", "label": "Submitted interview scorecards", "fields": ["ratings", "recommendation", "submitted_at"]})
 
-    rag_status = rag_service.ensure_application_index(application.id, user.organization_id)
+    rag_status = rag_service.ensure_application_index(application.id, user.organization_id, db=db)
     retrieved_evidence = rag_service.retrieve_for_application(
         db,
         application.id,
