@@ -1139,8 +1139,6 @@ def recruiter_assistant(
         bool(job.title), bool(job.description), bool(required_skills), bool(preferred_skills),
         bool(skills), bool(experience), bool(education), bool(projects), bool(scorecards),
     ]
-    evidence_coverage = round(sum(evidence_checks) / len(evidence_checks) * 100)
-    grounding_confidence = "high" if evidence_coverage >= 80 and retrieved_evidence else "medium" if evidence_coverage >= 45 and retrieved_evidence else "low"
 
     sources = [
         {"id": "JD", "label": "Job description", "fields": ["title", "description", "required_skills", "preferred_skills", "minimum_experience_years", "location", "work_mode"]},
@@ -1162,6 +1160,9 @@ def recruiter_assistant(
         retrieval_method = "deterministic_keyword_retrieval"
     else:
         retrieval_method = "pgvector_rag" if any(item.get("retrieval_mode") == "embedding" for item in retrieved_evidence) else "lexical_rag_fallback"
+
+    evidence_coverage = round(sum(evidence_checks) / len(evidence_checks) * 100)
+    grounding_confidence = "high" if evidence_coverage >= 80 and retrieved_evidence else "medium" if evidence_coverage >= 45 and retrieved_evidence else "low"
 
     fallback = {
         "summary": (
