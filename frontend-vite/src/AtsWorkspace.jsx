@@ -427,7 +427,7 @@ export default function AtsWorkspace() {
   async function refreshWorkspace() {
     if (!token) return;
     const needsCandidates = new Set(["candidates", "merge-center"]);
-    const needsApplications = new Set(["pipeline", "interviews-2", "offers"]);
+    const needsApplications = new Set(["pipeline", "compare", "interviews-2", "offers"]);
     const requests = [];
     requests.push(apiRequest(token, "get", "/jobs", { params: { limit: 100 } }));
     requests.push(
