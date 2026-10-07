@@ -5,7 +5,7 @@ import time
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from app.services.model_router import ASSISTANT_MODEL, DEEP_REASONING_MODEL, VALIDATION_MODEL
+from app.services.model_router import ASSISTANT_MODEL, DEEP_REASONING_MODEL, PROMPT_VERSION, VALIDATION_MODEL
 
 # Load environment variables from .env file
 load_dotenv()
@@ -88,6 +88,7 @@ class LLMValidator:
                     "latency_ms": round((time.perf_counter() - started) * 1000, 1),
                     "prompt_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
                     "completion_tokens": getattr(usage, "completion_tokens", None) if usage else None,
+                    "prompt_version": PROMPT_VERSION,
                 }
                 return response
             except Exception as error:
