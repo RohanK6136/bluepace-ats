@@ -1206,6 +1206,31 @@ export default function AtsWorkspace() {
                 <a href="#jobs" className={buttonPrimary + " no-underline"}>Explore open roles</a>
                 <button type="button" className={buttonSecondary} onClick={() => switchAccessMode("admin")}>Recruiter sign in</button>
               </div>
+              <form
+                className="bp-public-search mt-7 flex flex-col gap-2 sm:flex-row"
+                onSubmit={(event) => { event.preventDefault(); document.getElementById("jobs")?.scrollIntoView({ behavior: "smooth" }); }}
+              >
+                <label className="sr-only" htmlFor="public-role-search">Search open roles</label>
+                <input
+                  id="public-role-search"
+                  className="w-full border-0 bg-transparent px-4 py-3 text-sm text-ink-900 outline-none"
+                  placeholder="Search roles, skills or teams"
+                  value={publicFilters.search}
+                  onChange={(event) => setPublicFilters({ ...publicFilters, search: event.target.value })}
+                />
+                <select
+                  aria-label="Work mode"
+                  className="border-0 bg-transparent px-3 py-3 text-sm font-medium text-ink-700 outline-none sm:w-36"
+                  value={publicFilters.work_mode}
+                  onChange={(event) => setPublicFilters({ ...publicFilters, work_mode: event.target.value })}
+                >
+                  <option value="">Any work mode</option>
+                  <option value="remote">Remote</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="onsite">On-site</option>
+                </select>
+                <button type="submit" className={buttonPrimary + " sm:min-w-28"}>Find roles</button>
+              </form>
             </div>
 
             <div className="bp-hero-preview hidden lg:block" aria-label="BluePace ATS candidate intelligence preview">
@@ -1592,7 +1617,7 @@ export default function AtsWorkspace() {
                 </button>
                 <button type="button" className="bp-metric-card" onClick={() => setView("pipeline")}>
                   <span className="bp-metric-label">Applications</span>
-                  <strong>{dashboardData.recent_applications?.length ? applications.length || "—" : applications.length}</strong>
+                  <strong>{dashboardData.metrics?.total_applications ?? 0}</strong>
                   <small>Recent hiring activity</small>
                 </button>
                 <button type="button" className="bp-metric-card" onClick={() => setView("interviews-2")}>
