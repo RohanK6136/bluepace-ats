@@ -38,6 +38,7 @@ class LLMValidator:
             configured_retries = 1
         self.rate_limit_retries = max(0, min(configured_retries, 2))
         self.sleep = time.sleep
+        self.last_call_meta = {}
 
     @staticmethod
     def _is_rate_limited(error):
@@ -66,9 +67,12 @@ class LLMValidator:
         if self.fallback_models:
             extra_body["models"] = self.fallback_models
 
+        started = time.perf_counter()
+        attempted_models = []
         for attempt in range(self.rate_limit_retries + 1):
+            attempted_models.append(selected_model)
             try:
-                return self.client.chat.completions.create(
+                response = self.client.chat.completions.create(
                     model=selected_model,
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
@@ -76,6 +80,15 @@ class LLMValidator:
                     max_tokens=max_tokens,
                     extra_body=extra_body,
                 )
+                usage = getattr(response, "usage", None)
+                self.last_call_meta = {
+                    "model": selected_model,
+                    "attempts": len(attempted_models),
+                    "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+                    "prompt_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
+                    "completion_tokens": getattr(usage, "completion_tokens", None) if usage else None,
+                }
+                return response
             except Exception as error:
                 if not self._is_rate_limited(error) or attempt >= self.rate_limit_retries:
                     raise
