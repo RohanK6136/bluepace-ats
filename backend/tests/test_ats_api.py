@@ -136,6 +136,8 @@ def test_fast_resume_validation_does_not_require_auth(client):
 
 def test_public_jobs_and_resume_application(client, monkeypatch):
     monkeypatch.setenv("PUBLIC_ORGANIZATION_ID", "1")
+    from app.services import queue_tasks
+    monkeypatch.setattr(queue_tasks.process_resume_ingest_job, "delay", lambda _job_id: SimpleNamespace(id="test-task"))
     headers = register_and_login(client, email="public-owner@example.com", organization="Public ATS")
 
     created = client.post(
@@ -891,7 +893,7 @@ def test_resume_intelligence_extracts_extended_profile_and_non_definitive_signal
     assert parsed["certifications"]
     assert parsed["companies"] == ["Acme Labs"]
     assert parsed["job_titles"] == ["Senior Engineer"]
-    assert parsed["resume_intelligence_version"] == 3
+    assert parsed["resume_intelligence_version"] == 4
     assert "disclaimer" in parsed["resume_quality"]
     assert "linkedin" not in parsed["resume_quality"]["missing_fields"]
     assert "GitHub" not in parsed["resume_quality"]["optional_missing_fields"]
