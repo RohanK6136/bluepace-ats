@@ -127,6 +127,12 @@ from app.services.workflow import (
 _resume_dispatcher_in_flight: set[int] = set()
 
 
+def _enqueue_resume_ingest(job_id: int):
+    """Submit resume processing through the configured Celery task."""
+    from app.services.queue_tasks import process_resume_ingest_job
+    return process_resume_ingest_job.delay(job_id)
+
+
 async def _run_resume_job_background(job_id: int) -> None:
     print(f"[resume-dispatcher] starting job_id={job_id}", flush=True)
     try:
@@ -1090,8 +1096,7 @@ async def public_apply(
     db.refresh(processing_job)
 
     try:
-        from app.services.queue_tasks import process_resume_ingest_job
-        task = process_resume_ingest_job.delay(processing_job.id)
+        task = _enqueue_resume_ingest(processing_job.id)
         processing_job.task_id = task.id
         db.commit()
     except Exception as error:
