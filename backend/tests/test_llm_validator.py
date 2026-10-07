@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from app.services.llm_validator import LLMValidator
+from app.services.llm_validator import LLMValidator, VALIDATION_MODEL
 
 
 VALID_RESPONSE = """
@@ -52,7 +52,7 @@ def test_validator_sends_ordered_fallback_models_and_throughput_routing(monkeypa
 
     assert result["match_score"] == 82
     request = validator.client.chat.completions.calls[0]
-    assert request["model"] == "qwen/qwen-2.5-72b-instruct"
+    assert request["model"] == VALIDATION_MODEL
     assert request["extra_body"]["models"] == [
         "meta-llama/llama-3.3-70b-instruct",
         "google/gemini-2.5-flash",
@@ -132,3 +132,14 @@ def test_validator_bounds_upstream_requests_and_does_not_retry_timeouts(monkeypa
     assert result["recommendation"] == "Manual Review"
     assert result["error"] == "upstream request timed out"
     assert completions.calls == 1
+def test_validator_records_non_sensitive_request_telemetry(monkeypatch):
+    validator = LLMValidator()
+    validator.client = FakeClient()
+
+    result = validator.validate_resume({"skills": ["Python"]}, "Python engineer")
+
+    assert result["match_score"] == 82
+    assert validator.last_call_meta["model"] == VALIDATION_MODEL
+    assert validator.last_call_meta["attempts"] == 1
+    assert validator.last_call_meta["latency_ms"] >= 0
+    assert "api_key" not in validator.last_call_meta

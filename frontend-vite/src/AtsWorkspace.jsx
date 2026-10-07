@@ -1844,25 +1844,28 @@ export default function AtsWorkspace() {
               </div>
             </div>
             {matchAnalysis && <section className="mb-5 border-y border-ink-100 bg-white px-4 py-4 sm:px-5">
-              <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
+              <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm">
                 <div><p className="text-[11px] font-semibold uppercase text-ink-500">Seniority</p><p className="mt-1 capitalize">{matchAnalysis.seniority || "Unspecified"}</p></div>
-                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Location</p><p className="mt-1">{matchAnalysis.location || "Unspecified"}</p></div>
-                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Minimum experience</p><p className="mt-1">{matchAnalysis.minimum_experience_years ? `${matchAnalysis.minimum_experience_years}+ years` : "Unspecified"}</p></div>
-                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Freshers</p><p className="mt-1">{matchAnalysis.fresher_allowed ? "Eligible" : "Experience preferred"}</p></div>
-                <div className="min-w-56 flex-1"><p className="text-[11px] font-semibold uppercase text-ink-500">Education</p><p className="mt-1">{matchAnalysis.education || "No degree requirement extracted"}</p></div>
-              </div>
-              <div className="mt-4 grid gap-3 border-t border-ink-50 pt-3 sm:grid-cols-2">
-                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Required skills</p><p className="mt-1 text-sm">{(matchAnalysis.required_skills || []).join(", ") || "None extracted"}</p></div>
-                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Preferred skills</p><p className="mt-1 text-sm">{(matchAnalysis.preferred_skills || []).join(", ") || "None extracted"}</p></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Experience</p><p className="mt-1">{matchAnalysis.minimum_experience_years ? `${matchAnalysis.minimum_experience_years}+ years` : "Unspecified"}</p></div>
                 <div><p className="text-[11px] font-semibold uppercase text-ink-500">Work mode</p><p className="mt-1 capitalize">{matchAnalysis.work_mode || "Unspecified"}</p></div>
-                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Responsibilities</p><ul className="mt-1 grid gap-1 text-sm">{(matchAnalysis.responsibilities || []).slice(0, 5).map((item, index) => <li key={index}>• {item}</li>)}</ul></div>
-                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Interview topics</p><p className="mt-1 text-sm">{(matchAnalysis.interview_topics || []).join(", ") || "No topics extracted"}</p></div>
-                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Skill normalization</p><div className="mt-1 flex flex-wrap gap-1.5">{Object.entries(matchAnalysis.skill_normalization || {}).map(([raw, normalized]) => <span key={raw} className="rounded-full bg-ink-50 px-2 py-1 text-[11px]">{raw} → {normalized}</span>)}</div></div>
+                <div><p className="text-[11px] font-semibold uppercase text-ink-500">Required skills</p><p className="mt-1">{(matchAnalysis.required_skills || []).length}</p></div>
+                <details className="basis-full border-t border-ink-50 pt-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-ink-700">View JD intelligence</summary>
+                  <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                    <div><p className="text-[11px] font-semibold uppercase text-ink-500">Location</p><p className="mt-1">{matchAnalysis.location || "Unspecified"}</p></div>
+                    <div><p className="text-[11px] font-semibold uppercase text-ink-500">Education</p><p className="mt-1">{matchAnalysis.education || "No degree requirement extracted"}</p></div>
+                    <div><p className="text-[11px] font-semibold uppercase text-ink-500">Required</p><p className="mt-1">{(matchAnalysis.required_skills || []).join(", ") || "None extracted"}</p></div>
+                    <div><p className="text-[11px] font-semibold uppercase text-ink-500">Preferred</p><p className="mt-1">{(matchAnalysis.preferred_skills || []).join(", ") || "None extracted"}</p></div>
+                    <div><p className="text-[11px] font-semibold uppercase text-ink-500">Responsibilities</p><ul className="mt-1 grid gap-1">{(matchAnalysis.responsibilities || []).slice(0, 5).map((item, index) => <li key={index}>• {item}</li>)}</ul></div>
+                    <div><p className="text-[11px] font-semibold uppercase text-ink-500">Interview topics</p><p className="mt-1">{(matchAnalysis.interview_topics || []).join(", ") || "No topics extracted"}</p></div>
+                    <div className="sm:col-span-2"><p className="text-[11px] font-semibold uppercase text-ink-500">Skill normalization</p><div className="mt-1 flex flex-wrap gap-1.5">{Object.entries(matchAnalysis.skill_normalization || {}).map(([raw, normalized]) => <span key={raw} className="rounded-full bg-ink-50 px-2 py-1 text-[11px]">{raw} → {normalized}</span>)}</div></div>
+                  </div>
+                </details>
               </div>
             </section>}
             {matches.length > 0 && <div className="mb-3 flex items-center justify-between text-xs text-ink-500">
               <span>{matches.length} ranked candidate profiles</span>
-              <span>{matches.some((match) => match.semantic_mode === "embedding") ? "Vector similarity active" : "Text-overlap fallback · configure OPENAI_API_KEY for vector embeddings"}</span>
+              <details><summary className="cursor-pointer font-semibold text-ink-500">How matching works</summary><span className="ml-2">Skills and experience rules plus semantic matching when embeddings are available.</span></details>
             </div>}
             <div className="overflow-x-auto border-y border-ink-100 bg-white">
               <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
@@ -1876,7 +1879,7 @@ export default function AtsWorkspace() {
                     const noteValue = feedback.recruiter_note ?? match.recruiter_note ?? "";
                     return <tr key={match.id} className="align-top hover:bg-[#fcfcfa]">
                       <td className="whitespace-nowrap px-3 py-4"><div className="flex items-start gap-2"><span className="mt-0.5 text-xs text-ink-400">{String(index + 1).padStart(2, "0")}</span><div><p className="font-semibold">{match.candidate_name}</p><p className="text-xs text-ink-500">{match.candidate_email}</p></div></div></td>
-                      <td className="min-w-32 px-3 py-4"><p className="text-lg font-semibold tabular-nums">{match.effective_score}<span className="text-xs font-normal text-ink-500"> / 100</span></p>{match.recruiter_override !== null && <p className="text-[11px] text-gold-600">Model: {match.model_score}</p>}<div className="mt-1 h-1.5 w-24 bg-ink-100"><div className="h-full bg-gold-500" style={{ width: `${match.effective_score}%` }} /></div><p className="mt-2 text-[10px] text-ink-500">{Object.entries(MATCH_WEIGHTS).map(([key, weight]) => `${key.replaceAll("_", " ")} ${match.score_breakdown[key] ?? 0}·${weight}%`).join(" · ")}</p><p className="mt-1 text-[10px] text-ink-400">Decision-support signal; recruiter review remains required.</p></td>
+                      <td className="min-w-32 px-3 py-4"><p className="text-lg font-semibold tabular-nums">{match.effective_score}<span className="text-xs font-normal text-ink-500"> / 100</span></p>{match.recruiter_override !== null && <p className="text-[11px] text-gold-600">Model: {match.model_score}</p>}<div className="mt-1 h-1.5 w-24 bg-ink-100"><div className="h-full bg-gold-500" style={{ width: `${match.effective_score}%` }} /></div><details className="mt-2"><summary className="cursor-pointer text-[10px] font-semibold text-ink-500">Scoring details</summary><p className="mt-2 text-[10px] text-ink-500">{Object.entries(MATCH_WEIGHTS).map(([key, weight]) => `${key.replaceAll("_", " ")} ${match.score_breakdown[key] ?? 0}·${weight}%`).join(" · ")}</p></details><p className="mt-1 text-[10px] text-ink-400">Decision-support signal; recruiter review remains required.</p></td>
                       <td className="max-w-48 px-3 py-4 text-xs text-emerald-800">{match.matched_skills.join(", ") || "No direct skill matches"}</td>
                       <td className="max-w-48 px-3 py-4 text-xs text-rose-800">{match.skill_gaps.join(", ") || "No required skill gaps"}</td>
                       <td className="max-w-64 px-3 py-4">
@@ -1955,23 +1958,28 @@ export default function AtsWorkspace() {
                 <div><p className="text-xs font-medium text-ink-500">Candidate directory</p><h2 className="mt-1 text-2xl font-semibold tracking-tight">Candidates</h2><p className="mt-1 text-sm text-ink-500">Search structured resume evidence and open a profile when you need more detail.</p></div>
                 <span className="text-xs text-ink-500">{candidates.length} profiles</span>
               </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <Field label="Boolean search" placeholder="Python AND SQL NOT Java" value={candidateFilters.search} onChange={(event) => setCandidateFilters({ ...candidateFilters, search: event.target.value })} />
-                <Field label="Skills (all required)" placeholder="Python, SQL, React" value={candidateFilters.skill} onChange={(event) => setCandidateFilters({ ...candidateFilters, skill: event.target.value })} />
-                <Field label="Location" placeholder="Hyderabad" value={candidateFilters.location} onChange={(event) => setCandidateFilters({ ...candidateFilters, location: event.target.value })} />
-                <Field label="Preferred location" placeholder="Bengaluru" value={candidateFilters.preferred_location} onChange={(event) => setCandidateFilters({ ...candidateFilters, preferred_location: event.target.value })} />
-                <Field label="Min experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.min_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, min_experience_years: event.target.value })} />
-                <Field label="Max experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.max_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, max_experience_years: event.target.value })} />
-                <Field label="Notice period" placeholder="30 days" value={candidateFilters.notice_period} onChange={(event) => setCandidateFilters({ ...candidateFilters, notice_period: event.target.value })} />
-                <Field label="Availability" placeholder="Immediate / 2026-10-15" value={candidateFilters.availability} onChange={(event) => setCandidateFilters({ ...candidateFilters, availability: event.target.value })} />
-                <Field label="Education" placeholder="B.Tech / Computer Science" value={candidateFilters.education} onChange={(event) => setCandidateFilters({ ...candidateFilters, education: event.target.value })} />
-                <Field label="Job history" placeholder="Infosys / Backend Engineer" value={candidateFilters.job_history} onChange={(event) => setCandidateFilters({ ...candidateFilters, job_history: event.target.value })} />
-                <Field label="Tags (all required)" placeholder="Immediate, React" value={candidateFilters.tags} onChange={(event) => setCandidateFilters({ ...candidateFilters, tags: event.target.value })} />
-                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Stage<select className={inputStyle} value={candidateFilters.stage_name} onChange={(event) => setCandidateFilters({ ...candidateFilters, stage_name: event.target.value })}><option value="">Any stage</option>{["Applied","Screening","Interview","Offer","Hired","Rejected","withdrawn"].map((stage) => <option key={stage}>{stage}</option>)}</select></label>
-                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Source<select className={inputStyle} value={candidateFilters.source} onChange={(event) => setCandidateFilters({ ...candidateFilters, source: event.target.value })}><option value="">All sources</option>{[...new Set(candidates.map((candidate) => candidate.source).filter(Boolean))].map((source) => <option key={source}>{source}</option>)}</select></label>
-                <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Has applied to job<select className={inputStyle} value={candidateFilters.has_applied_job_id} onChange={(event) => setCandidateFilters({ ...candidateFilters, has_applied_job_id: event.target.value })}><option value="">Any job</option>{jobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}</select></label>
-                <Field label="Work authorization" placeholder="Authorized / visa" value={candidateFilters.work_authorization} onChange={(event) => setCandidateFilters({ ...candidateFilters, work_authorization: event.target.value })} />
-              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                 <Field label="Search" placeholder="Candidate, skill, or role" value={candidateFilters.search} onChange={(event) => setCandidateFilters({ ...candidateFilters, search: event.target.value })} />
+                 <Field label="Skills" placeholder="Python, SQL, React" value={candidateFilters.skill} onChange={(event) => setCandidateFilters({ ...candidateFilters, skill: event.target.value })} />
+                 <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Stage<select className={inputStyle} value={candidateFilters.stage_name} onChange={(event) => setCandidateFilters({ ...candidateFilters, stage_name: event.target.value })}><option value="">Any stage</option>{["Applied","Screening","Interview","Offer","Hired","Rejected","withdrawn"].map((stage) => <option key={stage}>{stage}</option>)}</select></label>
+               </div>
+               <details className="mt-3">
+                 <summary className="cursor-pointer text-xs font-semibold text-ink-700">More filters</summary>
+                 <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                   <Field label="Location" placeholder="Hyderabad" value={candidateFilters.location} onChange={(event) => setCandidateFilters({ ...candidateFilters, location: event.target.value })} />
+                   <Field label="Preferred location" placeholder="Bengaluru" value={candidateFilters.preferred_location} onChange={(event) => setCandidateFilters({ ...candidateFilters, preferred_location: event.target.value })} />
+                   <Field label="Min experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.min_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, min_experience_years: event.target.value })} />
+                   <Field label="Max experience" type="number" min="0" max="60" placeholder="Years" value={candidateFilters.max_experience_years} onChange={(event) => setCandidateFilters({ ...candidateFilters, max_experience_years: event.target.value })} />
+                   <Field label="Notice period" placeholder="30 days" value={candidateFilters.notice_period} onChange={(event) => setCandidateFilters({ ...candidateFilters, notice_period: event.target.value })} />
+                   <Field label="Availability" placeholder="Immediate / 2026-10-15" value={candidateFilters.availability} onChange={(event) => setCandidateFilters({ ...candidateFilters, availability: event.target.value })} />
+                   <Field label="Education" placeholder="B.Tech / Computer Science" value={candidateFilters.education} onChange={(event) => setCandidateFilters({ ...candidateFilters, education: event.target.value })} />
+                   <Field label="Job history" placeholder="Infosys / Backend Engineer" value={candidateFilters.job_history} onChange={(event) => setCandidateFilters({ ...candidateFilters, job_history: event.target.value })} />
+                   <Field label="Tags" placeholder="Immediate, React" value={candidateFilters.tags} onChange={(event) => setCandidateFilters({ ...candidateFilters, tags: event.target.value })} />
+                   <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Source<select className={inputStyle} value={candidateFilters.source} onChange={(event) => setCandidateFilters({ ...candidateFilters, source: event.target.value })}><option value="">All sources</option>{[...new Set(candidates.map((candidate) => candidate.source).filter(Boolean))].map((source) => <option key={source}>{source}</option>)}</select></label>
+                   <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Has applied to job<select className={inputStyle} value={candidateFilters.has_applied_job_id} onChange={(event) => setCandidateFilters({ ...candidateFilters, has_applied_job_id: event.target.value })}><option value="">Any job</option>{jobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}</select></label>
+                   <Field label="Work authorization" placeholder="Authorized / visa" value={candidateFilters.work_authorization} onChange={(event) => setCandidateFilters({ ...candidateFilters, work_authorization: event.target.value })} />
+                 </div>
+               </details>
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button className={buttonPrimary} type="submit">Search candidates</button>
                 <button className={buttonSecondary} type="button" onClick={() => {

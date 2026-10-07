@@ -1,0 +1,47 @@
+[
+  {
+    "query_id": "python_backend_001",
+    "job": {
+      "title": "Senior Python Backend Engineer",
+      "required_skills": ["Python", "FastAPI", "PostgreSQL"],
+      "minimum_experience_years": 4
+    },
+    "candidates": [
+      {"candidate_id": "cand_a", "skills": ["Python", "FastAPI", "PostgreSQL"], "experience_years": 6, "score": 94, "relevance": 2},
+      {"candidate_id": "cand_b", "skills": ["Python", "Django", "PostgreSQL"], "experience_years": 5, "score": 78, "relevance": 1},
+      {"candidate_id": "cand_c", "skills": ["React", "TypeScript"], "experience_years": 4, "score": 33, "relevance": 0},
+      {"candidate_id": "cand_d", "skills": ["Python", "FastAPI"], "experience_years": 3, "score": 67, "relevance": 1},
+      {"candidate_id": "cand_e", "skills": ["Java", "Spring"], "experience_years": 7, "score": 21, "relevance": 0}
+    ]
+  },
+  {
+    "query_id": "react_frontend_001",
+    "job": {
+      "title": "React Frontend Developer",
+      "required_skills": ["React", "TypeScript", "Tailwind"],
+      "minimum_experience_years": 2
+    },
+    "candidates": [
+      {"candidate_id": "cand_f", "skills": ["React", "TypeScript", "Tailwind"], "experience_years": 3, "score": 96, "relevance": 2},
+      {"candidate_id": "cand_g", "skills": ["React", "JavaScript"], "experience_years": 4, "score": 74, "relevance": 1},
+      {"candidate_id": "cand_h", "skills": ["Python", "FastAPI"], "experience_years": 4, "score": 28, "relevance": 0},
+      {"candidate_id": "cand_i", "skills": ["TypeScript", "Next.js"], "experience_years": 2, "score": 63, "relevance": 1},
+      {"candidate_id": "cand_j", "skills": ["Java", "Spring"], "experience_years": 6, "score": 18, "relevance": 0}
+    ]
+  },
+  {
+    "query_id": "data_engineer_001",
+    "job": {
+      "title": "Data Engineer",
+      "required_skills": ["Python", "SQL", "AWS"],
+      "minimum_experience_years": 3
+    },
+    "candidates": [
+      {"candidate_id": "cand_k", "skills": ["Python", "SQL", "AWS"], "experience_years": 5, "score": 92, "relevance": 2},
+      {"candidate_id": "cand_l", "skills": ["Python", "SQL"], "experience_years": 5, "score": 76, "relevance": 1},
+      {"candidate_id": "cand_m", "skills": ["AWS", "Terraform"], "experience_years": 4, "score": 65, "relevance": 1},
+      {"candidate_id": "cand_n", "skills": ["Python", "React"], "experience_years": 3, "score": 47, "relevance": 0},
+      {"candidate_id": "cand_o", "skills": ["Java", "Spring"], "experience_years": 8, "score": 16, "relevance": 0}
+    ]
+  }
+]

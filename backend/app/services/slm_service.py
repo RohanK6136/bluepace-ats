@@ -4,6 +4,8 @@ import re
 
 from openai import OpenAI
 
+from app.services.model_router import MATCHING_MODEL
+
 
 class SLMService:
     """Optional Small Language Model enrichment kept outside the HTTP request path."""
@@ -12,7 +14,7 @@ class SLMService:
         self.enabled = os.getenv("ENABLE_SLM_RESUME_ENRICHMENT", "false").strip().lower() == "true"
         self.base_url = os.getenv("SLM_BASE_URL", "").strip() or None
         self.api_key = os.getenv("SLM_API_KEY", "").strip() or None
-        self.model = os.getenv("SLM_MODEL", "qwen2.5:3b").strip()
+        self.model = os.getenv("SLM_MODEL", MATCHING_MODEL).strip()
         try:
             timeout = float(os.getenv("SLM_TIMEOUT_SECONDS", "2.0"))
         except ValueError:
