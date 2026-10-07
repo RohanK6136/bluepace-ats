@@ -1413,7 +1413,7 @@ html.dark .bp-dashboard-secondary > div {
   line-height: 1.65 !important;
 }
 
-.bp-template-hero-copy .bg-[#c49a4a] {
+.bp-template-hero-copy [class*="bg-[#c49a4a]"] {
   background: #5d72ff !important;
 }
 
