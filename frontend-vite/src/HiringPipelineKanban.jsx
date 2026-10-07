@@ -126,7 +126,6 @@ export default function HiringPipelineKanban({
 
     try {
       await onChangeStage(application.id, stage);
-      if (onNotice) onNotice(`${candidateName(application)} moved to ${stage}`);
     } catch (error) {
       if (onError) onError(error);
     }
