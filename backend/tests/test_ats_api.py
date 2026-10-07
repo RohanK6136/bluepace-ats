@@ -173,7 +173,8 @@ def test_public_jobs_and_resume_application(client, monkeypatch):
         files={"file": ("jane.docx", buffer.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
     )
     assert applied.status_code == 200, applied.text
-    assert applied.json()["status"] == "success"
+    assert applied.json()["status"] == "accepted"
+    assert applied.json()["processing_mode"] in {"external_queue", "db_dispatcher"}
 
     matches = client.get(f"/jobs/{job_id}/matches", headers=headers)
     assert matches.status_code == 200
