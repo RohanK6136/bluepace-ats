@@ -706,3 +706,421 @@ button {
     transition: none;
   }
 }
+
+
+/* Wix-inspired Recruitment Agency (Contemporary) adaptation for BluePace ATS.
+   This is a product-native visual system: clean navigation, generous whitespace,
+   strong blue actions, restrained cards, and recruiter-focused hierarchy. */
+:root {
+  --bp-template-blue: #155eef;
+  --bp-template-blue-dark: #1049b9;
+  --bp-template-ink: #111827;
+  --bp-template-muted: #667085;
+  --bp-template-bg: #f7f9fc;
+  --bp-template-border: #e4eaf2;
+}
+
+.bp-public-header {
+  background: rgba(255,255,255,.94) !important;
+  color: var(--bp-template-ink) !important;
+  border-color: var(--bp-template-border) !important;
+  box-shadow: 0 6px 24px rgba(16,24,40,.05) !important;
+}
+
+.bp-public-header .bp-wordmark,
+.bp-public-header .bp-wordmark:hover {
+  color: var(--bp-template-ink) !important;
+}
+
+.bp-public-header .bp-logo-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #2d6cff, #0f4cc9);
+  font-size: 11px;
+  letter-spacing: -.02em;
+  box-shadow: 0 8px 22px rgba(21,94,239,.20);
+}
+
+.bp-public-header button {
+  min-height: 40px;
+}
+
+.bp-public-hero {
+  min-height: 560px;
+  display: grid;
+  align-items: center;
+  background:
+    radial-gradient(circle at 78% 30%, rgba(21,94,239,.13), transparent 29%),
+    radial-gradient(circle at 96% 88%, rgba(72,210,176,.08), transparent 24%),
+    linear-gradient(180deg, #ffffff 0%, #f6f9fd 100%) !important;
+}
+
+.bp-public-hero::after {
+  width: 30rem;
+  height: 30rem;
+  right: -9rem;
+  bottom: -17rem;
+  border-color: rgba(21,94,239,.09);
+}
+
+.bp-public-hero h1 {
+  max-width: 760px;
+  font-size: clamp(3.2rem, 6vw, 5.4rem) !important;
+  line-height: .98 !important;
+  font-weight: 760 !important;
+  letter-spacing: -.055em !important;
+}
+
+.bp-public-hero p {
+  max-width: 660px;
+}
+
+.bp-public-hero .bg-orange-500 {
+  background: var(--bp-template-blue) !important;
+}
+
+.bp-public-hero .text-blue-700 {
+  color: var(--bp-template-blue) !important;
+}
+
+.bp-public-hero a[class*="bg-[#c49a4a]"],
+.bp-public-hero button[class*="bg-[#c49a4a]"] {
+  box-shadow: 0 12px 26px rgba(21,94,239,.18);
+}
+
+.bp-hero-preview {
+  width: min(100%, 440px);
+  justify-self: end;
+  padding: 16px;
+  border: 1px solid rgba(21,94,239,.10);
+  border-radius: 24px;
+  background: rgba(255,255,255,.88);
+  box-shadow: 0 26px 70px rgba(21,53,86,.14);
+  backdrop-filter: blur(12px);
+  transform: rotate(1.2deg);
+}
+
+.bp-preview-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 3px 14px;
+  color: #667085;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.bp-preview-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bp-template-blue);
+  box-shadow: 0 0 0 4px rgba(21,94,239,.10);
+}
+
+.bp-preview-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 19px;
+  border-radius: 17px;
+  background: #f8fbff;
+  border: 1px solid #e4edf8;
+}
+
+.bp-preview-score {
+  min-width: 72px;
+  padding: 13px 10px;
+  border-radius: 15px;
+  background: #e9f0ff;
+  color: var(--bp-template-blue);
+  text-align: center;
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.bp-preview-score span {
+  font-size: 14px;
+  vertical-align: 4px;
+}
+
+.bp-preview-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.bp-preview-list > div {
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #edf1f6;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bp-preview-list > div span {
+  display: inline-grid;
+  width: 21px;
+  height: 21px;
+  margin-right: 8px;
+  place-items: center;
+  border-radius: 50%;
+  background: #e8f8f0;
+  color: #087443;
+}
+
+.bp-preview-list > div.muted span {
+  background: #fff3df;
+  color: #b54708;
+}
+
+.bp-preview-foot {
+  margin-top: 12px !important;
+  max-width: none !important;
+  color: #667085 !important;
+  font-size: 10px !important;
+  line-height: 1.5 !important;
+}
+
+.bp-public-process {
+  background: #fff !important;
+}
+
+.bp-public-process > div > div {
+  padding: 18px 20px;
+  border-right: 1px solid var(--bp-template-border);
+}
+
+.bp-public-process > div > div:last-child {
+  border-right: 0;
+}
+
+.bp-public-jobs-grid article {
+  min-height: 300px;
+  border-radius: 19px !important;
+  border-color: var(--bp-template-border) !important;
+  box-shadow: 0 12px 34px rgba(16,24,40,.055) !important;
+  transition: transform 160ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.bp-public-jobs-grid article:hover {
+  transform: translateY(-3px);
+  border-color: rgba(21,94,239,.22) !important;
+  box-shadow: 0 22px 48px rgba(16,24,40,.10) !important;
+}
+
+.bp-public-jobs-grid article button[class*="bg-[#c49a4a]"] {
+  box-shadow: 0 9px 18px rgba(21,94,239,.14);
+}
+
+.bp-login-shell {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 6% 16%, rgba(21,94,239,.13), transparent 25%),
+    linear-gradient(180deg, #ffffff 0%, #f6f9fd 100%) !important;
+}
+
+.bp-login-shell::before {
+  content: "BluePace ATS";
+  position: absolute;
+  left: 5vw;
+  top: 8vh;
+  color: #0b2e68;
+  font-size: clamp(3rem, 8vw, 7rem);
+  line-height: .88;
+  font-weight: 800;
+  letter-spacing: -.065em;
+  opacity: .055;
+  pointer-events: none;
+}
+
+.bp-login-shell > section {
+  position: relative;
+  width: min(100%, 470px) !important;
+  padding: 34px;
+  border: 1px solid var(--bp-template-border);
+  border-radius: 22px;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 24px 70px rgba(16,24,40,.10);
+}
+
+.bp-login-shell > section::after {
+  content: "Recruiters stay in control · AI supports the workflow";
+  display: block;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--bp-template-border);
+  color: #98a2b3;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .05em;
+}
+
+.bp-admin-shell {
+  background:
+    radial-gradient(circle at 84% 0%, rgba(21,94,239,.06), transparent 22%),
+    #f7f9fc !important;
+}
+
+.bp-admin-shell aside {
+  width: 236px !important;
+  background: #fff !important;
+  color: #344054 !important;
+  border-right: 1px solid var(--bp-template-border);
+  box-shadow: 8px 0 30px rgba(16,24,40,.04) !important;
+}
+
+.bp-admin-shell aside .border-b {
+  border-color: var(--bp-template-border) !important;
+}
+
+.bp-admin-shell aside .bg-gold-500 {
+  background: var(--bp-template-blue) !important;
+  color: #fff !important;
+}
+
+.bp-admin-shell aside nav p,
+.bp-admin-shell aside .text-ink-400 {
+  color: #98a2b3 !important;
+}
+
+.bp-admin-shell aside nav button {
+  color: #475467 !important;
+  border-radius: 10px !important;
+}
+
+.bp-admin-shell aside nav button:hover {
+  background: #f5f8ff !important;
+  color: var(--bp-template-blue) !important;
+  transform: none;
+}
+
+.bp-admin-shell aside nav button.bg-white\/10 {
+  background: #edf3ff !important;
+  color: var(--bp-template-blue) !important;
+  box-shadow: inset 3px 0 0 var(--bp-template-blue);
+}
+
+.bp-admin-shell aside .bg-ink-950 {
+  background: #fff !important;
+  border-color: var(--bp-template-border) !important;
+  color: #344054 !important;
+}
+
+.bp-admin-shell .ats-workspace-header {
+  min-height: 74px;
+  box-shadow: 0 1px 0 var(--bp-template-border) !important;
+}
+
+.bp-admin-shell .ats-workspace-header h1 {
+  font-size: 21px;
+  font-weight: 750;
+  color: #101828 !important;
+}
+
+.bp-admin-shell .ats-workspace-header > div:first-child p {
+  color: #98a2b3 !important;
+}
+
+.bp-admin-shell > .lg\:pl-60 {
+  padding-left: 236px !important;
+}
+
+.bp-admin-shell .ats-workspace-header {
+  background: rgba(255,255,255,.96) !important;
+}
+
+.bp-admin-shell main > section,
+.bp-admin-shell main > div > section,
+.bp-admin-shell main article {
+  border-radius: 16px;
+}
+
+.bp-admin-shell table tbody tr:hover {
+  background: #f8fbff;
+}
+
+@media (max-width: 1024px) {
+  .bp-admin-shell > .lg\:pl-60 {
+    padding-left: 0 !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .bp-public-hero {
+    min-height: 520px;
+  }
+
+  .bp-public-hero h1 {
+    font-size: clamp(2.65rem, 12vw, 4.3rem) !important;
+  }
+
+  .bp-public-process > div > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--bp-template-border);
+  }
+
+  .bp-public-process > div > div:last-child {
+    border-bottom: 0;
+  }
+
+  .bp-login-shell > section {
+    padding: 24px;
+    border-radius: 18px;
+  }
+}
+
+html.dark .bp-public-header {
+  background: rgba(14,24,40,.96) !important;
+  border-color: #26364a !important;
+}
+
+html.dark .bp-public-header .bp-wordmark {
+  color: #eef4fb !important;
+}
+
+html.dark .bp-public-process {
+  background: #111b2b !important;
+}
+
+html.dark .bp-preview-card,
+html.dark .bp-preview-list > div {
+  background: #0f1928;
+  border-color: #26364a;
+}
+
+html.dark .bp-login-shell > section {
+  background: rgba(17,27,43,.96);
+  border-color: #26364a;
+}
+
+html.dark .bp-admin-shell aside {
+  background: #0e1827 !important;
+  border-color: #26364a;
+}
+
+html.dark .bp-admin-shell aside nav button {
+  color: #c0cede !important;
+}
+
+html.dark .bp-admin-shell aside nav button:hover {
+  background: #142236 !important;
+}
+
+html.dark .bp-admin-shell aside nav button.bg-white\/10 {
+  background: rgba(77,156,255,.14) !important;
+  color: #7bb6ff !important;
+  box-shadow: inset 3px 0 0 #4d9cff;
+}
+
+html.dark .bp-admin-shell .ats-workspace-header {
+  background: rgba(17,27,43,.97) !important;
+}
