@@ -12,6 +12,7 @@ const CandidateMergeCenter = lazy(() => import("./CandidateMergeCenter.jsx"));
 const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
 const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
+const HiringPipelineKanban = lazy(() => import("./HiringPipelineKanban.jsx"));
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -1447,6 +1448,7 @@ export default function AtsWorkspace() {
     { id: "interviews-2", label: "Interviews" },
   ];
   const secondaryNavItems = [
+    { id: "pipeline-kanban", label: "Hiring pipeline" },
     { id: "compare", label: "Compare candidates" },
     { id: "offers", label: "Offers" },
     { id: "resume", label: "Resume Lab" },
@@ -1548,6 +1550,8 @@ export default function AtsWorkspace() {
           {view === "merge-center" && <CandidateMergeCenter token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
           {view === "compare" && <CandidateComparisonPanel token={token} apiRequest={apiRequest} applications={applications} jobs={jobs} onNotice={setNotice} onError={(requestError) => { if (requestError) setError(errorText(requestError)); else setError(""); }} />}
+
+          {view === "pipeline-kanban" && <HiringPipelineKanban applications={applications} jobs={jobs} canWrite={canWrite} onChangeStage={changeStage} onOpenCandidate={(candidateId) => { setSelectedCandidate(candidateId); setView("candidates"); }} onRefresh={refreshWorkspace} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
           {view === "dashboard" && <>
             <div className="bp-dashboard-hero mb-7 flex flex-wrap items-end justify-between gap-5">
