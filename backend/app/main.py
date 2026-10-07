@@ -109,6 +109,7 @@ from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import MATCH_WEIGHTS, matching_service
+from app.services.reranker import reranker_service
 from app.routers.merge_center import router as merge_center_router
 from app.routers.offer_management import router as offer_management_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
@@ -1611,8 +1612,45 @@ def rank_job_candidates(
         }
 
     results = []
+    candidate_scores = []
     for candidate in candidates:
         score = matching_service.score_candidate(job, candidate)
+        candidate_scores.append((candidate, score))
+
+    # Optional second-stage reranking. The first pass remains deterministic
+    # and safe when the external reranker is disabled or unavailable.
+    rerank_documents = [
+        {
+            "candidate_id": candidate.id,
+            "text": (
+                f"Candidate: {candidate.first_name} {candidate.last_name}\n"
+                f"Skills: {', '.join(str(v) for v in (candidate.resume_data or {}).get('skills') or [])}\n"
+                f"Experience: {json.dumps((candidate.resume_data or {}).get('experience') or [], ensure_ascii=False)}\n"
+                f"Education: {json.dumps((candidate.resume_data or {}).get('education') or [], ensure_ascii=False)}"
+            ),
+        }
+        for candidate, _ in candidate_scores
+    ]
+    rerank_results = reranker_service.rerank(
+        matching_service.job_embedding_text(job),
+        rerank_documents,
+        top_n=len(rerank_documents),
+    )
+    rerank_by_candidate = {}
+    for item in rerank_results:
+        index = item.get("index")
+        if isinstance(index, int) and 0 <= index < len(rerank_documents):
+            rerank_by_candidate[rerank_documents[index]["candidate_id"]] = round(
+                float(item.get("relevance_score", 0.0)) * 100
+            )
+
+    for candidate, score in candidate_scores:
+        if candidate.id in rerank_by_candidate:
+            rerank_score = rerank_by_candidate[candidate.id]
+            score["rerank_score"] = rerank_score
+            score["model_score_before_rerank"] = score["model_score"]
+            score["model_score"] = round(score["model_score"] * 0.75 + rerank_score * 0.25)
+            score["rerank_mode"] = reranker_service.model
         match = existing_matches.get(candidate.id)
         if match is None:
             match = CandidateJobMatch(
@@ -1640,7 +1678,7 @@ def rank_job_candidates(
         "job.candidates_ranked",
         "job",
         job.id,
-        after={"candidate_count": len(results), "mode": "fast_local"},
+        after={"candidate_count": len(results), "mode": "fast_local", "reranker_enabled": reranker_service.configured, "reranker_model": reranker_service.model if reranker_service.configured else None, "reranked_candidate_count": len(rerank_by_candidate)},
     )
     db.commit()
 
