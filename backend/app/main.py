@@ -911,6 +911,9 @@ def _serialize_candidate_match(match: CandidateJobMatch, job: Job | None = None)
         "semantic_mode": match.semantic_mode,
         "decision_support_only": True,
         "cv_summary": match.candidate.cv_summary or matching_service._fallback_candidate_summary(match.candidate),
+        "rerank_score": breakdown.get("rerank_score"),
+        "rerank_mode": breakdown.get("rerank_mode"),
+        "model_score_before_rerank": breakdown.get("model_score_before_rerank"),
     }
 
 
@@ -1663,7 +1666,14 @@ def rank_job_candidates(
         else:
             match.candidate = candidate
         match.model_score = score["model_score"]
-        match.score_breakdown = score["score_breakdown"]
+        match.score_breakdown = {
+            **score["score_breakdown"],
+            **({
+                "rerank_score": score["rerank_score"],
+                "rerank_mode": score["rerank_mode"],
+                "model_score_before_rerank": score["model_score_before_rerank"],
+            } if "rerank_score" in score else {}),
+        }
         match.matched_skills = score["matched_skills"]
         match.skill_gaps = score["skill_gaps"]
         match.explanations = score["explanations"]
