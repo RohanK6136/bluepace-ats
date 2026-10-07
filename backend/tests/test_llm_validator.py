@@ -132,3 +132,14 @@ def test_validator_bounds_upstream_requests_and_does_not_retry_timeouts(monkeypa
     assert result["recommendation"] == "Manual Review"
     assert result["error"] == "upstream request timed out"
     assert completions.calls == 1
+def test_validator_records_non_sensitive_request_telemetry(monkeypatch):
+    validator = LLMValidator()
+    validator.client = FakeClient()
+
+    result = validator.validate_resume({"skills": ["Python"]}, "Python engineer")
+
+    assert result["match_score"] == 82
+    assert validator.last_call_meta["model"] == VALIDATION_MODEL
+    assert validator.last_call_meta["attempts"] == 1
+    assert validator.last_call_meta["latency_ms"] >= 0
+    assert "api_key" not in validator.last_call_meta
