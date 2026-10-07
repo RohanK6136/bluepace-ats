@@ -110,6 +110,7 @@ from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import MATCH_WEIGHTS, matching_service
 from app.services.reranker import reranker_service
+from app.services.match_explanation import build_match_explanation
 from app.routers.merge_center import router as merge_center_router
 from app.routers.offer_management import router as offer_management_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
@@ -887,6 +888,31 @@ def _serialize_candidate_match(match: CandidateJobMatch, job: Job | None = None)
         if skill.casefold().strip() in candidate_skill_lookup or skill.casefold().strip() in matched_set
     ]
     breakdown = match.score_breakdown or {}
+    experience = (profile.get("experience") or [])
+    projects = profile.get("university_projects") or profile.get("projects") or []
+    compact_evidence = []
+    for item in experience[:3]:
+        if isinstance(item, dict):
+            title = " · ".join(str(item.get(key)).strip() for key in ("title", "company") if item.get(key))
+            details = str(item.get("description") or "").strip()
+            if title or details:
+                compact_evidence.append({"type": "experience", "title": title or "Experience", "details": details})
+    for item in projects[:3]:
+        text_value = str(item).strip()
+        if text_value:
+            compact_evidence.append({"type": "project", "title": text_value, "details": ""})
+    experience_years = matching_service._estimate_experience_years(experience)
+    match_explanation = build_match_explanation(
+        candidate_name=f"{match.candidate.first_name} {match.candidate.last_name}".strip(),
+        job_title=job.title if job is not None else "selected role",
+        match_score=match.model_score,
+        matched_required=matched_required,
+        matched_preferred=matched_preferred,
+        skill_gaps=match.skill_gaps or [],
+        experience_years=experience_years,
+        required_experience_years=analysis.get("minimum_experience_years"),
+        evidence=compact_evidence,
+    )
     return {
         "id": match.id,
         "job_id": match.job_id,
@@ -903,10 +929,11 @@ def _serialize_candidate_match(match: CandidateJobMatch, job: Job | None = None)
         "matched_required_skills": matched_required,
         "matched_preferred_skills": matched_preferred,
         "skill_gaps": match.skill_gaps or [],
-        "experience_years": matching_service._estimate_experience_years(match.candidate.resume_data.get("experience") or []),
+        "experience_years": experience_years,
         "required_experience_years": analysis.get("minimum_experience_years"),
         "project_evidence": {"coverage": breakdown.get("project_evidence", 0)},
         "match_evidence": matching_service.score_candidate(job, match.candidate).get("match_evidence", {}),
+        "match_explanation": match_explanation,
         "explanations": match.explanations or [],
         "semantic_mode": match.semantic_mode,
         "decision_support_only": True,
@@ -1778,9 +1805,9 @@ def application_fit_analysis(
     pct = int(score.get("model_score", 0))
     fit = "Strong Fit" if pct >= 75 else "Potential Fit" if pct >= 50 else "Low Fit"
     final_recommendation = (
-        "Recommend for next stage" if pct >= 75
-        else "Consider for next stage — review highlighted skill gaps" if pct >= 50
-        else "Do not recommend for next stage based on current resume evidence"
+        "Strong evidence — review first" if pct >= 75
+        else "Partial evidence — review highlighted gaps" if pct >= 50
+        else "Limited evidence — collect more evidence"
     )
     alignment = (
         "Strong role alignment" if pct >= 75
@@ -1804,8 +1831,19 @@ def application_fit_analysis(
         strengths.append("No strong skill evidence was identified.")
     summary = (
         f"{candidate.first_name} {candidate.last_name}".strip()
-        + f" is a {fit.lower()} for {job.title} with an overall match of {pct}%. "
+        + f" shows {fit.lower()} against {job.title} with an overall match of {pct}%. "
         + "The assessment uses resume skills, experience, education, and project evidence."
+    )
+    match_explanation = build_match_explanation(
+        candidate_name=f"{candidate.first_name} {candidate.last_name}".strip(),
+        job_title=job.title,
+        match_score=pct,
+        matched_required=required,
+        matched_preferred=preferred,
+        skill_gaps=gaps,
+        experience_years=experience_years,
+        required_experience_years=job.jd_analysis.get("minimum_experience_years") if job.jd_analysis else None,
+        evidence=evidence,
     )
     coding_catalog = {"python", "java", "javascript", "typescript", "c++", "c#", "sql", "react", "node.js", "django", "fastapi", "rest api"}
     required_coding = [skill for skill in (job.jd_analysis or {}).get("required_skills", []) if str(skill).casefold() in coding_catalog]
@@ -1822,6 +1860,7 @@ def application_fit_analysis(
         "recommendation": final_recommendation,
         "final_recommendation": final_recommendation,
         "summary": summary,
+        "match_explanation": match_explanation,
         "strengths": strengths,
         "gaps": gaps,
         "alignment": alignment,
