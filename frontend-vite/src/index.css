@@ -1124,3 +1124,242 @@ html.dark .bp-admin-shell aside nav button.bg-white\/10 {
 html.dark .bp-admin-shell .ats-workspace-header {
   background: rgba(17,27,43,.97) !important;
 }
+
+
+/* Premium polish: improve hierarchy, affordance and responsive rhythm without adding UI noise. */
+.bp-public-search {
+  display: flex;
+  align-items: center;
+  max-width: 720px;
+  padding: 5px;
+  border: 1px solid rgba(21,94,239,.12);
+  border-radius: 15px;
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 14px 34px rgba(16,24,40,.09);
+  backdrop-filter: blur(10px);
+}
+
+.bp-public-search:focus-within {
+  border-color: rgba(21,94,239,.28);
+  box-shadow: 0 0 0 4px rgba(21,94,239,.08), 0 16px 36px rgba(16,24,40,.10);
+}
+
+.bp-public-search select {
+  border-left: 1px solid #e7edf5 !important;
+}
+
+.bp-dashboard-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 28px 30px;
+  border: 1px solid rgba(21,94,239,.10);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 92% 10%, rgba(21,94,239,.14), transparent 24%),
+    linear-gradient(135deg, #ffffff 0%, #f7faff 100%);
+  box-shadow: 0 18px 46px rgba(16,24,40,.06);
+}
+
+.bp-dashboard-hero::after {
+  content: "";
+  position: absolute;
+  width: 270px;
+  height: 270px;
+  right: -130px;
+  bottom: -160px;
+  border: 1px solid rgba(21,94,239,.12);
+  border-radius: 50%;
+}
+
+.bp-dashboard-copy,
+.bp-dashboard-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.bp-dashboard-copy h2 {
+  font-size: clamp(1.7rem, 3vw, 2.35rem) !important;
+  line-height: 1.08;
+  font-weight: 760;
+  letter-spacing: -.045em;
+}
+
+.bp-dashboard-copy p {
+  max-width: 720px;
+}
+
+.bp-dashboard-actions button {
+  min-height: 42px;
+}
+
+.bp-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.bp-metric-card {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  min-height: 132px;
+  padding: 18px;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid #e4eaf2;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 9px 28px rgba(16,24,40,.045);
+}
+
+.bp-metric-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--bp-template-blue);
+}
+
+.bp-metric-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(21,94,239,.2);
+  box-shadow: 0 16px 32px rgba(16,24,40,.08);
+}
+
+.bp-metric-label {
+  color: #667085;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.bp-metric-card strong {
+  color: #101828;
+  font-size: 32px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -.05em;
+}
+
+.bp-metric-card small {
+  color: #98a2b3;
+  font-size: 11px;
+}
+
+.bp-flow-card {
+  box-shadow: 0 9px 28px rgba(16,24,40,.035);
+}
+
+.bp-flow-card button {
+  min-height: 56px;
+}
+
+.bp-dashboard-primary {
+  padding: 22px;
+  border: 1px solid #e4eaf2;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(16,24,40,.04);
+}
+
+.bp-dashboard-primary > div:first-child {
+  border-bottom: 0;
+}
+
+.bp-dashboard-secondary > div {
+  padding: 20px 0;
+  border-top: 1px solid #e4eaf2;
+}
+
+.bp-dashboard-secondary button {
+  border-radius: 10px;
+}
+
+.bp-operational-details {
+  border-radius: 14px;
+}
+
+.bp-admin-shell .bp-dashboard-primary button:hover,
+.bp-admin-shell .bp-dashboard-secondary button:hover {
+  background: #f7faff;
+}
+
+@media (max-width: 900px) {
+  .bp-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .bp-public-search {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 6px;
+    border-radius: 13px;
+  }
+
+  .bp-public-search select {
+    border-top: 1px solid #e7edf5 !important;
+    border-left: 0 !important;
+  }
+
+  .bp-public-search button {
+    width: 100%;
+  }
+
+  .bp-dashboard-hero {
+    padding: 22px;
+    border-radius: 17px;
+  }
+
+  .bp-metric-strip {
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+  }
+
+  .bp-metric-card {
+    min-height: 112px;
+    padding: 14px;
+  }
+
+  .bp-metric-card strong {
+    font-size: 27px;
+  }
+}
+
+html.dark .bp-public-search {
+  background: rgba(17,27,43,.96);
+  border-color: #26364a;
+}
+
+html.dark .bp-public-search select {
+  border-color: #26364a !important;
+  color: #c0cede;
+}
+
+html.dark .bp-dashboard-hero,
+html.dark .bp-dashboard-primary,
+html.dark .bp-metric-card {
+  background: #111b2b;
+  border-color: #26364a;
+}
+
+html.dark .bp-dashboard-hero {
+  background:
+    radial-gradient(circle at 92% 10%, rgba(77,156,255,.16), transparent 24%),
+    linear-gradient(135deg, #111b2b 0%, #0f1928 100%);
+}
+
+html.dark .bp-metric-card strong {
+  color: #eef4fb;
+}
+
+html.dark .bp-metric-label,
+html.dark .bp-metric-card small {
+  color: #91a3b7;
+}
+
+html.dark .bp-dashboard-secondary > div {
+  border-color: #26364a;
+}
