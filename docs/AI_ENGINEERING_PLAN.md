@@ -25,7 +25,7 @@ Resume/JD document
   -> recruiter decision
 ```
 
-Retrieval tasks use embeddings and vector search. Ranking can use deterministic rules plus semantic similarity and, where available, a reranker. Generation and reasoning are separate from consequential ATS actions.
+Retrieval tasks use embeddings and vector search. Ranking uses deterministic rules plus semantic similarity; an optional second-stage reranker can refine the top candidate set. The reranker is fail-open: if disabled, unconfigured, rate-limited, or unavailable, the deterministic result remains authoritative. Generation and reasoning are separate from consequential ATS actions.
 
 ## Model selection by use case
 
@@ -137,6 +137,12 @@ Keep secondary/collapsed:
 - debugging telemetry
 
 Technical diagnostics belong in developer/admin views, not the main recruiter workflow.
+
+## Evaluation and reranking
+
+The repository now includes an offline benchmark under `backend/evaluation/golden_matches.json` and metrics in `backend/app/evaluation/matching_eval.py`. The benchmark tracks precision@k, recall@k, reciprocal rank, and Brier score. It is intentionally model-free so prompt/model/provider changes can be compared against the same labels.
+
+The repository also includes an optional Cohere second-stage reranker in `backend/app/services/reranker.py`. Enable only with `RERANK_ENABLED=true` and `COHERE_API_KEY`; the model defaults to `rerank-v4.0-fast` and can be changed with `RERANK_MODEL`. The first-pass ATS score is kept dominant (75%) so external relevance is a refinement, not a replacement for explicit ATS evidence.
 
 ## Immediate next engineering work
 
