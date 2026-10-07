@@ -14,6 +14,7 @@ MATCHING_MODEL = os.getenv("MATCHING_CHAT_MODEL", DEFAULT_MODEL)
 DEEP_REASONING_MODEL = os.getenv("OPENROUTER_DEEP_REASONING_MODEL", "openai/gpt-5.5")
 
 EMBEDDING_MODEL = os.getenv("MATCHING_EMBEDDING_MODEL", "text-embedding-3-small")
+PROMPT_VERSION = os.getenv("AI_PROMPT_VERSION", "2026-10-07.1")
 
 
 def model_for(task: str, *, deep: bool = False) -> str:

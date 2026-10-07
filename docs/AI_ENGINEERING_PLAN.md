@@ -144,14 +144,21 @@ The repository now includes an offline benchmark under `backend/evaluation/golde
 
 The repository also includes an optional Cohere second-stage reranker in `backend/app/services/reranker.py`. Enable only with `RERANK_ENABLED=true` and `COHERE_API_KEY`; the model defaults to `rerank-v4.0-fast` and can be changed with `RERANK_MODEL`. The first-pass ATS score is kept dominant (75%) so external relevance is a refinement, not a replacement for explicit ATS evidence.
 
-## Immediate next engineering work
+## Completed in the current AI-engineering pass
 
-1. Add a compact evidence-backed match explanation contract to the API.
-2. Add a fixed match/evidence evaluation fixture and regression test.
-3. Add reranking as an optional second retrieval stage.
-4. Add model/version and latency/cost telemetry without exposing it in the primary UI.
-5. Add a small multimodal/OCR fallback path for scanned resumes.
-6. Review every visible dashboard section against the rule: useful to a recruiter now, or move it to More/details.
+1. Added a compact, deterministic evidence-backed match explanation contract to the match and fit-analysis APIs.
+2. Added a reusable offline matching benchmark with precision@k, recall@k, reciprocal rank, and Brier score.
+3. Added optional second-stage reranking with a fail-open provider integration.
+4. Added non-sensitive AI model, latency, token, and retrieval-quality telemetry to backend audit records.
+5. Hardened prompts so resumes/JDs/retrieved content are treated as untrusted evidence, with bounded context and prompt-injection flagging.
+6. Simplified the recruiter matching UI so CV summaries and detailed evidence stay behind details, while the main view emphasizes the review signal, skills, gaps, and concise evidence.
+
+## Next engineering priorities
+
+1. Add a small multimodal/OCR fallback path for scanned resumes when deterministic text extraction is insufficient.
+2. Expand the fixed evaluation set with contradictory dates, synonym-heavy skills, sparse resumes, multilingual documents, and prompt-injection cases.
+3. Track prompt/model versions explicitly in AI audit records so regression comparisons remain reproducible.
+4. Review every remaining visible dashboard section against the rule: useful to a recruiter now, or move it to More/details.
 
 ## Safety and governance
 

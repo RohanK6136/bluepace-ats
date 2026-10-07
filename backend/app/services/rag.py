@@ -189,9 +189,17 @@ class RagService:
             db.commit()
             return len(records)
 
-    def ensure_application_index(self, application_id: int, organization_id: int) -> dict:
-        with SessionLocal() as db:
-            application = db.scalar(
+    def ensure_application_index(self, application_id: int, organization_id: int, db=None) -> dict:
+        """Ensure application RAG sources exist without escaping the caller's session.
+
+        A caller-provided SQLAlchemy session is preferred so request handlers and
+        tests observe the same transaction/connection. The legacy SessionLocal
+        fallback keeps background callers compatible.
+        """
+        owns_session = db is None
+        session = db or SessionLocal()
+        try:
+            application = session.scalar(
                 select(Application).where(
                     Application.id == application_id,
                     Application.organization_id == organization_id,
@@ -199,12 +207,12 @@ class RagService:
             )
             if application is None:
                 return {"candidate_chunks": 0, "job_chunks": 0}
-            candidate_ready = db.scalar(select(RagChunk.id).where(
+            candidate_ready = session.scalar(select(RagChunk.id).where(
                 RagChunk.organization_id == organization_id,
                 RagChunk.source_type == "candidate",
                 RagChunk.source_id == application.candidate_id,
             ).limit(1))
-            job_ready = db.scalar(select(RagChunk.id).where(
+            job_ready = session.scalar(select(RagChunk.id).where(
                 RagChunk.organization_id == organization_id,
                 RagChunk.source_type == "job",
                 RagChunk.source_id == application.job_id,
@@ -212,7 +220,11 @@ class RagService:
             candidate_id = application.candidate_id
             job_id = application.job_id
 
-        result = {"candidate_chunks": 0, "job_chunks": 0}
+            result = {"candidate_chunks": 0, "job_chunks": 0}
+        finally:
+            if owns_session:
+                session.close()
+
         if candidate_ready is None:
             try:
                 result["candidate_chunks"] = self.index_candidate(candidate_id, organization_id)

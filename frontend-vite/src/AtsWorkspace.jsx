@@ -1883,19 +1883,32 @@ export default function AtsWorkspace() {
                       <td className="max-w-48 px-3 py-4 text-xs text-emerald-800">{match.matched_skills.join(", ") || "No direct skill matches"}</td>
                       <td className="max-w-48 px-3 py-4 text-xs text-rose-800">{match.skill_gaps.join(", ") || "No required skill gaps"}</td>
                       <td className="max-w-64 px-3 py-4">
-                        <ul className="grid gap-1 text-xs text-ink-600">{match.explanations.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul>
-                        {match.match_evidence?.required_skills?.length > 0 && (
-                          <details className="mt-2">
-                            <summary className="cursor-pointer text-[11px] font-semibold text-blue-700">View evidence</summary>
-                            <div className="mt-2 grid gap-1.5 text-[11px] text-ink-500">
-                              {match.match_evidence.required_skills.slice(0, 6).map((item) => (
-                                <div key={item.skill}><span className="font-semibold text-ink-700">{item.skill}</span> · evidenced{item.sources?.[0]?.source_lines?.length ? ` · ${item.sources[0].source_lines[0]}` : ""}</div>
-                              ))}
-                            </div>
-                          </details>
-                        )}
-                      </td>
-                      <td className="min-w-64 px-3 py-4"><ul className="grid gap-1 text-xs text-ink-600">{match.cv_summary.map((item, itemIndex) => <li key={itemIndex}>• {item}</li>)}</ul></td>
+  <p className="text-xs leading-5 text-ink-700">{match.match_explanation?.summary || match.explanations?.[0] || "Match evidence is available for recruiter review."}</p>
+  {!!(match.match_explanation?.strengths || []).length && (
+    <div className="mt-2 grid gap-1.5">
+      {match.match_explanation.strengths.slice(0, 2).map((item, itemIndex) => <p key={itemIndex} className="text-[11px] leading-5 text-emerald-800">+ {item}</p>)}
+    </div>
+  )}
+  {!!(match.match_explanation?.review_flags || []).length && (
+    <div className="mt-2 grid gap-1.5">
+      {match.match_explanation.review_flags.slice(0, 2).map((item, itemIndex) => <p key={itemIndex} className="text-[11px] leading-5 text-amber-800">Review: {item}</p>)}
+    </div>
+  )}
+  {!!(match.match_explanation?.evidence || []).length && (
+    <details className="mt-2">
+      <summary className="cursor-pointer text-[11px] font-semibold text-blue-700">View evidence</summary>
+      <div className="mt-2 grid gap-1.5 text-[11px] text-ink-500">
+        {match.match_explanation.evidence.slice(0, 4).map((item, itemIndex) => <div key={item.type + "-" + itemIndex}><span className="font-semibold text-ink-700">{item.title}</span>{item.details ? " · " + item.details : ""}</div>)}
+      </div>
+    </details>
+  )}
+</td>
+<td className="min-w-64 px-3 py-4">
+  <details>
+    <summary className="cursor-pointer text-[11px] font-semibold text-ink-600">View CV summary</summary>
+    <ul className="mt-2 grid gap-1 text-xs text-ink-600">{(match.cv_summary || []).slice(0, 4).map((item, itemIndex) => <li key={itemIndex}>• {item}</li>)}</ul>
+  </details>
+</td>
                       <td className="min-w-56 px-3 py-4"><div className="grid gap-2"><label className="grid gap-1 text-[11px] font-medium text-ink-500">Override score<input className={`${inputStyle} py-1.5`} type="number" min="0" max="100" value={overrideValue} placeholder={String(match.model_score)} disabled={!canWrite} onChange={(event) => changeMatchFeedback(match.id, "recruiter_override", event.target.value)} /></label><label className="grid gap-1 text-[11px] font-medium text-ink-500">Review note<input className={`${inputStyle} py-1.5`} value={noteValue} placeholder="Optional rationale" disabled={!canWrite} onChange={(event) => changeMatchFeedback(match.id, "recruiter_note", event.target.value)} /></label>{canWrite && <button className={buttonSecondary} onClick={() => saveMatchFeedback(match)}>Save review</button>}</div></td>
                     </tr>;
                   })}
@@ -2200,9 +2213,9 @@ export default function AtsWorkspace() {
                             </div>
                             <p className="mt-2 max-w-4xl text-sm leading-6 text-ink-600">{fitAnalysis.summary || "Role-fit evidence generated from the candidate resume and selected job description."}</p>
                             <div className="mt-3 rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Final recommendation</p>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Review signal</p>
                               <p className="mt-1 text-sm font-semibold text-ink-900">{fitAnalysis.final_recommendation || fitAnalysis.recommendation || "Recruiter review required"}</p>
-                              <p className="mt-1 text-[11px] leading-5 text-ink-500">Based on current resume-to-JD evidence. This is decision support and not an automated hiring decision.</p>
+                              <p className="mt-1 text-[11px] leading-5 text-ink-500">Use the evidence below to guide recruiter review. This is not an automated hiring decision.</p>
                             </div>
                           </div>
                           <div className="shrink-0 rounded-xl border border-blue-100 bg-blue-50 px-5 py-3 text-center">

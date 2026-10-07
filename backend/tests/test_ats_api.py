@@ -136,6 +136,7 @@ def test_fast_resume_validation_does_not_require_auth(client):
 
 def test_public_jobs_and_resume_application(client, monkeypatch):
     monkeypatch.setenv("PUBLIC_ORGANIZATION_ID", "1")
+    monkeypatch.setattr(api, "_enqueue_resume_ingest", lambda _job_id: SimpleNamespace(id="test-task"))
     headers = register_and_login(client, email="public-owner@example.com", organization="Public ATS")
 
     created = client.post(
@@ -171,13 +172,20 @@ def test_public_jobs_and_resume_application(client, monkeypatch):
         data={"full_name": "Jane Doe", "email": "jane@example.com"},
         files={"file": ("jane.docx", buffer.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
     )
-    assert applied.status_code == 200
-    assert applied.json()["status"] == "success"
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == "accepted"
+    assert applied.json()["processing_mode"] in {"external_queue", "db_dispatcher"}
+
+    applications = client.get("/applications", headers=headers)
+    assert applications.status_code == 200
+    assert len(applications.json()) == 1
+    assert applications.json()[0]["candidate"]["email"] == "jane@example.com"
 
     matches = client.get(f"/jobs/{job_id}/matches", headers=headers)
     assert matches.status_code == 200
-    assert len(matches.json()) == 1
-    assert 0 <= matches.json()[0]["model_score"] <= 100
+    # Resume extraction runs asynchronously; ranking becomes available after
+    # the processing job completes.
+    assert matches.json() == []
 
 
 def test_job_crud_requires_auth_and_round_trips(client):
@@ -891,7 +899,7 @@ def test_resume_intelligence_extracts_extended_profile_and_non_definitive_signal
     assert parsed["certifications"]
     assert parsed["companies"] == ["Acme Labs"]
     assert parsed["job_titles"] == ["Senior Engineer"]
-    assert parsed["resume_intelligence_version"] == 3
+    assert parsed["resume_intelligence_version"] == 4
     assert "disclaimer" in parsed["resume_quality"]
     assert "linkedin" not in parsed["resume_quality"]["missing_fields"]
     assert "GitHub" not in parsed["resume_quality"]["optional_missing_fields"]
