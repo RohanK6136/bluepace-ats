@@ -1535,21 +1535,21 @@ export default function AtsWorkspace() {
           {view === "merge-center" && <CandidateMergeCenter token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
           {view === "dashboard" && <>
-            <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
-              <div>
+            <div className="bp-dashboard-hero mb-7 flex flex-wrap items-end justify-between gap-5">
+              <div className="bp-dashboard-copy">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Hiring workspace</p>
                 <h2 className="mt-1 text-2xl font-semibold tracking-tight">Move candidates from application to hire</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-600">
                   One simple path: create a job, add candidates, review applications, schedule interviews, then make an offer.
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="bp-dashboard-actions flex gap-2">
                 {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
                 {canWrite && <button className={buttonSecondary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
               </div>
             </div>
 
-            <section className="mb-8 rounded-xl border border-ink-100 bg-white p-4 sm:p-5">
+            <section className="bp-flow-card mb-8 rounded-xl border border-ink-100 bg-white p-4 sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Simple hiring flow</p>
@@ -1579,7 +1579,29 @@ export default function AtsWorkspace() {
 
             {dashboardLoading && <p className="mb-6 text-sm text-ink-500">Loading dashboard…</p>}
             {dashboardData && <>
-              <section className="grid gap-5 lg:grid-cols-[1.4fr_0.6fr]">
+              <section className="bp-metric-strip mb-7" aria-label="Recruiting overview">
+                <button type="button" className="bp-metric-card" onClick={() => setView("jobs")}>
+                  <span className="bp-metric-label">Open jobs</span>
+                  <strong>{dashboardData.metrics?.open_jobs ?? 0}</strong>
+                  <small>Roles actively hiring</small>
+                </button>
+                <button type="button" className="bp-metric-card" onClick={() => setView("candidates")}>
+                  <span className="bp-metric-label">Candidate pool</span>
+                  <strong>{candidates.length}</strong>
+                  <small>Profiles in your workspace</small>
+                </button>
+                <button type="button" className="bp-metric-card" onClick={() => setView("pipeline")}>
+                  <span className="bp-metric-label">Applications</span>
+                  <strong>{dashboardData.recent_applications?.length ? applications.length || "—" : applications.length}</strong>
+                  <small>Recent hiring activity</small>
+                </button>
+                <button type="button" className="bp-metric-card" onClick={() => setView("interviews-2")}>
+                  <span className="bp-metric-label">Interviews</span>
+                  <strong>{dashboardData.upcoming_interviews?.length || 0}</strong>
+                  <small>Upcoming schedule</small>
+                </button>
+              </section>
+              <section className="bp-dashboard-primary grid gap-5 lg:grid-cols-[1.45fr_0.55fr]">
                 <div className="border-b border-ink-200 pb-6">
                   <div className="flex flex-wrap items-baseline justify-between gap-4">
                     <div>
@@ -1609,7 +1631,7 @@ export default function AtsWorkspace() {
                 </div>
               </section>
 
-              <section className="mt-8 grid gap-8 lg:grid-cols-2">
+              <section className="bp-dashboard-secondary mt-8 grid gap-8 lg:grid-cols-2">
                 <div>
                   <div className="flex items-baseline justify-between gap-3">
                     <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Attention</p><h3 className="mt-1 text-lg font-semibold">Latest applications</h3></div>
@@ -1639,7 +1661,7 @@ export default function AtsWorkspace() {
                 </div>
               </section>
 
-              <details className="mt-8 border-t border-ink-200 pt-4">
+              <details className="bp-operational-details mt-8 border-t border-ink-200 pt-4">
                 <summary className="cursor-pointer text-sm font-semibold text-ink-700">Operational details</summary>
                 <div className="mt-5 grid gap-8 md:grid-cols-3">
                   <div>
