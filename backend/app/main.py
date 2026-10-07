@@ -1095,21 +1095,35 @@ async def public_apply(
     db.commit()
     db.refresh(processing_job)
 
+    processing_mode = "external_queue"
     try:
         task = _enqueue_resume_ingest(processing_job.id)
         processing_job.task_id = task.id
         db.commit()
     except Exception as error:
-        processing_job.status = "failed"
-        processing_job.error_message = f"Queue submission failed: {error}"[:4000]
+        # The app also has a DB-backed dispatcher. Keep the job queued so an
+        # internal worker can process it instead of failing the public apply.
+        dispatcher_enabled = os.getenv("ENABLE_DB_RESUME_DISPATCHER", "true").strip().lower() == "true"
+        if not dispatcher_enabled:
+            processing_job.status = "failed"
+            processing_job.error_message = f"Queue submission failed: {error}"[:4000]
+            db.commit()
+            storage_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=503,
+                detail="Your application could not be placed in the processing queue. Please retry.",
+            ) from error
+        processing_job.status = "queued"
+        processing_job.task_id = None
+        processing_job.error_message = f"External queue unavailable; using DB dispatcher: {error}"[:4000]
+        processing_mode = "db_dispatcher"
         db.commit()
-        storage_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=503, detail="Your application could not be placed in the processing queue. Please retry.") from error
 
     return {
         "status": "accepted",
         "application_id": application.id,
         "processing_job_id": processing_job.id,
+        "processing_mode": processing_mode,
         "message": f"Application submitted for {job.title}. Your resume is being processed in the background.",
         "accepted_handler_ms": round((perf_counter() - started) * 1000, 2),
     }
