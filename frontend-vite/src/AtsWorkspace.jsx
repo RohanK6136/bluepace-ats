@@ -1189,70 +1189,56 @@ export default function AtsWorkspace() {
           </div>
         </header>
 
-        <section className="bp-public-hero relative overflow-hidden border-b border-ink-100">
-          <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 sm:py-16 lg:grid-cols-[1.35fr_0.65fr] lg:items-end lg:py-20">
-            <div className="max-w-3xl">
-              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-orange-500"></span>
-                Careers at Blupace Tech
-              </p>
-              <h1 className="mt-5 text-4xl font-semibold tracking-[-0.035em] text-ink-950 sm:text-5xl lg:text-6xl">
-                Enterprise talent, built to move at your pace.
-              </h1>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-ink-600 sm:text-lg">
-                Explore technology opportunities across software, AI, data, cloud, cybersecurity, infrastructure and workplace services.
+        <section className="bp-template-hero relative overflow-hidden border-b border-ink-100">
+          <div className="bp-template-hero-inner mx-auto grid max-w-7xl lg:grid-cols-[1.03fr_0.97fr]">
+            <div className="bp-template-hero-copy px-5 py-14 sm:px-8 sm:py-16 lg:px-12 lg:py-24">
+              <p className="bp-template-kicker">Modern talent, intelligently matched</p>
+              <h1>Where great talent meets the right opportunity.</h1>
+              <p className="bp-template-lede">
+                Explore open roles, discover teams, and apply in a simple flow. Recruiters get structured candidate evidence, matching, and pipeline management in one workspace.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
-                <a href="#jobs" className={buttonPrimary + " no-underline"}>Explore open roles</a>
+                <a href="#jobs" className={buttonPrimary + " no-underline"}>Find open positions</a>
                 <button type="button" className={buttonSecondary} onClick={() => switchAccessMode("admin")}>Recruiter sign in</button>
               </div>
               <form
-                className="bp-public-search mt-7 flex flex-col gap-2 sm:flex-row"
+                className="bp-template-search mt-8"
                 onSubmit={(event) => { event.preventDefault(); document.getElementById("jobs")?.scrollIntoView({ behavior: "smooth" }); }}
               >
                 <label className="sr-only" htmlFor="public-role-search">Search open roles</label>
                 <input
                   id="public-role-search"
-                  className="w-full border-0 bg-transparent px-4 py-3 text-sm text-ink-900 outline-none"
-                  placeholder="Search roles, skills or teams"
+                  placeholder="Search by role, skill or team"
                   value={publicFilters.search}
                   onChange={(event) => setPublicFilters({ ...publicFilters, search: event.target.value })}
                 />
-                <select
-                  aria-label="Work mode"
-                  className="border-0 bg-transparent px-3 py-3 text-sm font-medium text-ink-700 outline-none sm:w-36"
-                  value={publicFilters.work_mode}
-                  onChange={(event) => setPublicFilters({ ...publicFilters, work_mode: event.target.value })}
-                >
+                <select aria-label="Work mode" value={publicFilters.work_mode} onChange={(event) => setPublicFilters({ ...publicFilters, work_mode: event.target.value })}>
                   <option value="">Any work mode</option>
                   <option value="remote">Remote</option>
                   <option value="hybrid">Hybrid</option>
                   <option value="onsite">On-site</option>
                 </select>
-                <button type="submit" className={buttonPrimary + " sm:min-w-28"}>Find roles</button>
+                <button type="submit">Search</button>
               </form>
             </div>
-
-            <div className="bp-hero-preview hidden lg:block" aria-label="BluePace ATS candidate intelligence preview">
-              <div className="bp-preview-top">
-                <span className="bp-preview-dot"></span>
-                Candidate intelligence
+            <div className="bp-template-visual" aria-label="BluePace recruitment visual">
+              <div className="bp-template-visual-grid"></div>
+              <div className="bp-template-visual-copy">
+                <span className="bp-visual-pill">BLUEPACE ATS</span>
+                <strong>Connect.<br />Evaluate.<br />Move forward.</strong>
+                <span className="bp-visual-line"></span>
+                <span className="bp-visual-note">Evidence-backed candidate review</span>
               </div>
-              <div className="bp-preview-card">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-400">Python Backend Engineer</p>
-                  <p className="mt-2 text-xl font-bold text-ink-950">Asha Tester</p>
-                  <p className="mt-1 text-xs text-ink-500">3 years · Hyderabad · Applied today</p>
-                </div>
-                <div className="bp-preview-score">92<span>%</span></div>
+              <div className="bp-visual-card bp-visual-card-one">
+                <span>OPEN ROLE</span>
+                <b>Python Backend Engineer</b>
+                <small>Hyderabad · Hybrid</small>
               </div>
-              <div className="bp-preview-list">
-                <div><span>✓</span> Python</div>
-                <div><span>✓</span> PostgreSQL</div>
-                <div><span>✓</span> API development</div>
-                <div className="muted"><span>!</span> Kubernetes — review</div>
+              <div className="bp-visual-card bp-visual-card-two">
+                <span>MATCH SIGNAL</span>
+                <b>92%</b>
+                <small>Strong evidence</small>
               </div>
-              <p className="bp-preview-foot">Evidence-backed matching · Recruiter review stays in control</p>
             </div>
           </div>
         </section>
