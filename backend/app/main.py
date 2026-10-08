@@ -1780,6 +1780,14 @@ async def create_job_from_document(
     )
     effective_title = (title or inferred_title).strip()[:200]
     analysis = matching_service.parse_job_description(effective_title, raw_text, location)
+    job_document_key = f"job-descriptions/{user.organization_id}/{uuid4().hex}{suffix}"
+    job_document_reference = private_storage.put_bytes(
+        job_document_key,
+        content,
+        file.content_type or "application/octet-stream",
+    )
+    analysis["document_storage_key"] = job_document_reference
+    analysis["document_filename"] = file.filename
     inferred_fresher = bool(
         re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", raw_text, re.IGNORECASE)
         or re.search(r"\b0\s*(?:years?|yrs?)\b", raw_text, re.IGNORECASE)
