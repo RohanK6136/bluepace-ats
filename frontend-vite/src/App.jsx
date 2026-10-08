@@ -4,7 +4,7 @@ import axios from "axios";
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
   configuredApiUrl ||
-  (import.meta.env.PROD ? "https://bluepace-ats-9.onrender.com" : "http://localhost:8000")
+  (import.meta.env.PROD ? "https://bluepace-ats-production.up.railway.app" : "http://localhost:8000")
 ).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 90_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
