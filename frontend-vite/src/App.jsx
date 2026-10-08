@@ -8,6 +8,8 @@ const API_URL = (
 ).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 90_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
+const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
@@ -158,6 +160,10 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       setJdError("Choose a JD PDF or DOCX file first.");
       return;
     }
+    if (jdFile.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setJdError(`JD file must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+      return;
+    }
     setJdLoading(true);
     setJdError("");
     try {
@@ -208,8 +214,8 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     if (!/\.(pdf|docx)$/i.test(selected.name)) {
       setFile(null); setUploadError("Choose a PDF or DOCX resume."); event.target.value = ""; return;
     }
-    if (selected.size > 10 * 1024 * 1024) {
-      setFile(null); setUploadError("Resume must be 10MB or smaller."); event.target.value = ""; return;
+    if (selected.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setFile(null); setUploadError("Resume must be 5 MB or smaller."); event.target.value = ""; return;
     }
     setFile(selected); setUploadError("");
   }
@@ -263,9 +269,9 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       setBulkError("Paste the job description before queueing resumes so every candidate can be evaluated for fit.");
       return;
     }
-    const validFiles = bulkFiles.filter((item) => /\.(pdf|docx)$/i.test(item.name) && item.size <= 10 * 1024 * 1024);
+    const validFiles = bulkFiles.filter((item) => /\.(pdf|docx)$/i.test(item.name) && item.size <= MAX_DOCUMENT_SIZE_BYTES);
     if (!validFiles.length) {
-      setBulkError("Choose at least one PDF or DOCX resume up to 10MB.");
+      setBulkError("Choose at least one PDF or DOCX resume up to 5 MB.");
       return;
     }
 
@@ -447,7 +453,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
                   <p className="text-xs font-semibold text-ink-700">Upload JD</p>
-                  <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={(event) => { setJdFile(event.target.files?.[0] || null); setJdError(""); }} />
+                  <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setJdFile(null); setJdError(`JD file must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setJdFile(selected); setJdError(""); }} />
                   <button type="button" onClick={loadJobDescriptionFromFile} disabled={!jdFile || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use uploaded JD"}</button>
                 </div>
                 <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
@@ -467,7 +473,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                   className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
                   onChange={(event) => setBulkFiles(Array.from(event.target.files || []))}
                 />
-                <span className="text-[11px] font-normal text-ink-400">Select hundreds or thousands. Each file must be PDF/DOCX and ≤10MB.</span>
+                <span className="text-[11px] font-normal text-ink-400">Select hundreds or thousands. Each file must be PDF/DOCX and ≤5 MB.</span>
               </label>
               <button type="button" onClick={queueBulkResumes} disabled={bulkUploading || !bulkFiles.length || !jobDescription.trim()} className="inline-flex items-center justify-center rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#10131c] disabled:opacity-50">
                 {bulkUploading ? "Uploading…" : `Queue ${bulkFiles.length || 0} resumes`}
@@ -568,7 +574,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             <label className="mt-5 grid cursor-pointer gap-2 border border-dashed border-ink-200 bg-[#fafaf8] p-6 text-center hover:border-gold-400">
               <input className="sr-only" type="file" accept=".pdf,.docx" onChange={handleFileChange} />
               <span className="text-sm font-semibold">{file ? file.name : "Choose PDF or DOCX"}</span>
-              <span className="text-xs text-ink-500">Text-based documents up to 10MB</span>
+              <span className="text-xs text-ink-500">Text-based documents up to 5 MB</span>
             </label>
             {file && <div className="mt-3 flex items-center justify-between gap-3 text-xs text-ink-500"><span>{(file.size / 1024).toFixed(0)} KB</span><button type="button" className="font-semibold text-ink-700 hover:underline" onClick={() => setFile(null)}>Remove</button></div>}
             <button type="button" onClick={handleExtract} disabled={!file || loading} className="mt-5 inline-flex w-full items-center justify-center rounded-md bg-[#c49a4a] px-4 py-3 text-sm font-semibold text-[#10131c] hover:bg-[#d4b06a] disabled:opacity-50">

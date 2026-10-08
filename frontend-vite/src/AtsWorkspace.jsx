@@ -14,6 +14,9 @@ const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
 const HiringPipelineKanban = lazy(() => import("./HiringPipelineKanban.jsx"));
 
+const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
+const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
+
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
   configuredApiUrl ||
@@ -867,6 +870,10 @@ export default function AtsWorkspace() {
           setError("Select a PDF or DOCX resume.");
           return;
         }
+        if (applicationResumeFile.size > MAX_DOCUMENT_SIZE_BYTES) {
+          setError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+          return;
+        }
         const body = new FormData();
         body.append("file", applicationResumeFile);
         body.append("job_id", String(Number(applicationForm.job_id)));
@@ -1355,7 +1362,7 @@ export default function AtsWorkspace() {
                     onChange={(event) => setPublicResume(event.target.files?.[0] || null)}
                     className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
                   />
-                  <span className="text-[11px] font-normal text-ink-400">PDF or DOCX, up to 10MB.</span>
+                  <span className="text-[11px] font-normal text-ink-400">PDF or DOCX, up to 5 MB.</span>
                 </label>
 
                 {publicError && <p role="alert" className="text-sm text-rose-700">{publicError}</p>}
@@ -1850,8 +1857,8 @@ export default function AtsWorkspace() {
                 <div className="grid gap-4">
                   <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4 text-sm text-ink-700">Upload the job description as PDF or DOCX. BluePace extracts the text, required skills, experience, location and education requirements automatically, then uses the same matching engine for applicants.</div>
                   <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Job description document
-                    <input className={inputStyle + " p-2"} type="file" accept=".pdf,.docx" required onChange={(event) => setJobDocumentFile(event.target.files?.[0] || null)} />
-                    <span className="text-[11px] font-normal text-ink-400">{jobDocumentFile ? jobDocumentFile.name : "PDF or DOCX, up to 10MB."}</span>
+                    <input className={inputStyle + " p-2"} type="file" accept=".pdf,.docx" required onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setJobDocumentFile(null); setError(`Job document must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setJobDocumentFile(selected); setError(""); }} />
+                    <span className="text-[11px] font-normal text-ink-400">{jobDocumentFile ? jobDocumentFile.name : "PDF or DOCX, up to 5 MB."}</span>
                   </label>
                   <div className="grid gap-3 sm:grid-cols-3">
                     <Field label="Job title override (optional)" value={jobForm.title} onChange={(event) => setJobForm({ ...jobForm, title: event.target.value })} />
@@ -2022,7 +2029,7 @@ export default function AtsWorkspace() {
                 </SelectField>
                 <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2 lg:col-span-2">
                   Resume (PDF or DOCX)
-                  <input className={`${inputStyle} p-2`} type="file" accept=".pdf,.docx" onChange={(event) => setResumeFile(event.target.files?.[0] || null)} />
+                  <input className={`${inputStyle} p-2`} type="file" accept=".pdf,.docx" onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setResumeFile(null); setError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setResumeFile(selected); setError(""); }} />
                   <span className="text-[11px] font-normal text-ink-400">{candidateEntryMode === "resume" ? "Required in upload mode." : "Optional in manual mode."}</span>
                 </label>
               </div>
@@ -2526,7 +2533,7 @@ export default function AtsWorkspace() {
             ) : (
               <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
                 Resume (PDF or DOCX)
-                <input className={inputStyle + " p-2"} type="file" accept=".pdf,.docx" required onChange={(event) => setApplicationResumeFile(event.target.files?.[0] || null)} />
+                <input className={inputStyle + " p-2"} type="file" accept=".pdf,.docx" required onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setApplicationResumeFile(null); setError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setApplicationResumeFile(selected); setError(""); }} />
                 <span className="text-[11px] font-normal text-ink-400">{applicationResumeFile ? applicationResumeFile.name : "Upload the candidate resume. Details are extracted automatically and the application is matched to the selected job."}</span>
               </label>
             )}

@@ -105,6 +105,7 @@ from app.schemas import (
     UserRead,
 )
 from app.security import create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
+from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
@@ -284,7 +285,7 @@ async def add_process_time_header(request, call_next):
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
 DEPLOYED_BACKEND_ORIGIN = os.getenv("BACKEND_PUBLIC_ORIGIN", "https://bluepace-ats-11.onrender.com")
-MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024
+MAX_RESUME_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES
 
 def ensure_bootstrap_account() -> None:
     email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
@@ -403,12 +404,12 @@ def get_allowed_origins(configured_origins: str | None = None) -> list[str]:
 
 async def _read_resume_upload(file: UploadFile) -> tuple[str, bytes]:
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".pdf", ".docx"}:
+    if suffix not in SUPPORTED_DOCUMENT_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Only PDF and DOCX resumes are supported.")
 
     content = await file.read(MAX_RESUME_SIZE_BYTES + 1)
     if len(content) > MAX_RESUME_SIZE_BYTES:
-        raise HTTPException(status_code=413, detail="Resume must be 10MB or smaller.")
+        raise HTTPException(status_code=413, detail="Resume must be 5 MB or smaller.")
     if not content:
         raise HTTPException(status_code=400, detail="The uploaded resume is empty.")
     return suffix, content
@@ -613,9 +614,9 @@ async def resume_lab_job_description(
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in {".pdf", ".docx"}:
             raise HTTPException(status_code=400, detail="JD upload must be a PDF or DOCX file.")
-        content = await file.read(10 * 1024 * 1024 + 1)
-        if len(content) > 10 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="JD file must be 10MB or smaller.")
+        content = await file.read(MAX_DOCUMENT_SIZE_BYTES + 1)
+        if len(content) > MAX_DOCUMENT_SIZE_BYTES:
+            raise HTTPException(status_code=413, detail="JD file must be 5 MB or smaller.")
         if not content:
             raise HTTPException(status_code=400, detail="The uploaded JD file is empty.")
         try:
