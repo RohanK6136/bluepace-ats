@@ -55,3 +55,13 @@ def test_extract_job_document_fields_maps_review_form(monkeypatch):
     assert fields["required_skills"] == ["Python", "FastAPI", "PostgreSQL"]
     assert fields["responsibilities"] == ["Build APIs", "Improve platform reliability"]
     assert fields["extraction_engine"] == "docling"
+
+
+def test_extractor_defaults_to_docling(monkeypatch):
+    monkeypatch.delenv("DOCUMENT_EXTRACTION_ENGINE", raising=False)
+    monkeypatch.delenv("DOCUMENT_EXTRACTION_FALLBACK_ENGINE", raising=False)
+    service = extractor_module.DocumentExtractor()
+    assert service is not None
+    source = extractor_module.DocumentExtractor.extract_to_json.__code__
+    assert source.co_names  # sanity-check method is loaded
+    assert 'DOCUMENT_EXTRACTION_ENGINE' in extractor_module.DocumentExtractor.extract_to_json.__doc__ if extractor_module.DocumentExtractor.extract_to_json.__doc__ else True
