@@ -113,6 +113,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [uploadValidation, setUploadValidation] = useState(null);
   const [validationError, setValidationError] = useState("");
   const [uploadTiming, setUploadTiming] = useState(null);
   const [validationTiming, setValidationTiming] = useState(null);
@@ -207,6 +208,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   function handleFileChange(event) {
     const selected = event.target.files?.[0] || null;
     setJsonData(null);
+    setUploadValidation(null);
     setValidationResult(null);
     setValidationError("");
     setUploadTiming(null);
@@ -223,7 +225,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   async function handleExtract() {
     if (!file) { setUploadError("Choose a PDF or DOCX resume first."); return; }
     if (!jobDescription.trim()) { setUploadError("Paste the job description first so the candidate fit can be calculated."); return; }
-    setLoading(true); setJsonData(null); setValidationResult(null); setUploadError(""); setUploadTiming(null);
+    setLoading(true); setJsonData(null); setUploadValidation(null); setValidationResult(null); setUploadError(""); setUploadTiming(null);
     const started = performance.now();
     const body = new FormData();
     body.append("file", file);
@@ -232,9 +234,13 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       const response = await postToApi("/extract/", body);
       if (!response.data?.data || typeof response.data.data !== "object") throw new Error("The ATS API returned an invalid extraction response.");
       setJsonData(response.data.data);
+      setUploadValidation(response.data?.resume_validation || null);
       if (response.data?.validation) setValidationResult(response.data.validation);
       setResumeLabSyncStatus("");
-      if (token) {
+      const validationStatus = response.data?.resume_validation?.status;
+      if (validationStatus === "invalid") {
+        setResumeLabSyncStatus("Resume was extracted, but ATS sync was blocked by upload validation. Review the validation errors and upload a corrected resume.");
+      } else if (token) {
         try {
           const syncResponse = await postToApi("/resume-processing/sync", {
             resume_json: response.data.data,
@@ -581,6 +587,38 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               {loading ? "Extracting…" : "Extract & validate structure"}
             </button>
             {uploadError && <p role="alert" className="mt-3 text-sm text-rose-700">{uploadError}</p>}
+            {uploadValidation && (
+              <div className="mt-4 border border-ink-100 bg-[#fafaf8] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Resume validation</p>
+                    <p className="mt-1 text-sm font-semibold">
+                      {uploadValidation.status === "valid" ? "Valid resume" : uploadValidation.status === "needs_review" ? "Needs review" : "Invalid resume"}
+                    </p>
+                  </div>
+                  <span className={
+                    uploadValidation.status === "valid"
+                      ? "rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700"
+                      : uploadValidation.status === "needs_review"
+                        ? "rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"
+                        : "rounded-full border border-rose-100 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700"
+                  }>
+                    {Number(uploadValidation.score || 0)}%
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-ink-600">{uploadValidation.message}</p>
+                {uploadValidation.errors?.length > 0 && (
+                  <div className="mt-3 space-y-1 text-xs text-rose-700">
+                    {uploadValidation.errors.map((item, index) => <p key={"validation-error-" + index}>• {item}</p>)}
+                  </div>
+                )}
+                {uploadValidation.warnings?.length > 0 && (
+                  <div className="mt-3 space-y-1 text-xs text-amber-700">
+                    {uploadValidation.warnings.map((item, index) => <p key={"validation-warning-" + index}>• {item}</p>)}
+                  </div>
+                )}
+              </div>
+            )}
             {jsonData && (
               <div className="mt-5 border-t border-ink-100 pt-5">
                 <div className="flex items-center justify-between">
