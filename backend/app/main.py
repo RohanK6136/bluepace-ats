@@ -101,6 +101,7 @@ from app.schemas import (
     InterviewAvailabilityCreate,
     InterviewAvailabilityRead,
     CandidateComparisonRead,
+    CareerAssistantRequest,
     OrganizationRegistration,
     TokenRead,
     UserCreate,
@@ -1000,6 +1001,176 @@ def public_jobs(
         }
         for job in jobs
     ]
+
+
+@app.post("/public/career-assistant", response_class=JSONResponse)
+def public_career_assistant(
+    request: CareerAssistantRequest,
+    db: Session = Depends(get_db),
+):
+    """Translate natural-language career intent into strict filters + ranked jobs."""
+    query = " ".join(request.query.strip().split())
+    organization = _public_organization(db)
+    jobs = list(
+        db.scalars(
+            select(Job)
+            .where(Job.organization_id == organization.id, Job.status == "open")
+            .order_by(Job.created_at.desc())
+            .limit(200)
+        ).all()
+    )
+
+    lower = query.casefold()
+    experience_match = re.search(r"\b(\d{1,2})\s*(?:-|to)\s*(\d{1,2})\+?\s*(?:years?|yrs?)\b", lower)
+    single_experience = re.search(r"\b(?:at least|minimum of|min)?\s*(\d{1,2})\+?\s*(?:years?|yrs?)\b", lower)
+    minimum_experience = int(experience_match.group(1)) if experience_match else (
+        int(single_experience.group(1)) if single_experience else None
+    )
+    maximum_experience = int(experience_match.group(2)) if experience_match else None
+
+    if re.search(r"\b(remote|work from home|wfh|fully remote)\b", lower):
+        work_mode = "remote"
+    elif re.search(r"\bhybrid\b", lower):
+        work_mode = "hybrid"
+    elif re.search(r"\b(on[- ]?site|onsite|office)\b", lower):
+        work_mode = "onsite"
+    else:
+        work_mode = None
+
+    # Resolve a location only from locations actually present in the published jobs.
+    location = None
+    for job in jobs:
+        candidate_location = (job.location or "").strip()
+        if candidate_location and candidate_location.casefold() in lower:
+            location = candidate_location
+            break
+        for token in re.findall(r"[a-zA-Z][a-zA-Z .'-]{2,}", candidate_location):
+            token = token.strip()
+            if token and token.casefold() in lower:
+                location = candidate_location
+                break
+        if location:
+            break
+
+    detected_skills = []
+    try:
+        detected_skills = matching_service._extract_skills(query)
+    except Exception:
+        detected_skills = []
+
+    stop_words = {
+        "i", "want", "need", "looking", "for", "a", "an", "the", "job", "jobs",
+        "role", "roles", "with", "in", "at", "from", "to", "and", "or", "my",
+        "experience", "years", "year", "remote", "hybrid", "onsite", "on-site",
+        "work", "home", "please", "find", "me",
+    }
+    role_terms = [
+        token for token in re.findall(r"[a-zA-Z][a-zA-Z+#.-]{2,}", lower)
+        if token not in stop_words and token not in {s.casefold() for s in detected_skills}
+    ]
+
+    query_vector = matching_service.embed_texts([query])[0]
+    candidates = []
+    for job in jobs:
+        job_text = " ".join([
+            job.title or "",
+            job.description or "",
+            job.department or "",
+            job.location or "",
+            " ".join(job.required_skills or []),
+        ]).casefold()
+
+        if work_mode and job.work_mode != work_mode:
+            continue
+        if location and (job.location or "").casefold() != location.casefold():
+            continue
+        if minimum_experience is not None:
+            job_min = job.minimum_experience_years or 0
+            if maximum_experience is not None:
+                if job_min > maximum_experience:
+                    continue
+            elif job_min > minimum_experience and minimum_experience < 10:
+                continue
+
+        matched_skills = [
+            skill for skill in detected_skills
+            if skill.casefold() in job_text
+        ]
+        role_hits = [
+            term for term in role_terms
+            if term in (job.title or "").casefold() or term in (job.department or "").casefold()
+        ]
+        lexical_score = min(
+            100,
+            len(matched_skills) * 18
+            + len(role_hits) * 15
+            + (25 if query.casefold() in job_text else 0)
+            + (10 if work_mode else 0)
+            + (10 if location else 0),
+        )
+
+        semantic_score = 0
+        if query_vector is not None and job.embedding:
+            try:
+                import math
+                dot = sum(float(a) * float(b) for a, b in zip(query_vector, job.embedding))
+                q_norm = math.sqrt(sum(float(a) * float(a) for a in query_vector))
+                j_norm = math.sqrt(sum(float(b) * float(b) for b in job.embedding))
+                if q_norm and j_norm:
+                    semantic_score = round(max(0.0, min(1.0, dot / (q_norm * j_norm))) * 100)
+            except Exception:
+                semantic_score = 0
+
+        final_score = round(0.45 * lexical_score + 0.55 * semantic_score) if semantic_score else lexical_score
+        reason_parts = []
+        if matched_skills:
+            reason_parts.append("Skills: " + ", ".join(matched_skills[:5]))
+        if role_hits:
+            reason_parts.append("Role signal: " + ", ".join(role_hits[:4]))
+        if job.location:
+            reason_parts.append("Location: " + job.location)
+        if job.work_mode:
+            reason_parts.append("Work mode: " + job.work_mode)
+        candidates.append(
+            {
+                "job": job,
+                "score": final_score,
+                "matched_skills": matched_skills,
+                "reason": " · ".join(reason_parts) or "Relevant published role based on your request.",
+            }
+        )
+
+    candidates.sort(key=lambda item: (item["score"], item["job"].created_at), reverse=True)
+    return {
+        "query": query,
+        "intent": {
+            "role_terms": role_terms[:8],
+            "skills": detected_skills[:12],
+            "location": location,
+            "work_mode": work_mode,
+            "minimum_experience_years": minimum_experience,
+            "maximum_experience_years": maximum_experience,
+        },
+        "results": [
+            {
+                "id": item["job"].id,
+                "title": item["job"].title,
+                "description": item["job"].description,
+                "department": item["job"].department,
+                "location": item["job"].location,
+                "employment_type": item["job"].employment_type,
+                "work_mode": item["job"].work_mode,
+                "required_skills": item["job"].required_skills or [],
+                "minimum_experience_years": item["job"].minimum_experience_years,
+                "fresher_allowed": item["job"].fresher_allowed,
+                "match_score": item["score"],
+                "matched_skills": item["matched_skills"],
+                "reason": item["reason"],
+            }
+            for item in candidates[:10]
+        ],
+        "mode": "hard_filters_plus_semantic_retrieval" if query_vector is not None else "hard_filters_plus_lexical_retrieval",
+    }
 
 
 @app.post("/public/jobs/{job_id}/apply")
