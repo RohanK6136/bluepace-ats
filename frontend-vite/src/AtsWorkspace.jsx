@@ -1392,7 +1392,7 @@ export default function AtsWorkspace() {
                     type="file"
                     accept=".pdf,.docx"
                     required
-                    onChange={(event) => setPublicResume(event.target.files?.[0] || null)}
+                    onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setPublicResume(null); setPublicError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setPublicResume(selected); setPublicError(""); }}
                     className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
                   />
                   <span className="text-[11px] font-normal text-ink-400">PDF or DOCX, up to 5 MB.</span>
