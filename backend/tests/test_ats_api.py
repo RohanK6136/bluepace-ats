@@ -936,7 +936,7 @@ def test_resume_intelligence_extracts_extended_profile_and_non_definitive_signal
     assert parsed["certifications"]
     assert parsed["companies"] == ["Acme Labs"]
     assert parsed["job_titles"] == ["Senior Engineer"]
-    assert parsed["resume_intelligence_version"] == 4
+    assert parsed["resume_intelligence_version"] == 5
     assert "disclaimer" in parsed["resume_quality"]
     assert "linkedin" not in parsed["resume_quality"]["missing_fields"]
     assert "GitHub" not in parsed["resume_quality"]["optional_missing_fields"]
