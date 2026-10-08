@@ -294,6 +294,79 @@ class DocumentExtractor:
         return round(total_months / 12, 1) if total_months else None
 
     @staticmethod
+    def _resume_document_validation(raw_text, parsed):
+        """Return fast upload-level validation separate from job-fit scoring."""
+        text_length = len((raw_text or "").strip())
+        email = str(parsed.get("email") or "").strip()
+        phone_digits = re.sub(r"\D", "", str(parsed.get("phone") or ""))
+
+        checks = {
+            "readable_content": text_length >= 120,
+            "candidate_identity": bool(parsed.get("name") or email),
+            "email_format": not email or bool(re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", email)),
+            "phone_present": len(phone_digits) >= 8,
+            "skills_present": bool(parsed.get("skills")),
+            "experience_or_fresher": bool(parsed.get("experience")) or bool(parsed.get("is_fresher")),
+            "education_or_projects": bool(parsed.get("education") or parsed.get("university_projects") or parsed.get("projects")),
+        }
+
+        resume_signals = sum(
+            bool(value) for value in (
+                email,
+                phone_digits,
+                parsed.get("skills"),
+                parsed.get("experience"),
+                parsed.get("education"),
+                parsed.get("projects"),
+                parsed.get("certifications"),
+            )
+        )
+        checks["resume_content_signals"] = resume_signals >= 2
+
+        errors = []
+        warnings = []
+        if not checks["readable_content"]:
+            errors.append("The document contains too little readable text to validate as a resume.")
+        if not checks["candidate_identity"]:
+            errors.append("Candidate name or email could not be identified.")
+        if not checks["resume_content_signals"]:
+            errors.append("The document does not contain enough resume-specific content.")
+
+        for key, message in (
+            ("email_format", "The extracted email format should be reviewed."),
+            ("phone_present", "A usable phone number was not detected."),
+            ("skills_present", "No skills were detected."),
+            ("education_or_projects", "No education or project evidence was detected."),
+        ):
+            if not checks[key]:
+                warnings.append(message)
+
+        points = sum(bool(value) for key, value in checks.items() if key != "resume_content_signals")
+        total = len([key for key in checks if key != "resume_content_signals"])
+        score = round(points / max(total, 1) * 100)
+        if errors:
+            status = "invalid"
+        elif warnings:
+            status = "needs_review"
+        else:
+            status = "valid"
+
+        return {
+            "status": status,
+            "score": score,
+            "checks": checks,
+            "errors": errors,
+            "warnings": warnings,
+            "message": (
+                "Resume passed basic validation."
+                if status == "valid"
+                else "Resume extracted, but review the validation warnings before ATS sync."
+                if status == "needs_review"
+                else "Resume validation failed. Fix the upload/content and retry."
+            ),
+        }
+
+    @staticmethod
     def _evidence_and_confidence(raw_text, parsed):
         """
         Attach source snippets and extraction confidence without turning inference into fact.
@@ -455,11 +528,14 @@ Resume text:
         extraction_engine = None
         extraction_warning = None
 
-        # Docling is the preferred document-understanding layer. It preserves
-        # document structure and can handle OCR/layout-heavy PDFs. The legacy
-        # parsers remain a production fallback if Docling/model initialization
-        # fails, so a transient model/runtime issue does not break ATS intake.
-        if document_intelligence_service.enabled:
+        configured_engine = os.getenv("DOCUMENT_EXTRACTION_ENGINE", "legacy").strip().lower()
+        fallback_engine = os.getenv("DOCUMENT_EXTRACTION_FALLBACK_ENGINE", "docling").strip().lower()
+
+        # Resume Lab is optimized for normal text-based resumes: PDF/DOCX parsing
+        # with pypdf/python-docx is much faster than initializing a document-
+        # understanding model. Docling remains available as an explicit mode and
+        # as a fallback for scanned/image-heavy files when no text is extracted.
+        if configured_engine in {"docling", "document_intelligence"}:
             try:
                 docling_result = document_intelligence_service.extract(file_content, filename)
                 raw_text = docling_result.text.strip()
@@ -491,10 +567,18 @@ Resume text:
                 raise DocumentExtractionError(f"Failed to extract text: {str(e)}") from e
             raw_text = "\n".join(text_parts).strip()
 
+        if not raw_text and fallback_engine in {"docling", "document_intelligence"}:
+            try:
+                docling_result = document_intelligence_service.extract(file_content, filename)
+                raw_text = docling_result.text.strip()
+                extraction_engine = docling_result.engine
+            except DocumentIntelligenceError as error:
+                extraction_warning = str(error)
+
         if not raw_text:
             raise DocumentExtractionError(
-                "No readable text was found. The document may be scanned or image-only; "
-                "Docling OCR can be enabled/configured for scanned documents."
+                "No readable text was found. The document may be scanned or image-only. "
+                "Try a text-based PDF/DOCX resume or use Docling extraction for OCR-heavy documents."
             )
         parsed = self._fallback_parse(raw_text)
         llm_data = self._llm_parse(raw_text) if os.getenv("ENABLE_LLM_RESUME_ENRICHMENT", "false").lower() == "true" else None
@@ -519,8 +603,9 @@ Resume text:
         if parsed.get("years_of_experience") is None:
             parsed["years_of_experience"] = self._experience_years_from_entries(parsed.get("experience"))
         parsed["resume_quality"] = self._resume_quality_flags(raw_text, parsed)
+        parsed["resume_validation"] = self._resume_document_validation(raw_text, parsed)
         parsed["extraction_evidence"], parsed["extraction_confidence"] = self._evidence_and_confidence(raw_text, parsed)
-        parsed["resume_intelligence_version"] = 4
+        parsed["resume_intelligence_version"] = 5
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
         parsed["document_extraction_engine"] = extraction_engine or "unknown"
