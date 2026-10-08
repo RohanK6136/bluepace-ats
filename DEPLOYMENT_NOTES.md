@@ -33,4 +33,16 @@ B2_REGION=<your-region>
 
 Do not commit the real key ID or application key. Backblaze requires a manually created application key for the S3-compatible API; the master application key is not supported. The endpoint format is `https://s3.<region>.backblazeb2.com`. The B2 application key ID maps to the S3 access key ID and the application key maps to the S3 secret access key. See the Backblaze B2 S3-Compatible API and application-key documentation.
 
-After setting the variables, the backend stores new private documents using `b2://...` references and generates short-lived presigned download URLs. When B2 is not configured, development/test environments continue using the existing local `RESUME_STORAGE_DIR` fallback.
+After setting the variables, the backend stores new private documents using `b2://...` references and generates short-lived presigned download URLs. When B2 is not configured, development/test environments continue using the existing local `RESUME_STORAGE_DIR` fallback.\n\n## High-volume resume intake
+
+Resume Lab bulk intake uses Backblaze B2 presigned PUT URLs so the browser uploads resume files directly to the private bucket. Render receives only 100-file manifests and creates asynchronous processing jobs.
+
+Backblaze B2's S3-compatible API supports presigned upload URLs. For browser uploads, the B2 bucket must also allow CORS for the deployed frontend origin and the PUT method. Configure the private bucket's S3-compatible CORS rules for:
+
+- Origin: `https://bluepace-ats-frontend.onrender.com`
+- Method: `PUT`
+- Allowed headers: `*`
+- Max age: `3600`
+
+Keep the bucket private; the application continues to use short-lived presigned URLs rather than public file URLs. citeturn331059search1turn331059search2
+
