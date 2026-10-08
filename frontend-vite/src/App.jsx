@@ -225,45 +225,88 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   async function handleExtract() {
     if (!file) { setUploadError("Choose a PDF or DOCX resume first."); return; }
     if (!jobDescription.trim()) { setUploadError("Paste the job description first so the candidate fit can be calculated."); return; }
-    setLoading(true); setJsonData(null); setUploadValidation(null); setValidationResult(null); setUploadError(""); setUploadTiming(null);
+
+    setLoading(true);
+    setJsonData(null);
+    setUploadValidation(null);
+    setValidationResult(null);
+    setValidationError("");
+    setUploadError("");
+    setResumeLabSyncStatus("");
+    setUploadTiming(null);
+
     const started = performance.now();
     const body = new FormData();
     body.append("file", file);
-    if (jobDescription.trim()) body.append("job_description", jobDescription.trim());
+
     try {
       const response = await postToApi("/extract/", body);
-      if (!response.data?.data || typeof response.data.data !== "object") throw new Error("The ATS API returned an invalid extraction response.");
-      setJsonData(response.data.data);
-      setUploadValidation(response.data?.resume_validation || null);
-      if (response.data?.validation) setValidationResult(response.data.validation);
-      setResumeLabSyncStatus("");
-      const validationStatus = response.data?.resume_validation?.status;
-      if (validationStatus === "invalid") {
-        setResumeLabSyncStatus("Resume was extracted, but ATS sync was blocked by upload validation. Review the validation errors and upload a corrected resume.");
-      } else if (token) {
-        try {
-          const syncResponse = await postToApi("/resume-processing/sync", {
-            resume_json: response.data.data,
-            job_id: resumeLabJobId ? Number(resumeLabJobId) : null,
-            job_fit: response.data.validation || null,
-          }, {}, token);
-          setResumeLabSyncStatus(
-            syncResponse.data?.application_id
-              ? "Validated and synced to Candidates, Applications, matching, and the Applied email template."
-              : "Validated and synced to the ATS Candidate record.",
-          );
-        } catch (syncError) {
-          setResumeLabSyncStatus("Validation succeeded, but ATS sync needs attention: " + apiErrorMessage(syncError, "sync failed"));
-        }
+      if (!response.data?.data || typeof response.data.data !== "object") {
+        throw new Error("The ATS API returned an invalid extraction response.");
       }
+
+      const extracted = response.data.data;
+      setJsonData(extracted);
+      setUploadValidation(response.data?.resume_validation || extracted.resume_validation || null);
+
       setUploadTiming({
         totalMs: Math.round(performance.now() - started),
         serverMs: Number(response.headers["x-process-time-ms"] || 0),
       });
+
+      // Do not block Resume Lab on JD matching. Extraction result is shown
+      // immediately; candidate-vs-JD validation runs independently.
+      setValidating(true);
+      const validationStarted = performance.now();
+      void postToApi("/validate/", {
+        resume_json: extracted,
+        job_description: jobDescription.trim(),
+      })
+        .then((validationResponse) => {
+          setValidationResult(validationResponse.data?.validation || null);
+          setValidationTiming({
+            totalMs: Math.round(performance.now() - validationStarted),
+            serverMs: Number(validationResponse.headers["x-process-time-ms"] || 0),
+          });
+        })
+        .catch((error) => {
+          setValidationError(apiErrorMessage(error, "Validation failed. Please retry."));
+        })
+        .finally(() => {
+          setValidating(false);
+        });
+
+      // ATS sync is also best-effort and must never delay the extraction UI.
+      if (token && response.data?.resume_validation?.status !== "invalid") {
+        void postToApi("/resume-processing/sync", {
+          resume_json: extracted,
+          job_id: resumeLabJobId ? Number(resumeLabJobId) : null,
+          job_fit: null,
+        }, {}, token)
+          .then((syncResponse) => {
+            setResumeLabSyncStatus(
+              syncResponse.data?.application_id
+                ? "Resume extracted and synced to Candidates, Applications, matching, and the Applied email template."
+                : "Resume extracted and synced to the ATS Candidate record.",
+            );
+          })
+          .catch((syncError) => {
+            setResumeLabSyncStatus(
+              "Resume extracted successfully, but ATS sync needs attention: " +
+              apiErrorMessage(syncError, "sync failed"),
+            );
+          });
+      } else if (response.data?.resume_validation?.status === "invalid") {
+        setResumeLabSyncStatus(
+          "Resume was extracted, but ATS sync was blocked by upload validation. Review the validation errors and upload a corrected resume.",
+        );
+      }
     } catch (error) {
       console.error(error);
       setUploadError(apiErrorMessage(error, "Extraction failed. Please retry."));
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function queueBulkResumes() {
