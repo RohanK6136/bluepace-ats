@@ -1566,7 +1566,7 @@ async def upload_public_media(
         result = public_media_service.upload_public(content, file.filename or "public-asset", content_type)
     except PublicMediaError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
-     return {"status": "success", "storage": "cloudinary", "asset": result}
+    return {"status": "success", "storage": "cloudinary", "asset": result}
 
 @app.get("/recruiting-users", response_model=list[UserRead])
 def list_recruiting_users(
