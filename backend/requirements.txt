@@ -7,6 +7,7 @@ python-multipart
 pypdf
 python-docx
 docling==2.135.0
+boto3>=1.35,<2.0
 openai
 python-dotenv
 SQLAlchemy>=2.0,<3.0
