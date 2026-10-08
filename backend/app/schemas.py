@@ -37,6 +37,10 @@ class TokenRead(BaseModel):
     user: Optional[UserRead] = None
 
 
+class CareerAssistantRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=1000)
+
+
 class JobCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1)
