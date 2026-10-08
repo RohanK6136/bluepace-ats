@@ -309,6 +309,17 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     }
   }
 
+  async function uploadToB2(upload, file) {
+    const response = await fetch(upload.upload_url, {
+      method: "PUT",
+      headers: { "Content-Type": upload.content_type || file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!response.ok) {
+      throw new Error(`Backblaze upload returned HTTP ${response.status}.`);
+    }
+  }
+
   async function queueBulkResumes() {
     if (!token) {
       setBulkError("Sign in to the recruiter workspace before using high-volume resume intake.");
@@ -318,53 +329,125 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       setBulkError("Paste the job description before queueing resumes so every candidate can be evaluated for fit.");
       return;
     }
-    const validFiles = bulkFiles.filter((item) => /\.(pdf|docx)$/i.test(item.name) && item.size <= MAX_DOCUMENT_SIZE_BYTES);
+
+    const validFiles = bulkFiles.filter((item) =>
+      /\.(pdf|docx)$/i.test(item.name) && item.size > 0 && item.size <= MAX_DOCUMENT_SIZE_BYTES
+    );
     if (!validFiles.length) {
       setBulkError("Choose at least one PDF or DOCX resume up to 5 MB.");
       return;
     }
 
     const batchId = bulkBatchId || (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `batch-${Date.now()}`);
+    const chunkSize = 100;
+    const uploadConcurrency = 12;
     setBulkBatchId(batchId);
     setBulkError("");
     setBulkUploading(true);
-    setBulkJobs(validFiles.map((file) => ({ filename: file.name, status: "uploading" })));
+    setBulkJobs(validFiles.map((file) => ({ filename: file.name, status: "preparing", size_bytes: file.size })));
 
-    let nextIndex = 0;
-    const workers = Array.from({ length: Math.min(16, validFiles.length) }, async () => {
-      while (nextIndex < validFiles.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        const file = validFiles[index];
-        const body = new FormData();
-        body.append("file", file);
-        body.append("batch_id", batchId);
-        if (jobDescription.trim()) body.append("job_description", jobDescription.trim());
-        if (resumeLabJobId) body.append("job_id", String(resumeLabJobId));
-        try {
-          const response = await postToApi("/resume-processing/queue", body, {}, token);
-          setBulkJobs((current) => current.map((job, jobIndex) => (
-            jobIndex === index
+    try {
+      for (let start = 0; start < validFiles.length; start += chunkSize) {
+        const chunk = validFiles.slice(start, start + chunkSize);
+        const chunkStartIndex = start;
+
+        const manifest = chunk.map((file) => ({
+          filename: file.name,
+          size_bytes: file.size,
+          content_type: file.type || (
+            /\.pdf$/i.test(file.name)
+              ? "application/pdf"
+              : "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          ),
+        }));
+
+        const presignResponse = await postToApi(
+          "/resume-processing/batch/presign",
+          { batch_id: batchId, files: manifest },
+          {},
+          token,
+        );
+        const uploads = Array.isArray(presignResponse.data?.uploads) ? presignResponse.data.uploads : [];
+        if (uploads.length !== chunk.length) {
+          throw new Error("The ATS API did not return a complete bulk upload manifest.");
+        }
+
+        setBulkJobs((current) => current.map((job, index) =>
+          index >= chunkStartIndex && index < chunkStartIndex + chunk.length
+            ? { ...job, status: "uploading" }
+            : job
+        ));
+
+        let nextIndex = 0;
+        const successfulUploads = new Array(chunk.length);
+        const workers = Array.from(
+          { length: Math.min(uploadConcurrency, chunk.length) },
+          async () => {
+            while (nextIndex < chunk.length) {
+              const localIndex = nextIndex;
+              nextIndex += 1;
+              const file = chunk[localIndex];
+              const upload = uploads[localIndex];
+              try {
+                await uploadToB2(upload, file);
+                successfulUploads[localIndex] = {
+                  filename: file.name,
+                  storage_path: upload.storage_path,
+                  size_bytes: file.size,
+                  content_type: upload.content_type,
+                };
+                setBulkJobs((current) => current.map((job, index) =>
+                  index === chunkStartIndex + localIndex ? { ...job, status: "uploaded" } : job
+                ));
+              } catch (error) {
+                setBulkJobs((current) => current.map((job, index) =>
+                  index === chunkStartIndex + localIndex
+                    ? { ...job, status: "failed", error: error.message || "Backblaze upload failed." }
+                    : job
+                ));
+              }
+            }
+          },
+        );
+        await Promise.all(workers);
+
+        const readyForQueue = successfulUploads.filter(Boolean);
+        if (!readyForQueue.length) continue;
+
+        const finalizeResponse = await postToApi(
+          "/resume-processing/batch/finalize",
+          {
+            batch_id: batchId,
+            files: readyForQueue,
+            job_description: jobDescription.trim(),
+            job_id: resumeLabJobId ? Number(resumeLabJobId) : null,
+          },
+          {},
+          token,
+        );
+
+        const queuedJobs = Array.isArray(finalizeResponse.data?.jobs) ? finalizeResponse.data.jobs : [];
+        readyForQueue.forEach((item, readyIndex) => {
+          const sourceIndex = successfulUploads.findIndex((value) => value === item);
+          const queueRow = queuedJobs[readyIndex];
+          setBulkJobs((current) => current.map((job, index) =>
+            index === chunkStartIndex + sourceIndex
               ? {
                   ...job,
+                  id: queueRow?.job_id,
                   status: "queued",
-                  id: response.data?.job_id,
-                  acceptedMs: response.data?.accepted_handler_ms,
+                  acceptedMs: finalizeResponse.data?.accepted_handler_ms,
                 }
               : job
-          )));
-        } catch (error) {
-          setBulkJobs((current) => current.map((job, jobIndex) => (
-            jobIndex === index
-              ? { ...job, status: "failed", error: apiErrorMessage(error, "Upload failed.") }
-              : job
-          )));
-        }
+          ));
+        });
       }
-    });
-
-    await Promise.all(workers);
-    setBulkUploading(false);
+    } catch (error) {
+      console.error(error);
+      setBulkError(apiErrorMessage(error, "Bulk resume intake failed."));
+    } finally {
+      setBulkUploading(false);
+    }
   }
 
   async function refreshBulkJobs(batchId = bulkBatchId) {
@@ -375,7 +458,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       try {
         response = await axios.get(`${API_URL}/resume-processing/jobs`, {
           timeout: REQUEST_TIMEOUT_MS,
-          params: { batch_id: batchId, limit: 1000, include_result: true },
+          params: { batch_id: batchId, limit: 10000, include_result: false },
           headers: requestToken ? { Authorization: `Bearer ${requestToken}` } : {},
         });
       } catch (error) {
@@ -383,7 +466,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
         requestToken = await refreshResumeLabToken(requestToken);
         response = await axios.get(`${API_URL}/resume-processing/jobs`, {
           timeout: REQUEST_TIMEOUT_MS,
-          params: { batch_id: batchId, limit: 1000, include_result: true },
+          params: { batch_id: batchId, limit: 10000, include_result: false },
           headers: { Authorization: `Bearer ${requestToken}` },
         });
       }
@@ -398,13 +481,47 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             ...job,
             id: row.job_id,
             status: row.status,
-            error: row.error_message || null,
-            result: row.result || null,
+            error: row.error_message || job.error || null,
+            result: row.result ?? job.result ?? null,
           };
         });
       });
     } catch (error) {
       setBulkError(apiErrorMessage(error, "Could not refresh batch status."));
+    }
+  }
+
+  async function handleBulkResultToggle(jobId) {
+    if (expandedBulkJobId === jobId) {
+      setExpandedBulkJobId(null);
+      return;
+    }
+    setExpandedBulkJobId(jobId);
+    const existing = bulkJobs.find((job) => String(job.id) === String(jobId));
+    if (existing?.result) return;
+
+    try {
+      let requestToken = sessionStorage.getItem("bluepace_token") || token || "";
+      let response;
+      try {
+        response = await axios.get(`${API_URL}/resume-processing/jobs/${jobId}`, {
+          timeout: REQUEST_TIMEOUT_MS,
+          headers: requestToken ? { Authorization: `Bearer ${requestToken}` } : {},
+        });
+      } catch (error) {
+        if (error.response?.status !== 401 || !requestToken) throw error;
+        requestToken = await refreshResumeLabToken(requestToken);
+        response = await axios.get(`${API_URL}/resume-processing/jobs/${jobId}`, {
+          timeout: REQUEST_TIMEOUT_MS,
+          headers: { Authorization: `Bearer ${requestToken}` },
+        });
+      }
+      const result = response.data?.result || null;
+      setBulkJobs((current) => current.map((job) =>
+        String(job.id) === String(jobId) ? { ...job, result } : job
+      ));
+    } catch (error) {
+      setBulkError(apiErrorMessage(error, "Could not load the resume result."));
     }
   }
 
@@ -479,7 +596,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                 <p className="text-xs font-semibold text-ink-500">High-volume intake</p>
                 <h3 className="mt-1 text-lg font-semibold">Queue thousands of resumes</h3>
                 <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-600">
-                  Upload resumes in parallel. The API acknowledges each accepted file and moves extraction to the background queue instead of parsing during the upload request.
+                  Upload hundreds or thousands at once. Files go directly to private Backblaze B2 in 100-file chunks; Render only handles small manifests and background processing.
                 </p>
               </div>
               {bulkBatchId && <span className="text-xs text-ink-500">Batch {bulkBatchId}</span>}
@@ -522,7 +639,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                   className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
                   onChange={(event) => setBulkFiles(Array.from(event.target.files || []))}
                 />
-                <span className="text-[11px] font-normal text-ink-400">Select hundreds or thousands. Each file must be PDF/DOCX and ≤5 MB.</span>
+                <span className="text-[11px] font-normal text-ink-400">Select hundreds or thousands. Each file is checked locally and must be PDF/DOCX and ≤5 MB.</span>
               </label>
               <button type="button" onClick={queueBulkResumes} disabled={bulkUploading || !bulkFiles.length || !jobDescription.trim()} className="inline-flex items-center justify-center rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#10131c] disabled:opacity-50">
                 {bulkUploading ? "Uploading…" : `Queue ${bulkFiles.length || 0} resumes`}
@@ -549,7 +666,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                             <button
                               type="button"
                               className="font-semibold text-blue-700 hover:underline"
-                              onClick={() => setExpandedBulkJobId((current) => current === job.id ? null : job.id)}
+                              onClick={() => handleBulkResultToggle(job.id)}
                             >
                               {expandedBulkJobId === job.id ? "Hide result" : "View result"}
                             </button>
