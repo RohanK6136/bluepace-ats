@@ -542,6 +542,7 @@ def test_job_description_rejects_oversized_files(client):
 def test_document_extractor_uses_docling_result(monkeypatch):
     monkeypatch.setattr(extractor_service, "client", None, raising=False)
     from app.services.document_intelligence import DocumentIntelligenceResult, document_intelligence_service
+    monkeypatch.setattr(document_intelligence_service, "engine", "docling")
 
     monkeypatch.setattr(
         document_intelligence_service,
