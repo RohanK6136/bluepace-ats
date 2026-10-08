@@ -380,6 +380,47 @@ def _infer_work_mode(text: str | None) -> str:
     return "onsite"
 
 
+def _infer_employment_type(text: str | None) -> str | None:
+    content = str(text or "")
+    patterns = (
+        ("Internship", r"\b(internship|intern|summer intern|graduate intern)\b"),
+        ("Contract", r"\b(contract(?:or)?|fixed[- ]term|freelance)\b"),
+        ("Part-time", r"\b(part[- ]time)\b"),
+        ("Temporary", r"\b(temporary|temp role|temp position)\b"),
+        ("Full-time", r"\b(full[- ]time|permanent position|regular employment)\b"),
+    )
+    for value, pattern in patterns:
+        if re.search(pattern, content, re.IGNORECASE):
+            return value
+    return None
+
+
+def _infer_department(title: str | None, description: str | None) -> str | None:
+    content = f"{title or ''}\n{description or ''}"
+    explicit = re.search(r"\bdepartment\s*[:\-]\s*([^\n|]{2,80})", content, re.IGNORECASE)
+    if explicit:
+        return re.sub(r"\s+", " ", explicit.group(1)).strip(" .,-")[:200] or None
+
+    department_rules = (
+        ("Engineering", (r"\bsoftware engineer(?:ing)?\b", r"\bbackend\b", r"\bfrontend\b", r"\bfull[- ]stack\b", r"\bdeveloper\b", r"\bdevops\b", r"\bsite reliability\b")),
+        ("Data & AI", (r"\bdata scientist\b", r"\bmachine learning\b", r"\bml engineer\b", r"\bdata engineer\b", r"\bartificial intelligence\b", r"\bai engineer\b")),
+        ("Cybersecurity", (r"\bcybersecurity\b", r"\bsecurity engineer\b", r"\bapplication security\b", r"\bpenetration test\b")),
+        ("Product", (r"\bproduct manager\b", r"\bproduct owner\b", r"\bproduct management\b")),
+        ("Design", (r"\bux designer\b", r"\bui designer\b", r"\bproduct designer\b", r"\bvisual designer\b")),
+        ("Sales", (r"\bsales engineer\b", r"\bsales manager\b", r"\baccount executive\b", r"\bbusiness development\b")),
+        ("Marketing", (r"\bmarketing manager\b", r"\bdigital marketing\b", r"\bcontent marketing\b", r"\bseo\b")),
+        ("People & HR", (r"\bhuman resources\b", r"\bhr manager\b", r"\brecruiter\b", r"\btalent acquisition\b")),
+        ("Finance", (r"\bfinancial analyst\b", r"\baccountant\b", r"\bfinance manager\b", r"\baccounts payable\b")),
+        ("Operations", (r"\boperations manager\b", r"\boperations analyst\b", r"\bsupply chain\b", r"\bprocurement\b")),
+        ("Customer Success", (r"\bcustomer success\b", r"\bcustomer support\b", r"\bclient success\b", r"\bsupport specialist\b")),
+        ("Legal", (r"\blegal counsel\b", r"\bparalegal\b", r"\blegal operations\b", r"\bcompliance officer\b")),
+    )
+    for department, patterns in department_rules:
+        if any(re.search(pattern, content, re.IGNORECASE) for pattern in patterns):
+            return department
+    return None
+
+
 def _public_admin_id(db: Session, organization_id: int) -> int:
     admin_id = db.scalar(
         select(User.id)
@@ -1399,14 +1440,22 @@ async def create_job_from_url(
     source_url, page_title, page = _fetch_job_page(input_url or url)
     effective_title = (title or markdown_title or page_title or "Imported job").strip()[:200]
     analysis = matching_service.parse_job_description(effective_title, page["description"], location or page.get("location"), use_llm=False)
+    inferred_department = _infer_department(effective_title, page["description"])
+    inferred_employment_type = _infer_employment_type(page["description"])
+    effective_department = department.strip() if department else inferred_department
+    effective_employment_type = employment_type.strip() if employment_type else (page.get("employment_type") or inferred_employment_type)
+    analysis["field_inference"] = {
+        "department": {"value": effective_department, "source": "manual" if department else "document_intelligence"},
+        "employment_type": {"value": effective_employment_type, "source": "manual" if employment_type else "document_intelligence"},
+    }
     job = Job(
         organization_id=user.organization_id,
         created_by_id=user.id,
         title=effective_title,
         description=page["description"],
-        department=department.strip() if department else None,
+        department=effective_department,
         location=(location.strip() if location else page.get("location")),
-        employment_type=(employment_type.strip() if employment_type else page.get("employment_type")),
+        employment_type=effective_employment_type,
         work_mode=work_mode if work_mode in {"remote", "hybrid", "onsite"} else _infer_work_mode(page["description"]),
         status=status_value if status_value in {"draft", "open", "paused", "closed"} else "open",
         required_skills=list(dict.fromkeys(analysis.get("required_skills", []))),
@@ -1442,7 +1491,7 @@ async def create_job_from_document(
     title: str | None = Form(default=None),
     department: str | None = Form(default=None),
     location: str | None = Form(default=None),
-    employment_type: str | None = Form(default="Full-time"),
+    employment_type: str | None = Form(default=None),
     work_mode: str | None = Form(default=None),
     status_value: str = Form(default="open"),
     minimum_experience_years: int | None = Form(default=None),
@@ -1477,7 +1526,15 @@ async def create_job_from_document(
         Path(file.filename or "Job opening").stem.replace("_", " ").replace("-", " ").strip()[:200] or "Job opening",
     )
     effective_title = (title or inferred_title).strip()[:200]
+    inferred_department = _infer_department(effective_title, raw_text)
+    inferred_employment_type = _infer_employment_type(raw_text)
+    effective_department = department.strip() if department else inferred_department
+    effective_employment_type = employment_type.strip() if employment_type else inferred_employment_type
     analysis = matching_service.parse_job_description(effective_title, raw_text, location)
+    analysis["field_inference"] = {
+        "department": {"value": effective_department, "source": "manual" if department else "document_intelligence"},
+        "employment_type": {"value": effective_employment_type, "source": "manual" if employment_type else "document_intelligence"},
+    }
     inferred_fresher = bool(
         re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", raw_text, re.IGNORECASE)
         or re.search(r"\b0\s*(?:years?|yrs?)\b", raw_text, re.IGNORECASE)
@@ -1488,9 +1545,9 @@ async def create_job_from_document(
         created_by_id=user.id,
         title=effective_title,
         description=raw_text,
-        department=department.strip() if department else None,
+        department=effective_department,
         location=(location.strip() if location else analysis.get("location")),
-        employment_type=employment_type.strip() if employment_type else None,
+        employment_type=effective_employment_type,
         work_mode=work_mode if work_mode in {"remote", "hybrid", "onsite"} else _infer_work_mode(raw_text),
         status=status_value,
         required_skills=list(dict.fromkeys(analysis.get("required_skills", []))),
