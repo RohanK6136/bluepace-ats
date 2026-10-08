@@ -80,6 +80,7 @@ from app.schemas import (
     CandidateCollaborationUpdate,
     CandidateUpdate,
     JobCreate,
+    JobDocumentPreviewRead,
     JobRead,
     JobUpdate,
     MatchFeedbackUpdate,
@@ -384,6 +385,113 @@ def _infer_work_mode(text: str | None) -> str:
     if re.search(r"\b(hybrid|flexible work|hybrid work)\b", content, re.IGNORECASE):
         return "hybrid"
     return "onsite"
+
+
+def _infer_job_title(filename: str | None, raw_text: str) -> str:
+    ignored_titles = {"job description", "job description:", "jd", "job profile", "position description"}
+    lines = [line.strip() for line in str(raw_text or "").splitlines() if line.strip()]
+    for line in lines[:20]:
+        cleaned = line.strip("#*-• ").strip()
+        if 2 <= len(cleaned) <= 200 and cleaned.casefold() not in ignored_titles and "@" not in cleaned:
+            return cleaned
+    fallback = Path(filename or "Job opening").stem.replace("_", " ").replace("-", " ").strip()
+    return fallback[:200] or "Job opening"
+
+
+def _infer_job_department(title: str | None, text: str | None) -> str | None:
+    title_text = str(title or "").casefold()
+    content = f"{title or ''}\n{text or ''}".casefold()
+    department_markers = (
+        ("Engineering", ("software engineer", "backend", "frontend", "full stack", "devops", "platform engineer", "data engineer", "machine learning engineer", "qa engineer", "engineering manager")),
+        ("Data & Analytics", ("data scientist", "data analyst", "analytics", "business intelligence", "machine learning", "data science")),
+        ("Product", ("product manager", "product owner", "product management", "product designer")),
+        ("Design", ("ux designer", "ui designer", "product designer", "user experience", "user interface")),
+        ("Marketing", ("marketing", "growth", "seo", "content marketing", "brand manager")),
+        ("Sales", ("sales", "account executive", "business development", "bdr", "sdr")),
+        ("Human Resources", ("human resources", "hr manager", "recruiter", "talent acquisition", "people operations")),
+        ("Finance", ("finance", "accounting", "accountant", "financial analyst", "controller")),
+        ("Operations", ("operations manager", "operations", "supply chain", "procurement")),
+        ("Customer Success", ("customer success", "customer support", "customer service", "support specialist")),
+        ("Legal", ("legal counsel", "lawyer", "legal operations", "compliance")),
+    )
+    for department, markers in department_markers:
+        if any(marker in title_text for marker in markers):
+            return department
+    for department, markers in department_markers:
+        if sum(1 for marker in markers if marker in content) >= 1:
+            return department
+    return None
+
+
+def _infer_employment_type(text: str | None) -> str:
+    content = str(text or "")
+    if re.search(r"\bintern(ship)?\b|\bco[- ]?op\b", content, re.IGNORECASE):
+        return "Internship"
+    if re.search(r"\bpart[- ]?time\b", content, re.IGNORECASE):
+        return "Part-time"
+    if re.search(r"\btemporary\b", content, re.IGNORECASE):
+        return "Temporary"
+    if re.search(r"\bcontract(?:or|ual)?\b", content, re.IGNORECASE):
+        return "Contract"
+    return "Full-time"
+
+
+def _extract_job_document_fields(content: bytes, filename: str) -> dict:
+    try:
+        parsed = extractor_service.extract_to_json(content, filename)
+    except DocumentExtractionError:
+        raise
+    raw_text = str(parsed.get("raw_text") or "").strip()
+    if not raw_text:
+        raise DocumentExtractionError("No readable job description text was found.")
+
+    title = _infer_job_title(filename, raw_text)
+    analysis = matching_service.parse_job_description(title, raw_text)
+    inferred_fresher = bool(
+        re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", raw_text, re.IGNORECASE)
+        or re.search(r"\b0\s*(?:years?|yrs?)\b", raw_text, re.IGNORECASE)
+    )
+    analysis["fresher_allowed"] = inferred_fresher
+    analysis["department"] = _infer_job_department(title, raw_text)
+    analysis["employment_type"] = _infer_employment_type(raw_text)
+    analysis["source"] = "Job document upload"
+    analysis["source_filename"] = filename
+    analysis["document_extraction_engine"] = parsed.get("document_extraction_engine", "unknown")
+    if parsed.get("document_extraction_warning"):
+        analysis["document_extraction_warning"] = parsed["document_extraction_warning"]
+
+    return {
+        "title": title,
+        "description": raw_text,
+        "department": analysis.get("department"),
+        "location": analysis.get("location"),
+        "employment_type": analysis.get("employment_type"),
+        "work_mode": analysis.get("work_mode") or _infer_work_mode(raw_text),
+        "minimum_experience_years": analysis.get("minimum_experience_years"),
+        "fresher_allowed": inferred_fresher,
+        "required_skills": list(dict.fromkeys(analysis.get("required_skills", []))),
+        "preferred_skills": list(dict.fromkeys(analysis.get("preferred_skills", []))),
+        "responsibilities": list(dict.fromkeys(analysis.get("responsibilities", [])))[:20],
+        "education": analysis.get("education"),
+        "analysis": analysis,
+        "extraction_engine": parsed.get("document_extraction_engine", "unknown"),
+    }
+
+
+def _parse_form_skill_list(value: str | None) -> list[str]:
+    return list(dict.fromkeys(
+        item.strip()
+        for item in re.split(r"[;,\n]", str(value or ""))
+        if item.strip()
+    ))[:100]
+
+
+def _parse_form_responsibilities(value: str | None) -> list[str]:
+    return list(dict.fromkeys(
+        re.sub(r"^[•*\-]\s*", "", item).strip()
+        for item in str(value or "").splitlines()
+        if re.sub(r"^[•*\-]\s*", "", item).strip()
+    ))[:20]
 
 
 def _public_admin_id(db: Session, organization_id: int) -> int:
@@ -1454,17 +1562,55 @@ async def create_job_from_url(
     return job
 
 
+@app.post("/jobs/from-document/preview", response_model=JobDocumentPreviewRead)
+async def preview_job_from_document(
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+):
+    del user  # Access control is still enforced by the role dependency.
+    suffix, content = await _read_resume_upload(file)
+    try:
+        fields = await asyncio.to_thread(
+            _extract_job_document_fields,
+            content,
+            f"job{suffix}",
+        )
+    except DocumentExtractionError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    return {
+        "status": "success",
+        "filename": file.filename or f"job{suffix}",
+        "extraction_engine": fields["extraction_engine"],
+        "title": fields["title"],
+        "department": fields["department"],
+        "location": fields["location"],
+        "employment_type": fields["employment_type"],
+        "work_mode": fields["work_mode"],
+        "minimum_experience_years": fields["minimum_experience_years"],
+        "fresher_allowed": fields["fresher_allowed"],
+        "required_skills": fields["required_skills"],
+        "preferred_skills": fields["preferred_skills"],
+        "responsibilities": fields["responsibilities"],
+        "education": fields["education"],
+        "description": fields["description"],
+    }
+
+
 @app.post("/jobs/from-document", response_model=JobRead, status_code=status.HTTP_201_CREATED)
 async def create_job_from_document(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     department: str | None = Form(default=None),
     location: str | None = Form(default=None),
-    employment_type: str | None = Form(default="Full-time"),
+    employment_type: str | None = Form(default=None),
     work_mode: str | None = Form(default=None),
     status_value: str = Form(default="open"),
     minimum_experience_years: int | None = Form(default=None),
     fresher_allowed: bool | None = Form(default=None),
+    required_skills: str | None = Form(default=None),
+    responsibilities: str | None = Form(default=None),
+    description_override: str | None = Form(default=None),
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -1473,55 +1619,65 @@ async def create_job_from_document(
 
     suffix, content = await _read_resume_upload(file)
     try:
-        parsed = await asyncio.to_thread(
-        extractor_service.extract_to_json,
-        content,
-        f"job{suffix}",
-    )
+        fields = await asyncio.to_thread(
+            _extract_job_document_fields,
+            content,
+            f"job{suffix}",
+        )
     except DocumentExtractionError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
-    raw_text = str(parsed.get("raw_text") or "").strip()
-    if not raw_text:
-        raise HTTPException(status_code=422, detail="No readable job description text was found.")
+    description = (description_override or "").strip() or fields["description"]
+    effective_title = (title or "").strip() or fields["title"]
+    effective_department = (department or "").strip() or fields["department"]
+    effective_location = (location or "").strip() or fields["location"]
+    effective_employment_type = (employment_type or "").strip() or fields["employment_type"] or "Full-time"
+    effective_work_mode = work_mode if work_mode in {"remote", "hybrid", "onsite"} else fields["work_mode"]
+    effective_required_skills = _parse_form_skill_list(required_skills) or fields["required_skills"]
+    effective_responsibilities = _parse_form_responsibilities(responsibilities) or fields["responsibilities"]
+    effective_minimum_experience = (
+        minimum_experience_years
+        if minimum_experience_years is not None
+        else fields["minimum_experience_years"]
+    )
+    effective_fresher_allowed = (
+        bool(fresher_allowed)
+        if fresher_allowed is not None
+        else bool(fields["fresher_allowed"])
+    )
 
-    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-    inferred_title = next(
-        (
-            line[:200]
-            for line in lines
-            if len(line) <= 200 and line.casefold() not in {"job description", "job description:", "jd", "job profile"}
-        ),
-        Path(file.filename or "Job opening").stem.replace("_", " ").replace("-", " ").strip()[:200] or "Job opening",
+    analysis = matching_service.parse_job_description(
+        effective_title,
+        description,
+        effective_location,
     )
-    effective_title = (title or inferred_title).strip()[:200]
-    analysis = matching_service.parse_job_description(effective_title, raw_text, location)
-    inferred_fresher = bool(
-        re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", raw_text, re.IGNORECASE)
-        or re.search(r"\b0\s*(?:years?|yrs?)\b", raw_text, re.IGNORECASE)
-    )
+    analysis["required_skills"] = list(dict.fromkeys(effective_required_skills))
+    analysis["responsibilities"] = list(dict.fromkeys(effective_responsibilities))[:20]
+    analysis["minimum_experience_years"] = effective_minimum_experience
+    analysis["fresher_allowed"] = effective_fresher_allowed
+    analysis["work_mode"] = effective_work_mode
+    analysis["department"] = effective_department
+    analysis["employment_type"] = effective_employment_type
+    analysis["source"] = "Job document upload"
+    analysis["source_filename"] = file.filename
+    analysis["document_extraction_engine"] = fields["extraction_engine"]
 
     job = Job(
         organization_id=user.organization_id,
         created_by_id=user.id,
         title=effective_title,
-        description=raw_text,
-        department=department.strip() if department else None,
-        location=(location.strip() if location else analysis.get("location")),
-        employment_type=employment_type.strip() if employment_type else None,
-        work_mode=work_mode if work_mode in {"remote", "hybrid", "onsite"} else _infer_work_mode(raw_text),
+        description=description,
+        department=effective_department,
+        location=effective_location,
+        employment_type=effective_employment_type,
+        work_mode=effective_work_mode,
         status=status_value,
-        required_skills=list(dict.fromkeys(analysis.get("required_skills", []))),
-        minimum_experience_years=(
-            minimum_experience_years
-            if minimum_experience_years is not None
-            else analysis.get("minimum_experience_years")
-        ),
-        fresher_allowed=inferred_fresher if fresher_allowed is None else bool(fresher_allowed),
+        required_skills=effective_required_skills,
+        minimum_experience_years=effective_minimum_experience,
+        fresher_allowed=effective_fresher_allowed,
         jd_analysis=analysis,
         embedding=None,
     )
-    analysis["fresher_allowed"] = job.fresher_allowed
     db.add(job)
     db.flush()
     ensure_job_stages(db, job)
@@ -1531,7 +1687,12 @@ async def create_job_from_document(
         "job.created_from_document",
         "job",
         job.id,
-        after={"title": job.title, "status": job.status, "source_file": file.filename},
+        after={
+            "title": job.title,
+            "status": job.status,
+            "source_file": file.filename,
+            "document_extraction_engine": fields["extraction_engine"],
+        },
     )
     db.commit()
     db.refresh(job)
