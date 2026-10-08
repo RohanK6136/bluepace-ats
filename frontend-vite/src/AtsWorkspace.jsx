@@ -256,6 +256,11 @@ export default function AtsWorkspace() {
   const [publicError, setPublicError] = useState("");
   const [publicSuccess, setPublicSuccess] = useState("");
   const [publicFilters, setPublicFilters] = useState({ search: "", department: "", location: "", work_mode: "" });
+  const [careerQuery, setCareerQuery] = useState("");
+  const [careerResults, setCareerResults] = useState([]);
+  const [careerIntent, setCareerIntent] = useState(null);
+  const [careerLoading, setCareerLoading] = useState(false);
+  const [careerError, setCareerError] = useState("");
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ organization_name: "", full_name: "", email: "", password: "" });
   const [authError, setAuthError] = useState("");
@@ -1179,6 +1184,25 @@ export default function AtsWorkspace() {
     }
   }
 
+  async function askCareerAssistant(event) {
+    event.preventDefault();
+    const query = careerQuery.trim();
+    if (!query) return;
+    setCareerLoading(true);
+    setCareerError("");
+    try {
+      const response = await apiRequest(null, "post", "/public/career-assistant", { data: { query } });
+      setCareerResults(Array.isArray(response.data?.results) ? response.data.results : []);
+      setCareerIntent(response.data?.intent || null);
+    } catch (requestError) {
+      setCareerError(errorText(requestError));
+      setCareerResults([]);
+      setCareerIntent(null);
+    } finally {
+      setCareerLoading(false);
+    }
+  }
+
   function switchAccessMode(mode) {
     setAccessMode(mode);
     window.history.replaceState({}, "", mode === "admin" ? "?mode=admin" : window.location.pathname);
@@ -1277,6 +1301,36 @@ export default function AtsWorkspace() {
           </div>
         </section>
 
+        <section id="career-assistant" className="mx-auto max-w-7xl px-5 py-8">
+          <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">AI career assistant</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Describe the role you want</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-600">Try “Python backend, 2–5 years, Hyderabad, remote.” BluePace extracts intent, applies strict filters, and retrieves relevant published roles.</p>
+            <form onSubmit={askCareerAssistant} className="mt-5 flex flex-col gap-3 md:flex-row">
+              <input value={careerQuery} onChange={(event) => { setCareerQuery(event.target.value); setCareerError(""); }} placeholder="e.g. Python backend, 2–5 years, Hyderabad, remote" className="min-w-0 flex-1 rounded-md border border-ink-100 bg-[#fafaf8] px-4 py-3 text-sm outline-none focus:border-gold-500 focus:ring-2 focus:ring-gold-100" />
+              <button type="submit" disabled={careerLoading || !careerQuery.trim()} className={buttonPrimary}>{careerLoading ? "Finding roles…" : "Find matching roles"}</button>
+            </form>
+            {careerError && <p role="alert" className="mt-3 text-sm text-rose-700">{careerError}</p>}
+            {careerIntent && <div className="mt-4 flex flex-wrap gap-2 text-xs">
+              {careerIntent.skills?.length > 0 && <span className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1">Skills: {careerIntent.skills.join(", ")}</span>}
+              {careerIntent.location && <span className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1">Location: {careerIntent.location}</span>}
+              {careerIntent.work_mode && <span className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1 capitalize">Mode: {careerIntent.work_mode}</span>}
+              {careerIntent.minimum_experience_years != null && <span className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1">Experience: {careerIntent.minimum_experience_years}{careerIntent.maximum_experience_years ? "–" + careerIntent.maximum_experience_years : "+"} years</span>}
+            </div>}
+            {careerResults.length > 0 && <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {careerResults.map((job) => <article key={job.id} className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div><h3 className="font-semibold text-ink-900">{job.title}</h3><p className="mt-1 text-xs text-ink-500">{job.department || "Team"} · {job.location || "Location flexible"} · {workModeLabel(job.work_mode)}</p></div>
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">{job.match_score}% match</span>
+                </div>
+                {job.matched_skills?.length > 0 && <p className="mt-3 text-xs text-ink-600">Matching skills: {job.matched_skills.join(", ")}</p>}
+                <p className="mt-2 text-xs leading-5 text-ink-500">{job.reason}</p>
+                <div className="mt-4"><button type="button" className={buttonPrimary} onClick={() => { setPublicApplyJob(job); setPublicError(""); setPublicSuccess(""); }}>Apply for this role</button></div>
+              </article>)}
+            </div>}
+            {careerQuery.trim() && !careerLoading && !careerError && !careerResults.length && <p className="mt-4 text-sm text-ink-500">No published roles matched that request. Try a broader role, skill or location.</p>}
+          </div>
+        </section>
         <section id="jobs" className="mx-auto max-w-7xl px-5 py-10">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-xl font-semibold">Open Positions</h2>
