@@ -4527,9 +4527,14 @@ async def extract_document(
     try:
         suffix, content = await _read_resume_upload(file)
         structured_data = extractor_service.extract_to_json(content, f"resume{suffix}")
-        payload = {"filename": file.filename, "status": "success", "data": structured_data}
-        if job_description and job_description.strip():
-            payload["validation"] = build_resume_job_summary(structured_data, job_description.strip())
+        payload = {
+            "filename": file.filename,
+            "status": "success",
+            "data": structured_data,
+            "resume_validation": structured_data.get("resume_validation"),
+        }
+        # Job-fit validation is intentionally a separate request so the initial
+        # Resume Lab extraction response stays fast and does not wait on matching.
         return payload
     except HTTPException:
         raise
