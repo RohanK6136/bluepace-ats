@@ -48,6 +48,7 @@ class JobCreate(BaseModel):
     required_skills: list[str] = Field(default_factory=list, max_length=100)
     minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
     fresher_allowed: bool = False
+    responsibilities: list[str] = Field(default_factory=list, max_length=50)
 
 
 class JobUpdate(BaseModel):
@@ -61,6 +62,7 @@ class JobUpdate(BaseModel):
     required_skills: Optional[list[str]] = Field(default=None, max_length=100)
     minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
     fresher_allowed: Optional[bool] = None
+    responsibilities: Optional[list[str]] = Field(default=None, max_length=50)
 
 
 class JobRead(BaseModel):
