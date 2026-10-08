@@ -671,6 +671,12 @@ class ValidationRequest(BaseModel):
     job_description: str
 
 
+class ResumeLabSyncRequest(BaseModel):
+    resume_json: dict
+    job_id: int | None = None
+    job_fit: dict | None = None
+
+
 def _get_org_record(db: Session, model, record_id: int, organization_id: int):
     record = db.scalar(
         select(model).where(model.id == record_id, model.organization_id == organization_id)
@@ -1978,6 +1984,229 @@ def delete_job(
     record_audit(db, user, "job.deleted", "job", job.id, before=_audit_job(job))
     db.delete(job)
     db.commit()
+
+
+@app.post("/resume-processing/sync", response_class=JSONResponse)
+def sync_resume_lab_candidate(
+    request: ResumeLabSyncRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Synchronize the complete Resume Lab profile into the ATS candidate record."""
+    resume = dict(request.resume_json or {})
+    resume.pop("raw_text", None)
+
+    candidate_email = str(resume.get("email") or "").strip().lower()
+    if not candidate_email:
+        raise HTTPException(
+            status_code=422,
+            detail="Resume sync requires an email address so the ATS can identify the candidate.",
+        )
+
+    first_name, last_name = _split_candidate_name(resume.get("name"))
+    candidate = db.scalar(
+        select(Candidate).where(
+            Candidate.organization_id == user.organization_id,
+            Candidate.email == candidate_email,
+        )
+    )
+
+    created = candidate is None
+    if candidate is None:
+        candidate = Candidate(
+            organization_id=user.organization_id,
+            created_by_id=user.id,
+            first_name=first_name,
+            last_name=last_name,
+            email=candidate_email,
+            phone=str(resume.get("phone") or "").strip()[:50] or None,
+            linkedin_url=str(resume.get("linkedin") or "").strip()[:500] or None,
+            source="Resume Lab",
+        )
+        db.add(candidate)
+        db.flush()
+    else:
+        if first_name:
+            candidate.first_name = first_name
+        if last_name:
+            candidate.last_name = last_name
+        if resume.get("phone"):
+            candidate.phone = str(resume["phone"]).strip()[:50]
+        if resume.get("linkedin"):
+            candidate.linkedin_url = str(resume["linkedin"]).strip()[:500]
+        candidate.source = candidate.source or "Resume Lab"
+
+    # Preserve recruiter-entered data while updating every non-empty extracted
+    # Resume Lab field. Structured resume information stays in resume_data so
+    # filters, matching, candidate detail, assistant, and exports all use the
+    # same canonical profile.
+    existing_profile = dict(candidate.resume_data or {})
+    merged_profile = dict(existing_profile)
+    list_fields = (
+        "skills",
+        "experience",
+        "education",
+        "hobbies",
+        "university_projects",
+        "projects",
+        "certifications",
+        "companies",
+        "job_titles",
+    )
+    scalar_fields = (
+        "name",
+        "email",
+        "phone",
+        "linkedin",
+        "github",
+        "highest_education",
+        "years_of_experience",
+        "notice_period",
+        "current_location",
+        "preferred_location",
+        "work_authorization",
+        "is_fresher",
+        "resume_quality",
+        "extraction_evidence",
+        "extraction_confidence",
+        "resume_intelligence_version",
+        "raw_text_length",
+        "document_extraction_engine",
+        "document_extraction_warning",
+        "resume_validation",
+    )
+    for field in list_fields:
+        value = resume.get(field)
+        if isinstance(value, list) and value:
+            merged_profile[field] = value
+        elif field not in merged_profile:
+            merged_profile[field] = []
+    for field in scalar_fields:
+        value = resume.get(field)
+        if value is not None and value != "":
+            merged_profile[field] = value
+
+    merged_profile["synced_from"] = "Resume Lab"
+    merged_profile["synced_at"] = datetime.now(timezone.utc).isoformat()
+    candidate.resume_data = merged_profile
+
+    cv_summary = []
+    if merged_profile.get("years_of_experience") is not None:
+        cv_summary.append(f"{merged_profile['years_of_experience']} years of experience")
+    if merged_profile.get("current_location"):
+        cv_summary.append(f"Based in {merged_profile['current_location']}")
+    if merged_profile.get("highest_education"):
+        cv_summary.append(f"Education: {merged_profile['highest_education']}")
+    skills = [str(v).strip() for v in (merged_profile.get("skills") or []) if str(v).strip()]
+    if skills:
+        cv_summary.append("Skills: " + ", ".join(skills[:8]))
+    companies = [str(v).strip() for v in (merged_profile.get("companies") or []) if str(v).strip()]
+    if companies:
+        cv_summary.append("Companies: " + ", ".join(dict.fromkeys(companies[:6])))
+    certifications = [str(v).strip() for v in (merged_profile.get("certifications") or []) if str(v).strip()]
+    if certifications:
+        cv_summary.append("Certifications: " + ", ".join(dict.fromkeys(certifications[:5])))
+    candidate.cv_summary = cv_summary[:12]
+
+    validation = merged_profile.get("resume_validation") or {}
+    candidate.needs_review = validation.get("status") not in (None, "valid")
+
+    application_id = None
+    match_payload = None
+    email_id = None
+
+    if request.job_id is not None:
+        job = _get_org_record(db, Job, int(request.job_id), user.organization_id)
+        if job.status != "open":
+            raise HTTPException(status_code=409, detail="The selected job is not open")
+
+        stages = ensure_job_stages(db, job)
+        application = db.scalar(
+            select(Application).where(
+                Application.organization_id == user.organization_id,
+                Application.job_id == job.id,
+                Application.candidate_id == candidate.id,
+            )
+        )
+        application_created = application is None
+        if application is None:
+            application = Application(
+                organization_id=user.organization_id,
+                job_id=job.id,
+                candidate_id=candidate.id,
+                stage_id=stages["Applied"].id,
+                status="active",
+            )
+            db.add(application)
+            db.flush()
+
+        if not job.jd_analysis:
+            job.jd_analysis = matching_service.analyze_job(job)
+        score = matching_service.score_candidate(job, candidate)
+        match = db.scalar(
+            select(CandidateJobMatch).where(
+                CandidateJobMatch.organization_id == user.organization_id,
+                CandidateJobMatch.job_id == job.id,
+                CandidateJobMatch.candidate_id == candidate.id,
+            )
+        )
+        if match is None:
+            match = CandidateJobMatch(
+                organization_id=user.organization_id,
+                job_id=job.id,
+                candidate_id=candidate.id,
+            )
+            db.add(match)
+        match.model_score = score["model_score"]
+        match.score_breakdown = score["score_breakdown"]
+        match.matched_skills = score["matched_skills"]
+        match.skill_gaps = score["skill_gaps"]
+        match.explanations = score["explanations"]
+        match.semantic_mode = score["semantic_mode"]
+
+        application_id = application.id
+        match_payload = {
+            "model_score": score["model_score"],
+            "matched_skills": score["matched_skills"],
+            "skill_gaps": score["skill_gaps"],
+            "score_breakdown": score["score_breakdown"],
+        }
+
+        if application_created:
+            subject, body = _stage_email(application, "Applied", db=db)
+            email_id = queue_application_email(db, application, subject, body)
+
+    record_audit(
+        db,
+        user,
+        "resume_lab.synced",
+        "candidate",
+        candidate.id,
+        after={
+            "created": created,
+            "candidate_id": candidate.id,
+            "synced_fields": sorted(merged_profile.keys()),
+            "application_id": application_id,
+        },
+    )
+    db.commit()
+    db.refresh(candidate)
+
+    background_tasks.add_task(_refresh_candidate_embedding, candidate.id, user.organization_id)
+    if email_id is not None:
+        background_tasks.add_task(deliver_outbox_email, email_id)
+
+    return {
+        "status": "success",
+        "candidate_id": candidate.id,
+        "created": created,
+        "application_id": application_id,
+        "match": match_payload,
+        "synced_fields": sorted(merged_profile.keys()),
+        "profile": merged_profile,
+        "message": "Resume Lab profile synchronized across the ATS candidate record and selected application.",
+    }
 
 
 @app.post("/candidates/from-resume", response_model=CandidateRead, status_code=status.HTTP_201_CREATED)
