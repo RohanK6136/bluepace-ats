@@ -110,6 +110,7 @@ from app.schemas import (
 from app.security import JWT_SECRET, create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
 from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
 from app.services.private_storage import private_storage
+from app.services.public_media import PublicMediaError, public_media_service
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
@@ -1536,6 +1537,26 @@ def _candidate_search_matches(content: str, query: str) -> bool:
 READ_ROLES = (Role.admin, Role.recruiter, Role.hiring_manager, Role.interviewer)
 WRITE_ROLES = (Role.admin, Role.recruiter)
 
+
+@app.post("/admin/public-media/upload", response_class=JSONResponse)
+async def upload_public_media(
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+):
+    """Upload a careers-site/public asset to Cloudinary, never a private candidate document."""
+    content = await file.read(MAX_DOCUMENT_SIZE_BYTES + 1)
+    if len(content) > MAX_DOCUMENT_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="Public media upload must be 5 MB or smaller.")
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded public media file is empty.")
+    content_type = (file.content_type or "").lower()
+    if not (content_type.startswith("image/") or content_type.startswith("video/") or content_type == "application/pdf"):
+        raise HTTPException(status_code=400, detail="Public media supports images, videos, and PDFs.")
+    try:
+        result = public_media_service.upload_public(content, file.filename or "public-asset", content_type)
+    except PublicMediaError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+     return {"status": "success", "storage": "cloudinary", "asset": result}
 
 @app.get("/recruiting-users", response_model=list[UserRead])
 def list_recruiting_users(
