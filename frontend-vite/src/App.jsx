@@ -309,14 +309,24 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     }
   }
 
-  async function uploadToB2(upload, file) {
+  async function uploadToStorage(upload, file, authToken) {
     const response = await fetch(upload.upload_url, {
       method: "PUT",
-      headers: { "Content-Type": upload.content_type || file.type || "application/octet-stream" },
+      headers: {
+        "Content-Type": upload.content_type || file.type || "application/octet-stream",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
       body: file,
     });
     if (!response.ok) {
-      throw new Error(`Backblaze upload returned HTTP ${response.status}.`);
+      let detail = "";
+      try {
+        const payload = await response.json();
+        detail = payload?.detail ? ` ${payload.detail}` : "";
+      } catch (_) {
+        // Keep a concise fallback for non-JSON upstream errors.
+      }
+      throw new Error(`Storage upload returned HTTP ${response.status}.${detail}`);
     }
   }
 
@@ -389,7 +399,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               const file = chunk[localIndex];
               const upload = uploads[localIndex];
               try {
-                await uploadToB2(upload, file);
+                await uploadToStorage(upload, file, token);
                 successfulUploads[localIndex] = {
                   filename: file.name,
                   storage_path: upload.storage_path,
