@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import axios from "axios";
+import { MAX_DOCUMENT_SIZE_BYTES, MAX_DOCUMENT_SIZE_LABEL } from "./constants/documentLimits.js";
 import AtsChatbot from "./AtsChatbot.jsx";
 import PublicHelpCenter from "./PublicHelpCenter.jsx";
 const ResumeLab = lazy(() => import("./App.jsx"));
@@ -13,9 +14,6 @@ const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
 const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
 const HiringPipelineKanban = lazy(() => import("./HiringPipelineKanban.jsx"));
-
-const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
-const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -307,6 +305,7 @@ export default function AtsWorkspace() {
     required_skills: "",
     minimum_experience_years: "",
     fresher_allowed: false,
+    responsibilities: "",
   });
   const [candidateFormOpen, setCandidateFormOpen] = useState(false);
   const [candidateEntryMode, setCandidateEntryMode] = useState("manual");
@@ -716,6 +715,7 @@ export default function AtsWorkspace() {
       required_skills: (job.required_skills || []).join(", "),
       minimum_experience_years: job.minimum_experience_years ?? "",
       fresher_allowed: Boolean(job.fresher_allowed),
+      responsibilities: (job.jd_analysis?.responsibilities || []).join("\n"),
     } : {
       title: "",
       description: "",
@@ -727,6 +727,7 @@ export default function AtsWorkspace() {
       required_skills: "",
       minimum_experience_years: "",
       fresher_allowed: false,
+      responsibilities: "",
     });
     setJobFormOpen(true);
   }
@@ -755,23 +756,35 @@ export default function AtsWorkspace() {
           setError("Select a PDF or DOCX job description.");
           return;
         }
+        if (jobDocumentFile.size > MAX_DOCUMENT_SIZE_BYTES) {
+          setError(`Job document must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+          return;
+        }
         const body = new FormData();
         body.append("file", jobDocumentFile);
-        if (jobForm.title.trim()) body.append("title", jobForm.title.trim());
-        if (jobForm.department.trim()) body.append("department", jobForm.department.trim());
-        if (jobForm.location.trim()) body.append("location", jobForm.location.trim());
-        if (jobForm.employment_type.trim()) body.append("employment_type", jobForm.employment_type.trim());
-        body.append("work_mode", jobForm.work_mode);
-        body.append("status_value", jobForm.status);
-        if (jobForm.minimum_experience_years !== "") body.append("minimum_experience_years", String(Number(jobForm.minimum_experience_years)));
-        body.append("fresher_allowed", String(Boolean(jobForm.fresher_allowed)));
-        await apiRequest(token, "post", "/jobs/from-document", { data: body });
-        setNotice("Job document parsed, job created, and JD requirements extracted");
+        const response = await apiRequest(token, "post", "/jobs/from-document/preview", { data: body });
+        const parsed = response.data || {};
+        setJobForm((current) => ({
+          ...current,
+          title: parsed.title || current.title,
+          description: parsed.description || current.description,
+          department: parsed.department || current.department,
+          location: parsed.location || current.location,
+          employment_type: parsed.employment_type || current.employment_type,
+          work_mode: parsed.work_mode || current.work_mode,
+          minimum_experience_years: parsed.minimum_experience_years ?? current.minimum_experience_years,
+          fresher_allowed: parsed.fresher_allowed ?? current.fresher_allowed,
+          required_skills: Array.isArray(parsed.required_skills) ? parsed.required_skills.join(", ") : current.required_skills,
+          responsibilities: Array.isArray(parsed.responsibilities) ? parsed.responsibilities.join("\n") : current.responsibilities,
+        }));
+        setJobEntryMode("manual");
+        setNotice("JD extracted and form populated. Review the fields, edit anything needed, then create the job.");
       } else {
         const jobPayload = {
           ...jobForm,
           required_skills: [...new Set(jobForm.required_skills.split(/[;,\n]/).map((skill) => skill.trim()).filter(Boolean))],
           minimum_experience_years: jobForm.minimum_experience_years === "" ? null : Number(jobForm.minimum_experience_years),
+          responsibilities: jobForm.responsibilities.split(/\n+/).map((value) => value.replace(/^[•*-]\s*/, "").trim()).filter(Boolean),
         };
         if (editingJob) {
           await apiRequest(token, "patch", `/jobs/${editingJob.id}`, { data: jobPayload });
@@ -1140,6 +1153,10 @@ export default function AtsWorkspace() {
       setPublicError("Name and email are required.");
       return;
     }
+    if (publicResume.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setPublicError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+      return;
+    }
 
     const body = new FormData();
     body.append("file", publicResume);
@@ -1359,7 +1376,17 @@ export default function AtsWorkspace() {
                     type="file"
                     accept=".pdf,.docx"
                     required
-                    onChange={(event) => setPublicResume(event.target.files?.[0] || null)}
+                    onChange={(event) => {
+                      const selected = event.target.files?.[0] || null;
+                      if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) {
+                        setPublicResume(null);
+                        setPublicError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+                        event.target.value = "";
+                        return;
+                      }
+                      setPublicResume(selected);
+                      setPublicError("");
+                    }}
                     className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
                   />
                   <span className="text-[11px] font-normal text-ink-400">PDF or DOCX, up to 5 MB.</span>
@@ -1882,6 +1909,7 @@ export default function AtsWorkspace() {
                   <Field label="Required skills" placeholder="Python, PostgreSQL, AWS" value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
                   <Field label="Minimum experience (years)" type="number" min="0" max="60" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
                   <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700"><input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />Open to freshers</label>
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Responsibilities<textarea className={inputStyle + " min-h-24 resize-y"} placeholder="One responsibility per line" value={jobForm.responsibilities} onChange={(event) => setJobForm({ ...jobForm, responsibilities: event.target.value })} /></label>
                   <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Description<textarea className={inputStyle + " min-h-28 resize-y"} required value={jobForm.description} onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })} /></label>
                 </div>
               )}
