@@ -26,6 +26,8 @@ class DocumentExtractor:
             "C++", "Node.js", "Machine Learning", "TypeScript", "Kubernetes",
             "Redis", "GraphQL", "Figma", "Excel", "Go", "Rust", "C#",
         ]
+        self.extraction_engine = os.getenv("DOCUMENT_EXTRACTION_ENGINE", "docling").strip().lower()
+        self.fallback_extraction_engine = os.getenv("DOCUMENT_EXTRACTION_FALLBACK_ENGINE", "legacy").strip().lower()
         api_key = os.getenv("OPENROUTER_API_KEY")
         self.client = (
             OpenAI(
