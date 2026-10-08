@@ -1697,3 +1697,428 @@ html.dark .bp-dashboard-secondary > div {
 html.dark .bp-template-hero {
   background: #0a0e14 !important;
 }
+
+
+/* Cloudinary-console-inspired ATS workspace refresh.
+   Visual reference only: compact navigation, neutral canvas, utility toolbar,
+   blue accent, dense tables, subtle borders and restrained elevation. */
+.bp-admin-shell {
+  --bp-console-blue: #1f66d1;
+  --bp-console-blue-hover: #1958b8;
+  --bp-console-blue-soft: #edf4ff;
+  --bp-console-border: #dfe5ec;
+  --bp-console-border-soft: #ebeff4;
+  --bp-console-surface: #ffffff;
+  --bp-console-canvas: #f7f8fa;
+  --bp-console-muted: #667085;
+  --bp-console-text: #172033;
+  background: var(--bp-console-canvas) !important;
+  color: var(--bp-console-text);
+}
+
+.bp-admin-shell aside {
+  width: 248px !important;
+  background: #fff !important;
+  color: #344054 !important;
+  border-right: 1px solid var(--bp-console-border) !important;
+  box-shadow: none !important;
+}
+
+.bp-admin-shell aside > div:first-child {
+  height: 68px !important;
+  padding: 0 18px !important;
+  border-bottom: 1px solid var(--bp-console-border) !important;
+}
+
+.bp-admin-shell aside > div:first-child > div:first-child {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px !important;
+  background: var(--bp-console-blue) !important;
+  color: #fff !important;
+}
+
+.bp-admin-shell aside nav {
+  padding: 14px 10px !important;
+}
+
+.bp-admin-shell aside nav p {
+  margin: 0 8px 7px;
+  color: #98a2b3 !important;
+  font-size: 9px !important;
+  letter-spacing: .14em !important;
+}
+
+.bp-admin-shell aside nav button {
+  min-height: 40px !important;
+  padding: 9px 10px !important;
+  border-radius: 8px !important;
+  color: #475467 !important;
+  font-size: 13px !important;
+}
+
+.bp-admin-shell aside nav button:hover {
+  background: #f5f7fa !important;
+  color: #1d4ed8 !important;
+}
+
+.bp-admin-shell aside nav button.bg-white\/10 {
+  background: var(--bp-console-blue-soft) !important;
+  color: var(--bp-console-blue) !important;
+  box-shadow: inset 3px 0 0 var(--bp-console-blue) !important;
+}
+
+.bp-admin-shell aside nav > div {
+  border-left-color: #dce3eb !important;
+}
+
+.bp-admin-shell aside .sticky {
+  background: #fff !important;
+  border-top: 1px solid var(--bp-console-border) !important;
+}
+
+.bp-admin-shell > .lg\\:pl-60 {
+  padding-left: 248px !important;
+}
+
+.bp-admin-shell .ats-workspace-header {
+  min-height: 68px !important;
+  padding: 10px 24px !important;
+  background: rgba(255,255,255,.97) !important;
+  border-bottom: 1px solid var(--bp-console-border) !important;
+  box-shadow: none !important;
+}
+
+.bp-admin-shell .ats-workspace-header h1 {
+  margin-top: 1px;
+  color: #101828 !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  letter-spacing: -.02em;
+}
+
+.bp-admin-shell .ats-workspace-header > div:first-child p {
+  color: #98a2b3 !important;
+  font-size: 10px !important;
+  letter-spacing: .02em;
+}
+
+.bp-admin-shell .ats-workspace-header button {
+  min-height: 38px;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.bp-admin-shell .ats-workspace-header button[class*="bg-[#c49a4a]"] {
+  background: var(--bp-console-blue) !important;
+  color: #fff !important;
+}
+
+.bp-admin-shell .ats-workspace-header button[class*="bg-[#c49a4a]"]:hover {
+  background: var(--bp-console-blue-hover) !important;
+}
+
+.bp-admin-shell main {
+  max-width: 1480px !important;
+  padding: 22px 24px 36px !important;
+}
+
+.bp-admin-shell main > section,
+.bp-admin-shell main > div > section {
+  border-color: var(--bp-console-border) !important;
+  box-shadow: none !important;
+}
+
+.bp-admin-shell .bp-dashboard-hero {
+  padding: 24px 26px;
+  border-radius: 12px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+.bp-admin-shell .bp-dashboard-copy h2 {
+  font-size: 26px !important;
+  letter-spacing: -.035em;
+}
+
+.bp-admin-shell .bp-dashboard-copy p {
+  color: #667085 !important;
+}
+
+.bp-admin-shell .bp-flow-card,
+.bp-admin-shell .bp-dashboard-primary {
+  border-radius: 12px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+.bp-admin-shell .bp-flow-card {
+  padding: 16px !important;
+}
+
+.bp-admin-shell .bp-flow-card button {
+  min-height: 54px !important;
+  border-radius: 8px !important;
+  border-color: var(--bp-console-border-soft) !important;
+  background: #fff !important;
+}
+
+.bp-admin-shell .bp-flow-card button:hover {
+  border-color: #bfd2ef !important;
+  background: #f8fbff !important;
+}
+
+.bp-admin-shell .bp-flow-card button > span:first-child {
+  background: #eef4ff !important;
+  color: var(--bp-console-blue) !important;
+  border: 1px solid #d7e4fb;
+}
+
+.bp-admin-shell .bp-metric-strip {
+  gap: 10px;
+}
+
+.bp-admin-shell .bp-metric-card {
+  min-height: 120px;
+  padding: 16px;
+  border-radius: 10px !important;
+  border-color: var(--bp-console-border) !important;
+  box-shadow: none !important;
+  background: #fff !important;
+}
+
+.bp-admin-shell .bp-metric-card::before {
+  background: var(--bp-console-blue) !important;
+}
+
+.bp-admin-shell .bp-metric-card:hover {
+  transform: none;
+  border-color: #c8d7ec !important;
+  box-shadow: 0 3px 14px rgba(16,24,40,.05) !important;
+}
+
+.bp-admin-shell .bp-metric-label {
+  font-size: 9px;
+  color: #667085;
+}
+
+.bp-admin-shell .bp-metric-card strong {
+  font-size: 29px;
+  color: #101828 !important;
+}
+
+.bp-admin-shell .bp-metric-card small {
+  color: #98a2b3;
+}
+
+.bp-admin-shell input:not([type="checkbox"]):not([type="radio"]),
+.bp-admin-shell select,
+.bp-admin-shell textarea {
+  border-color: #d5dbe3 !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+  color: #172033 !important;
+  box-shadow: none !important;
+}
+
+.bp-admin-shell input:not([type="checkbox"]):not([type="radio"]):focus,
+.bp-admin-shell select:focus,
+.bp-admin-shell textarea:focus {
+  border-color: #7aa7e6 !important;
+  box-shadow: 0 0 0 3px rgba(31,102,209,.10) !important;
+}
+
+.bp-admin-shell button[class*="bg-[#c49a4a]"] {
+  background: var(--bp-console-blue) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.bp-admin-shell button[class*="bg-[#c49a4a]"]:hover {
+  background: var(--bp-console-blue-hover) !important;
+}
+
+.bp-admin-shell button[class*="border-ink-100"][class*="bg-white"] {
+  border-color: #d5dbe3 !important;
+  color: #344054 !important;
+  background: #fff !important;
+}
+
+.bp-admin-shell button[class*="border-ink-100"][class*="bg-white"]:hover {
+  background: #f8fafc !important;
+}
+
+.bp-admin-shell table thead {
+  background: #f8fafc !important;
+}
+
+.bp-admin-shell table th {
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+  color: #667085 !important;
+  font-size: 10px !important;
+  letter-spacing: .08em !important;
+}
+
+.bp-admin-shell table td {
+  padding-top: 13px !important;
+  padding-bottom: 13px !important;
+  border-color: var(--bp-console-border-soft) !important;
+}
+
+.bp-admin-shell table tbody tr:hover {
+  background: #fbfcfe !important;
+}
+
+.bp-admin-shell .ats-jobs-table {
+  border-radius: 10px !important;
+  border-color: var(--bp-console-border) !important;
+  box-shadow: none !important;
+}
+
+.bp-admin-shell .ats-jobs-grid {
+  background: #fff !important;
+  border-color: var(--bp-console-border-soft) !important;
+}
+
+.bp-admin-shell .ats-jobs-grid:first-child {
+  background: #f8fafc !important;
+}
+
+.bp-admin-shell details > summary {
+  color: #475467;
+}
+
+.bp-admin-shell .bg-\[\#fbf7ef\] {
+  background: #f7faff !important;
+  border-color: #d9e6f7 !important;
+}
+
+.bp-admin-shell .text-gold-700,
+.bp-admin-shell .text-gold-300 {
+  color: var(--bp-console-blue) !important;
+}
+
+.bp-admin-shell .border-gold-200 {
+  border-color: #d6e2f2 !important;
+}
+
+.bp-admin-shell .bg-gold-500 {
+  background: var(--bp-console-blue) !important;
+}
+
+.bp-admin-shell .border-rose-200,
+.bp-admin-shell .bg-rose-50 {
+  background-color: #fff7f7 !important;
+}
+
+.bp-admin-shell .text-ink-900,
+.bp-admin-shell .text-ink-800 {
+  color: #172033;
+}
+
+.bp-admin-shell .text-ink-700 {
+  color: #344054;
+}
+
+.bp-admin-shell .text-ink-600,
+.bp-admin-shell .text-ink-500 {
+  color: #667085;
+}
+
+.bp-admin-shell .text-ink-400 {
+  color: #98a2b3;
+}
+
+.bp-admin-shell .ats-mobile-nav {
+  padding-bottom: 4px !important;
+}
+
+.bp-admin-shell .ats-mobile-nav button {
+  border-radius: 7px !important;
+}
+
+.bp-admin-shell .ats-mobile-nav button.bg-ink-950 {
+  background: var(--bp-console-blue) !important;
+}
+
+@media (max-width: 1024px) {
+  .bp-admin-shell > .lg\\:pl-60 {
+    padding-left: 0 !important;
+  }
+
+  .bp-admin-shell .ats-workspace-header {
+    padding: 10px 16px !important;
+  }
+
+  .bp-admin-shell main {
+    padding: 18px 16px 28px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .bp-admin-shell main {
+    padding: 14px 12px 24px !important;
+  }
+
+  .bp-admin-shell .bp-dashboard-hero {
+    padding: 18px !important;
+    border-radius: 10px !important;
+  }
+
+  .bp-admin-shell .bp-dashboard-copy h2 {
+    font-size: 22px !important;
+  }
+
+  .bp-admin-shell .bp-metric-card {
+    min-height: 108px;
+    padding: 14px;
+  }
+}
+
+html.dark .bp-admin-shell {
+  --bp-console-canvas: #101722;
+  --bp-console-surface: #131d2a;
+  --bp-console-border: #27364a;
+  --bp-console-border-soft: #223044;
+  --bp-console-muted: #91a3b7;
+  --bp-console-text: #e7edf5;
+  background: var(--bp-console-canvas) !important;
+}
+
+html.dark .bp-admin-shell aside,
+html.dark .bp-admin-shell aside .sticky,
+html.dark .bp-admin-shell .ats-workspace-header,
+html.dark .bp-admin-shell .bp-dashboard-hero,
+html.dark .bp-admin-shell .bp-flow-card,
+html.dark .bp-admin-shell .bp-dashboard-primary,
+html.dark .bp-admin-shell .bp-metric-card,
+html.dark .bp-admin-shell .ats-jobs-table {
+  background: var(--bp-console-surface) !important;
+  border-color: var(--bp-console-border) !important;
+  color: var(--bp-console-text) !important;
+}
+
+html.dark .bp-admin-shell input:not([type="checkbox"]):not([type="radio"]),
+html.dark .bp-admin-shell select,
+html.dark .bp-admin-shell textarea,
+html.dark .bp-admin-shell table thead,
+html.dark .bp-admin-shell .ats-jobs-grid,
+html.dark .bp-admin-shell button[class*="border-ink-100"][class*="bg-white"] {
+  background: #101925 !important;
+  border-color: var(--bp-console-border) !important;
+  color: #e7edf5 !important;
+}
+
+html.dark .bp-admin-shell table tbody tr:hover,
+html.dark .bp-admin-shell .bp-flow-card button:hover {
+  background: #152131 !important;
+}
+
+html.dark .bp-admin-shell .bp-flow-card button,
+html.dark .bp-admin-shell .bp-metric-card,
+html.dark .bp-admin-shell .ats-jobs-grid {
+  border-color: var(--bp-console-border) !important;
+}
+
