@@ -5,7 +5,7 @@ import { MAX_DOCUMENT_SIZE_BYTES, MAX_DOCUMENT_SIZE_LABEL } from "./constants/do
 
 const API_URL = (
   import.meta.env.VITE_API_URL?.trim() ||
-  (import.meta.env.PROD ? "https://bluepace-ats-11.onrender.com" : "http://localhost:8000")
+  (import.meta.env.PROD ? "https://bluepace-ats-production.up.railway.app" : "http://localhost:8000")
 ).replace(/\/+$/, "");
 
 export default function CandidatePortal({ token, theme = "light", onToggleTheme = () => {} }) {
