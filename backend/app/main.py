@@ -1387,10 +1387,13 @@ def create_job(
     db: Session = Depends(get_db),
 ):
     payload = request.model_dump()
+    responsibilities = payload.pop("responsibilities", [])
     job = Job(**payload, organization_id=user.organization_id, created_by_id=user.id)
     db.add(job)
     db.flush()
     job.jd_analysis = matching_service.analyze_job(job)
+    if responsibilities:
+        job.jd_analysis["responsibilities"] = responsibilities
     job.embedding = None
     ensure_job_stages(db, job)
     record_audit(db, user, "job.created", "job", job.id, after={"title": job.title, "status": job.status})
@@ -1452,6 +1455,85 @@ async def create_job_from_url(
     db.commit()
     db.refresh(job)
     return job
+
+
+@app.post("/jobs/from-document/preview", response_class=JSONResponse)
+async def preview_job_from_document(
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+):
+    """Extract and normalize a JD for recruiter review without creating a job."""
+    suffix, content = await _read_resume_upload(file)
+    try:
+        parsed = await asyncio.to_thread(
+            extractor_service.extract_to_json,
+            content,
+            f"job{suffix}",
+        )
+    except DocumentExtractionError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    raw_text = str(parsed.get("raw_text") or "").strip()
+    if not raw_text:
+        raise HTTPException(status_code=422, detail="No readable job description text was found.")
+
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    title = next(
+        (
+            line[:200]
+            for line in lines
+            if len(line) <= 200
+            and line.casefold() not in {"job description", "job description:", "jd", "job profile"}
+        ),
+        Path(file.filename or "Job opening").stem.replace("_", " ").replace("-", " ").strip()[:200] or "Job opening",
+    )
+
+    analysis = matching_service.parse_job_description(title, raw_text, use_llm=False)
+    skills = set(str(value).casefold() for value in analysis.get("required_skills", []))
+    department_map = (
+        ("Engineering", {"python", "java", "javascript", "typescript", "react", "fastapi", "django", "node.js", "sql", "aws", "docker"}),
+        ("Data", {"python", "sql", "machine learning", "pandas", "numpy", "tableau", "excel"}),
+        ("Design", {"figma"}),
+        ("Marketing", {"seo", "google analytics", "content", "marketing"}),
+        ("Product", {"product management", "product manager", "roadmap"}),
+        ("Project Management", {"project management", "agile", "scrum", "jira"}),
+        ("Human Resources", {"recruiting", "talent acquisition", "hr"}),
+        ("Finance", {"finance", "accounting", "excel", "financial analysis"}),
+    )
+    department = next((name for name, markers in department_map if any(marker in skills for marker in markers)), None)
+
+    employment_type = next(
+        (
+            value for value in ("Full-time", "Part-time", "Contract", "Temporary", "Internship")
+            if re.search(rf"\b{re.escape(value)}\b", raw_text, re.IGNORECASE)
+        ),
+        "Full-time",
+    )
+    minimum_experience = analysis.get("minimum_experience_years")
+    fresher_allowed = bool(
+        re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", raw_text, re.IGNORECASE)
+        or re.search(r"\b0\s*(?:years?|yrs?)\b", raw_text, re.IGNORECASE)
+    )
+
+    return {
+        "status": "preview",
+        "title": title,
+        "department": department or "",
+        "location": analysis.get("location") or "",
+        "employment_type": employment_type,
+        "work_mode": analysis.get("work_mode") or "onsite",
+        "minimum_experience_years": minimum_experience,
+        "fresher_allowed": fresher_allowed,
+        "required_skills": analysis.get("required_skills") or [],
+        "responsibilities": analysis.get("responsibilities") or [],
+        "description": raw_text,
+        "education": analysis.get("education"),
+        "preferred_skills": analysis.get("preferred_skills") or [],
+        "seniority": analysis.get("seniority"),
+        "source_filename": file.filename,
+        "document_extraction_engine": parsed.get("document_extraction_engine"),
+        "review_required": True,
+    }
 
 
 @app.post("/jobs/from-document", response_model=JobRead, status_code=status.HTTP_201_CREATED)
@@ -1575,12 +1657,15 @@ def update_job(
     job = _get_org_record(db, Job, job_id, user.organization_id)
     before = _audit_job(job)
     updates = request.model_dump(exclude_unset=True)
+    responsibilities = updates.pop("responsibilities", None)
     for field, value in updates.items():
         setattr(job, field, value)
     if set(updates) & {
         "title", "description", "location", "work_mode", "required_skills", "minimum_experience_years", "fresher_allowed"
-    }:
+    } or responsibilities is not None:
         job.jd_analysis = matching_service.analyze_job(job)
+        if responsibilities is not None:
+            job.jd_analysis["responsibilities"] = responsibilities
         job.embedding = None
     record_audit(
         db,
