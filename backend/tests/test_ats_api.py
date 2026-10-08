@@ -1,6 +1,12 @@
 from io import BytesIO
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _use_legacy_extractor_for_existing_tests(monkeypatch):
+    from app.services.document_intelligence import document_intelligence_service
+    monkeypatch.setattr(document_intelligence_service, "engine", "fallback")
 from docx import Document
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select, text
