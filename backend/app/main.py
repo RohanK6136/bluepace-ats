@@ -1021,21 +1021,29 @@ def public_career_assistant(
     )
 
     lower = query.casefold()
-    experience_match = re.search(r"\b(\d{1,2})\s*(?:-|to)\s*(\d{1,2})\+?\s*(?:years?|yrs?)\b", lower)
+    experience_match = re.search(r"\b(\d{1,2})\s*(?:-|–|—|to)\s*(\d{1,2})\+?\s*(?:years?|yrs?)\b", lower)
     single_experience = re.search(r"\b(?:at least|minimum of|min)?\s*(\d{1,2})\+?\s*(?:years?|yrs?)\b", lower)
     minimum_experience = int(experience_match.group(1)) if experience_match else (
         int(single_experience.group(1)) if single_experience else None
     )
     maximum_experience = int(experience_match.group(2)) if experience_match else None
 
-    if re.search(r"\b(remote|work from home|wfh|fully remote)\b", lower):
-        work_mode = "remote"
-    elif re.search(r"\bhybrid\b", lower):
-        work_mode = "hybrid"
-    elif re.search(r"\b(on[- ]?site|onsite|office)\b", lower):
-        work_mode = "onsite"
+    wants_remote = bool(re.search(r"\b(remote|work from home|wfh|fully remote)\b", lower))
+    wants_hybrid = bool(re.search(r"\bhybrid\b", lower))
+    wants_onsite = bool(re.search(r"\b(on[- ]?site|onsite|office)\b", lower))
+    if wants_remote and wants_hybrid:
+        work_modes = {"remote", "hybrid"}
+    elif wants_remote and re.search(r"\b(?:or|/|and)\s+remote\b", lower):
+        work_modes = {"remote", "hybrid", "onsite"} if wants_remote else set()
+    elif wants_remote:
+        work_modes = {"remote"}
+    elif wants_hybrid:
+        work_modes = {"hybrid"}
+    elif wants_onsite:
+        work_modes = {"onsite"}
     else:
-        work_mode = None
+        work_modes = set()
+    work_mode = next(iter(work_modes), None) if len(work_modes) == 1 else None
 
     # Resolve a location only from locations actually present in the published jobs.
     location = None
@@ -1080,7 +1088,7 @@ def public_career_assistant(
             " ".join(job.required_skills or []),
         ]).casefold()
 
-        if work_mode and job.work_mode != work_mode:
+        if work_modes and job.work_mode not in work_modes:
             continue
         if location and (job.location or "").casefold() != location.casefold():
             continue
@@ -1147,7 +1155,7 @@ def public_career_assistant(
             "role_terms": role_terms[:8],
             "skills": detected_skills[:12],
             "location": location,
-            "work_mode": work_mode,
+            "work_mode": sorted(work_modes) if len(work_modes) > 1 else work_mode,
             "minimum_experience_years": minimum_experience,
             "maximum_experience_years": maximum_experience,
         },
@@ -1895,6 +1903,9 @@ def analyze_job_description(
 ):
     job = _get_org_record(db, Job, job_id, user.organization_id)
     analysis = matching_service.analyze_job(job)
+    existing_responsibilities = list((job.jd_analysis or {}).get("responsibilities") or [])
+    if existing_responsibilities:
+        analysis["responsibilities"] = existing_responsibilities
     job.jd_analysis = analysis
     vector = matching_service.embed_texts([matching_service.job_embedding_text(job)])[0]
     if vector is not None:
