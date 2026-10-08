@@ -1,0 +1,49 @@
+name: Document Pipeline Checks
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend-vite/**"
+      - ".github/workflows/document-pipeline-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Python
+        run: python -m compileall -q app scripts
+      - name: Test document limit contract
+        run: python -m unittest tests/test_document_limits.py
+      - name: Install backend dependencies
+        run: pip install --disable-pip-version-check -r requirements.txt
+      - name: Import document pipeline services
+        run: python -c "from app.services.document_intelligence import document_intelligence_service; from app.services.extractor import extractor_service; print(document_intelligence_service.engine); print(extractor_service.__class__.__name__)"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-vite
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend-vite/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build

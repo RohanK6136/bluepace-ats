@@ -103,7 +103,7 @@ def process_resume_ingest_job(self, job_id: int):
             # existing email templates, pipeline, and matching workflow receive
             # the same validated resume data.
             if not job.candidate_id:
-                from app.models import Candidate, Application, Job
+                from app.models import Candidate, Application, CandidateDocument, Job
                 from app.services.workflow import ensure_job_stages, queue_application_email
                 from app.main import _stage_email
 
@@ -159,6 +159,29 @@ def process_resume_ingest_job(self, job_id: int):
                             else:
                                 job.application_id = application.id
 
+            # Persist durable candidate-document metadata when the uploaded resume has
+            # been associated with a candidate. Queue storage is not disposable once
+            # it becomes the candidate's canonical resume.
+            if job.candidate_id:
+                from app.models import CandidateDocument
+                existing_document = db.query(CandidateDocument).filter(
+                    CandidateDocument.organization_id == job.organization_id,
+                    CandidateDocument.candidate_id == job.candidate_id,
+                    CandidateDocument.storage_key == job.storage_path,
+                ).first()
+                if existing_document is None:
+                    db.add(
+                        CandidateDocument(
+                            organization_id=job.organization_id,
+                            candidate_id=job.candidate_id,
+                            application_id=job.application_id,
+                            name=job.filename,
+                            storage_key=job.storage_path,
+                            content_type=job.content_type or "application/octet-stream",
+                            size_bytes=job.size_bytes,
+                        )
+                    )
+
             job.result_data = result_data
 
             # Public applications create the candidate/application immediately.
@@ -206,10 +229,11 @@ def process_resume_ingest_job(self, job_id: int):
             job.completed_at = datetime.now(timezone.utc)
             db.commit()
 
-            try:
-                private_storage.delete(job.storage_path)
-            except Exception:
-                pass
+            if not job.candidate_id:
+                try:
+                    private_storage.delete(job.storage_path)
+                except Exception:
+                    pass
 
             return {"status": "completed", "job_id": job.id}
         except Exception as error:

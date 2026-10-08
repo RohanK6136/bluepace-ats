@@ -528,13 +528,13 @@ Resume text:
         extraction_engine = None
         extraction_warning = None
 
-        configured_engine = os.getenv("DOCUMENT_EXTRACTION_ENGINE", "legacy").strip().lower()
-        fallback_engine = os.getenv("DOCUMENT_EXTRACTION_FALLBACK_ENGINE", "docling").strip().lower()
+        configured_engine = os.getenv("DOCUMENT_EXTRACTION_ENGINE", "docling").strip().lower()
+        fallback_engine = os.getenv("DOCUMENT_EXTRACTION_FALLBACK_ENGINE", "legacy").strip().lower()
 
-        # Resume Lab is optimized for normal text-based resumes: PDF/DOCX parsing
-        # with pypdf/python-docx is much faster than initializing a document-
-        # understanding model. Docling remains available as an explicit mode and
-        # as a fallback for scanned/image-heavy files when no text is extracted.
+        # Docling is the preferred document-understanding layer. It preserves a
+        # unified reading order and can handle layout-heavy/table/OCR documents.
+        # The legacy pypdf/python-docx path remains the deterministic fallback
+        # when Docling is unavailable or conversion fails.
         if configured_engine in {"docling", "document_intelligence"}:
             try:
                 docling_result = document_intelligence_service.extract(file_content, filename)
@@ -543,7 +543,7 @@ Resume text:
             except DocumentIntelligenceError as error:
                 extraction_warning = str(error)
 
-        if not raw_text:
+        if not raw_text and fallback_engine in {"legacy", "fallback", "pypdf", "python-docx"}:
             try:
                 if filename.lower().endswith(".pdf"):
                     from pypdf import PdfReader
@@ -566,14 +566,6 @@ Resume text:
             except Exception as e:
                 raise DocumentExtractionError(f"Failed to extract text: {str(e)}") from e
             raw_text = "\n".join(text_parts).strip()
-
-        if not raw_text and fallback_engine in {"docling", "document_intelligence"}:
-            try:
-                docling_result = document_intelligence_service.extract(file_content, filename)
-                raw_text = docling_result.text.strip()
-                extraction_engine = docling_result.engine
-            except DocumentIntelligenceError as error:
-                extraction_warning = str(error)
 
         if not raw_text:
             raise DocumentExtractionError(

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import axios from "axios";
+import { MAX_DOCUMENT_SIZE_BYTES, MAX_DOCUMENT_SIZE_LABEL } from "./constants/documentLimits.js";
 import AtsChatbot from "./AtsChatbot.jsx";
 import PublicHelpCenter from "./PublicHelpCenter.jsx";
 const ResumeLab = lazy(() => import("./App.jsx"));
@@ -13,9 +14,6 @@ const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
 const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
 const HiringPipelineKanban = lazy(() => import("./HiringPipelineKanban.jsx"));
-
-const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
-const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -258,6 +256,11 @@ export default function AtsWorkspace() {
   const [publicError, setPublicError] = useState("");
   const [publicSuccess, setPublicSuccess] = useState("");
   const [publicFilters, setPublicFilters] = useState({ search: "", department: "", location: "", work_mode: "" });
+  const [careerQuery, setCareerQuery] = useState("");
+  const [careerResults, setCareerResults] = useState([]);
+  const [careerIntent, setCareerIntent] = useState(null);
+  const [careerLoading, setCareerLoading] = useState(false);
+  const [careerError, setCareerError] = useState("");
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ organization_name: "", full_name: "", email: "", password: "" });
   const [authError, setAuthError] = useState("");
@@ -307,6 +310,7 @@ export default function AtsWorkspace() {
     required_skills: "",
     minimum_experience_years: "",
     fresher_allowed: false,
+    responsibilities: "",
   });
   const [candidateFormOpen, setCandidateFormOpen] = useState(false);
   const [candidateEntryMode, setCandidateEntryMode] = useState("manual");
@@ -716,6 +720,7 @@ export default function AtsWorkspace() {
       required_skills: (job.required_skills || []).join(", "),
       minimum_experience_years: job.minimum_experience_years ?? "",
       fresher_allowed: Boolean(job.fresher_allowed),
+      responsibilities: (job.jd_analysis?.responsibilities || []).join("\n"),
     } : {
       title: "",
       description: "",
@@ -727,6 +732,7 @@ export default function AtsWorkspace() {
       required_skills: "",
       minimum_experience_years: "",
       fresher_allowed: false,
+      responsibilities: "",
     });
     setJobFormOpen(true);
   }
@@ -755,23 +761,35 @@ export default function AtsWorkspace() {
           setError("Select a PDF or DOCX job description.");
           return;
         }
+        if (jobDocumentFile.size > MAX_DOCUMENT_SIZE_BYTES) {
+          setError(`Job document must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+          return;
+        }
         const body = new FormData();
         body.append("file", jobDocumentFile);
-        if (jobForm.title.trim()) body.append("title", jobForm.title.trim());
-        if (jobForm.department.trim()) body.append("department", jobForm.department.trim());
-        if (jobForm.location.trim()) body.append("location", jobForm.location.trim());
-        if (jobForm.employment_type.trim()) body.append("employment_type", jobForm.employment_type.trim());
-        body.append("work_mode", jobForm.work_mode);
-        body.append("status_value", jobForm.status);
-        if (jobForm.minimum_experience_years !== "") body.append("minimum_experience_years", String(Number(jobForm.minimum_experience_years)));
-        body.append("fresher_allowed", String(Boolean(jobForm.fresher_allowed)));
-        await apiRequest(token, "post", "/jobs/from-document", { data: body });
-        setNotice("Job document parsed, job created, and JD requirements extracted");
+        const response = await apiRequest(token, "post", "/jobs/from-document/preview", { data: body });
+        const parsed = response.data || {};
+        setJobForm((current) => ({
+          ...current,
+          title: parsed.title || current.title,
+          description: parsed.description || current.description,
+          department: parsed.department || current.department,
+          location: parsed.location || current.location,
+          employment_type: parsed.employment_type || current.employment_type,
+          work_mode: parsed.work_mode || current.work_mode,
+          minimum_experience_years: parsed.minimum_experience_years ?? current.minimum_experience_years,
+          fresher_allowed: parsed.fresher_allowed ?? current.fresher_allowed,
+          required_skills: Array.isArray(parsed.required_skills) ? parsed.required_skills.join(", ") : current.required_skills,
+          responsibilities: Array.isArray(parsed.responsibilities) ? parsed.responsibilities.join("\n") : current.responsibilities,
+        }));
+        setJobEntryMode("manual");
+        setNotice("JD extracted and form populated. Review the fields, edit anything needed, then create the job.");
       } else {
         const jobPayload = {
           ...jobForm,
           required_skills: [...new Set(jobForm.required_skills.split(/[;,\n]/).map((skill) => skill.trim()).filter(Boolean))],
           minimum_experience_years: jobForm.minimum_experience_years === "" ? null : Number(jobForm.minimum_experience_years),
+          responsibilities: jobForm.responsibilities.split(/\n+/).map((value) => value.replace(/^[•*-]\s*/, "").trim()).filter(Boolean),
         };
         if (editingJob) {
           await apiRequest(token, "patch", `/jobs/${editingJob.id}`, { data: jobPayload });
@@ -1140,6 +1158,10 @@ export default function AtsWorkspace() {
       setPublicError("Name and email are required.");
       return;
     }
+    if (publicResume.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setPublicError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+      return;
+    }
 
     const body = new FormData();
     body.append("file", publicResume);
@@ -1159,6 +1181,25 @@ export default function AtsWorkspace() {
       setPublicError(errorText(requestError));
     } finally {
       setPublicLoading(false);
+    }
+  }
+
+  async function askCareerAssistant(event) {
+    event.preventDefault();
+    const query = careerQuery.trim();
+    if (!query) return;
+    setCareerLoading(true);
+    setCareerError("");
+    try {
+      const response = await apiRequest(null, "post", "/public/career-assistant", { data: { query } });
+      setCareerResults(Array.isArray(response.data?.results) ? response.data.results : []);
+      setCareerIntent(response.data?.intent || null);
+    } catch (requestError) {
+      setCareerError(errorText(requestError));
+      setCareerResults([]);
+      setCareerIntent(null);
+    } finally {
+      setCareerLoading(false);
     }
   }
 
@@ -1260,6 +1301,36 @@ export default function AtsWorkspace() {
           </div>
         </section>
 
+        <section id="career-assistant" className="mx-auto max-w-7xl px-5 py-8">
+          <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">AI career assistant</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Describe the role you want</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-600">Try “Python backend, 2–5 years, Hyderabad, remote.” BluePace extracts intent, applies strict filters, and retrieves relevant published roles.</p>
+            <form onSubmit={askCareerAssistant} className="mt-5 flex flex-col gap-3 md:flex-row">
+              <input value={careerQuery} onChange={(event) => { setCareerQuery(event.target.value); setCareerError(""); }} placeholder="e.g. Python backend, 2–5 years, Hyderabad, remote" className="min-w-0 flex-1 rounded-md border border-ink-100 bg-[#fafaf8] px-4 py-3 text-sm outline-none focus:border-gold-500 focus:ring-2 focus:ring-gold-100" />
+              <button type="submit" disabled={careerLoading || !careerQuery.trim()} className={buttonPrimary}>{careerLoading ? "Finding roles…" : "Find matching roles"}</button>
+            </form>
+            {careerError && <p role="alert" className="mt-3 text-sm text-rose-700">{careerError}</p>}
+            {careerIntent && <div className="mt-4 flex flex-wrap gap-2 text-xs">
+              {careerIntent.skills?.length > 0 && <span className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1">Skills: {careerIntent.skills.join(", ")}</span>}
+              {careerIntent.location && <span className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1">Location: {careerIntent.location}</span>}
+              {careerIntent.work_mode && <span className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1 capitalize">Mode: {careerIntent.work_mode}</span>}
+              {careerIntent.minimum_experience_years != null && <span className="rounded-full border border-ink-100 bg-ink-50 px-3 py-1">Experience: {careerIntent.minimum_experience_years}{careerIntent.maximum_experience_years ? "–" + careerIntent.maximum_experience_years : "+"} years</span>}
+            </div>}
+            {careerResults.length > 0 && <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {careerResults.map((job) => <article key={job.id} className="rounded-xl border border-ink-100 bg-[#fafaf8] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div><h3 className="font-semibold text-ink-900">{job.title}</h3><p className="mt-1 text-xs text-ink-500">{job.department || "Team"} · {job.location || "Location flexible"} · {workModeLabel(job.work_mode)}</p></div>
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">{job.match_score}% match</span>
+                </div>
+                {job.matched_skills?.length > 0 && <p className="mt-3 text-xs text-ink-600">Matching skills: {job.matched_skills.join(", ")}</p>}
+                <p className="mt-2 text-xs leading-5 text-ink-500">{job.reason}</p>
+                <div className="mt-4"><button type="button" className={buttonPrimary} onClick={() => { setPublicApplyJob(job); setPublicError(""); setPublicSuccess(""); }}>Apply for this role</button></div>
+              </article>)}
+            </div>}
+            {careerQuery.trim() && !careerLoading && !careerError && !careerResults.length && <p className="mt-4 text-sm text-ink-500">No published roles matched that request. Try a broader role, skill or location.</p>}
+          </div>
+        </section>
         <section id="jobs" className="mx-auto max-w-7xl px-5 py-10">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-xl font-semibold">Open Positions</h2>
@@ -1359,7 +1430,17 @@ export default function AtsWorkspace() {
                     type="file"
                     accept=".pdf,.docx"
                     required
-                    onChange={(event) => setPublicResume(event.target.files?.[0] || null)}
+                    onChange={(event) => {
+                      const selected = event.target.files?.[0] || null;
+                      if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) {
+                        setPublicResume(null);
+                        setPublicError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+                        event.target.value = "";
+                        return;
+                      }
+                      setPublicResume(selected);
+                      setPublicError("");
+                    }}
                     className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
                   />
                   <span className="text-[11px] font-normal text-ink-400">PDF or DOCX, up to 5 MB.</span>
@@ -1882,10 +1963,11 @@ export default function AtsWorkspace() {
                   <Field label="Required skills" placeholder="Python, PostgreSQL, AWS" value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
                   <Field label="Minimum experience (years)" type="number" min="0" max="60" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
                   <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700"><input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />Open to freshers</label>
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Responsibilities<textarea className={inputStyle + " min-h-24 resize-y"} placeholder="One responsibility per line" value={jobForm.responsibilities} onChange={(event) => setJobForm({ ...jobForm, responsibilities: event.target.value })} /></label>
                   <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Description<textarea className={inputStyle + " min-h-28 resize-y"} required value={jobForm.description} onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })} /></label>
                 </div>
               )}
-              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Upload & create job" : jobEntryMode === "link" ? "Import & create job" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
+              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Extract & populate" : jobEntryMode === "link" ? "Import & create job" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
             </form>}
             <div className="mb-5"><p className="text-sm text-ink-500">{jobs.length} total jobs</p><h2 className="mt-1 text-xl font-semibold">Job openings</h2></div>
             <div className="ats-jobs-table overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-sm"><div className="min-w-[980px]">

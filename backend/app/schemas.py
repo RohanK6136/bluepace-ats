@@ -37,6 +37,10 @@ class TokenRead(BaseModel):
     user: Optional[UserRead] = None
 
 
+class CareerAssistantRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=1000)
+
+
 class JobCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1)
@@ -48,6 +52,7 @@ class JobCreate(BaseModel):
     required_skills: list[str] = Field(default_factory=list, max_length=100)
     minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
     fresher_allowed: bool = False
+    responsibilities: list[str] = Field(default_factory=list, max_length=50)
 
 
 class JobUpdate(BaseModel):
@@ -61,6 +66,7 @@ class JobUpdate(BaseModel):
     required_skills: Optional[list[str]] = Field(default=None, max_length=100)
     minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
     fresher_allowed: Optional[bool] = None
+    responsibilities: Optional[list[str]] = Field(default=None, max_length=50)
 
 
 class JobRead(BaseModel):
