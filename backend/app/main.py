@@ -106,6 +106,7 @@ from app.schemas import (
 )
 from app.security import create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
 from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
+from app.services.private_storage import private_storage
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
@@ -1059,11 +1060,12 @@ async def public_apply(
         raise HTTPException(status_code=409, detail="You have already applied for this position")
 
     storage_key = f"{organization.id}/public/{candidate.id}/{os.urandom(16).hex()}{suffix}"
-    storage_dir = Path(os.getenv("RESUME_QUEUE_STORAGE_DIR", os.getenv("RESUME_STORAGE_DIR", "./private_uploads")))
-    storage_path = storage_dir / storage_key
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    storage_path.write_bytes(content)
-    candidate.resume_storage_key = storage_key
+    storage_reference = private_storage.put_bytes(
+        storage_key,
+        content,
+        file.content_type or "application/octet-stream",
+    )
+    candidate.resume_storage_key = storage_reference
 
     stages = ensure_job_stages(db, job)
     application = Application(
@@ -1087,7 +1089,7 @@ async def public_apply(
         candidate_id=candidate.id,
         application_id=application.id,
         filename=file.filename or f"resume{suffix}",
-        storage_path=str(storage_path),
+        storage_path=str(storage_reference),
         content_type=file.content_type or "application/octet-stream",
         size_bytes=len(content),
         status="queued",
@@ -1109,7 +1111,7 @@ async def public_apply(
             processing_job.status = "failed"
             processing_job.error_message = f"Queue submission failed: {error}"[:4000]
             db.commit()
-            storage_path.unlink(missing_ok=True)
+            private_storage.delete(processing_job.storage_path)
             raise HTTPException(
                 status_code=503,
                 detail="Your application could not be placed in the processing queue. Please retry.",
@@ -3796,18 +3798,19 @@ async def upload_candidate_resume(
     suffix, content = await _read_resume_upload(file)
 
     storage_key = f"{user.organization_id}/{candidate.id}/{os.urandom(16).hex()}{suffix}"
-    storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
-    storage_path = storage_dir / storage_key
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    storage_path.write_bytes(content)
+    storage_reference = private_storage.put_bytes(
+        storage_key,
+        content,
+        file.content_type or "application/octet-stream",
+    )
     try:
         parsed = extractor_service.extract_to_json(content, f"resume{suffix}")
     except Exception as error:
-        storage_path.unlink(missing_ok=True)
+        private_storage.delete(storage_reference)
         raise HTTPException(status_code=422, detail=f"Resume could not be parsed: {error}")
 
     before = {"resume_storage_key": candidate.resume_storage_key}
-    candidate.resume_storage_key = storage_key
+    candidate.resume_storage_key = storage_reference
     candidate.resume_data = {key: value for key, value in parsed.items() if key != "raw_text"}
     if not candidate.phone and parsed.get("phone"):
         candidate.phone = parsed["phone"][:50]
@@ -4185,11 +4188,12 @@ async def queue_resume_processing(
     if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", resolved_batch_id):
         raise HTTPException(status_code=400, detail="Invalid batch_id.")
 
-    storage_dir = Path(os.getenv("RESUME_QUEUE_STORAGE_DIR", os.getenv("RESUME_STORAGE_DIR", "./private_uploads")))
-    storage_key = Path(str(user.organization_id)) / "resume_queue" / resolved_batch_id / f"{uuid4().hex}{suffix}"
-    storage_path = storage_dir / storage_key
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    storage_path.write_bytes(content)
+    storage_key = str(Path(str(user.organization_id)) / "resume_queue" / resolved_batch_id / f"{uuid4().hex}{suffix}")
+    storage_reference = private_storage.put_bytes(
+        storage_key,
+        content,
+        file.content_type or "application/octet-stream",
+    )
 
     target_job_id = None
     if job_id is not None:
@@ -4234,7 +4238,7 @@ async def queue_resume_processing(
             job.status = "failed"
             job.error_message = f"Queue submission failed: {error}"[:4000]
             db.commit()
-            storage_path.unlink(missing_ok=True)
+            private_storage.delete(job.storage_path)
             raise HTTPException(status_code=503, detail="Resume was stored but could not be queued. Retry the upload.") from error
 
     return {
