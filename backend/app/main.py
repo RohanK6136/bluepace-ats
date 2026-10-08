@@ -285,18 +285,19 @@ async def add_process_time_header(request, call_next):
 
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
-DEPLOYED_BACKEND_ORIGIN = os.getenv("BACKEND_PUBLIC_ORIGIN", "https://bluepace-ats-11.onrender.com")
+DEPLOYED_BACKEND_ORIGIN = os.getenv("BACKEND_PUBLIC_ORIGIN", "https://bluepace-ats-9.onrender.com")
 MAX_RESUME_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES
 
 def ensure_bootstrap_account() -> None:
     email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
     password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+    password_hash_value = os.getenv("BOOTSTRAP_ADMIN_PASSWORD_HASH", "").strip()
     full_name = os.getenv("BOOTSTRAP_ADMIN_NAME", "Blupace Tech Recruiting").strip() or "Blupace Tech Recruiting"
     organization_name = os.getenv("BOOTSTRAP_ORGANIZATION_NAME", "Blupace Tech").strip() or "Blupace Tech"
-    if not email or not password:
+    if not email or not (password or password_hash_value):
         return
 
-    with SessionLocal() as db:
+    with SessionLocal() as db
         organization = db.scalar(
             select(Organization).where(Organization.name == organization_name).order_by(Organization.id.asc()).limit(1)
         )
@@ -311,7 +312,7 @@ def ensure_bootstrap_account() -> None:
                 organization_id=organization.id,
                 email=email,
                 full_name=full_name,
-                password_hash=password_hash.hash(password),
+                password_hash=password_hash_value or password_hash.hash(password),
                 role=Role.admin,
                 is_active=True,
             )
@@ -322,12 +323,15 @@ def ensure_bootstrap_account() -> None:
                 or user.full_name != full_name
                 or user.role != Role.admin
                 or not user.is_active
+                or (password_hash_value and user.password_hash != password_hash_value)
             )
             if user_changed:
                 user.organization_id = organization.id
                 user.full_name = full_name
                 user.role = Role.admin
                 user.is_active = True
+                if password_hash_value:
+                    user.password_hash = password_hash_value
 
         db.commit()
 
@@ -1178,12 +1182,18 @@ def login(
     # unnecessarily slow and also caused an extra write transaction.
     bootstrap_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
     bootstrap_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+    bootstrap_password_hash = os.getenv("BOOTSTRAP_ADMIN_PASSWORD_HASH", "").strip()
+    bootstrap_password_valid = bool(
+        bootstrap_password and credentials.password == bootstrap_password
+    ) or bool(
+        bootstrap_password_hash
+        and password_hash.verify(credentials.password, bootstrap_password_hash)
+    )
     if (
         user is None
         and bootstrap_email
-        and bootstrap_password
+        and bootstrap_password_valid
         and login_email == bootstrap_email
-        and credentials.password == bootstrap_password
     ):
         ensure_bootstrap_account()
         user = db.scalar(select(User).where(User.email == login_email))
