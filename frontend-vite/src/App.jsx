@@ -338,7 +338,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       return;
     }
 
-    const batchId = bulkBatchId || (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `batch-${Date.now()}`);
+    const batchId = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `batch-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const chunkSize = 100;
     const uploadConcurrency = 12;
     setBulkBatchId(batchId);
@@ -662,13 +662,13 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                         <span className="min-w-0 truncate">{job.filename}</span>
                         <div className="flex shrink-0 items-center gap-2">
                           <span className="font-semibold capitalize text-ink-600">{job.status}</span>
-                          {job.status === "completed" && job.result && (
+                          {job.status === "completed" && job.id && (
                             <button
                               type="button"
                               className="font-semibold text-blue-700 hover:underline"
                               onClick={() => handleBulkResultToggle(job.id)}
                             >
-                              {expandedBulkJobId === job.id ? "Hide result" : "View result"}
+                              {expandedBulkJobId === job.id ? "Hide result" : (job.result ? "View result" : "Load result")}
                             </button>
                           )}
                         </div>
