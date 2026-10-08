@@ -1091,7 +1091,10 @@ def public_career_assistant(
         if work_modes and job.work_mode not in work_modes:
             continue
         if location and (job.location or "").casefold() != location.casefold():
-            continue
+            # Natural-language requests such as "Hyderabad or remote" should
+            # admit remote roles even when their stored location differs.
+            if not ("remote" in work_modes and job.work_mode == "remote"):
+                continue
         if minimum_experience is not None:
             job_min = job.minimum_experience_years or 0
             if maximum_experience is not None:
