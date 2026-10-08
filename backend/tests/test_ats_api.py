@@ -516,11 +516,41 @@ def test_resume_lab_extracts_docx_tables_with_generic_mime(client, monkeypatch):
 def test_resume_lab_rejects_oversized_files(client):
     response = client.post(
         "/extract/",
-        files={"file": ("large.pdf", b"x" * (10 * 1024 * 1024 + 1), "application/pdf")},
+        files={"file": ("large.pdf", b"x" * (5 * 1024 * 1024 + 1), "application/pdf")},
     )
 
     assert response.status_code == 413
-    assert response.json()["detail"] == "Resume must be 10MB or smaller."
+    assert response.json()["detail"] == "Resume must be 5 MB or smaller."
+
+
+def test_job_description_rejects_oversized_files(client):
+    response = client.post(
+        "/resume-processing/job-description",
+        files={"file": ("large.pdf", b"x" * (5 * 1024 * 1024 + 1), "application/pdf")},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "JD file must be 5 MB or smaller."
+
+
+def test_document_extractor_uses_docling_result(monkeypatch):
+    monkeypatch.setattr(extractor_service, "client", None, raising=False)
+    from app.services.document_intelligence import DocumentIntelligenceResult, document_intelligence_service
+
+    monkeypatch.setattr(
+        document_intelligence_service,
+        "extract",
+        lambda content, filename: DocumentIntelligenceResult(
+            text="Jane Doe\njane@example.com\nSkills: Python, React",
+            markdown="# Jane Doe\n\njane@example.com\n\nSkills: Python, React",
+            engine="docling",
+        ),
+    )
+    parsed = extractor_service.extract_to_json(b"not-a-real-document", "jane.pdf")
+
+    assert parsed["document_extraction_engine"] == "docling"
+    assert parsed["email"] == "jane@example.com"
+    assert {"Python", "React"}.issubset(parsed["skills"])
 
 
 def test_resume_lab_reports_empty_documents_as_unprocessable(client):
