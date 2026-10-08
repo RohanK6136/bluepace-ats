@@ -7,6 +7,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from app.services.document_intelligence import DocumentIntelligenceError, document_intelligence_service
+
 load_dotenv()
 
 
@@ -445,30 +447,50 @@ Resume text:
 
     def extract_to_json(self, file_content: bytes, filename: str) -> dict:
         text_parts = []
-        try:
-            if filename.lower().endswith(".pdf"):
-                from pypdf import PdfReader
-                reader = PdfReader(io.BytesIO(file_content))
-                for page in reader.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text_parts.append(page_text)
-            elif filename.lower().endswith(".docx"):
-                from docx import Document
-                doc = Document(io.BytesIO(file_content))
-                text_parts.extend(self._docx_container_text(doc))
-                for section in doc.sections:
-                    text_parts.extend(self._docx_container_text(section.header))
-                    text_parts.extend(self._docx_container_text(section.footer))
-            else:
-                raise ValueError("Unsupported resume format")
-        except Exception as e:
-            raise DocumentExtractionError(f"Failed to extract text: {str(e)}") from e
-        raw_text = "\n".join(text_parts).strip()
+        raw_text = ""
+        extraction_engine = None
+        extraction_warning = None
+
+        # Docling is the preferred document-understanding layer. It preserves
+        # document structure and can handle OCR/layout-heavy PDFs. The legacy
+        # parsers remain a production fallback if Docling/model initialization
+        # fails, so a transient model/runtime issue does not break ATS intake.
+        if document_intelligence_service.enabled:
+            try:
+                docling_result = document_intelligence_service.extract(file_content, filename)
+                raw_text = docling_result.text.strip()
+                extraction_engine = docling_result.engine
+            except DocumentIntelligenceError as error:
+                extraction_warning = str(error)
+
+        if not raw_text:
+            try:
+                if filename.lower().endswith(".pdf"):
+                    from pypdf import PdfReader
+                    reader = PdfReader(io.BytesIO(file_content))
+                    for page in reader.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text_parts.append(page_text)
+                    extraction_engine = "pypdf"
+                elif filename.lower().endswith(".docx"):
+                    from docx import Document
+                    doc = Document(io.BytesIO(file_content))
+                    text_parts.extend(self._docx_container_text(doc))
+                    for section in doc.sections:
+                        text_parts.extend(self._docx_container_text(section.header))
+                        text_parts.extend(self._docx_container_text(section.footer))
+                    extraction_engine = "python-docx"
+                else:
+                    raise ValueError("Unsupported resume format")
+            except Exception as e:
+                raise DocumentExtractionError(f"Failed to extract text: {str(e)}") from e
+            raw_text = "\n".join(text_parts).strip()
+
         if not raw_text:
             raise DocumentExtractionError(
                 "No readable text was found. The document may be scanned or image-only; "
-                "upload a text-based PDF or DOCX file."
+                "Docling OCR can be enabled/configured for scanned documents."
             )
         parsed = self._fallback_parse(raw_text)
         llm_data = self._llm_parse(raw_text) if os.getenv("ENABLE_LLM_RESUME_ENRICHMENT", "false").lower() == "true" else None
@@ -497,6 +519,9 @@ Resume text:
         parsed["resume_intelligence_version"] = 4
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
+        parsed["document_extraction_engine"] = extraction_engine or "unknown"
+        if extraction_warning:
+            parsed["document_extraction_warning"] = extraction_warning
 
         # Validate the structured payload before returning it. Extraction remains
         # deterministic by default; this step only normalizes shape and types.
