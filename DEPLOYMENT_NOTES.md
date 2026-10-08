@@ -31,6 +31,6 @@ B2_BUCKET=<backblaze-bucket-name>
 B2_REGION=<your-region>
 ```
 
-Do not commit the real key ID or application key. Backblaze requires a manually created application key for the S3-compatible API; the master application key is not supported. The endpoint format is `https://s3.<region>.backblazeb2.com`. The B2 application key ID maps to the S3 access key ID and the application key maps to the S3 secret access key. citeturn995526search0turn995526search2
+Do not commit the real key ID or application key. Backblaze requires a manually created application key for the S3-compatible API; the master application key is not supported. The endpoint format is `https://s3.<region>.backblazeb2.com`. The B2 application key ID maps to the S3 access key ID and the application key maps to the S3 secret access key. See the Backblaze B2 S3-Compatible API and application-key documentation.
 
 After setting the variables, the backend stores new private documents using `b2://...` references and generates short-lived presigned download URLs. When B2 is not configured, development/test environments continue using the existing local `RESUME_STORAGE_DIR` fallback.
