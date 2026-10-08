@@ -4172,6 +4172,265 @@ def list_audit_logs(
     ]
 
 
+class BulkResumeFileManifest(BaseModel):
+    filename: str
+    size_bytes: int
+    content_type: str | None = None
+
+
+class BulkResumePresignRequest(BaseModel):
+    batch_id: str
+    files: list[BulkResumeFileManifest]
+
+
+class BulkResumeFinalizeItem(BaseModel):
+    filename: str
+    storage_path: str
+    size_bytes: int
+    content_type: str | None = None
+
+
+class BulkResumeFinalizeRequest(BaseModel):
+    batch_id: str
+    files: list[BulkResumeFinalizeItem]
+    job_description: str | None = None
+    job_id: int | None = None
+
+
+MAX_BULK_MANIFEST_FILES = 500
+
+
+def _validate_resume_batch_id(batch_id: str) -> str:
+    resolved = (batch_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", resolved):
+        raise HTTPException(status_code=400, detail="Invalid batch_id.")
+    return resolved
+
+
+def _validate_resume_manifest_file(filename: str, size_bytes: int) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix not in SUPPORTED_DOCUMENT_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"{filename}: only PDF and DOCX resumes are supported.")
+    if size_bytes <= 0:
+        raise HTTPException(status_code=400, detail=f"{filename}: the uploaded resume is empty.")
+    if size_bytes > MAX_RESUME_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail=f"{filename}: resume must be 5 MB or smaller.")
+    return suffix
+
+
+def _resume_dispatcher_enabled() -> bool:
+    return os.getenv("ENABLE_DB_RESUME_DISPATCHER", "true").strip().lower() == "true"
+
+
+def _resume_background_processing_enabled() -> bool:
+    return os.getenv("ENABLE_BACKGROUND_RESUME_PROCESSING", "true").strip().lower() == "true"
+
+
+def _mark_resume_jobs_for_dispatch(
+    jobs: list[ResumeProcessingJob],
+    background_tasks: BackgroundTasks,
+) -> None:
+    if not jobs:
+        return
+
+    from app.services.queue_tasks import process_resume_ingest_job
+
+    if _resume_dispatcher_enabled():
+        for item in jobs:
+            item.task_id = f"dispatcher:{item.id}"
+        return
+
+    if _resume_background_processing_enabled():
+        for item in jobs:
+            item.task_id = f"background:{item.id}"
+        for item in jobs:
+            background_tasks.add_task(process_resume_ingest_job.run, item.id)
+        return
+
+    # Celery is an optional external-worker mode. Keep the HTTP request free
+    # from broker work for bulk intake by submitting it as one background task.
+    background_tasks.add_task(_enqueue_resume_jobs_with_celery, [item.id for item in jobs])
+
+
+def _enqueue_resume_jobs_with_celery(job_ids: list[int]) -> None:
+    from app.services.queue_tasks import process_resume_ingest_job
+
+    with SessionLocal() as db:
+        for job_id in job_ids:
+            job = db.get(ResumeProcessingJob, job_id)
+            if job is None:
+                continue
+            try:
+                task = process_resume_ingest_job.delay(job_id)
+                job.task_id = task.id
+            except Exception as error:
+                job.status = "failed"
+                job.error_message = f"Queue submission failed: {error}"[:4000]
+        db.commit()
+
+
+@app.post("/resume-processing/batch/presign", response_class=JSONResponse)
+def presign_bulk_resume_uploads(
+    request: BulkResumePresignRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+):
+    started = perf_counter()
+    if not private_storage.b2_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Direct bulk upload requires Backblaze B2 storage to be configured.",
+        )
+    if not request.files:
+        raise HTTPException(status_code=400, detail="Add at least one resume to the batch.")
+    if len(request.files) > MAX_BULK_MANIFEST_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Send at most {MAX_BULK_MANIFEST_FILES} resumes per upload batch.",
+        )
+
+    batch_id = _validate_resume_batch_id(request.batch_id)
+    uploads = []
+    for item in request.files:
+        suffix = _validate_resume_manifest_file(item.filename, int(item.size_bytes))
+        content_type = item.content_type or (
+            "application/pdf" if suffix == ".pdf"
+            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        storage_key = str(
+            Path(str(user.organization_id))
+            / "resume_queue"
+            / batch_id
+            / f"{uuid4().hex}{suffix}"
+        )
+        upload_url = private_storage.presigned_upload_url(
+            storage_key,
+            content_type=content_type,
+            expires_in=3600,
+        )
+        if not upload_url:
+            raise HTTPException(status_code=503, detail="Could not create a Backblaze B2 upload URL.")
+        uploads.append(
+            {
+                "filename": item.filename,
+                "storage_path": f"b2://{storage_key}",
+                "size_bytes": int(item.size_bytes),
+                "content_type": content_type,
+                "upload_url": upload_url,
+            }
+        )
+
+    return {
+        "status": "ready",
+        "batch_id": batch_id,
+        "expires_in": 3600,
+        "uploads": uploads,
+        "accepted_handler_ms": round((perf_counter() - started) * 1000, 2),
+    }
+
+
+@app.post("/resume-processing/batch/finalize", response_class=JSONResponse, status_code=status.HTTP_202_ACCEPTED)
+def finalize_bulk_resume_uploads(
+    request: BulkResumeFinalizeRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    started = perf_counter()
+    if not request.files:
+        raise HTTPException(status_code=400, detail="Add at least one uploaded resume to finalize.")
+    if len(request.files) > MAX_BULK_MANIFEST_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Send at most {MAX_BULK_MANIFEST_FILES} resumes per finalize request.",
+        )
+
+    batch_id = _validate_resume_batch_id(request.batch_id)
+    expected_prefix = f"b2://{user.organization_id}/resume_queue/{batch_id}/"
+
+    target_job_id = None
+    if request.job_id is not None:
+        target_job = _get_org_record(db, Job, int(request.job_id), user.organization_id)
+        if target_job.status != "open":
+            raise HTTPException(status_code=409, detail="The selected job is not open")
+        target_job_id = target_job.id
+
+    storage_paths = []
+    for item in request.files:
+        _validate_resume_manifest_file(item.filename, int(item.size_bytes))
+        path_value = str(item.storage_path or "")
+        if not path_value.startswith(expected_prefix):
+            raise HTTPException(status_code=400, detail=f"{item.filename}: invalid storage path for this batch.")
+        storage_paths.append(path_value)
+
+    unique_paths = set(storage_paths)
+    if len(unique_paths) != len(storage_paths):
+        raise HTTPException(status_code=400, detail="A resume storage path was submitted more than once.")
+
+    existing_paths = set(
+        db.scalars(
+            select(ResumeProcessingJob.storage_path).where(
+                ResumeProcessingJob.organization_id == user.organization_id,
+                ResumeProcessingJob.batch_id == batch_id,
+                ResumeProcessingJob.storage_path.in_(storage_paths),
+            )
+        ).all()
+    )
+
+    jobs: list[ResumeProcessingJob] = []
+    metadata = {}
+    if request.job_description and request.job_description.strip():
+        metadata["_job_description"] = request.job_description.strip()[:50000]
+    if target_job_id is not None:
+        metadata["_job_id"] = target_job_id
+
+    for item in request.files:
+        if item.storage_path in existing_paths:
+            continue
+        suffix = Path(item.filename or "").suffix.lower()
+        content_type = item.content_type or (
+            "application/pdf" if suffix == ".pdf"
+            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        job = ResumeProcessingJob(
+            batch_id=batch_id,
+            organization_id=user.organization_id,
+            created_by_id=user.id,
+            filename=item.filename or f"resume{suffix}",
+            storage_path=item.storage_path,
+            content_type=content_type,
+            size_bytes=int(item.size_bytes),
+            status="queued",
+            result_data=dict(metadata) if metadata else None,
+        )
+        db.add(job)
+        jobs.append(job)
+
+    if jobs:
+        db.flush()
+        _mark_resume_jobs_for_dispatch(jobs, background_tasks)
+        db.commit()
+        for job in jobs:
+            db.refresh(job)
+
+    return {
+        "status": "queued",
+        "batch_id": batch_id,
+        "accepted": len(jobs),
+        "already_registered": len(request.files) - len(jobs),
+        "jobs": [
+            {
+                "job_id": job.id,
+                "filename": job.filename,
+                "status": job.status,
+                "size_bytes": job.size_bytes,
+            }
+            for job in jobs
+        ],
+        "accepted_handler_ms": round((perf_counter() - started) * 1000, 2),
+        "message": "Uploaded resumes accepted. Extraction and ATS matching are running asynchronously.",
+    }
+
+
 @app.post("/resume-processing/queue", response_class=JSONResponse, status_code=status.HTTP_202_ACCEPTED)
 async def queue_resume_processing(
     background_tasks: BackgroundTasks,
@@ -4184,9 +4443,7 @@ async def queue_resume_processing(
 ):
     started = perf_counter()
     suffix, content = await _read_resume_upload(file)
-    resolved_batch_id = (batch_id or uuid4().hex).strip()
-    if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", resolved_batch_id):
-        raise HTTPException(status_code=400, detail="Invalid batch_id.")
+    resolved_batch_id = _validate_resume_batch_id(batch_id or uuid4().hex)
 
     storage_key = str(Path(str(user.organization_id)) / "resume_queue" / resolved_batch_id / f"{uuid4().hex}{suffix}")
     storage_reference = private_storage.put_bytes(
@@ -4207,7 +4464,7 @@ async def queue_resume_processing(
         organization_id=user.organization_id,
         created_by_id=user.id,
         filename=file.filename or f"resume{suffix}",
-        storage_path=str(storage_path),
+        storage_path=storage_reference,
         content_type=file.content_type or "application/octet-stream",
         size_bytes=len(content),
         status="queued",
@@ -4223,23 +4480,8 @@ async def queue_resume_processing(
     db.commit()
     db.refresh(job)
 
-    if os.getenv("ENABLE_BACKGROUND_RESUME_PROCESSING", "true").strip().lower() == "true":
-        job.task_id = f"background:{job.id}"
-        db.commit()
-        from app.services.queue_tasks import process_resume_ingest_job
-        background_tasks.add_task(process_resume_ingest_job.run, job.id)
-    else:
-        try:
-            from app.services.queue_tasks import process_resume_ingest_job
-            task = process_resume_ingest_job.delay(job.id)
-            job.task_id = task.id
-            db.commit()
-        except Exception as error:
-            job.status = "failed"
-            job.error_message = f"Queue submission failed: {error}"[:4000]
-            db.commit()
-            private_storage.delete(job.storage_path)
-            raise HTTPException(status_code=503, detail="Resume was stored but could not be queued. Retry the upload.") from error
+    _mark_resume_jobs_for_dispatch([job], background_tasks)
+    db.commit()
 
     return {
         "job_id": job.id,
@@ -4255,7 +4497,7 @@ async def queue_resume_processing(
 @app.get("/resume-processing/jobs", response_class=JSONResponse)
 def list_resume_processing_jobs(
     batch_id: str | None = None,
-    limit: int = Query(default=100, ge=1, le=1000),
+    limit: int = Query(default=100, ge=1, le=10000),
     include_result: bool = False,
     user: User = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(get_db),
@@ -4284,129 +4526,6 @@ def list_resume_processing_jobs(
         }
         for job in jobs
     ]
-
-
-class ResumeLabSyncRequest(BaseModel):
-    resume_json: dict
-    job_id: int | None = None
-    job_fit: dict | None = None
-
-
-@app.post("/resume-processing/sync", response_class=JSONResponse)
-def sync_resume_lab_result(
-    request: ResumeLabSyncRequest,
-    background_tasks: BackgroundTasks,
-    user: User = Depends(require_roles(*WRITE_ROLES)),
-    db: Session = Depends(get_db),
-):
-    from app.services.queue_tasks import validate_resume_structure
-    from app.services.workflow import ensure_job_stages, queue_application_email
-
-    extracted = dict(request.resume_json or {})
-    validation = validate_resume_structure(extracted)
-    candidate_email = str(extracted.get("email") or "").strip().lower()
-    if not candidate_email:
-        raise HTTPException(status_code=422, detail="The resume must contain an email address to sync it into the ATS.")
-
-    name_parts = str(extracted.get("name") or "Applicant Candidate").strip().split()
-    first_name = (name_parts[0] if name_parts else "Applicant")[:100]
-    last_name = (" ".join(name_parts[1:]) if len(name_parts) > 1 else "Candidate")[:100]
-
-    candidate = db.scalar(select(Candidate).where(
-        Candidate.organization_id == user.organization_id,
-        Candidate.email == candidate_email,
-    ))
-    if candidate is None:
-        candidate = Candidate(
-            organization_id=user.organization_id,
-            created_by_id=user.id,
-            first_name=first_name,
-            last_name=last_name,
-            email=candidate_email,
-            phone=str(extracted.get("phone") or "")[:50] or None,
-            linkedin_url=str(extracted.get("linkedin") or "")[:500] or None,
-            source="Resume Lab",
-        )
-        db.add(candidate)
-        db.flush()
-    else:
-        candidate.first_name = first_name
-        candidate.last_name = last_name
-        candidate.phone = str(extracted.get("phone") or candidate.phone or "")[:50] or None
-        candidate.linkedin_url = str(extracted.get("linkedin") or candidate.linkedin_url or "")[:500] or None
-        candidate.source = candidate.source or "Resume Lab"
-
-    clean_resume = {key: value for key, value in extracted.items() if key != "raw_text"}
-    clean_resume["structure_validation"] = validation
-    if request.job_fit:
-        clean_resume["job_fit"] = request.job_fit
-        candidate.cv_summary = [str(request.job_fit.get("summary") or "").strip()] + [
-            str(item).strip() for item in (request.job_fit.get("strengths") or [])[:5] if str(item).strip()
-        ]
-        candidate.cv_summary = [item for item in candidate.cv_summary if item]
-    candidate.resume_data = clean_resume
-    candidate.needs_review = validation["status"] != "valid"
-
-    application_id = None
-    match_score = None
-    if request.job_id is not None:
-        job = _get_org_record(db, Job, request.job_id, user.organization_id)
-        if job.status != "open":
-            raise HTTPException(status_code=409, detail="The selected job is not open")
-        application = db.scalar(select(Application).where(
-            Application.job_id == job.id,
-            Application.candidate_id == candidate.id,
-        ))
-        email_id = None
-        if application is None:
-            stages = ensure_job_stages(db, job)
-            application = Application(
-                organization_id=user.organization_id,
-                job_id=job.id,
-                candidate_id=candidate.id,
-                stage_id=stages["Applied"].id,
-                status="active",
-            )
-            db.add(application)
-            db.flush()
-            subject, body = _stage_email(application, "Applied", db=db)
-            email_id = queue_application_email(db, application, subject, body)
-        application_id = application.id
-
-        if not job.jd_analysis:
-            job.jd_analysis = matching_service.analyze_job(job)
-        score = matching_service.score_candidate(job, candidate)
-        match_score = score["model_score"]
-        match = db.scalar(select(CandidateJobMatch).where(
-            CandidateJobMatch.organization_id == user.organization_id,
-            CandidateJobMatch.job_id == job.id,
-            CandidateJobMatch.candidate_id == candidate.id,
-        ))
-        if match is None:
-            match = CandidateJobMatch(
-                organization_id=user.organization_id,
-                job_id=job.id,
-                candidate_id=candidate.id,
-            )
-            db.add(match)
-        match.model_score = score["model_score"]
-        match.score_breakdown = score["score_breakdown"]
-        match.matched_skills = score["matched_skills"]
-        match.skill_gaps = score["skill_gaps"]
-        match.explanations = score["explanations"]
-        match.semantic_mode = score["semantic_mode"]
-
-    db.commit()
-    if application_id and "email_id" in locals() and email_id:
-        background_tasks.add_task(deliver_outbox_email, email_id)
-    return {
-        "status": "synced",
-        "candidate_id": candidate.id,
-        "application_id": application_id,
-        "match_score": match_score,
-        "validation": validation,
-        "needs_review": candidate.needs_review,
-    }
 
 
 @app.get("/resume-processing/jobs/{job_id}", response_class=JSONResponse)
