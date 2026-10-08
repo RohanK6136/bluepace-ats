@@ -9,6 +9,7 @@ from celery_app import celery_app
 from app.services.extractor import extractor_service
 from app.services.llm_validator import llm_validator
 from app.services.slm_service import slm_service
+from app.services.private_storage import private_storage
 
 
 def validate_resume_structure(extracted: dict) -> dict:
@@ -78,8 +79,7 @@ def process_resume_ingest_job(self, job_id: int):
         db.commit()
 
         try:
-            with open(job.storage_path, "rb") as handle:
-                file_content = handle.read()
+            file_content = private_storage.read_bytes(job.storage_path)
             extracted = extractor_service.extract_to_json(file_content, job.filename)
             extracted = enrich_extracted_with_slm(extracted)
 
@@ -207,8 +207,8 @@ def process_resume_ingest_job(self, job_id: int):
             db.commit()
 
             try:
-                os.unlink(job.storage_path)
-            except OSError:
+                private_storage.delete(job.storage_path)
+            except Exception:
                 pass
 
             return {"status": "completed", "job_id": job.id}
