@@ -160,6 +160,10 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       setJdError("Choose a JD PDF or DOCX file first.");
       return;
     }
+    if (jdFile.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setJdError(`JD file must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+      return;
+    }
     setJdLoading(true);
     setJdError("");
     try {
@@ -449,7 +453,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
                   <p className="text-xs font-semibold text-ink-700">Upload JD</p>
-                  <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={(event) => { setJdFile(event.target.files?.[0] || null); setJdError(""); }} />
+                  <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setJdFile(null); setJdError(`JD file must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setJdFile(selected); setJdError(""); }} />
                   <button type="button" onClick={loadJobDescriptionFromFile} disabled={!jdFile || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use uploaded JD"}</button>
                 </div>
                 <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
