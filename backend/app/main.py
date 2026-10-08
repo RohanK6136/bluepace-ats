@@ -4651,15 +4651,16 @@ def presign_bulk_resume_uploads(
             / f"{uuid4().hex}{suffix}"
         )
 
-        if private_storage.b2_enabled:
+        storage_provider = private_storage.provider
+        if storage_provider in {"r2", "b2"}:
             upload_url = private_storage.presigned_upload_url(
                 storage_key,
                 content_type=content_type,
                 expires_in=3600,
             )
-            storage_path = f"b2://{storage_key}"
+            storage_path = f"{storage_provider}://{storage_key}"
             if not upload_url:
-                raise HTTPException(status_code=503, detail="Could not create a Backblaze B2 upload URL.")
+                raise HTTPException(status_code=503, detail=f"Could not create a {storage_provider.upper()} upload URL.")
         else:
             upload_url = _local_bulk_upload_url(request, storage_key, content_type, expires_at)
             storage_path = f"local://{storage_key}"
@@ -4671,14 +4672,14 @@ def presign_bulk_resume_uploads(
                 "size_bytes": int(item.size_bytes),
                 "content_type": content_type,
                 "upload_url": upload_url,
-                "storage_mode": "b2" if private_storage.b2_enabled else "local",
+                "storage_mode": storage_provider,
             }
         )
 
     return {
         "status": "ready",
         "batch_id": batch_id,
-        "storage_mode": "b2" if private_storage.b2_enabled else "local",
+        "storage_mode": private_storage.provider,
         "expires_in": 3600,
         "uploads": uploads,
         "accepted_handler_ms": round((perf_counter() - started) * 1000, 2),
@@ -4694,8 +4695,8 @@ async def upload_bulk_resume_to_local_storage(
     signature: str = Query(...),
     user: User = Depends(require_roles(*WRITE_ROLES)),
 ):
-    if private_storage.b2_enabled:
-        raise HTTPException(status_code=409, detail="Local bulk upload is disabled while Backblaze B2 is configured.")
+    if private_storage.provider != "local":
+        raise HTTPException(status_code=409, detail="Local bulk upload is disabled while object storage is configured.")
 
     now = int(datetime.now(timezone.utc).timestamp())
     if expires < now:
@@ -4739,7 +4740,11 @@ def finalize_bulk_resume_uploads(
         )
 
     batch_id = _validate_resume_batch_id(request.batch_id)
-    expected_prefix = f"b2://{user.organization_id}/resume_queue/{batch_id}/"
+    allowed_prefixes = (
+        f"r2://{user.organization_id}/resume_queue/{batch_id}/",
+        f"b2://{user.organization_id}/resume_queue/{batch_id}/",
+        f"local://{user.organization_id}/resume_queue/{batch_id}/",
+    )
 
     target_job_id = None
     if request.job_id is not None:
@@ -4749,10 +4754,6 @@ def finalize_bulk_resume_uploads(
         target_job_id = target_job.id
 
     storage_paths = []
-    allowed_prefixes = (
-        f"b2://{user.organization_id}/resume_queue/{batch_id}/",
-        f"local://{user.organization_id}/resume_queue/{batch_id}/",
-    )
     for item in request.files:
         _validate_resume_manifest_file(item.filename, int(item.size_bytes))
         path_value = str(item.storage_path or "")
