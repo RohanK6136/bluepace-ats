@@ -310,7 +310,10 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   }
 
   async function uploadToStorage(upload, file, authToken) {
-    const response = await fetch(upload.upload_url, {
+    const rawUploadUrl = String(upload.upload_url || "").trim();
+    if (!rawUploadUrl) throw new Error("The ATS API did not return a storage upload URL.");
+    const uploadUrl = rawUploadUrl.replace(/^http:\/\//i, "https://");
+    const response = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
         "Content-Type": upload.content_type || file.type || "application/octet-stream",
