@@ -43,6 +43,8 @@ from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
 from app.services.rag import rag_service
+from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES
+from app.services.private_storage import private_storage
 from app.services.workflow import (
     PIPELINE_STAGES,
     queue_application_email,
@@ -2414,25 +2416,24 @@ async def upload_public_document(token: str, file: UploadFile = File(...), reque
     if application is None:
         raise HTTPException(status_code=404, detail="Application not found")
     allowed = {"application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "image/png", "image/jpeg"}
-    content = await file.read()
-    if len(content) > 15 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Documents must be 15 MB or smaller.")
+    content = await file.read(MAX_DOCUMENT_SIZE_BYTES + 1)
+    if len(content) > MAX_DOCUMENT_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="Documents must be 5 MB or smaller.")
     if file.content_type not in allowed:
         raise HTTPException(status_code=415, detail="Only PDF, DOCX, PNG and JPEG documents are accepted.")
-    import os
-    from pathlib import Path
     original = re.sub(r"[^A-Za-z0-9._-]+", "_", file.filename or "document")
-    storage_key = f"{application.organization_id}/portal/{application.candidate_id}/{os.urandom(16).hex()}-{original}"
-    storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
-    path = storage_dir / storage_key
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
+    storage_key = f"candidate-documents/{application.organization_id}/{application.candidate_id}/{os.urandom(16).hex()}-{original}"
+    storage_reference = private_storage.put_bytes(
+        storage_key,
+        content,
+        file.content_type or "application/octet-stream",
+    )
     row = CandidateDocument(
         organization_id=application.organization_id,
         candidate_id=application.candidate_id,
         application_id=application.id,
         name=original,
-        storage_key=storage_key,
+        storage_key=storage_reference,
         content_type=file.content_type,
         size_bytes=len(content),
     )
@@ -2466,12 +2467,15 @@ def download_public_document(token: str, document_id: int, db: Session = Depends
     row = db.scalar(select(CandidateDocument).where(CandidateDocument.id == document_id, CandidateDocument.application_id == application_id))
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    import os
-    from pathlib import Path
-    path = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads")) / row.storage_key
-    if not path.exists():
+    try:
+        content = private_storage.read_bytes(row.storage_key)
+    except (FileNotFoundError, OSError):
         raise HTTPException(status_code=404, detail="Stored document is no longer available")
-    return FileResponse(path, media_type=row.content_type, filename=row.name)
+    return Response(
+        content=content,
+        media_type=row.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{row.name}"'},
+    )
 
 
 @router.patch("/public/application/{token}/profile")
