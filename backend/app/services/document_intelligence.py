@@ -44,12 +44,26 @@ class DocumentIntelligenceService:
         if self._converter is None:
             try:
                 from docling.datamodel.base_models import InputFormat
-                from docling.document_converter import DocumentConverter
+                from docling.datamodel.pipeline_options import HeadingHierarchyOptions, PdfPipelineOptions
+                from docling.document_converter import DocumentConverter, PdfFormatOption
             except Exception as error:
                 raise DocumentIntelligenceError(f"Docling is unavailable: {error}") from error
 
+            pipeline_options = PdfPipelineOptions(
+                do_ocr=os.getenv("DOCLING_DO_OCR", "true").strip().lower() == "true",
+                do_table_structure=os.getenv("DOCLING_DO_TABLE_STRUCTURE", "true").strip().lower() == "true",
+                use_reading_order_separators=os.getenv("DOCLING_READING_ORDER_SEPARATORS", "true").strip().lower() == "true",
+            )
+            try:
+                pipeline_options.heading_hierarchy_options = HeadingHierarchyOptions(enabled=True)
+            except Exception:
+                pass
+
             self._converter = DocumentConverter(
                 allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+                },
             )
         return self._converter
 
