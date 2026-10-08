@@ -84,6 +84,24 @@ class JobRead(BaseModel):
     updated_at: datetime
 
 
+class JobDocumentPreviewRead(BaseModel):
+    status: str = "success"
+    filename: str
+    extraction_engine: str
+    title: str
+    department: Optional[str] = None
+    location: Optional[str] = None
+    employment_type: Optional[str] = None
+    work_mode: str = "onsite"
+    minimum_experience_years: Optional[int] = None
+    fresher_allowed: bool = False
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
+    responsibilities: list[str] = Field(default_factory=list)
+    education: Optional[str] = None
+    description: str
+
+
 class CandidateCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
