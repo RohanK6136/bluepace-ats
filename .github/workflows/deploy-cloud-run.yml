@@ -1,0 +1,45 @@
+name: Deploy backend to Google Cloud Run
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-cloud-run.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy FastAPI to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: bluepace-ats-api
+          source: ./backend
+          region: ${{ vars.CLOUD_RUN_REGION }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          flags: "--allow-unauthenticated"
+          env_vars: |
+            APP_ENV=production
+            CORS_ORIGINS=https://rohank6136.github.io
+          env_vars_update_strategy: merge
+
+      - name: Show service URL
+        run: echo "${{ steps.deploy.outputs.url }}"
