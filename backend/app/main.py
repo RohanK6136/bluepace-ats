@@ -699,6 +699,40 @@ def _audit_candidate(candidate: Candidate) -> dict:
     }
 
 
+def _record_candidate_resume_document(
+    db: Session,
+    *,
+    organization_id: int,
+    candidate_id: int,
+    application_id: int | None,
+    filename: str,
+    storage_reference: str,
+    content_type: str,
+    size_bytes: int,
+) -> CandidateDocument:
+    document = db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.organization_id == organization_id,
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.storage_key == storage_reference,
+        )
+    )
+    if document is None:
+        document = CandidateDocument(
+            organization_id=organization_id,
+            candidate_id=candidate_id,
+            application_id=application_id,
+            name=filename,
+            storage_key=storage_reference,
+            content_type=content_type,
+            size_bytes=size_bytes,
+        )
+        db.add(document)
+    elif application_id is not None and document.application_id is None:
+        document.application_id = application_id
+    return document
+
+
 def _audit_job(job: Job) -> dict:
     return {
         "title": job.title,
@@ -1260,6 +1294,17 @@ async def public_apply(
         file.content_type or "application/octet-stream",
     )
     candidate.resume_storage_key = storage_reference
+
+    _record_candidate_resume_document(
+        db,
+        organization_id=organization.id,
+        candidate_id=candidate.id,
+        application_id=None,
+        filename=file.filename or f"resume{suffix}",
+        storage_reference=storage_reference,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+    )
 
     stages = ensure_job_stages(db, job)
     application = Application(
@@ -2612,6 +2657,26 @@ async def create_candidate_from_resume(
             )
             subject, body = _stage_email(application, "Applied", db=db)
             email_id = queue_application_email(db, application, subject, body)
+
+    application_for_document = None
+    if job_id is not None:
+        application_for_document = db.scalar(
+            select(Application).where(
+                Application.organization_id == user.organization_id,
+                Application.job_id == int(job_id),
+                Application.candidate_id == candidate.id,
+            )
+        )
+    _record_candidate_resume_document(
+        db,
+        organization_id=user.organization_id,
+        candidate_id=candidate.id,
+        application_id=application_for_document.id if application_for_document else None,
+        filename=file.filename or f"resume{suffix}",
+        storage_reference=storage_reference,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+    )
 
     db.commit()
     if job_id is not None and "email_id" in locals() and background_tasks is not None:
@@ -4352,6 +4417,16 @@ async def upload_candidate_resume(
     before = {"resume_storage_key": candidate.resume_storage_key}
     candidate.resume_storage_key = storage_reference
     candidate.resume_data = {key: value for key, value in parsed.items() if key != "raw_text"}
+    _record_candidate_resume_document(
+        db,
+        organization_id=user.organization_id,
+        candidate_id=candidate.id,
+        application_id=None,
+        filename=file.filename or f"resume{suffix}",
+        storage_reference=storage_reference,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+    )
     if not candidate.phone and parsed.get("phone"):
         candidate.phone = parsed["phone"][:50]
     if not candidate.linkedin_url and parsed.get("linkedin"):
