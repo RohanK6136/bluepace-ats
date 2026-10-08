@@ -527,6 +527,7 @@ Resume text:
         raw_text = ""
         extraction_engine = None
         extraction_warning = None
+        document_markdown = ""
 
         configured_engine = os.getenv("DOCUMENT_EXTRACTION_ENGINE", "legacy").strip().lower()
         fallback_engine = os.getenv("DOCUMENT_EXTRACTION_FALLBACK_ENGINE", "docling").strip().lower()
@@ -539,6 +540,7 @@ Resume text:
             try:
                 docling_result = document_intelligence_service.extract(file_content, filename)
                 raw_text = docling_result.text.strip()
+                document_markdown = docling_result.markdown.strip()
                 extraction_engine = docling_result.engine
             except DocumentIntelligenceError as error:
                 extraction_warning = str(error)
@@ -609,6 +611,8 @@ Resume text:
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
         parsed["document_extraction_engine"] = extraction_engine or "unknown"
+        if document_markdown:
+            parsed["document_markdown"] = document_markdown
         if extraction_warning:
             parsed["document_extraction_warning"] = extraction_warning
 
