@@ -120,6 +120,30 @@ class PrivateStorage:
 
         Path(reference).unlink(missing_ok=True)
 
+    def presigned_upload_url(
+        self,
+        key: str,
+        content_type: str | None = None,
+        expires_in: int = 900,
+    ) -> str | None:
+        if not self.b2_enabled:
+            return None
+
+        client = self._get_client()
+        if client is None:
+            return None
+
+        clean_key = key.lstrip("/")
+        params = {"Bucket": self.bucket, "Key": clean_key}
+        if content_type:
+            params["ContentType"] = content_type
+
+        return client.generate_presigned_url(
+            "put_object",
+            Params=params,
+            ExpiresIn=max(60, min(int(expires_in), 3600)),
+        )
+
     def presigned_download_url(
         self,
         reference: str,
