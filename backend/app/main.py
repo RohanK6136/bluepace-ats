@@ -290,7 +290,6 @@ async def add_process_time_header(request, call_next):
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
 DEPLOYED_BACKEND_ORIGIN = os.getenv("BACKEND_PUBLIC_ORIGIN", "https://bluepace-ats-9.onrender.com")
-MAX_RESUME_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES
 
 def ensure_bootstrap_account() -> None:
     email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
@@ -416,8 +415,8 @@ async def _read_resume_upload(file: UploadFile) -> tuple[str, bytes]:
     if suffix not in SUPPORTED_DOCUMENT_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Only PDF and DOCX resumes are supported.")
 
-    content = await file.read(MAX_RESUME_SIZE_BYTES + 1)
-    if len(content) > MAX_RESUME_SIZE_BYTES:
+    content = await file.read(MAX_DOCUMENT_SIZE_BYTES + 1)
+    if len(content) > MAX_DOCUMENT_SIZE_BYTES:
         raise HTTPException(status_code=413, detail="Resume must be 5 MB or smaller.")
     if not content:
         raise HTTPException(status_code=400, detail="The uploaded resume is empty.")
@@ -4731,7 +4730,7 @@ def _validate_resume_manifest_file(filename: str, size_bytes: int) -> str:
         raise HTTPException(status_code=400, detail=f"{filename}: only PDF and DOCX resumes are supported.")
     if size_bytes <= 0:
         raise HTTPException(status_code=400, detail=f"{filename}: the uploaded resume is empty.")
-    if size_bytes > MAX_RESUME_SIZE_BYTES:
+    if size_bytes > MAX_DOCUMENT_SIZE_BYTES:
         raise HTTPException(status_code=413, detail=f"{filename}: resume must be 5 MB or smaller.")
     return suffix
 
