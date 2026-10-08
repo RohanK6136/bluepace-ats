@@ -4296,7 +4296,14 @@ def _local_bulk_upload_url(request: Request, storage_key: str, content_type: str
             "signature": signature,
         }
     )
-    return f"{str(request.base_url).rstrip('/')}/resume-processing/batch/upload?{query}"
+    configured_origin = os.getenv("BACKEND_PUBLIC_ORIGIN", "").strip().rstrip("/")
+    if configured_origin:
+        base_url = configured_origin
+    else:
+        forwarded_proto = request.headers.get("x-forwarded-proto", "https").split(",")[0].strip()
+        forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host", "")).split(",")[0].strip()
+        base_url = f"{forwarded_proto}://{forwarded_host}" if forwarded_host else str(request.base_url).rstrip("/")
+    return f"{base_url}/resume-processing/batch/upload?{query}"
 
 
 @app.post("/resume-processing/batch/presign", response_class=JSONResponse)
