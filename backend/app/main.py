@@ -1,5 +1,7 @@
 import base64
 import csv
+import hashlib
+import hmac
 import io
 import os
 import asyncio
@@ -104,7 +106,7 @@ from app.schemas import (
     UserCreate,
     UserRead,
 )
-from app.security import create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
+from app.security import JWT_SECRET, create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
 from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
 from app.services.private_storage import private_storage
 from app.services.extractor import DocumentExtractionError, extractor_service
@@ -4279,28 +4281,43 @@ def _enqueue_resume_jobs_with_celery(job_ids: list[int]) -> None:
         db.commit()
 
 
+def _local_bulk_upload_signature(storage_key: str, content_type: str, expires_at: int) -> str:
+    payload = f"{expires_at}:{content_type}:{storage_key}".encode("utf-8")
+    return hmac.new(JWT_SECRET.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+
+def _local_bulk_upload_url(request: Request, storage_key: str, content_type: str, expires_at: int) -> str:
+    signature = _local_bulk_upload_signature(storage_key, content_type, expires_at)
+    query = urllib.parse.urlencode(
+        {
+            "storage_key": storage_key,
+            "content_type": content_type,
+            "expires": str(expires_at),
+            "signature": signature,
+        }
+    )
+    return f"{str(request.base_url).rstrip('/')}/resume-processing/batch/upload?{query}"
+
+
 @app.post("/resume-processing/batch/presign", response_class=JSONResponse)
 def presign_bulk_resume_uploads(
-    request: BulkResumePresignRequest,
+    request: Request,
+    payload: BulkResumePresignRequest,
     user: User = Depends(require_roles(*WRITE_ROLES)),
 ):
     started = perf_counter()
-    if not private_storage.b2_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="Direct bulk upload requires Backblaze B2 storage to be configured.",
-        )
-    if not request.files:
+    if not payload.files:
         raise HTTPException(status_code=400, detail="Add at least one resume to the batch.")
-    if len(request.files) > MAX_BULK_MANIFEST_FILES:
+    if len(payload.files) > MAX_BULK_MANIFEST_FILES:
         raise HTTPException(
             status_code=413,
             detail=f"Send at most {MAX_BULK_MANIFEST_FILES} resumes per upload batch.",
         )
 
-    batch_id = _validate_resume_batch_id(request.batch_id)
+    batch_id = _validate_resume_batch_id(payload.batch_id)
     uploads = []
-    for item in request.files:
+    expires_at = int(datetime.now(timezone.utc).timestamp()) + 3600
+    for item in payload.files:
         suffix = _validate_resume_manifest_file(item.filename, int(item.size_bytes))
         content_type = item.content_type or (
             "application/pdf" if suffix == ".pdf"
@@ -4312,29 +4329,75 @@ def presign_bulk_resume_uploads(
             / batch_id
             / f"{uuid4().hex}{suffix}"
         )
-        upload_url = private_storage.presigned_upload_url(
-            storage_key,
-            content_type=content_type,
-            expires_in=3600,
-        )
-        if not upload_url:
-            raise HTTPException(status_code=503, detail="Could not create a Backblaze B2 upload URL.")
+
+        if private_storage.b2_enabled:
+            upload_url = private_storage.presigned_upload_url(
+                storage_key,
+                content_type=content_type,
+                expires_in=3600,
+            )
+            storage_path = f"b2://{storage_key}"
+            if not upload_url:
+                raise HTTPException(status_code=503, detail="Could not create a Backblaze B2 upload URL.")
+        else:
+            upload_url = _local_bulk_upload_url(request, storage_key, content_type, expires_at)
+            storage_path = f"local://{storage_key}"
+
         uploads.append(
             {
                 "filename": item.filename,
-                "storage_path": f"b2://{storage_key}",
+                "storage_path": storage_path,
                 "size_bytes": int(item.size_bytes),
                 "content_type": content_type,
                 "upload_url": upload_url,
+                "storage_mode": "b2" if private_storage.b2_enabled else "local",
             }
         )
 
     return {
         "status": "ready",
         "batch_id": batch_id,
+        "storage_mode": "b2" if private_storage.b2_enabled else "local",
         "expires_in": 3600,
         "uploads": uploads,
         "accepted_handler_ms": round((perf_counter() - started) * 1000, 2),
+    }
+
+
+@app.put("/resume-processing/batch/upload", response_class=JSONResponse)
+async def upload_bulk_resume_to_local_storage(
+    request: Request,
+    storage_key: str = Query(...),
+    content_type: str = Query("application/octet-stream"),
+    expires: int = Query(...),
+    signature: str = Query(...),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+):
+    if private_storage.b2_enabled:
+        raise HTTPException(status_code=409, detail="Local bulk upload is disabled while Backblaze B2 is configured.")
+
+    now = int(datetime.now(timezone.utc).timestamp())
+    if expires < now:
+        raise HTTPException(status_code=403, detail="Bulk upload URL has expired.")
+
+    expected_signature = _local_bulk_upload_signature(storage_key, content_type, expires)
+    if not hmac.compare_digest(signature, expected_signature):
+        raise HTTPException(status_code=403, detail="Invalid bulk upload signature.")
+
+    expected_prefix = f"{user.organization_id}/resume_queue/"
+    if not storage_key.startswith(expected_prefix):
+        raise HTTPException(status_code=400, detail="Invalid bulk upload storage path.")
+
+    content = await request.body()
+    if len(content) > MAX_DOCUMENT_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="Resume must be 5 MB or smaller.")
+    _validate_resume_manifest_file(Path(storage_key).name, len(content))
+
+    private_storage.put_bytes(storage_key, content, content_type=content_type)
+    return {
+        "status": "uploaded",
+        "storage_path": f"local://{storage_key}",
+        "size_bytes": len(content),
     }
 
 
@@ -4365,10 +4428,14 @@ def finalize_bulk_resume_uploads(
         target_job_id = target_job.id
 
     storage_paths = []
+    allowed_prefixes = (
+        f"b2://{user.organization_id}/resume_queue/{batch_id}/",
+        f"local://{user.organization_id}/resume_queue/{batch_id}/",
+    )
     for item in request.files:
         _validate_resume_manifest_file(item.filename, int(item.size_bytes))
         path_value = str(item.storage_path or "")
-        if not path_value.startswith(expected_prefix):
+        if not any(path_value.startswith(prefix) for prefix in allowed_prefixes):
             raise HTTPException(status_code=400, detail=f"{item.filename}: invalid storage path for this batch.")
         storage_paths.append(path_value)
 
