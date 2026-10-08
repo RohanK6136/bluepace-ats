@@ -1253,7 +1253,7 @@ async def public_apply(
         db.rollback()
         raise HTTPException(status_code=409, detail="You have already applied for this position")
 
-    storage_key = f"{organization.id}/public/{candidate.id}/{os.urandom(16).hex()}{suffix}"
+    storage_key = f"resumes/{organization.id}/public/{candidate.id}/{os.urandom(16).hex()}{suffix}"
     storage_reference = private_storage.put_bytes(
         storage_key,
         content,
@@ -2555,12 +2555,13 @@ async def create_candidate_from_resume(
         key: value for key, value in parsed.items() if key != "raw_text"
     }
 
-    storage_key = f"{user.organization_id}/{candidate.id}/{os.urandom(16).hex()}{suffix}"
-    storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
-    storage_path = storage_dir / storage_key
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    storage_path.write_bytes(content)
-    candidate.resume_storage_key = storage_key
+    storage_key = f"resumes/{user.organization_id}/{candidate.id}/{os.urandom(16).hex()}{suffix}"
+    storage_reference = private_storage.put_bytes(
+        storage_key,
+        content,
+        file.content_type or "application/octet-stream",
+    )
+    candidate.resume_storage_key = storage_reference
 
     if job_id is not None:
         job = _get_org_record(db, Job, job_id, user.organization_id)
@@ -4850,7 +4851,8 @@ def presign_bulk_resume_uploads(
             else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
         storage_key = str(
-            Path(str(user.organization_id))
+            Path("resumes")
+            / str(user.organization_id)
             / "resume_queue"
             / batch_id
             / f"{uuid4().hex}{suffix}"
@@ -4946,9 +4948,9 @@ def finalize_bulk_resume_uploads(
 
     batch_id = _validate_resume_batch_id(request.batch_id)
     allowed_prefixes = (
-        f"r2://{user.organization_id}/resume_queue/{batch_id}/",
-        f"b2://{user.organization_id}/resume_queue/{batch_id}/",
-        f"local://{user.organization_id}/resume_queue/{batch_id}/",
+        f"r2://resumes/{user.organization_id}/resume_queue/{batch_id}/",
+        f"b2://resumes/{user.organization_id}/resume_queue/{batch_id}/",
+        f"local://resumes/{user.organization_id}/resume_queue/{batch_id}/",
     )
 
     target_job_id = None
