@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 B2_SCHEME = "b2://"
+LOCAL_SCHEME = "local://"
 B2_REGION = os.getenv("B2_REGION", "").strip()
 B2_ENDPOINT = os.getenv("B2_ENDPOINT", "").strip()
 B2_ACCESS_KEY_ID = os.getenv("B2_ACCESS_KEY_ID", "").strip()
@@ -104,6 +105,10 @@ class PrivateStorage:
             response = client.get_object(Bucket=self.bucket, Key=key)
             return response["Body"].read()
 
+        if reference.startswith(LOCAL_SCHEME):
+            key = reference[len(LOCAL_SCHEME) :].lstrip("/")
+            return (self.local_root / key).read_bytes()
+
         return Path(reference).read_bytes()
 
     def delete(self, reference: str) -> None:
@@ -116,6 +121,11 @@ class PrivateStorage:
                 return
             key = reference[len(B2_SCHEME) :].lstrip("/")
             client.delete_object(Bucket=self.bucket, Key=key)
+            return
+
+        if reference.startswith(LOCAL_SCHEME):
+            key = reference[len(LOCAL_SCHEME) :].lstrip("/")
+            (self.local_root / key).unlink(missing_ok=True)
             return
 
         Path(reference).unlink(missing_ok=True)
