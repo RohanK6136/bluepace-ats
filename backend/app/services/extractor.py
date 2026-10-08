@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from app.services.document_intelligence import DocumentIntelligenceError, document_intelligence_service
+from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES
 
 load_dotenv()
 
@@ -446,6 +447,9 @@ Resume text:
         return lines
 
     def extract_to_json(self, file_content: bytes, filename: str) -> dict:
+        if len(file_content) > MAX_DOCUMENT_SIZE_BYTES:
+            raise DocumentExtractionError("Document must be 5 MB or smaller.")
+
         text_parts = []
         raw_text = ""
         extraction_engine = None
