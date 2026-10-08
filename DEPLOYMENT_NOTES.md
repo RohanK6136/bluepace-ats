@@ -44,5 +44,5 @@ Backblaze B2's S3-compatible API supports presigned upload URLs. For browser upl
 - Allowed headers: `*`
 - Max age: `3600`
 
-Keep the bucket private; the application continues to use short-lived presigned URLs rather than public file URLs. citeturn331059search1turn331059search2
+Keep the bucket private; the application continues to use short-lived presigned URLs rather than public file URLs.
 
