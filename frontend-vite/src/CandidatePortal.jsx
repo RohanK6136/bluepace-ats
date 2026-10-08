@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import PublicHelpCenter from "./PublicHelpCenter.jsx";
+import { MAX_DOCUMENT_SIZE_BYTES, MAX_DOCUMENT_SIZE_LABEL } from "./constants/documentLimits.js";
 
 const API_URL = (
   import.meta.env.VITE_API_URL?.trim() ||
@@ -85,6 +86,10 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
 
   async function uploadDocument() {
     if (!documentFile) return;
+    if (documentFile.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setError(`Document must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+      return;
+    }
     setDocumentLoading(true);
     try {
       const form = new FormData();
@@ -194,7 +199,7 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
           <div className="mt-7 border-t border-ink-100 pt-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Documents</p><p className="mt-1 text-sm text-ink-500">Upload supporting documents requested by recruiting.</p></div>
-              <label className="rounded-md border border-ink-100 bg-white px-3 py-2 text-xs font-semibold cursor-pointer">Choose file<input className="hidden" type="file" accept=".pdf,.docx,.png,.jpg,.jpeg" onChange={(e) => setDocumentFile(e.target.files?.[0] || null)} /></label>
+              <label className="rounded-md border border-ink-100 bg-white px-3 py-2 text-xs font-semibold cursor-pointer">Choose file<input className="hidden" type="file" accept=".pdf,.docx,.png,.jpg,.jpeg" onChange={(e) => { const selected = e.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setDocumentFile(null); setError(`Document must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); e.target.value = ""; return; } setDocumentFile(selected); setError(""); }} /></label>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">{selectedRequestId && <span className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">Uploading for requested document #{selectedRequestId}</span>}{documentFile && <><span className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800">{documentFile.name}</span><button className="rounded-md bg-[#1769d3] px-3 py-2 text-xs font-semibold text-white" disabled={documentLoading} onClick={uploadDocument}>{documentLoading ? "Uploading…" : "Upload"}</button></>}</div>
             {documentRequests.length > 0 && (
