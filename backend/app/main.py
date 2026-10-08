@@ -297,7 +297,7 @@ def ensure_bootstrap_account() -> None:
     if not email or not (password or password_hash_value):
         return
 
-    with SessionLocal() as db
+    with SessionLocal() as db:
         organization = db.scalar(
             select(Organization).where(Organization.name == organization_name).order_by(Organization.id.asc()).limit(1)
         )
