@@ -113,7 +113,13 @@ class PrivateStorage:
             )
             return f"{R2_SCHEME if provider == 'r2' else B2_SCHEME}{key}"
 
-        path = self.local_root / key
+        local_root = Path(
+            os.getenv(
+                "RESUME_STORAGE_DIR",
+                os.getenv("RESUME_QUEUE_STORAGE_DIR", str(self.local_root)),
+            )
+        )
+        path = local_root / key
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
         return str(path)
@@ -137,7 +143,13 @@ class PrivateStorage:
 
         if reference.startswith(LOCAL_SCHEME):
             key = reference[len(LOCAL_SCHEME) :].lstrip("/")
-            return (self.local_root / key).read_bytes()
+            local_root = Path(
+                os.getenv(
+                    "RESUME_STORAGE_DIR",
+                    os.getenv("RESUME_QUEUE_STORAGE_DIR", str(self.local_root)),
+                )
+            )
+            return (local_root / key).read_bytes()
 
         return Path(reference).read_bytes()
 
@@ -163,7 +175,13 @@ class PrivateStorage:
 
         if reference.startswith(LOCAL_SCHEME):
             key = reference[len(LOCAL_SCHEME) :].lstrip("/")
-            (self.local_root / key).unlink(missing_ok=True)
+            local_root = Path(
+                os.getenv(
+                    "RESUME_STORAGE_DIR",
+                    os.getenv("RESUME_QUEUE_STORAGE_DIR", str(self.local_root)),
+                )
+            )
+            (local_root / key).unlink(missing_ok=True)
             return
 
         Path(reference).unlink(missing_ok=True)
