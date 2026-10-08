@@ -12,3 +12,4 @@ export default defineConfig({
     allowedHosts: true,
   },
 })
+// Deployment target: GitHub Pages
