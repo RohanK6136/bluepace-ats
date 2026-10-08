@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+
+from dotenv import load_dotenv
 from io import BytesIO
 
 from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
+
+load_dotenv()
 
 
 class DocumentIntelligenceError(ValueError):
