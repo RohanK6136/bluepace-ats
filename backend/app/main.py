@@ -4421,6 +4421,7 @@ def finalize_bulk_resume_uploads(
             {
                 "job_id": job.id,
                 "filename": job.filename,
+                "storage_path": job.storage_path,
                 "status": job.status,
                 "size_bytes": job.size_bytes,
             }
