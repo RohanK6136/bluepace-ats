@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { MAX_DOCUMENT_SIZE_BYTES, MAX_DOCUMENT_SIZE_LABEL } from "./constants/documentLimits.js";
 import axios from "axios";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
@@ -8,8 +9,6 @@ const API_URL = (
 ).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 90_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
-const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
-const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
