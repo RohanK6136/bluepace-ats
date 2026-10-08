@@ -55,6 +55,7 @@ class DocumentIntelligenceService:
                 use_reading_order_separators=os.getenv("DOCLING_READING_ORDER_SEPARATORS", "true").strip().lower() == "true",
             )
             try:
+                pipeline_options.generate_parsed_pages = True
                 pipeline_options.heading_hierarchy_options = HeadingHierarchyOptions(enabled=True)
             except Exception:
                 pass
