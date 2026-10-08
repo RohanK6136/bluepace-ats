@@ -294,6 +294,7 @@ export default function AtsWorkspace() {
   const [jobFormOpen, setJobFormOpen] = useState(false);
   const [jobEntryMode, setJobEntryMode] = useState("manual");
   const [jobDocumentFile, setJobDocumentFile] = useState(null);
+  const [jobDocumentPreview, setJobDocumentPreview] = useState(null);
   const [jobLinkInput, setJobLinkInput] = useState("");
   const [editingJob, setEditingJob] = useState(null);
   const [jobForm, setJobForm] = useState({
@@ -307,6 +308,7 @@ export default function AtsWorkspace() {
     required_skills: "",
     minimum_experience_years: "",
     fresher_allowed: false,
+    responsibilities: "",
   });
   const [candidateFormOpen, setCandidateFormOpen] = useState(false);
   const [candidateEntryMode, setCandidateEntryMode] = useState("manual");
@@ -704,6 +706,7 @@ export default function AtsWorkspace() {
     setEditingJob(job);
     setJobEntryMode(job ? "manual" : "manual");
     setJobDocumentFile(null);
+    setJobDocumentPreview(null);
     setJobLinkInput(job?.jd_analysis?.source_url || "");
     setJobForm(job ? {
       title: job.title,
@@ -716,6 +719,7 @@ export default function AtsWorkspace() {
       required_skills: (job.required_skills || []).join(", "),
       minimum_experience_years: job.minimum_experience_years ?? "",
       fresher_allowed: Boolean(job.fresher_allowed),
+      responsibilities: (job.jd_analysis?.responsibilities || []).join("\n"),
     } : {
       title: "",
       description: "",
@@ -727,6 +731,7 @@ export default function AtsWorkspace() {
       required_skills: "",
       minimum_experience_years: "",
       fresher_allowed: false,
+      responsibilities: "",
     });
     setJobFormOpen(true);
   }
@@ -755,6 +760,30 @@ export default function AtsWorkspace() {
           setError("Select a PDF or DOCX job description.");
           return;
         }
+
+        if (!jobDocumentPreview) {
+          const previewBody = new FormData();
+          previewBody.append("file", jobDocumentFile);
+          const response = await apiRequest(token, "post", "/jobs/from-document/preview", { data: previewBody });
+          const preview = response.data;
+          setJobDocumentPreview(preview);
+          setJobForm((current) => ({
+            ...current,
+            title: current.title.trim() || preview.title || "",
+            department: current.department.trim() || preview.department || "",
+            location: current.location.trim() || preview.location || "",
+            employment_type: preview.employment_type || current.employment_type || "Full-time",
+            work_mode: preview.work_mode || current.work_mode || "onsite",
+            required_skills: (preview.required_skills || []).join(", "),
+            minimum_experience_years: preview.minimum_experience_years ?? "",
+            fresher_allowed: Boolean(preview.fresher_allowed),
+            responsibilities: (preview.responsibilities || []).join("\n"),
+            description: preview.description || "",
+          }));
+          setNotice(`JD extracted with ${preview.extraction_engine || "document intelligence"}. Review the populated fields before creating the job.`);
+          return;
+        }
+
         const body = new FormData();
         body.append("file", jobDocumentFile);
         if (jobForm.title.trim()) body.append("title", jobForm.title.trim());
@@ -765,8 +794,11 @@ export default function AtsWorkspace() {
         body.append("status_value", jobForm.status);
         if (jobForm.minimum_experience_years !== "") body.append("minimum_experience_years", String(Number(jobForm.minimum_experience_years)));
         body.append("fresher_allowed", String(Boolean(jobForm.fresher_allowed)));
+        body.append("required_skills", jobForm.required_skills);
+        body.append("responsibilities", jobForm.responsibilities || "");
+        body.append("description_override", jobForm.description);
         await apiRequest(token, "post", "/jobs/from-document", { data: body });
-        setNotice("Job document parsed, job created, and JD requirements extracted");
+        setNotice("Reviewed JD fields approved and job created");
       } else {
         const jobPayload = {
           ...jobForm,
@@ -783,6 +815,7 @@ export default function AtsWorkspace() {
       }
       setJobFormOpen(false);
       setJobDocumentFile(null);
+      setJobDocumentPreview(null);
       setJobLinkInput("");
       setJobEntryMode("manual");
       await refreshWorkspace();
@@ -1831,7 +1864,7 @@ export default function AtsWorkspace() {
           {view === "jobs" && <>
 
             {jobFormOpen && <form onSubmit={saveJob} className="mb-6 border-y border-ink-100 bg-white p-4 sm:p-5">
-              <div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">{editingJob ? "Edit job" : "New job"}</h2><button type="button" aria-label="Close form" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>×</button></div>
+              <div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">{editingJob ? "Edit job" : "New job"}</h2><button type="button" aria-label="Close form" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobDocumentPreview(null); setJobLinkInput(""); }}>×</button></div>
               {!editingJob && <div className="mb-5 flex flex-wrap gap-2 border-b border-ink-100 pb-3">
                 <button type="button" onClick={() => setJobEntryMode("manual")} className={jobEntryMode === "manual" ? buttonPrimary : buttonSecondary}>Manual entry</button>
                 <button type="button" onClick={() => setJobEntryMode("upload")} className={jobEntryMode === "upload" ? buttonPrimary : buttonSecondary}>Upload JD</button>
@@ -1855,21 +1888,92 @@ export default function AtsWorkspace() {
                 </div>
               ) : jobEntryMode === "upload" && !editingJob ? (
                 <div className="grid gap-4">
-                  <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4 text-sm text-ink-700">Upload the job description as PDF or DOCX. BluePace extracts the text, required skills, experience, location and education requirements automatically, then uses the same matching engine for applicants.</div>
+                  <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4 text-sm text-ink-700">
+                    Upload a JD as PDF or DOCX. Docling extracts the document first, then BluePace maps the content into job fields. Nothing is created until you review and submit this form.
+                  </div>
                   <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Job description document
-                    <input className={inputStyle + " p-2"} type="file" accept=".pdf,.docx" required onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setJobDocumentFile(null); setError(`Job document must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setJobDocumentFile(selected); setError(""); }} />
+                    <input
+                      className={inputStyle + " p-2"}
+                      type="file"
+                      accept=".pdf,.docx"
+                      required
+                      onChange={(event) => {
+                        const selected = event.target.files?.[0] || null;
+                        if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) {
+                          setJobDocumentFile(null);
+                          setJobDocumentPreview(null);
+                          setError(`Job document must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
+                          event.target.value = "";
+                          return;
+                        }
+                        setJobDocumentFile(selected);
+                        setJobDocumentPreview(null);
+                        setError("");
+                      }}
+                    />
                     <span className="text-[11px] font-normal text-ink-400">{jobDocumentFile ? jobDocumentFile.name : "PDF or DOCX, up to 5 MB."}</span>
                   </label>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Field label="Job title override (optional)" value={jobForm.title} onChange={(event) => setJobForm({ ...jobForm, title: event.target.value })} />
-                    <Field label="Department override (optional)" value={jobForm.department} onChange={(event) => setJobForm({ ...jobForm, department: event.target.value })} />
-                    <Field label="Location override (optional)" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
-                    <SelectField label="Employment type" value={jobForm.employment_type} onChange={(event) => setJobForm({ ...jobForm, employment_type: event.target.value })}>{["Full-time", "Part-time", "Contract", "Temporary", "Internship"].map((type) => <option key={type}>{type}</option>)}</SelectField>
-                    <SelectField label="Work mode" value={jobForm.work_mode} onChange={(event) => setJobForm({ ...jobForm, work_mode: event.target.value })}><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site / Offline</option></SelectField>
-                    <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
-                    <Field label="Minimum experience override" type="number" min="0" max="60" placeholder="Auto-detect" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
-                  </div>
-                  <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700"><input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />Open to freshers (override)</label>
+
+                  {!jobDocumentPreview ? (
+                    <div className="rounded-xl border border-ink-100 bg-ink-50 p-4 text-sm text-ink-600">
+                      Select the JD above and click <strong>Extract & review</strong>. The form will be populated automatically, and you can edit any field before creating the job.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-blue-700">AI populated — recruiter review required</p>
+                            <p className="mt-1 text-sm text-ink-700">{jobDocumentPreview.filename}</p>
+                          </div>
+                          <span className="rounded-full border border-blue-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                            Engine: {jobDocumentPreview.extraction_engine || "document intelligence"}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div><span className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Education</span><p className="mt-1 text-sm text-ink-700">{jobDocumentPreview.education || "Not detected"}</p></div>
+                          <div><span className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Preferred skills</span><p className="mt-1 text-sm text-ink-700">{(jobDocumentPreview.preferred_skills || []).join(", ") || "None detected"}</p></div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Job title" required value={jobForm.title} onChange={(event) => setJobForm({ ...jobForm, title: event.target.value })} />
+                        <Field label="Department" value={jobForm.department} onChange={(event) => setJobForm({ ...jobForm, department: event.target.value })} />
+                        <Field label="Location" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
+                        <SelectField label="Employment type" value={jobForm.employment_type} onChange={(event) => setJobForm({ ...jobForm, employment_type: event.target.value })}>
+                          {["Full-time", "Part-time", "Contract", "Temporary", "Internship"].map((type) => <option key={type}>{type}</option>)}
+                        </SelectField>
+                        <SelectField label="Work mode" value={jobForm.work_mode} onChange={(event) => setJobForm({ ...jobForm, work_mode: event.target.value })}>
+                          <option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site / Offline</option>
+                        </SelectField>
+                        <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>
+                          {["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}
+                        </SelectField>
+                        <Field label="Minimum experience (years)" type="number" min="0" max="60" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
+                      </div>
+
+                      <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">
+                        Required skills
+                        <input className={inputStyle} value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
+                        <span className="text-[11px] font-normal text-ink-400">Edit the comma-separated skills before creating the job.</span>
+                      </label>
+
+                      <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
+                        Responsibilities
+                        <textarea className={inputStyle + " min-h-32 resize-y"} value={jobForm.responsibilities} onChange={(event) => setJobForm({ ...jobForm, responsibilities: event.target.value })} />
+                      </label>
+
+                      <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
+                        Job description
+                        <textarea className={inputStyle + " min-h-48 resize-y"} required value={jobForm.description} onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })} />
+                      </label>
+
+                      <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700">
+                        <input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />
+                        Fresher allowed
+                      </label>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1885,7 +1989,7 @@ export default function AtsWorkspace() {
                   <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Description<textarea className={inputStyle + " min-h-28 resize-y"} required value={jobForm.description} onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })} /></label>
                 </div>
               )}
-              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Upload & create job" : jobEntryMode === "link" ? "Import & create job" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
+              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? (jobDocumentPreview ? "Create job" : "Extract & review") : jobEntryMode === "link" ? "Import & create job" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobDocumentPreview(null); setJobLinkInput(""); }}>Cancel</button></div>
             </form>}
             <div className="mb-5"><p className="text-sm text-ink-500">{jobs.length} total jobs</p><h2 className="mt-1 text-xl font-semibold">Job openings</h2></div>
             <div className="ats-jobs-table overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-sm"><div className="min-w-[980px]">
