@@ -65,3 +65,74 @@ def test_trafilatura_failure_does_not_break_existing_partial_extraction(monkeypa
     monkeypatch.setattr(api.trafilatura, "extract", fail_extraction)
 
     assert api._extract_job_description(html, parser) == "Only a short title."
+
+def test_jsonld_jobposting_description_remains_preferred(monkeypatch):
+    description = "Structured description with enough text to remain the preferred source."
+    html = (
+        '<html><head><script type="application/ld+json">'
+        + __import__("json").dumps({
+            "@context": "https://schema.org",
+            "@type": "JobPosting",
+            "title": "Backend Engineer",
+            "description": description,
+        })
+        + "</script></head><body><p>Other visible page content is different.</p></body></html>"
+    )
+    parser = _parse_html(html)
+
+    def unexpected_extraction(*args, **kwargs):
+        raise AssertionError("Trafilatura should not run for a usable JobPosting description")
+
+    monkeypatch.setattr(api.trafilatura, "extract", unexpected_extraction)
+
+    assert api._extract_job_description(html, parser) == description
+
+
+def test_fetch_job_page_preserves_metadata_with_trafilatura_fallback(monkeypatch):
+    import json
+
+    url = "https://jobs.example.com/role/123"
+    html = (
+        "<html><head><title>Careers</title><script type='application/ld+json'>"
+        + json.dumps({
+            "@context": "https://schema.org",
+            "@type": "JobPosting",
+            "title": "Machine Learning Engineer",
+            "description": "short",
+            "employmentType": "FULL_TIME",
+            "jobLocation": {"address": {"addressLocality": "Hyderabad"}},
+        })
+        + "</script></head><body><div id='app'></div></body></html>"
+    )
+    description = (
+        "Build machine learning systems, collaborate with engineering teams, "
+        "write production Python, and evaluate models. Requirements include "
+        "Python, SQL, machine learning fundamentals, and cloud deployment."
+    )
+
+    class FakeResponse:
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return html.encode("utf-8")
+
+        def geturl(self):
+            return url
+
+    monkeypatch.setattr(api, "_validate_public_job_url", lambda value: value)
+    monkeypatch.setattr(api.urllib.request, "urlopen", lambda request, timeout: FakeResponse())
+    monkeypatch.setattr(api.trafilatura, "extract", lambda *args, **kwargs: description)
+
+    final_url, title, payload = api._fetch_job_page(url)
+
+    assert final_url == url
+    assert title == "Machine Learning Engineer"
+    assert payload["description"] == description
+    assert payload["employment_type"] == "FULL_TIME"
+    assert payload["location"] == "Hyderabad"
