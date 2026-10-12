@@ -19,4 +19,4 @@ email-validator>=2.2,<3.0
 
 openpyxl
 reportlab
-
+trafilatura>=2.3,<3.0

@@ -14,6 +14,8 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
+
+import trafilatura
 from html import unescape
 from html.parser import HTMLParser
 from contextlib import asynccontextmanager
@@ -552,6 +554,38 @@ def _html_to_plain_text(value) -> str:
         return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", unescape(str(value)))).strip()
 
 
+def _extract_job_description(html: str, parser: _JobPageParser) -> str:
+    """Prefer the existing extraction path and use Trafilatura only as a fallback."""
+    posting = _jsonld_jobposting(parser.jsonld_blocks)
+    description = _html_to_plain_text(posting.get("description")) if posting else ""
+    if not description:
+        description = parser.visible_text()
+    description = re.sub(r"\s+", " ", description).strip()
+
+    # Preserve the existing behavior for pages from which we already extract
+    # enough text. Trafilatura is used only when that path returns too little.
+    if len(description) >= 40:
+        return description
+
+    try:
+        extracted = trafilatura.extract(
+            html,
+            include_comments=False,
+            include_tables=True,
+        )
+    except Exception:
+        # A third-party extractor failure must not break the existing fallback.
+        extracted = None
+
+    extracted = re.sub(r"\s+", " ", str(extracted or "")).strip()
+    if len(extracted) >= 40:
+        return extracted
+
+    # Keep whichever partial result is more useful; the caller applies the
+    # same minimum-length validation as before.
+    return max((description, extracted), key=len, default="")
+
+
 def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
     url = _validate_public_job_url(raw_url)
     request = urllib.request.Request(
@@ -574,24 +608,22 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
         raise HTTPException(status_code=422, detail="The supplied URL did not return an HTML job page.")
 
     final_url = _validate_public_job_url(final_url)
+    html = payload.decode("utf-8", errors="replace")
     parser = _JobPageParser()
     try:
-        parser.feed(payload.decode("utf-8", errors="replace"))
+        parser.feed(html)
         parser.close()
     except Exception as error:
         raise HTTPException(status_code=422, detail="The job page could not be parsed.") from error
 
-    posting = _jsonld_jobposting(parser.jsonld_blocks)
-    description = _html_to_plain_text(posting.get("description")) if posting else ""
-    if not description:
-        description = parser.visible_text()
-    description = re.sub(r"\s+", " ", description).strip()
+    description = _extract_job_description(html, parser)
     if len(description) < 40:
         raise HTTPException(
             status_code=422,
             detail="Could not extract a usable job description from that page. Use the PDF/DOCX upload instead.",
         )
 
+    posting = _jsonld_jobposting(parser.jsonld_blocks)
     title = str(posting.get("title") or parser.title() or "").strip()
     if " | " in title:
         title = title.split(" | ", 1)[0].strip()
