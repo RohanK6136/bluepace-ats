@@ -30,7 +30,11 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
 from celery.result import AsyncResult
 
-APP_ENV = os.getenv("APP_ENV", "development")
+from app.runtime_config import is_production_runtime
+
+APP_ENV = os.getenv("APP_ENV", "").strip()
+if not APP_ENV:
+    APP_ENV = "production" if is_production_runtime() else "development"
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -256,10 +260,8 @@ app.include_router(next_features_router)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 def _is_production_runtime() -> bool:
-    """Treat Railway's production environment as production even if APP_ENV was omitted."""
-    app_environment = os.getenv("APP_ENV", "development").strip().lower()
-    railway_environment = os.getenv("RAILWAY_ENVIRONMENT", "").strip().lower()
-    return app_environment not in {"development", "test"} or railway_environment == "production"
+    """Use the shared hosting-aware production environment check."""
+    return is_production_runtime()
 
 
 @app.get("/healthz")
