@@ -286,8 +286,15 @@ async def add_process_time_header(request, call_next):
     return response
 
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
-DEPLOYED_FRONTEND_ORIGIN = "https://bluepace-ats-frontend.onrender.com"
-DEPLOYED_BACKEND_ORIGIN = os.getenv("BACKEND_PUBLIC_ORIGIN", "https://bluepace-ats-9.onrender.com")
+DEPLOYED_FRONTEND_ORIGINS = (
+    "https://bluepace-ats-frontend.vercel.app",
+    "https://bluepace-frontend-production.up.railway.app",
+    "https://bluepace-ats-frontend.onrender.com",
+)
+DEPLOYED_BACKEND_ORIGIN = os.getenv(
+    "BACKEND_PUBLIC_ORIGIN",
+    "https://bluepace-ats-production.up.railway.app",
+).rstrip("/")
 MAX_RESUME_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES
 
 def ensure_bootstrap_account() -> None:
@@ -404,7 +411,7 @@ def _public_admin_id(db: Session, organization_id: int) -> int:
 
 def get_allowed_origins(configured_origins: str | None = None) -> list[str]:
     configured = configured_origins if configured_origins is not None else os.getenv("ALLOWED_ORIGINS", "")
-    origins = [*LOCAL_FRONTEND_ORIGINS, DEPLOYED_FRONTEND_ORIGIN]
+    origins = [*LOCAL_FRONTEND_ORIGINS, *DEPLOYED_FRONTEND_ORIGINS]
     origins.extend(origin.strip() for origin in configured.split(",") if origin.strip())
     return list(dict.fromkeys(origins))
 
