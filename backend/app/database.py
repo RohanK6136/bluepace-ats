@@ -5,6 +5,8 @@ from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.schema import CreateColumn
 
+from app.runtime_config import is_production_runtime
+
 load_dotenv()
 
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -13,7 +15,7 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
-if APP_ENV not in {"development", "test"} and DATABASE_URL.startswith("sqlite"):
+if is_production_runtime() and DATABASE_URL.startswith("sqlite"):
     raise RuntimeError("DATABASE_URL must point to PostgreSQL outside development and test environments")
 
 engine_options = {"pool_pre_ping": True}
