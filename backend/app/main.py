@@ -30,7 +30,11 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
 from celery.result import AsyncResult
 
-APP_ENV = os.getenv("APP_ENV", "development")
+from app.runtime_config import is_production_runtime
+
+APP_ENV = os.getenv("APP_ENV", "").strip()
+if not APP_ENV:
+    APP_ENV = "production" if is_production_runtime() else "development"
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -255,13 +259,49 @@ app.include_router(next_features_router)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
+def _is_production_runtime() -> bool:
+    """Use the shared hosting-aware production environment check."""
+    return is_production_runtime()
+
+
 @app.get("/healthz")
 def healthz():
+    # Liveness only: keep this independent of database/configuration health.
     return {"status": "ok", "service": "bluepace-ats"}
+
 
 @app.get("/readyz")
 def readyz(db: Session = Depends(get_db)):
-    db.execute(select(1))
+    try:
+        db.execute(select(1))
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not_ready", "reason": "database_unavailable"},
+        )
+
+    if _is_production_runtime():
+        missing_configuration = []
+        database_url = os.getenv("DATABASE_URL", "").strip().lower()
+        if not database_url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://")):
+            missing_configuration.append("DATABASE_URL must reference PostgreSQL")
+        if os.getenv("APP_ENV", "").strip().lower() != "production":
+            missing_configuration.append("APP_ENV=production")
+        jwt_secret = os.getenv("JWT_SECRET", "").strip()
+        if len(jwt_secret.encode("utf-8")) < 32 or hmac.compare_digest(
+            jwt_secret, "local-development-only-change-me"
+        ):
+            missing_configuration.append("JWT_SECRET must be a non-default secret of at least 32 bytes")
+
+        if missing_configuration:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "status": "not_ready",
+                    "missing_configuration": missing_configuration,
+                },
+            )
+
     return {"status": "ready"}
 
 
@@ -272,7 +312,7 @@ async def security_headers_middleware(request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    if os.getenv("APP_ENV", "development") not in {"development", "test"}:
+    if _is_production_runtime():
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 

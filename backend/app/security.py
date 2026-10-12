@@ -1,3 +1,4 @@
+import hmac
 import os
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -10,11 +11,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.runtime_config import is_production_runtime
 from app.models import AuthSession, Role, User
 
-JWT_SECRET = os.getenv("JWT_SECRET")
-if not JWT_SECRET and os.getenv("APP_ENV", "development") not in {"development", "test"}:
-    raise RuntimeError("JWT_SECRET must be configured outside development and test environments")
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+if is_production_runtime():
+    if len(JWT_SECRET.encode("utf-8")) < 32 or hmac.compare_digest(
+        JWT_SECRET, "local-development-only-change-me"
+    ):
+        raise RuntimeError(
+            "JWT_SECRET must be a non-default secret of at least 32 bytes in production"
+        )
 JWT_SECRET = JWT_SECRET or "local-development-only-change-me"
 JWT_ALGORITHM = "HS256"
 TOKEN_LIFETIME_MINUTES = 7 * 24 * 60
