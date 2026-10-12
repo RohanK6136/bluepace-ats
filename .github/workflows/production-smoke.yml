@@ -1,0 +1,29 @@
+name: Production smoke checks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Check deployed ATS
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify live endpoints, readiness, CORS and security headers
+        env:
+          API_BASE_URL: https://bluepace-ats-production.up.railway.app
+          FRONTEND_URL: https://bluepace-frontend-production.up.railway.app
+        run: python .github/scripts/production_smoke.py

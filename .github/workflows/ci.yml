@@ -5,12 +5,16 @@ on:
     paths:
       - "backend/**"
       - "frontend-vite/**"
+      - ".github/scripts/**"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/production-smoke.yml"
   pull_request:
     paths:
       - "backend/**"
       - "frontend-vite/**"
+      - ".github/scripts/**"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/production-smoke.yml"
   workflow_dispatch:
 
 jobs:

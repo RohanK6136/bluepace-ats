@@ -142,6 +142,43 @@ def test_health_endpoint(client):
     assert float(response.headers["x-process-time-ms"]) >= 0
 
 
+def test_railway_production_health_has_security_headers(client, monkeypatch):
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    response = client.get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "service": "bluepace-ats"}
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+    assert response.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
+
+
+def test_readyz_rejects_insecure_railway_production_configuration(client, monkeypatch):
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./unsafe-production.db")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+
+    response = client.get("/readyz")
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["status"] == "not_ready"
+    assert "DATABASE_URL must reference PostgreSQL" in detail["missing_configuration"]
+    assert "APP_ENV=production" in detail["missing_configuration"]
+    assert any("JWT_SECRET" in item for item in detail["missing_configuration"])
+
+
+def test_readyz_is_ready_for_test_database(client, monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    response = client.get("/readyz")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+
+
 def test_fast_resume_validation_does_not_require_auth(client):
     response = client.post(
         "/validate/",
