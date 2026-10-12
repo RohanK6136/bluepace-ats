@@ -608,14 +608,14 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
         raise HTTPException(status_code=422, detail="The supplied URL did not return an HTML job page.")
 
     final_url = _validate_public_job_url(final_url)
+    html = payload.decode("utf-8", errors="replace")
     parser = _JobPageParser()
     try:
-        parser.feed(payload.decode("utf-8", errors="replace"))
+        parser.feed(html)
         parser.close()
     except Exception as error:
         raise HTTPException(status_code=422, detail="The job page could not be parsed.") from error
 
-    html = payload.decode("utf-8", errors="replace")
     description = _extract_job_description(html, parser)
     if len(description) < 40:
         raise HTTPException(
@@ -623,6 +623,7 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
             detail="Could not extract a usable job description from that page. Use the PDF/DOCX upload instead.",
         )
 
+    posting = _jsonld_jobposting(parser.jsonld_blocks)
     title = str(posting.get("title") or parser.title() or "").strip()
     if " | " in title:
         title = title.split(" | ", 1)[0].strip()
