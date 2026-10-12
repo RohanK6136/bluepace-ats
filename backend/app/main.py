@@ -724,7 +724,7 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
                 # page parsing unexpectedly fails.
                 pass
         if len(description) < 40:
-            rendered_text = re.sub(r"\\s+", " ", str(rendered_text or "")).strip()
+            rendered_text = re.sub(r"\s+", " ", str(rendered_text or "")).strip()
             if len(rendered_text) >= 40:
                 description = rendered_text
 
