@@ -291,6 +291,12 @@ DEPLOYED_FRONTEND_ORIGINS = (
     "https://bluepace-frontend-production.up.railway.app",
     "https://bluepace-ats-frontend.onrender.com",
 )
+# Candidate-facing email and portal links should use the active public frontend.
+# Allow deployments to override this when their canonical public URL changes.
+DEPLOYED_FRONTEND_ORIGIN = os.getenv(
+    "FRONTEND_PUBLIC_ORIGIN",
+    "https://bluepace-frontend-production.up.railway.app",
+).rstrip("/")
 DEPLOYED_BACKEND_ORIGIN = os.getenv(
     "BACKEND_PUBLIC_ORIGIN",
     "https://bluepace-ats-production.up.railway.app",
