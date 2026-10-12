@@ -581,6 +581,7 @@ def test_job_description_accepts_file_at_exact_5_mb_limit(client, monkeypatch):
 
 def test_document_extractor_uses_docling_result(monkeypatch):
     monkeypatch.setattr(extractor_service, "client", None, raising=False)
+    monkeypatch.setenv("DOCUMENT_EXTRACTION_ENGINE", "docling")
     from app.services.document_intelligence import DocumentIntelligenceResult, document_intelligence_service
     monkeypatch.setattr(document_intelligence_service, "engine", "docling")
 
@@ -782,7 +783,7 @@ def test_embedding_cosine_similarity_drives_semantic_component():
 
 
 def test_candidate_resume_upload_persists_structured_profile(client, monkeypatch, tmp_path):
-    monkeypatch.setenv("RESUME_STORAGE_DIR", str(tmp_path))
+    monkeypatch.setattr(api.private_storage, "local_root", tmp_path)
     monkeypatch.setattr(extractor_service, "client", None, raising=False)
     headers = register_and_login(client)
     candidate = client.post(
@@ -976,7 +977,7 @@ def test_resume_intelligence_extracts_extended_profile_and_non_definitive_signal
     assert parsed["certifications"]
     assert parsed["companies"] == ["Acme Labs"]
     assert parsed["job_titles"] == ["Senior Engineer"]
-    assert parsed["resume_intelligence_version"] == 4
+    assert parsed["resume_intelligence_version"] == 5
     assert "disclaimer" in parsed["resume_quality"]
     assert "linkedin" not in parsed["resume_quality"]["missing_fields"]
     assert "GitHub" not in parsed["resume_quality"]["optional_missing_fields"]
