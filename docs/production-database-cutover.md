@@ -13,7 +13,7 @@ These observations establish a risk, not a verified count of production records.
 
 ### Current Railway staging note (2026-10-12)
 
-A pgvector-pg18 database service is staged for review only; it has not been provisioned or connected to the backend. The template-created TCP proxy has been removed from the staged service, so the database is not intended to be publicly exposed. The pending Railway patch still contains an extra unattached volume named postgres-volume from an earlier template attempt, in addition to the intended pgvector-volume. The Railway API rejected deletion of the staged-only volume because it has not been provisioned. **Do not accept/commit the current pending patch.** In Railway's dashboard, discard the pending environment changes, then prepare a clean pgvector service and volume with no public TCP proxy. The database template is not marked as Railway-verified, and resource cost should be checked before provisioning.
+The staged pgvector service has now been removed from pending changes without deploying it. The pending Railway patch contains only two unprovisioned, unattached volumes: `postgres-volume` (left over from the earlier template attempt) and `pgvector-volume`. There is no live database service or public database proxy. The Railway API rejects deleting these volumes because they are not provisioned yet. **Do not accept/commit the current pending patch.** In Railway's dashboard, discard the remaining pending environment changes before preparing a clean pgvector service and volume. The database template is not marked as Railway-verified, and resource cost should be checked before provisioning.
 
 ## 1. Take a verified SQLite snapshot before any redeploy
 
@@ -66,7 +66,7 @@ Do not configure a new storage provider or change `RESUME_STORAGE_DIR` before ex
 
 ## 3. Provision an isolated PostgreSQL target
 
-A Railway `pgvector-pg18` database template has been staged for review but has not been committed or deployed. This template is not marked as verified by Railway; review its source and expected resource usage before approving it. Alternatively use an already-approved PostgreSQL service that supports pgvector. Do not point the live backend at the new database yet.
+No PostgreSQL database service is currently provisioned or staged. The previous staged service was removed without deployment; only two unattached staged volumes remain until the pending patch is discarded in Railway Dashboard. After backup, create or select an approved PostgreSQL service that supports pgvector. The `pgvector-pg18` template is not marked as verified by Railway; review its source and expected resource usage before approving it. Do not point the live backend at a new database yet.
 
 The application's PostgreSQL setup requires the `vector` extension because embedding columns use pgvector. Verify the target supports `CREATE EXTENSION vector`. Keep the database on the Railway private network where possible and do not expose a public TCP proxy just for migration.
 
