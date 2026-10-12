@@ -205,6 +205,48 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     }
   }
 
+  function handleJdFileChange(event) {
+    const selected = event.target.files?.[0] || null;
+    if (!selected) {
+      setJdFile(null);
+      setJdError("");
+      return;
+    }
+    if (!/\.(pdf|docx)$/i.test(selected.name)) {
+      setJdFile(null);
+      setJdError("Choose a PDF or DOCX job description.");
+      event.target.value = "";
+      return;
+    }
+    if (selected.size === 0) {
+      setJdFile(null);
+      setJdError("The selected job description file is empty.");
+      event.target.value = "";
+      return;
+    }
+    if (selected.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setJdFile(null);
+      setJdError("JD file must be " + MAX_DOCUMENT_SIZE_LABEL + " or smaller.");
+      event.target.value = "";
+      return;
+    }
+    setJdFile(selected);
+    setJdError("");
+  }
+
+  function handleBulkFilesChange(event) {
+    const selected = Array.from(event.target.files || []);
+    setBulkFiles(selected);
+    setBulkError("");
+    if (!selected.length) return;
+    const invalid = selected.filter((item) =>
+      !/\.(pdf|docx)$/i.test(item.name) || item.size === 0 || item.size > MAX_DOCUMENT_SIZE_BYTES
+    );
+    if (invalid.length) {
+      setBulkError(invalid.length + " selected file(s) are invalid. Every file must be a non-empty PDF or DOCX no larger than " + MAX_DOCUMENT_SIZE_LABEL + ". Remove invalid files and select the batch again.");
+    }
+  }
+
   function handleFileChange(event) {
     const selected = event.target.files?.[0] || null;
     setJsonData(null);
@@ -343,9 +385,14 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       return;
     }
 
-    const validFiles = bulkFiles.filter((item) =>
-      /\.(pdf|docx)$/i.test(item.name) && item.size > 0 && item.size <= MAX_DOCUMENT_SIZE_BYTES
+    const invalidFiles = bulkFiles.filter((item) =>
+      !/\.(pdf|docx)$/i.test(item.name) || item.size === 0 || item.size > MAX_DOCUMENT_SIZE_BYTES
     );
+    if (invalidFiles.length) {
+      setBulkError(invalidFiles.length + " selected file(s) are invalid. Every file must be a non-empty PDF or DOCX no larger than " + MAX_DOCUMENT_SIZE_LABEL + ".");
+      return;
+    }
+    const validFiles = bulkFiles;
     if (!validFiles.length) {
       setBulkError("Choose at least one PDF or DOCX resume up to 5 MB.");
       return;
@@ -632,7 +679,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
                   <p className="text-xs font-semibold text-ink-700">Upload JD</p>
-                  <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setJdFile(null); setJdError(`JD file must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setJdFile(selected); setJdError(""); }} />
+                  <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={handleJdFileChange} />
                   <button type="button" onClick={loadJobDescriptionFromFile} disabled={!jdFile || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use uploaded JD"}</button>
                 </div>
                 <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
@@ -650,7 +697,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                   multiple
                   accept=".pdf,.docx"
                   className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
-                  onChange={(event) => setBulkFiles(Array.from(event.target.files || []))}
+                  onChange={handleBulkFilesChange}
                 />
                 <span className="text-[11px] font-normal text-ink-400">Select hundreds or thousands. Each file is checked locally and must be PDF/DOCX and ≤5 MB.</span>
               </label>
@@ -740,7 +787,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <div className="border border-ink-100 bg-[#fafaf8] p-3">
                 <p className="text-xs font-semibold text-ink-700">Upload JD</p>
-                <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={(event) => { setJdFile(event.target.files?.[0] || null); setJdError(""); }} />
+                <input type="file" accept=".pdf,.docx" className="mt-2 w-full text-xs" onChange={handleJdFileChange} />
                 <button type="button" onClick={loadJobDescriptionFromFile} disabled={!jdFile || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use uploaded JD"}</button>
               </div>
               <div className="border border-ink-100 bg-[#fafaf8] p-3">
