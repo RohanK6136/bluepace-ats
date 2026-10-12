@@ -99,6 +99,28 @@ def test_render_frontend_origin_is_allowed_by_cors(client):
     assert response.headers["access-control-allow-origin"] == "https://bluepace-ats-frontend.onrender.com"
 
 
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://bluepace-ats-frontend.vercel.app",
+        "https://bluepace-frontend-production.up.railway.app",
+    ],
+)
+def test_current_production_frontend_origins_are_allowed_by_cors(client, origin):
+    response = client.options(
+        "/auth/register",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+
+
 def test_cors_keeps_configured_deployment_origins():
     origins = api.get_allowed_origins("https://bluepace.example.com, https://preview.example.com")
 
