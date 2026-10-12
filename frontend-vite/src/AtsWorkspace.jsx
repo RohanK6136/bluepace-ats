@@ -27,6 +27,8 @@ const API_URL = (
 const REQUEST_TIMEOUT_MS = 90_000;
 const AUTH_TIMEOUT_MS = 120_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+const EMAIL_DELIVERY_POLL_INTERVAL_MS = 2_000;
+const EMAIL_DELIVERY_MAX_POLL_ATTEMPTS = 15;
 const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
 const MATCH_WEIGHTS = {
   required_skill_coverage: 25,
@@ -279,6 +281,7 @@ export default function AtsWorkspace() {
   const [emails, setEmails] = useState([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [emailDeliveryStatus, setEmailDeliveryStatus] = useState(null);
+  const [retryingEmailIds, setRetryingEmailIds] = useState([]);
   const [semanticQuery, setSemanticQuery] = useState("");
   const [semanticResults, setSemanticResults] = useState([]);
   const [candidateFilters, setCandidateFilters] = useState({
@@ -596,12 +599,51 @@ export default function AtsWorkspace() {
   }, [token, view]);
 
   async function retryEmail(emailId) {
+    const selectedEmail = emails.find((item) => Number(item.id) === Number(emailId));
+    const recipient = selectedEmail?.recipient || "the recipient";
+    setNotice("");
+    setError("");
+    setRetryingEmailIds((current) => current.includes(emailId) ? current : [...current, emailId]);
+
     try {
       const response = await apiRequest(token, "post", `/emails/${emailId}/retry`);
-      setNotice(response.data?.status === "queued" ? "Email retry queued. Refresh Email Center shortly to see delivery status." : "Email retry requested.");
-      setEmails((current) => current.map((item) => item.id === emailId ? { ...item, status: "pending", error_message: null } : item));
+      setEmails((current) => current.map((item) => Number(item.id) === Number(emailId)
+        ? { ...item, status: "pending", error_message: null, sent_at: null }
+        : item));
+      setNotice(response.data?.status === "queued"
+        ? `Email retry queued for ${recipient}. Waiting for delivery confirmation…`
+        : `Email retry requested for ${recipient}. Waiting for delivery confirmation…`);
+
+      for (let attempt = 0; attempt < EMAIL_DELIVERY_MAX_POLL_ATTEMPTS; attempt += 1) {
+        await wait(EMAIL_DELIVERY_POLL_INTERVAL_MS);
+        const statusResponse = await apiRequest(token, "get", "/emails", {
+          params: { limit: 200 },
+          timeout: 15_000,
+        });
+        const refreshedEmails = Array.isArray(statusResponse.data) ? statusResponse.data : [];
+        if (refreshedEmails.length) setEmails(refreshedEmails);
+        const latestEmail = refreshedEmails.find((item) => Number(item.id) === Number(emailId));
+        if (!latestEmail) continue;
+
+        const status = String(latestEmail.status || "").toLowerCase();
+        if (status === "sent") {
+          setError("");
+          setNotice(`Email sent successfully to ${latestEmail.recipient || recipient}.`);
+          return;
+        }
+        if (status === "failed") {
+          setNotice("");
+          setError(`Email delivery failed for ${latestEmail.recipient || recipient}: ${latestEmail.error_message || "Check the email provider configuration and retry."}`);
+          return;
+        }
+      }
+
+      setNotice(`Email to ${recipient} is still pending. Refresh Email Center shortly to check the final status.`);
     } catch (requestError) {
+      setNotice("");
       setError(errorText(requestError));
+    } finally {
+      setRetryingEmailIds((current) => current.filter((id) => Number(id) !== Number(emailId)));
     }
   }
 
@@ -2468,7 +2510,7 @@ export default function AtsWorkspace() {
               <table className="w-full min-w-[980px] border-collapse text-left text-sm">
                 <thead className="border-b border-ink-100 bg-[#fafaf8] text-[11px] uppercase text-ink-500"><tr><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Event</th><th className="px-4 py-3">Recipient</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Sent</th><th className="px-4 py-3">Error</th><th className="px-4 py-3">Action</th></tr></thead>
                 <tbody className="divide-y divide-ink-50">
-                  {emails.map((email) => <tr key={email.id} className="hover:bg-[#fcfcfa]"><td className="px-4 py-3"><button className="font-semibold hover:underline" onClick={() => { if (email.application_id) { const application = applications.find((item) => item.id === email.application_id); if (application) { setSelectedCandidate(application.candidate_id); setView("candidates"); } } }}>{email.candidate_name}</button><p className="text-xs text-ink-500">{email.job_title || "—"}</p></td><td className="px-4 py-3 text-xs">{email.subject}</td><td className="px-4 py-3 text-xs text-ink-600">{email.recipient}</td><td className="px-4 py-3 text-xs font-semibold">{email.status}</td><td className="px-4 py-3 text-xs text-ink-500">{email.sent_at ? new Date(email.sent_at).toLocaleString() : "—"}</td><td className="max-w-72 px-4 py-3 text-xs text-rose-700">{email.error_message || "—"}</td><td className="px-4 py-3">{email.status !== "sent" && canWrite ? <button type="button" className="text-xs font-semibold text-ink-900 underline underline-offset-2" onClick={() => retryEmail(email.id)}>Retry</button> : "—"}</td></tr>)}
+                  {emails.map((email) => <tr key={email.id} className="hover:bg-[#fcfcfa]"><td className="px-4 py-3"><button className="font-semibold hover:underline" onClick={() => { if (email.application_id) { const application = applications.find((item) => item.id === email.application_id); if (application) { setSelectedCandidate(application.candidate_id); setView("candidates"); } } }}>{email.candidate_name}</button><p className="text-xs text-ink-500">{email.job_title || "—"}</p></td><td className="px-4 py-3 text-xs">{email.subject}</td><td className="px-4 py-3 text-xs text-ink-600">{email.recipient}</td><td className="px-4 py-3 text-xs font-semibold">{email.status}</td><td className="px-4 py-3 text-xs text-ink-500">{email.sent_at ? new Date(email.sent_at).toLocaleString() : "—"}</td><td className="max-w-72 px-4 py-3 text-xs text-rose-700">{email.error_message || "—"}</td><td className="px-4 py-3">{email.status !== "sent" && canWrite ? <button type="button" className="text-xs font-semibold text-ink-900 underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-50" disabled={retryingEmailIds.includes(email.id)} onClick={() => retryEmail(email.id)}>{retryingEmailIds.includes(email.id) ? "Sending…" : "Retry"}</button> : "—"}</td></tr>)}
                 </tbody>
               </table>
               {!emails.length && <EmptyState title="No email events yet" detail="Application and pipeline notifications will appear here." />}
