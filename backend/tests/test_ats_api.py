@@ -127,6 +127,8 @@ def test_cors_keeps_configured_deployment_origins():
     assert origins == [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://bluepace-ats-frontend.vercel.app",
+        "https://bluepace-frontend-production.up.railway.app",
         "https://bluepace-ats-frontend.onrender.com",
         "https://bluepace.example.com",
         "https://preview.example.com",
