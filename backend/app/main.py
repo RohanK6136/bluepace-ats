@@ -586,6 +586,97 @@ def _extract_job_description(html: str, parser: _JobPageParser) -> str:
     return max((description, extracted), key=len, default="")
 
 
+def _guard_browser_route(route) -> None:
+    """Allow only publicly-routable HTTP(S) URLs in rendered-page requests."""
+    try:
+        _validate_public_job_url(route.request.url)
+    except Exception:
+        route.abort()
+    else:
+        route.continue_()
+
+
+def _render_job_page(raw_url: str) -> tuple[str, str, str, str]:
+    """Render a JS-driven job page as a last-resort extraction fallback.
+
+    This runs synchronously and must be called from a worker thread. Every
+    browser request is URL-validated to reduce server-side request forgery risk.
+    """
+    try:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+        from playwright.sync_api import sync_playwright
+
+        url = _validate_public_job_url(raw_url)
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=["--disable-dev-shm-usage"],
+            )
+            try:
+                context = browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                    ),
+                    locale="en-US",
+                    viewport={"width": 1365, "height": 1000},
+                    service_workers="block",
+                )
+                page = context.new_page()
+                page.set_default_navigation_timeout(18000)
+                request_count = {"value": 0}
+
+                def guarded_route(route):
+                    request_count["value"] += 1
+                    if request_count["value"] > 100:
+                        route.abort()
+                        return
+                    _guard_browser_route(route)
+
+                page.route("**/*", guarded_route)
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=18000)
+                except PlaywrightTimeoutError:
+                    # A slow page may still have useful content in the DOM.
+                    pass
+
+                try:
+                    page.wait_for_function(
+                        "document.body && document.body.innerText.trim().length >= 160",
+                        timeout=12000,
+                    )
+                except PlaywrightTimeoutError:
+                    pass
+                try:
+                    page.wait_for_load_state("networkidle", timeout=2500)
+                except PlaywrightTimeoutError:
+                    pass
+
+                rendered_html = page.content()
+                try:
+                    body_text = page.locator("body").inner_text(timeout=2000)
+                except Exception:
+                    body_text = ""
+                try:
+                    rendered_title = page.locator("h1").first.inner_text(timeout=1500).strip()
+                except Exception:
+                    rendered_title = ""
+                if not rendered_title:
+                    try:
+                        rendered_title = page.title().strip()
+                    except Exception:
+                        rendered_title = ""
+
+                final_url = _validate_public_job_url(page.url or url)
+                return final_url, rendered_title, rendered_html, body_text
+            finally:
+                browser.close()
+    except Exception:
+        # Rendering is optional: an unavailable browser or blocked site must
+        # leave the existing parser/Trafilatura failure path intact.
+        return "", "", "", ""
+
+
 def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
     url = _validate_public_job_url(raw_url)
     request = urllib.request.Request(
@@ -617,6 +708,26 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
         raise HTTPException(status_code=422, detail="The job page could not be parsed.") from error
 
     description = _extract_job_description(html, parser)
+    rendered_title = ""
+    if len(description) < 40:
+        rendered_url, rendered_title, rendered_html, rendered_text = _render_job_page(final_url)
+        if rendered_html:
+            try:
+                final_url = _validate_public_job_url(rendered_url or final_url)
+                html = rendered_html
+                parser = _JobPageParser()
+                parser.feed(html)
+                parser.close()
+                description = _extract_job_description(html, parser)
+            except Exception:
+                # Retain the best extraction from the original HTML if rendered
+                # page parsing unexpectedly fails.
+                pass
+        if len(description) < 40:
+            rendered_text = re.sub(r"\s+", " ", str(rendered_text or "")).strip()
+            if len(rendered_text) >= 40:
+                description = rendered_text
+
     if len(description) < 40:
         raise HTTPException(
             status_code=422,
@@ -624,7 +735,7 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
         )
 
     posting = _jsonld_jobposting(parser.jsonld_blocks)
-    title = str(posting.get("title") or parser.title() or "").strip()
+    title = str(posting.get("title") or rendered_title or parser.title() or "").strip()
     if " | " in title:
         title = title.split(" | ", 1)[0].strip()
     location = None
@@ -686,7 +797,7 @@ async def resume_lab_job_description(
             "description": description,
         }
 
-    final_url, title, payload = _fetch_job_page(cleaned_url)
+    final_url, title, payload = await asyncio.to_thread(_fetch_job_page, cleaned_url)
     return {
         "status": "success",
         "source": "url",
@@ -1459,7 +1570,7 @@ async def create_job_from_url(
     db: Session = Depends(get_db),
 ):
     input_url, markdown_title = _clean_job_link(url)
-    source_url, page_title, page = _fetch_job_page(input_url or url)
+    source_url, page_title, page = await asyncio.to_thread(_fetch_job_page, input_url or url)
     effective_title = (title or markdown_title or page_title or "Imported job").strip()[:200]
     analysis = matching_service.parse_job_description(effective_title, page["description"], location or page.get("location"), use_llm=False)
     job = Job(
