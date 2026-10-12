@@ -539,6 +539,24 @@ def test_job_description_rejects_oversized_files(client):
     assert response.json()["detail"] == "JD file must be 5 MB or smaller."
 
 
+def test_job_description_accepts_file_at_exact_5_mb_limit(client, monkeypatch):
+    monkeypatch.setattr(
+        api.extractor_service,
+        "extract_to_json",
+        lambda _content, _filename: {
+            "raw_text": "Senior Software Engineer\n" + "Requirements and responsibilities. " * 4
+        },
+    )
+
+    response = client.post(
+        "/resume-processing/job-description",
+        files={"file": ("job-description.pdf", b"x" * (5 * 1024 * 1024), "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["description"].startswith("Senior Software Engineer")
+
+
 def test_document_extractor_uses_docling_result(monkeypatch):
     monkeypatch.setattr(extractor_service, "client", None, raising=False)
     from app.services.document_intelligence import DocumentIntelligenceResult, document_intelligence_service
