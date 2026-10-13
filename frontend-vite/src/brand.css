@@ -1,0 +1,491 @@
+/* ============================================================================
+   Blupace ATS — brand + enterprise polish layer
+   ----------------------------------------------------------------------------
+   Loaded LAST (after index.css and professional.css) so it is authoritative.
+   It re-declares the design tokens for both themes and adds restrained,
+   enterprise-grade polish. It does not change any component markup.
+   Brand palette sampled from the Blupace Tech logo:
+     indigo #3954A5 · azure #0089CD · lime #B4D435
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- LIGHT ---- */
+:root {
+  --bp-brand-indigo: #3954A5;
+  --bp-brand-azure: #0089CD;
+  --bp-brand-lime: #B4D435;
+  --bp-brand-gradient: linear-gradient(135deg, #3954A5 0%, #0089CD 58%, #B4D435 118%);
+
+  --bp-bg: #F4F7FB;
+  --bp-text: #0E1A2B;
+  --bp-muted: #5B6B82;
+  --bp-border: #DCE4EF;
+  --bp-white: #FFFFFF;
+
+  --bp-surface: #FFFFFF;
+  --bp-surface-muted: #F5F8FC;
+  --bp-surface-soft: #EFF4FA;
+  --bp-input: #FFFFFF;
+
+  --bp-navy: #0B1B33;
+  --bp-navy-2: #12294A;
+  --bp-blue: #1B6AC0;
+  --bp-blue-dark: #14508F;
+  --bp-orange: #0089CD;   /* brand azure drives the former gold/amber accents */
+  --bp-sky: #EAF4FF;
+
+  --bp-shadow-sm: 0 1px 2px rgba(16, 26, 43, 0.06);
+  --bp-shadow: 0 6px 20px -8px rgba(16, 26, 43, 0.14);
+  --bp-shadow-lg: 0 20px 48px -20px rgba(16, 26, 43, 0.22);
+  --bp-radius: 12px;
+  --bp-radius-sm: 9px;
+  --bp-focus: 0 0 0 3px rgba(27, 106, 192, 0.28);
+  --bp-font: "Inter", "Instrument Sans", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* ----------------------------------------------------------------- DARK ---- */
+html.dark {
+  --bp-bg: #0A0F18;
+  --bp-text: #E7EDF6;
+  --bp-muted: #94A3B8;
+  --bp-border: #22303F;
+  --bp-white: #111927;
+
+  --bp-surface: #111927;
+  --bp-surface-muted: #151E2C;
+  --bp-surface-soft: #1A2534;
+  --bp-input: #0D1520;
+
+  --bp-navy: #060B13;
+  --bp-navy-2: #0C1524;
+  --bp-blue: #4E9BEB;
+  --bp-blue-dark: #7FB8F5;
+  --bp-orange: #4FC3E8;
+  --bp-sky: #12233A;
+
+  --bp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --bp-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.55);
+  --bp-shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+  --bp-focus: 0 0 0 3px rgba(78, 155, 235, 0.32);
+}
+
+/* ------------------------------------------- admin console token bridge ---- */
+.bp-admin-shell {
+  --bp-console-blue: #1B6AC0;
+  --bp-console-blue-hover: #14508F;
+  --bp-console-blue-soft: #EAF2FC;
+  --bp-console-border: #E0E7F1;
+  --bp-console-border-soft: #EDF2F8;
+  --bp-console-surface: #FFFFFF;
+  --bp-console-canvas: #F4F7FB;
+  --bp-console-muted: #64748B;
+  --bp-console-text: #0E1A2B;
+}
+
+html.dark .bp-admin-shell {
+  --bp-console-blue: #4E9BEB;
+  --bp-console-blue-hover: #6FB0F2;
+  --bp-console-blue-soft: #14263C;
+  --bp-console-border: #23323F;
+  --bp-console-border-soft: #1C2836;
+  --bp-console-surface: #111927;
+  --bp-console-canvas: #0A0F18;
+  --bp-console-muted: #94A3B8;
+  --bp-console-text: #E7EDF6;
+}
+
+/* ------------------------------------------------------------ base type ---- */
+html,
+body {
+  font-family: var(--bp-font);
+  background: var(--bp-bg);
+  color: var(--bp-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  letter-spacing: -0.006em;
+  line-height: 1.55;
+}
+
+h1, h2, h3, h4 {
+  letter-spacing: -0.022em;
+  font-weight: 650;
+  color: var(--bp-text);
+}
+
+::selection {
+  background: rgba(0, 137, 205, 0.22);
+}
+
+/* focus visibility across the app */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--bp-focus);
+  border-radius: 8px;
+}
+
+/* --------------------------------------------------------------- brand ------ */
+/* Logo mark (the "BP" tile) adopts the Blupace gradient. */
+.bp-logo-mark {
+  background: var(--bp-brand-gradient) !important;
+  color: #fff !important;
+  border-radius: 9px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 14px -6px rgba(0, 137, 205, 0.6);
+}
+
+/* ----------------------------------------------------------------- cards ---- */
+.bp-metric-card,
+.bp-flow-card,
+.bp-dashboard-primary,
+.bp-dashboard-hero,
+.bp-visual-card,
+.ats-jobs-grid {
+  border-radius: var(--bp-radius) !important;
+  border-color: var(--bp-border) !important;
+  box-shadow: var(--bp-shadow-sm);
+  transition: box-shadow 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.bp-metric-card:hover,
+.bp-flow-card:hover {
+  box-shadow: var(--bp-shadow);
+  border-color: rgba(0, 137, 205, 0.35) !important;
+}
+
+/* --------------------------------------------------------------- buttons ---- */
+button:not(:disabled) {
+  transition: background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, box-shadow 180ms ease, transform 100ms ease;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------- inputs ---- */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  border-radius: var(--bp-radius-sm);
+  border-color: var(--bp-border);
+  background-color: var(--bp-input);
+  color: var(--bp-text);
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--bp-muted);
+  opacity: 0.85;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--bp-blue);
+  box-shadow: var(--bp-focus);
+}
+
+/* ---------------------------------------------------------------- tables ---- */
+table {
+  border-color: var(--bp-border);
+}
+
+thead th {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bp-muted);
+  font-weight: 600;
+}
+
+tbody tr {
+  transition: background-color 120ms ease;
+}
+
+/* ------------------------------------------------------------- skeletons ---- */
+.bp-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--bp-surface-soft);
+  border-radius: 8px;
+}
+
+.bp-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.55),
+    transparent
+  );
+  animation: bp-shimmer 1.5s infinite;
+}
+
+html.dark .bp-skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.07),
+    transparent
+  );
+}
+
+@keyframes bp-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.bp-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--bp-border);
+  border-radius: var(--bp-radius);
+  background: var(--bp-surface);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bp-skeleton::after {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------ scrollbars ---- */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--bp-muted) 45%, transparent);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--bp-muted) 70%, transparent);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
+
+/* -------------------------------------------------- public / auth surfaces -- */
+.bp-public-header {
+  background: color-mix(in srgb, var(--bp-surface) 88%, transparent) !important;
+  backdrop-filter: saturate(140%) blur(10px);
+  border-bottom: 1px solid var(--bp-border) !important;
+}
+
+.bp-public-nav-link {
+  color: var(--bp-muted) !important;
+  transition: color 140ms ease;
+}
+
+.bp-public-nav-link:hover {
+  color: var(--bp-text) !important;
+}
+
+.bp-public-signin {
+  border-radius: var(--bp-radius-sm) !important;
+  border: 1px solid var(--bp-border) !important;
+  background: var(--bp-surface) !important;
+  color: var(--bp-text) !important;
+  font-weight: 600;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.bp-public-signin:hover {
+  border-color: var(--bp-blue) !important;
+  box-shadow: var(--bp-shadow-sm);
+}
+
+.bp-careers-eyebrow,
+.bp-section-eyebrow {
+  color: var(--bp-brand-azure) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.18em !important;
+  font-size: 11px !important;
+}
+
+/* Primary CTAs across public + auth surfaces adopt the brand blue. */
+.bp-public-shell button[class*="bg-[#c49a4a]"],
+.bp-public-shell button[class*="bg-[#1769d3]"],
+.bp-public-shell button[class*="bg-blue"],
+.bp-admin-shell button[class*="bg-[#c49a4a]"] {
+  background: var(--bp-blue) !important;
+  color: #fff !important;
+  border-radius: var(--bp-radius-sm) !important;
+  box-shadow: 0 4px 14px -8px rgba(27, 106, 192, 0.7);
+}
+
+.bp-public-shell button[class*="bg-[#c49a4a]"]:hover,
+.bp-public-shell button[class*="bg-blue"]:hover,
+.bp-admin-shell button[class*="bg-[#c49a4a]"]:hover {
+  background: var(--bp-blue-dark) !important;
+}
+
+/* ------------------------------------------------ sign-in / auth surface --- */
+/* The auth shell previously carried a hard-coded light gradient; make it
+   theme-aware and put the brand mark on the sign-in card. */
+.bp-login-shell {
+  background:
+    radial-gradient(circle at 8% 12%, rgba(0, 137, 205, 0.10), transparent 30%),
+    radial-gradient(circle at 92% 88%, rgba(57, 84, 165, 0.08), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%) !important;
+}
+
+html.dark .bp-login-shell {
+  background:
+    radial-gradient(circle at 8% 12%, rgba(0, 137, 205, 0.16), transparent 32%),
+    radial-gradient(circle at 92% 88%, rgba(57, 84, 165, 0.14), transparent 36%),
+    linear-gradient(180deg, #0a0f18 0%, #0c1524 100%) !important;
+}
+
+.bp-login-shell::before {
+  color: var(--bp-navy);
+  opacity: 0.05;
+}
+
+html.dark .bp-login-shell::before {
+  color: #ffffff;
+  opacity: 0.04;
+}
+
+/* sign-in card */
+.bp-login-shell > section {
+  border-radius: 18px !important;
+  border-color: var(--bp-border) !important;
+  box-shadow: var(--bp-shadow-lg) !important;
+}
+
+html.dark .bp-login-shell > section {
+  background: var(--bp-surface) !important;
+  border-color: var(--bp-border) !important;
+}
+
+/* stronger field labels in dark mode */
+html.dark [class*="text-ink-700"] {
+  color: #d7e1ee !important;
+}
+
+/* the wordmark dot adopts the brand azure rather than generic orange */
+.bp-login-shell .text-orange-500,
+.bp-public-shell .text-orange-500 {
+  color: var(--bp-brand-azure) !important;
+}
+
+/* dark-mode secondary text contrast */
+html.dark [class*="text-ink-500"],
+html.dark [class*="text-ink-400"] {
+  color: #9fb0c4 !important;
+}
+
+html.dark .bp-login-shell > section::after {
+  color: #8b9cb3;
+  border-top-color: var(--bp-border);
+}
+
+/* ============================================================================
+   Public careers portal — dark theme (the source CSS is light-only)
+   ========================================================================== */
+html.dark .bp-public-shell {
+  background: var(--bp-bg) !important;
+  color: var(--bp-text) !important;
+}
+html.dark .bp-public-header {
+  background: var(--bp-surface) !important;
+  color: var(--bp-text) !important;
+  border-bottom-color: var(--bp-border) !important;
+}
+html.dark .bp-public-header .bp-wordmark,
+html.dark .bp-public-header .bp-wordmark:hover {
+  color: var(--bp-text) !important;
+}
+html.dark .bp-public-header .bp-wordmark span span:last-child {
+  color: var(--bp-muted) !important;
+}
+html.dark .bp-public-nav-link { color: var(--bp-muted) !important; }
+html.dark .bp-public-nav-link:hover { color: var(--bp-blue) !important; }
+html.dark .bp-public-signin {
+  background: var(--bp-surface) !important;
+  color: var(--bp-text) !important;
+  border-color: var(--bp-border) !important;
+}
+html.dark .bp-public-signin:hover {
+  background: var(--bp-surface-muted) !important;
+  border-color: var(--bp-blue) !important;
+}
+html.dark .bp-careers-hero {
+  background: var(--bp-surface) !important;
+  border-bottom-color: var(--bp-border) !important;
+}
+html.dark .bp-careers-hero h1 { color: var(--bp-text) !important; }
+html.dark .bp-careers-intro { color: var(--bp-muted) !important; }
+html.dark .bp-public-jobs-heading h2 { color: var(--bp-text) !important; }
+
+html.dark .bp-template-search input,
+html.dark .bp-template-search select {
+  background: var(--bp-input) !important;
+  color: var(--bp-text) !important;
+  border-color: var(--bp-border) !important;
+}
+html.dark .bp-template-search input::placeholder { color: var(--bp-muted) !important; }
+
+html.dark .bp-job-card {
+  background: var(--bp-surface) !important;
+  border-color: var(--bp-border) !important;
+  box-shadow: none !important;
+}
+html.dark .bp-job-card:hover { border-color: var(--bp-blue) !important; }
+html.dark .bp-job-card h3 { color: var(--bp-text) !important; }
+html.dark .bp-job-card > p { color: var(--bp-muted) !important; }
+html.dark .bp-job-card > div > div > p { color: var(--bp-muted) !important; }
+html.dark .bp-job-card .bp-job-skill {
+  background: var(--bp-surface-muted) !important;
+  border-color: var(--bp-border) !important;
+  color: var(--bp-muted) !important;
+}
+html.dark .bp-public-footer {
+  background: var(--bp-surface) !important;
+  border-top-color: var(--bp-border) !important;
+  color: var(--bp-muted) !important;
+}
+html.dark .bp-public-footer p:first-child { color: var(--bp-text) !important; }
+html.dark .bp-public-footer p:first-child span { color: var(--bp-muted) !important; }
+html.dark .bp-public-footer a { color: var(--bp-muted) !important; }
+html.dark .bp-public-footer a:hover { color: var(--bp-blue) !important; }
+html.dark .bp-public-shell #apply > div {
+  background: var(--bp-surface) !important;
+  border-color: var(--bp-border) !important;
+}
+
+/* brand mark + primary CTAs on the public portal (override higher-specificity source rules) */
+.bp-public-header .bp-logo-mark {
+  background: var(--bp-brand-gradient) !important;
+  border-radius: 9px !important;
+}
+.bp-template-search button {
+  background: var(--bp-blue) !important;
+  border-color: var(--bp-blue) !important;
+}
+.bp-template-search button:hover {
+  background: var(--bp-blue-dark) !important;
+  border-color: var(--bp-blue-dark) !important;
+}
+.bp-template-search { align-items: stretch; }
+.bp-public-shell #apply button[class*="bg-[#c49a4a]"] {
+  background: var(--bp-blue) !important;
+  border-color: var(--bp-blue) !important;
+}

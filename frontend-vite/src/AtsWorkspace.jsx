@@ -1303,8 +1303,17 @@ export default function AtsWorkspace() {
             </div>
 
             {publicLoading && !publicApplyJob && (
-              <div className="mt-5 rounded-xl border border-ink-100 bg-white p-8 text-center text-sm text-ink-500">
-                Loading open positions…
+              <div className="mt-5 space-y-3" aria-hidden="true">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="bp-skeleton-row">
+                    <div className="bp-skeleton" style={{ width: 44, height: 44, borderRadius: 12 }} />
+                    <div className="flex-1 space-y-2">
+                      <div className="bp-skeleton" style={{ height: 14, width: "38%" }} />
+                      <div className="bp-skeleton" style={{ height: 11, width: "62%" }} />
+                    </div>
+                    <div className="bp-skeleton" style={{ height: 32, width: 104, borderRadius: 9 }} />
+                  </div>
+                ))}
               </div>
             )}
 
@@ -1451,7 +1460,7 @@ export default function AtsWorkspace() {
         <section className="w-full max-w-md">
           <div className="mb-8 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="grid h-11 w-11 place-items-center rounded-md bg-ink-950 text-sm font-bold text-gold-300">BP</div>
+              <div className="bp-logo-mark grid h-11 w-11 place-items-center rounded-md bg-ink-950 text-sm font-bold text-gold-300">BP</div>
               <div>
                 <p className="font-semibold tracking-tight">blupace<span className="text-orange-500">.</span>tech</p>
                 
@@ -1619,7 +1628,13 @@ export default function AtsWorkspace() {
               </div>
             </div>
 
-            {dashboardLoading && <p className="mb-6 text-sm text-ink-500">Loading dashboard…</p>}
+            {dashboardLoading && (
+              <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-hidden="true">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="bp-skeleton" style={{ height: 108, borderRadius: 12 }} />
+                ))}
+              </div>
+            )}
             {dashboardData && <>
               <section className="bp-metric-strip mb-7" aria-label="Recruiting overview">
                 <button type="button" className="bp-metric-card" onClick={() => setView("jobs")}>
