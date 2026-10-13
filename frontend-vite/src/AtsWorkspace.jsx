@@ -1,7 +1,6 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import AtsChatbot from "./AtsChatbot.jsx";
-import PublicHelpCenter from "./PublicHelpCenter.jsx";
 const ResumeLab = lazy(() => import("./App.jsx"));
 const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
 const ScorecardPanel = lazy(() => import("./ScorecardPanel.jsx"));
@@ -256,6 +255,7 @@ export default function AtsWorkspace() {
   const [publicLoading, setPublicLoading] = useState(false);
   const [publicApplyJob, setPublicApplyJob] = useState(null);
   const [publicResume, setPublicResume] = useState(null);
+  const publicResumeInputRef = useRef(null);
   const [publicForm, setPublicForm] = useState({ full_name: "", email: "", phone: "" });
   const [publicError, setPublicError] = useState("");
   const [publicSuccess, setPublicSuccess] = useState("");
@@ -359,13 +359,34 @@ export default function AtsWorkspace() {
   }, [token]);
 
   useEffect(() => {
-    if (token || accessMode !== "public") return undefined;
+    if (token || accessMode !== "public") {
+      setPublicLoading(false);
+      return undefined;
+    }
+
     let active = true;
-    const params = Object.fromEntries(Object.entries(publicFilters).filter(([, value]) => value));
-    apiRequest(null, "get", "/public/jobs", { params })
-      .then((response) => { if (active) setPublicJobs(Array.isArray(response.data) ? response.data : []); })
-      .catch((requestError) => { if (active) setPublicError(errorText(requestError)); });
-    return () => { active = false; };
+    setPublicLoading(true);
+    setPublicError("");
+
+    // Wait briefly before requesting results while the candidate is typing.
+    const requestTimer = window.setTimeout(() => {
+      const params = Object.fromEntries(Object.entries(publicFilters).filter(([, value]) => value));
+      apiRequest(null, "get", "/public/jobs", { params })
+        .then((response) => {
+          if (active) setPublicJobs(Array.isArray(response.data) ? response.data : []);
+        })
+        .catch((requestError) => {
+          if (active) setPublicError(errorText(requestError));
+        })
+        .finally(() => {
+          if (active) setPublicLoading(false);
+        });
+    }, publicFilters.search.trim() ? 300 : 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(requestTimer);
+    };
   }, [token, accessMode, publicFilters.search, publicFilters.department, publicFilters.location, publicFilters.work_mode]);
 
   useEffect(() => {
@@ -1175,7 +1196,15 @@ export default function AtsWorkspace() {
     setPublicSuccess("");
 
     if (!publicApplyJob || !publicResume) {
-      setPublicError("Select a PDF or DOCX resume.");
+      setPublicError("Choose a PDF or DOCX resume to continue.");
+      return;
+    }
+    if (!/\\.(pdf|docx)$/i.test(publicResume.name)) {
+      setPublicError("Resume must be a PDF or DOCX file.");
+      return;
+    }
+    if (publicResume.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setPublicError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
       return;
     }
     if (!publicForm.full_name.trim() || !publicForm.email.trim()) {
@@ -1196,12 +1225,46 @@ export default function AtsWorkspace() {
       });
       setPublicSuccess(response.data?.message || "Application submitted successfully. A confirmation email has been queued to your application email.");
       setPublicResume(null);
+      if (publicResumeInputRef.current) publicResumeInputRef.current.value = "";
       setPublicForm({ full_name: "", email: "", phone: "" });
     } catch (requestError) {
       setPublicError(errorText(requestError));
     } finally {
       setPublicLoading(false);
     }
+  }
+
+  function handlePublicResumeChange(event) {
+    const file = event.currentTarget.files?.[0] || null;
+    setPublicError("");
+
+    if (!file) {
+      setPublicResume(null);
+      return;
+    }
+    if (!/\\.(pdf|docx)$/i.test(file.name)) {
+      setPublicResume(null);
+      event.currentTarget.value = "";
+      setPublicError("Resume must be a PDF or DOCX file.");
+      return;
+    }
+    if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setPublicResume(null);
+      event.currentTarget.value = "";
+      setPublicError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller. Please choose a smaller file.`);
+      return;
+    }
+
+    setPublicResume(file);
+  }
+
+  function closePublicApplication() {
+    setPublicApplyJob(null);
+    setPublicResume(null);
+    if (publicResumeInputRef.current) publicResumeInputRef.current.value = "";
+    setPublicForm({ full_name: "", email: "", phone: "" });
+    setPublicError("");
+    setPublicSuccess("");
   }
 
   function switchAccessMode(mode) {
@@ -1279,8 +1342,24 @@ export default function AtsWorkspace() {
 
             {!publicLoading && !publicError && publicJobs.length === 0 && (
               <div className="mt-5 rounded-xl border border-ink-100 bg-white p-10 text-center">
-                <p className="font-medium">No open positions are available right now.</p>
-                <p className="mt-1 text-sm text-ink-500">Please check again later.</p>
+                {Object.values(publicFilters).some((value) => String(value).trim()) ? (
+                  <>
+                    <p className="font-medium">No roles match your search.</p>
+                    <p className="mt-1 text-sm text-ink-500">Try a different job title, skill or work mode.</p>
+                    <button
+                      type="button"
+                      className="mt-4 text-sm font-semibold text-blue-700 hover:underline"
+                      onClick={() => setPublicFilters({ search: "", department: "", location: "", work_mode: "" })}
+                    >
+                      Clear search
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium">No open positions are available right now.</p>
+                    <p className="mt-1 text-sm text-ink-500">Please check again later.</p>
+                  </>
+                )}
               </div>
             )}
 
@@ -1329,7 +1408,7 @@ export default function AtsWorkspace() {
                   <p className="bp-section-eyebrow">APPLICATION</p>
                   <h2 className="mt-1 text-xl font-semibold">{publicApplyJob.title}</h2>
                 </div>
-                <button className="text-xl text-ink-400 hover:text-ink-800" onClick={() => setPublicApplyJob(null)} aria-label="Close">×</button>
+                <button className="text-xl text-ink-400 hover:text-ink-800" onClick={closePublicApplication} aria-label="Close">×</button>
               </div>
 
               <form onSubmit={submitPublicApplication} className="mt-6 grid gap-4">
@@ -1358,17 +1437,18 @@ export default function AtsWorkspace() {
                     type="file"
                     accept=".pdf,.docx"
                     required
-                    onChange={(event) => setPublicResume(event.target.files?.[0] || null)}
+                    ref={publicResumeInputRef}
+                    onChange={handlePublicResumeChange}
                     className="rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm"
                   />
-                  <span className="text-[11px] font-normal text-ink-400">PDF or DOCX, up to 5 MB.</span>
+                  <span className="text-[11px] font-normal text-ink-400">PDF or DOCX, up to {MAX_DOCUMENT_SIZE_LABEL}.</span>
                 </label>
 
                 {publicError && <p role="alert" className="text-sm text-rose-700">{publicError}</p>}
                 {publicSuccess && <p role="status" className="text-sm text-emerald-700">{publicSuccess}</p>}
 
                 <div className="mt-2 flex gap-3">
-                  <button type="button" className={`${buttonSecondary} flex-1`} onClick={() => setPublicApplyJob(null)}>
+                  <button type="button" className={`${buttonSecondary} flex-1`} onClick={closePublicApplication}>
                     Cancel
                   </button>
                   <button type="submit" disabled={publicLoading} className={`${buttonPrimary} flex-1`}>
