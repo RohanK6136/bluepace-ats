@@ -1259,60 +1259,6 @@ export default function AtsWorkspace() {
           </div>
         </section>
 
-        <section className="bp-template-hero relative overflow-hidden border-b border-ink-100">
-          <div className="bp-template-hero-inner mx-auto grid max-w-7xl lg:grid-cols-[1.03fr_0.97fr]">
-            <div className="bp-template-hero-copy px-5 py-14 sm:px-8 sm:py-16 lg:px-12 lg:py-24">
-              <p className="bp-template-kicker">Modern talent, intelligently matched</p>
-              <h1>Where great talent meets the right opportunity.</h1>
-              <p className="bp-template-lede">
-                Explore open roles, discover teams, and apply in a simple flow. Recruiters get structured candidate evidence, matching, and pipeline management in one workspace.
-              </p>
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-                <a href="#jobs" className={buttonPrimary + " no-underline"}>Find open positions</a>
-                <button type="button" className={buttonSecondary} onClick={() => switchAccessMode("admin")}>Recruiter sign in</button>
-              </div>
-              <form
-                className="bp-template-search mt-8"
-                onSubmit={(event) => { event.preventDefault(); document.getElementById("jobs")?.scrollIntoView({ behavior: "smooth" }); }}
-              >
-                <label className="sr-only" htmlFor="public-role-search">Search open roles</label>
-                <input
-                  id="public-role-search"
-                  placeholder="Search by role, skill or team"
-                  value={publicFilters.search}
-                  onChange={(event) => setPublicFilters({ ...publicFilters, search: event.target.value })}
-                />
-                <select aria-label="Work mode" value={publicFilters.work_mode} onChange={(event) => setPublicFilters({ ...publicFilters, work_mode: event.target.value })}>
-                  <option value="">Any work mode</option>
-                  <option value="remote">Remote</option>
-                  <option value="hybrid">Hybrid</option>
-                  <option value="onsite">On-site</option>
-                </select>
-                <button type="submit">Search</button>
-              </form>
-            </div>
-            <div className="bp-template-visual" aria-label="BluePace recruitment visual">
-              <div className="bp-template-visual-grid"></div>
-              <div className="bp-template-visual-copy">
-                <span className="bp-visual-pill">BLUEPACE ATS</span>
-                <strong>Connect.<br />Evaluate.<br />Move forward.</strong>
-                <span className="bp-visual-line"></span>
-                <span className="bp-visual-note">Evidence-backed candidate review</span>
-              </div>
-              <div className="bp-visual-card bp-visual-card-one">
-                <span>OPEN ROLE</span>
-                <b>Python Backend Engineer</b>
-                <small>Hyderabad · Hybrid</small>
-              </div>
-              <div className="bp-visual-card bp-visual-card-two">
-                <span>MATCH SIGNAL</span>
-                <b>92%</b>
-                <small>Strong evidence</small>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <section id="jobs" className="bp-public-jobs mx-auto max-w-7xl px-5 py-12">
             <div className="bp-public-jobs-heading flex items-end justify-between gap-3">
               <div><p className="bp-section-eyebrow">OPPORTUNITIES</p><h2 className="mt-1 text-2xl font-semibold">Open roles</h2><p className="mt-2 text-sm text-ink-500">Explore our current opportunities.</p></div>
