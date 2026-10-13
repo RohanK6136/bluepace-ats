@@ -1466,7 +1466,7 @@ export default function AtsWorkspace() {
             </div>
           </div>
           <h1 className="text-2xl font-semibold">Sign in</h1>
-          <p className="mt-1 text-sm text-ink-500">Use the shared recruiting account provided by your administrator.</p>
+          <p className="mt-1 text-sm text-ink-500">Sign in with your organisation-issued recruiting credentials.</p>
           <form
             onSubmit={signIn}
             className="mt-7 grid gap-4"
@@ -1605,10 +1605,10 @@ export default function AtsWorkspace() {
           {view === "dashboard" && <>
             <div className="bp-dashboard-hero mb-7 flex flex-wrap items-end justify-between gap-5">
               <div className="bp-dashboard-copy">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Hiring workspace</p>
-                <h2 className="mt-1 text-2xl font-semibold tracking-tight">Move candidates from application to hire</h2>
+                <p className="bp-eyebrow text-xs font-semibold uppercase tracking-[0.14em]">Talent acquisition</p>
+                <h2 className="mt-1 text-2xl font-semibold tracking-tight">Talent acquisition overview</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-600">
-                  One simple path: create a job, add candidates, review applications, schedule interviews, then make an offer.
+                  Monitor active requisitions, candidate activity, application progress and upcoming interviews from one workspace.
                 </p>
               </div>
               <div className="bp-dashboard-actions flex gap-2">
@@ -1621,24 +1621,24 @@ export default function AtsWorkspace() {
             {dashboardData && <>
               <section className="bp-metric-strip mb-7" aria-label="Recruiting overview">
                 <button type="button" className="bp-metric-card" onClick={() => setView("jobs")}>
-                  <span className="bp-metric-label">Open jobs</span>
+                  <span className="bp-metric-label">Active requisitions</span>
                   <strong>{dashboardData.metrics?.open_jobs ?? 0}</strong>
-                  <small>Roles actively hiring</small>
+                  <small>Roles currently accepting candidates</small>
                 </button>
                 <button type="button" className="bp-metric-card" onClick={() => setView("candidates")}>
-                  <span className="bp-metric-label">Candidate pool</span>
+                  <span className="bp-metric-label">Candidate database</span>
                   <strong>{candidates.length}</strong>
-                  <small>Profiles in your workspace</small>
+                  <small>Profiles available to your team</small>
                 </button>
                 <button type="button" className="bp-metric-card" onClick={() => setView("pipeline")}>
-                  <span className="bp-metric-label">Applications</span>
+                  <span className="bp-metric-label">Applications in pipeline</span>
                   <strong>{dashboardData.metrics?.total_applications ?? 0}</strong>
-                  <small>Recent hiring activity</small>
+                  <small>Applications across all stages</small>
                 </button>
                 <button type="button" className="bp-metric-card" onClick={() => setView("interviews-2")}>
-                  <span className="bp-metric-label">Interviews</span>
+                  <span className="bp-metric-label">Upcoming interviews</span>
                   <strong>{dashboardData.upcoming_interviews?.length || 0}</strong>
-                  <small>Upcoming schedule</small>
+                  <small>Scheduled candidate meetings</small>
                 </button>
               </section>
               <section className="bp-dashboard-primary grid gap-5 lg:grid-cols-[1.45fr_0.55fr]">
@@ -1646,7 +1646,7 @@ export default function AtsWorkspace() {
                   <div className="flex flex-wrap items-baseline justify-between gap-4">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Hiring pipeline</p>
-                      <p className="mt-2 text-sm text-ink-600">Where candidates are right now</p>
+                      <p className="mt-2 text-sm text-ink-600">Current distribution by application stage</p>
                     </div>
                     <button className="text-sm font-semibold text-ink-900 underline underline-offset-4" onClick={() => setView("pipeline")}>Open applications</button>
                   </div>
