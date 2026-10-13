@@ -265,3 +265,112 @@ body {
     animation-duration: .01ms !important;
   }
 }
+
+/* Dense job rows: preserve scanability without turning the page into a spreadsheet. */
+.ats-jobs-table {
+  overflow: hidden;
+  border-color: var(--bp-border) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(19,38,58,.025) !important;
+}
+
+.ats-jobs-grid {
+  align-items: start;
+}
+
+.ats-jobs-grid:first-child {
+  background: #f7f9fc !important;
+}
+
+.ats-jobs-grid:not(:first-child) {
+  background: #fff;
+  transition: background-color .14s ease;
+}
+
+.ats-jobs-grid:not(:first-child):hover {
+  background: #f8fbff;
+}
+
+.ats-jobs-grid:not(:first-child) + .ats-jobs-grid {
+  border-top-color: #edf1f5 !important;
+}
+
+.ats-jobs-grid details summary,
+.bp-admin-shell details summary {
+  text-underline-offset: 3px;
+}
+
+.bp-admin-shell details summary:hover {
+  color: var(--bp-blue);
+}
+
+.bp-admin-shell .bp-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.bp-admin-shell .bp-metric-card {
+  min-height: 112px;
+  padding: 18px 20px;
+  border: 1px solid var(--bp-border);
+  border-radius: 11px;
+  background: var(--bp-surface);
+  text-align: left;
+  box-shadow: 0 2px 8px rgba(19,38,58,.025);
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.bp-admin-shell .bp-metric-card:hover {
+  border-color: #b7cde8;
+  box-shadow: 0 5px 16px rgba(19,38,58,.06);
+  transform: translateY(-1px);
+}
+
+.bp-admin-shell .bp-metric-label {
+  display: block;
+  color: var(--bp-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bp-admin-shell .bp-metric-card strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--bp-text);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -.04em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.bp-admin-shell .bp-metric-card small {
+  display: block;
+  margin-top: 8px;
+  color: #718197;
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .bp-admin-shell .bp-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .bp-admin-shell .bp-metric-card {
+    min-height: 100px;
+    padding: 14px;
+  }
+
+  .bp-admin-shell .bp-metric-card strong {
+    font-size: 26px;
+  }
+}
+
+@media (max-width: 380px) {
+  .bp-admin-shell .bp-metric-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
