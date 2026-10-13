@@ -593,3 +593,163 @@ html.dark .bp-admin-shell > aside {
   background: var(--bp-brand-gradient) !important;
   color: #fff !important;
 }
+
+
+/* ---------------------------------------------------------------------------
+   Cognitive UX pass
+   Applied principles: lower choice overload, visual hierarchy, recognition over
+   recall, progressive disclosure, clear feedback, accessible focus, and usable
+   touch targets. These rules improve task clarity without manipulative nudges.
+--------------------------------------------------------------------------- */
+.bp-skip-link {
+  position: fixed;
+  top: -4rem;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.7rem 1rem;
+  border-radius: 8px;
+  background: var(--bp-navy);
+  color: #fff !important;
+  font-size: 0.875rem;
+  font-weight: 700;
+  box-shadow: var(--bp-shadow);
+}
+.bp-skip-link:focus { top: 1rem; }
+
+:where(.bp-admin-shell, .bp-public-shell) :is(button, a, input, select, textarea, summary, [role="button"]):focus-visible {
+  outline: 3px solid var(--bp-brand-azure, var(--bp-blue));
+  outline-offset: 2px;
+}
+:where(.bp-admin-shell, .bp-public-shell) button,
+:where(.bp-admin-shell, .bp-public-shell) a {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.bp-admin-shell main,
+.bp-admin-shell main > *,
+.bp-dashboard-secondary > div {
+  min-width: 0;
+}
+.bp-admin-shell .bp-dashboard-actions { flex-wrap: wrap; }
+
+.bp-admin-shell .bp-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.bp-admin-shell .bp-metric-card {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 124px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 16px 18px;
+  border: 1px solid var(--bp-border);
+  border-radius: var(--bp-radius);
+  background: var(--bp-surface);
+  color: var(--bp-text);
+  text-align: left;
+  box-shadow: var(--bp-shadow-sm);
+  cursor: pointer;
+}
+.bp-admin-shell .bp-metric-card:hover {
+  border-color: var(--bp-blue) !important;
+  background: var(--bp-surface-muted);
+  box-shadow: var(--bp-shadow);
+  transform: translateY(-1px);
+}
+.bp-admin-shell .bp-metric-card:active { transform: none; }
+.bp-admin-shell .bp-metric-card:focus-visible {
+  outline: 3px solid var(--bp-brand-azure, var(--bp-blue));
+  outline-offset: 3px;
+}
+.bp-admin-shell .bp-metric-label {
+  color: var(--bp-muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.bp-admin-shell .bp-metric-card strong {
+  margin-top: 3px;
+  color: var(--bp-text);
+  font-size: clamp(1.5rem, 2.8vw, 2rem);
+  font-weight: 750;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.bp-admin-shell .bp-metric-card small {
+  color: var(--bp-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.bp-admin-shell .ats-mobile-nav [aria-current="page"],
+.bp-admin-shell .ats-mobile-more [aria-current="page"] {
+  border-color: var(--bp-blue) !important;
+  background: var(--bp-navy) !important;
+  color: #fff !important;
+  font-weight: 650;
+}
+html.dark .bp-admin-shell .ats-mobile-nav [aria-current="page"],
+html.dark .bp-admin-shell .ats-mobile-more [aria-current="page"] {
+  background: var(--bp-blue) !important;
+  color: #071526 !important;
+}
+.bp-admin-shell .bp-operational-details > summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  padding-block: 6px;
+  border-radius: 6px;
+}
+.bp-admin-shell .bp-operational-details > summary:hover { color: var(--bp-blue); }
+.bp-admin-shell :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+  min-height: 42px;
+}
+.bp-admin-shell textarea,
+.bp-public-shell textarea {
+  min-height: 104px;
+}
+.bp-admin-shell .bp-dashboard-secondary button {
+  min-height: 44px;
+}
+.bp-admin-shell :is(button, a),
+.bp-public-shell :is(button, a) {
+  scroll-margin-block: 1rem;
+}
+.bp-admin-shell button:disabled,
+.bp-public-shell button:disabled {
+  cursor: not-allowed;
+  transform: none;
+}
+@media (max-width: 1023px) {
+  .bp-admin-shell .bp-metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .bp-admin-shell main { padding-inline: 1rem !important; }
+  .bp-admin-shell .bp-dashboard-hero { align-items: flex-start !important; }
+  .bp-admin-shell .bp-dashboard-actions { width: 100%; }
+  .bp-admin-shell .bp-dashboard-actions > button { min-height: 42px; }
+  .bp-admin-shell .bp-metric-card { min-height: 120px; padding: 14px; }
+  .bp-admin-shell .bp-metric-card small { font-size: 0.72rem; }
+  .bp-admin-shell .ats-workspace-header { gap: 10px; }
+  .bp-admin-shell .ats-mobile-nav,
+  .bp-admin-shell .ats-mobile-more { padding-bottom: 4px; scrollbar-width: thin; }
+  .bp-public-header > div { flex-wrap: wrap; gap: 12px; }
+  .bp-public-header nav { width: 100%; justify-content: space-between; gap: 12px; }
+}
+@media (max-width: 380px) {
+  .bp-admin-shell .bp-metric-strip { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.bp-admin-shell, .bp-public-shell) *,
+  :where(.bp-admin-shell, .bp-public-shell) *::before,
+  :where(.bp-admin-shell, .bp-public-shell) *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

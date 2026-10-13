@@ -1515,6 +1515,7 @@ export default function AtsWorkspace() {
 
   return (
     <div className="bp-admin-shell min-h-screen bg-[#f3f4f1] text-ink-900">
+      <a className="bp-skip-link" href="#ats-workspace-content">Skip to main content</a>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto bg-ink-950 text-white lg:flex">
         <div className="flex h-[72px] items-center gap-3 border-b border-white/10 px-5">
           <div className="bp-logo-mark grid h-9 w-9 place-items-center rounded-md bg-gold-500 text-xs font-bold text-ink-950">BP</div>
@@ -1526,7 +1527,7 @@ export default function AtsWorkspace() {
         <nav className="grid gap-0.5 px-3 py-4" aria-label="Workspace">
           <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-400">Workspace</p>
           {navItems.map((item) => (
-            <button key={item.id} onClick={() => { setView(item.id); setError(""); setMoreOpen(false); }} className={`flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${view === item.id ? "bg-white/10 text-white" : "text-ink-100 hover:bg-white/5 hover:text-white"}`}>
+            <button key={item.id} aria-current={view === item.id ? "page" : undefined} onClick={() => { setView(item.id); setError(""); setMoreOpen(false); }} className={`flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${view === item.id ? "bg-white/10 text-white" : "text-ink-100 hover:bg-white/5 hover:text-white"}`}>
               <span>{item.label}</span>
               {item.count !== undefined && <span className="text-xs text-ink-400">{item.count}</span>}
             </button>
@@ -1536,7 +1537,7 @@ export default function AtsWorkspace() {
           </button>
           {moreOpen && <div className="mt-0.5 grid gap-0.5 border-l border-white/10 pl-2">
             {secondaryNavItems.map((item) => (
-              <button key={item.id} onClick={() => { setView(item.id); setError(""); }} className={`flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${view === item.id ? "bg-white/10 text-white" : "text-ink-300 hover:bg-white/5 hover:text-white"}`}>
+              <button key={item.id} aria-current={view === item.id ? "page" : undefined} onClick={() => { setView(item.id); setError(""); }} className={`flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${view === item.id ? "bg-white/10 text-white" : "text-ink-300 hover:bg-white/5 hover:text-white"}`}>
                 <span>{item.label}</span>
                 {item.count !== undefined && <span className="text-xs text-ink-400">{item.count}</span>}
               </button>
@@ -1564,7 +1565,7 @@ export default function AtsWorkspace() {
             <button className={`${buttonSecondary} lg:hidden`} onClick={signOut}>Sign out</button>
           </div>
           <nav className="ats-mobile-nav flex w-full gap-1 overflow-x-auto pb-0.5 lg:hidden" aria-label="Workspace">
-            {navItems.map((item) => <button key={item.id} type="button" onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
+            {navItems.map((item) => <button key={item.id} type="button" aria-current={view === item.id ? "page" : undefined} onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
             <button
               type="button"
               onClick={() => setMoreOpen((open) => !open)}
@@ -1580,6 +1581,7 @@ export default function AtsWorkspace() {
                 <button
                   key={item.id}
                   type="button"
+                  aria-current={view === item.id ? "page" : undefined}
                   onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }}
                   className={`whitespace-nowrap rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-medium ${view === item.id ? "border-ink-950 bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}
                 >
@@ -1591,7 +1593,7 @@ export default function AtsWorkspace() {
         </header>
 
         <Suspense fallback={<div className="mx-auto max-w-[1440px] rounded-xl border border-ink-100 bg-white p-6 text-sm text-ink-500">Loading workspace module…</div>}>
-          <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-7 sm:py-8">
+          <main id="ats-workspace-content" className="mx-auto max-w-[1440px] px-4 py-6 sm:px-7 sm:py-8">
           {notice && <div role="status" className="mb-4 flex items-center justify-between border-l-2 border-emerald-600 bg-white px-4 py-3 text-sm text-ink-700"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice("")}>×</button></div>}
           {error && <div role="alert" className="mb-4 flex items-center justify-between border-l-2 border-rose-600 bg-white px-4 py-3 text-sm text-rose-800"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
           {loading && <div className="mb-3 text-xs text-ink-500">Loading workspace…</div>}
@@ -1618,7 +1620,7 @@ export default function AtsWorkspace() {
               <div className="bp-dashboard-actions flex gap-2">
                 {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
                 {canWrite && <button className={buttonSecondary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
-                {canWrite && <button type="button" className={buttonSecondary} onClick={populateDemoData} disabled={demoPopulationLoading} title="Add synthetic jobs, candidates, pipeline stages, interviews, offers, talent pools, and workflow examples. Existing data is preserved.">
+                {canWrite && import.meta.env.DEV && <button type="button" className={buttonSecondary} onClick={populateDemoData} disabled={demoPopulationLoading} title="Add synthetic jobs, candidates, pipeline stages, interviews, offers, talent pools, and workflow examples. Existing data is preserved.">
                   <svg aria-hidden="true" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <ellipse cx="12" cy="5" rx="8" ry="3" />
                     <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
