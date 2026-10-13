@@ -2514,7 +2514,8 @@ export default function AtsWorkspace() {
               {!emails.length && <EmptyState title="No email events yet" detail="Application and pipeline notifications will appear here." />}
             </div>
           </>}
-          {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}\n          {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab theme={theme} onToggleTheme={toggleTheme} token={token} /></section>}
+          {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
+          {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab theme={theme} onToggleTheme={toggleTheme} token={token} /></section>}
           </main>
         </Suspense>
       </div>
