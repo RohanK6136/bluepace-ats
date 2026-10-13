@@ -1005,8 +1005,8 @@ html.dark .bp-admin-shell main [class*="bg-white/"] {
   background-color: rgba(22, 36, 56, .72) !important;
 }
 
-html.dark .bp-admin-shell main [class*="bg-ink-50"],
-html.dark .bp-admin-shell main [class*="bg-ink-100"],
+html.dark .bp-admin-shell main [class~="bg-ink-50"],
+html.dark .bp-admin-shell main [class~="bg-ink-100"],
 html.dark .bp-admin-shell main [class*="bg-[#f3f4f1]"],
 html.dark .bp-admin-shell main [class*="bg-[#f5f8fb]"],
 html.dark .bp-admin-shell main [class*="bg-[#f8f8f5]"],
