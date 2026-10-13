@@ -906,3 +906,291 @@ body {
     gap: 12px;
   }
 }
+
+
+/* Dark theme refinement — restrained charcoal/navy surfaces, clear hierarchy, and accessible contrast. */
+html.dark {
+  --bp-bg: #0b1220;
+  --bp-text: #e8eef7;
+  --bp-muted: #9baac0;
+  --bp-border: #29374b;
+  --bp-white: #111c2d;
+  --bp-surface: #111c2d;
+  --bp-surface-muted: #172438;
+  --bp-surface-soft: #1b2a40;
+  --bp-input: #0c1626;
+  --bp-navy: #07111f;
+  --bp-navy-2: #0d1b2d;
+  --bp-blue: #79b4ff;
+  --bp-blue-dark: #a1ccff;
+  --bp-orange: #f2a36f;
+  color-scheme: dark;
+  background: var(--bp-bg);
+  color: var(--bp-text);
+}
+
+html.dark body,
+html.dark #root,
+html.dark .bp-admin-shell {
+  background: var(--bp-bg) !important;
+  color: var(--bp-text) !important;
+}
+
+html.dark .bp-admin-shell > aside {
+  background: linear-gradient(180deg, #091321 0%, #0d1b2d 100%) !important;
+  border-right-color: #26344a !important;
+  box-shadow: 8px 0 28px rgba(0, 0, 0, .12) !important;
+}
+
+html.dark .bp-admin-shell > aside > div:first-child,
+html.dark .bp-admin-shell > aside .border-t {
+  border-color: rgba(211, 226, 245, .11) !important;
+}
+
+html.dark .bp-admin-shell > aside nav > button,
+html.dark .bp-admin-shell > aside nav > div button {
+  color: #aab8cb !important;
+}
+
+html.dark .bp-admin-shell > aside nav > button:hover,
+html.dark .bp-admin-shell > aside nav > div button:hover {
+  background: rgba(174, 202, 239, .08) !important;
+  color: #f0f5fc !important;
+}
+
+html.dark .bp-admin-shell > aside nav > button[aria-current="page"],
+html.dark .bp-admin-shell > aside nav > button.bg-white\/10,
+html.dark .bp-admin-shell > aside nav > div button.bg-white\/10 {
+  background: rgba(90, 148, 224, .16) !important;
+  color: #f4f8ff !important;
+  box-shadow: inset 3px 0 0 #79b4ff;
+}
+
+html.dark .ats-workspace-header {
+  background: rgba(13, 23, 38, .94) !important;
+  border-bottom: 1px solid var(--bp-border) !important;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .15) !important;
+}
+
+html.dark .ats-workspace-header h1,
+html.dark .bp-dashboard-copy h2,
+html.dark .bp-admin-shell main h1,
+html.dark .bp-admin-shell main h2,
+html.dark .bp-admin-shell main h3,
+html.dark .bp-admin-shell main h4 {
+  color: #edf3fc !important;
+}
+
+html.dark .ats-workspace-header p,
+html.dark .bp-dashboard-copy > p:last-child,
+html.dark .bp-admin-shell main .text-ink-500,
+html.dark .bp-admin-shell main .text-ink-400 {
+  color: #9baac0 !important;
+}
+
+/* Keep all content panels on the same elevated surface instead of mixing near-black and pure white. */
+html.dark .bp-admin-shell main .bg-white,
+html.dark .bp-admin-shell main [class~="bg-white"],
+html.dark .bp-admin-shell main .rounded-xl.border,
+html.dark .bp-admin-shell main .rounded-2xl.border,
+html.dark .bp-admin-shell main .bp-flow-card,
+html.dark .bp-admin-shell main .bp-metric-card,
+html.dark .bp-admin-shell main .ats-jobs-table {
+  background-color: var(--bp-surface) !important;
+  border-color: var(--bp-border) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .12) !important;
+}
+
+html.dark .bp-admin-shell main [class*="bg-white/"] {
+  background-color: rgba(22, 36, 56, .72) !important;
+}
+
+html.dark .bp-admin-shell main [class*="bg-ink-50"],
+html.dark .bp-admin-shell main [class*="bg-ink-100"],
+html.dark .bp-admin-shell main [class*="bg-[#f3f4f1]"],
+html.dark .bp-admin-shell main [class*="bg-[#f5f8fb]"],
+html.dark .bp-admin-shell main [class*="bg-[#f8f8f5]"],
+html.dark .bp-admin-shell main [class*="bg-[#fafaf8]"],
+html.dark .bp-admin-shell main [class*="bg-[#f8fafc]"] {
+  background-color: var(--bp-surface-muted) !important;
+}
+
+html.dark .bp-admin-shell main .bp-flow-card button {
+  background: #152338 !important;
+  border-color: #30415a !important;
+  color: #dce7f5 !important;
+}
+
+html.dark .bp-admin-shell main .bp-flow-card button:hover {
+  background: #1a2b43 !important;
+  border-color: #527eb4 !important;
+}
+
+html.dark .bp-admin-shell main table {
+  color: #dce6f3;
+}
+
+html.dark .bp-admin-shell main table thead th,
+html.dark .bp-admin-shell main table thead,
+html.dark .bp-admin-shell main .ats-jobs-grid:first-child {
+  background: #172438 !important;
+  color: #aebcd0 !important;
+  border-color: var(--bp-border) !important;
+}
+
+html.dark .bp-admin-shell main table tbody td,
+html.dark .bp-admin-shell main table tbody tr,
+html.dark .bp-admin-shell main .ats-jobs-grid:not(:first-child) + .ats-jobs-grid {
+  border-color: #26364b !important;
+}
+
+html.dark .bp-admin-shell main table tbody tr:hover,
+html.dark .bp-admin-shell main .ats-jobs-grid:not(:first-child):hover,
+html.dark .bp-admin-shell main .hover\:bg-ink-50:hover,
+html.dark .bp-admin-shell main .hover\:bg-\[\#fcfcfa\]:hover {
+  background: #18263a !important;
+}
+
+html.dark .bp-admin-shell main .ats-jobs-grid:not(:first-child) {
+  background: var(--bp-surface);
+}
+
+html.dark .bp-admin-shell main input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+html.dark .bp-admin-shell main select,
+html.dark .bp-admin-shell main textarea,
+html.dark .bp-admin-shell main input[type="file"] {
+  background: var(--bp-input) !important;
+  color: #edf3fc !important;
+  border-color: #33435a !important;
+  box-shadow: none;
+}
+
+html.dark .bp-admin-shell main input:focus,
+html.dark .bp-admin-shell main select:focus,
+html.dark .bp-admin-shell main textarea:focus {
+  border-color: #79b4ff !important;
+  box-shadow: 0 0 0 3px rgba(121, 180, 255, .15) !important;
+}
+
+html.dark .bp-admin-shell main input::placeholder,
+html.dark .bp-admin-shell main textarea::placeholder,
+html.dark .bp-admin-shell main select:invalid {
+  color: #778ba5 !important;
+}
+
+html.dark .bp-admin-shell main label {
+  color: #c1cede !important;
+}
+
+html.dark .bp-admin-shell main button:not([class*="bg-blue-700"]):not([class*="bg-emerald-600"]):not([class*="bg-rose-600"]):not([class*="bg-gold-500"]):not([class*="bg-ink-950"]) {
+  border-color: var(--bp-border);
+}
+
+html.dark .bp-admin-shell main button:hover:not(:disabled) {
+  border-color: #405570;
+}
+
+html.dark .bp-admin-shell main button:focus-visible,
+html.dark .bp-admin-shell main a:focus-visible,
+html.dark .bp-admin-shell main input:focus-visible,
+html.dark .bp-admin-shell main select:focus-visible,
+html.dark .bp-admin-shell main textarea:focus-visible {
+  outline-color: rgba(121, 180, 255, .6) !important;
+}
+
+html.dark .bp-admin-shell main a,
+html.dark .bp-admin-shell main .text-blue-700,
+html.dark .bp-admin-shell main .text-blue-800 {
+  color: #8bbdff !important;
+}
+
+html.dark .bp-admin-shell main .text-gold-700,
+html.dark .bp-admin-shell main .text-gold-600,
+html.dark .bp-admin-shell main .text-gold-500 {
+  color: #f2ad7d !important;
+}
+
+html.dark .bp-admin-shell main .bg-gold-50,
+html.dark .bp-admin-shell main .bg-gold-100 {
+  background-color: rgba(191, 119, 54, .16) !important;
+}
+
+html.dark .bp-admin-shell main .bg-emerald-50,
+html.dark .bp-admin-shell main .bg-green-50 {
+  background-color: rgba(42, 158, 111, .14) !important;
+}
+
+html.dark .bp-admin-shell main .text-emerald-800,
+html.dark .bp-admin-shell main .text-green-800 {
+  color: #7de0b4 !important;
+}
+
+html.dark .bp-admin-shell main .bg-rose-50,
+html.dark .bp-admin-shell main .bg-red-50 {
+  background-color: rgba(190, 65, 82, .14) !important;
+}
+
+html.dark .bp-admin-shell main .text-rose-700,
+html.dark .bp-admin-shell main .text-red-700 {
+  color: #ff9ca9 !important;
+}
+
+html.dark .bp-admin-shell main .bg-blue-50 {
+  background-color: rgba(59, 130, 246, .14) !important;
+}
+
+html.dark .bp-admin-shell main [role="alert"],
+html.dark .bp-admin-shell main [role="status"] {
+  border-color: var(--bp-border);
+}
+
+html.dark .bp-admin-shell main .bp-metric-card:hover {
+  border-color: #44658d !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .2) !important;
+  transform: translateY(-1px);
+}
+
+html.dark .bp-admin-shell main .bp-metric-card small {
+  color: #91a4bc !important;
+}
+
+html.dark .bp-admin-shell .ats-mobile-nav,
+html.dark .bp-admin-shell .ats-mobile-more {
+  background: #0d1929 !important;
+  border-color: var(--bp-border) !important;
+}
+
+html.dark .bp-admin-shell .ats-mobile-nav button,
+html.dark .bp-admin-shell .ats-mobile-more button {
+  color: #aab9cc;
+}
+
+html.dark .bp-admin-shell .ats-mobile-nav button.bg-ink-950,
+html.dark .bp-admin-shell .ats-mobile-more button.bg-ink-950 {
+  background: #23456b !important;
+  color: #f4f8ff !important;
+}
+
+html.dark ::selection {
+  background: rgba(121, 180, 255, .3);
+  color: #fff;
+}
+
+html.dark ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+html.dark ::-webkit-scrollbar-track {
+  background: #0b1422;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #2b3c53;
+  border: 2px solid #0b1422;
+  border-radius: 20px;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3c536f;
+}
