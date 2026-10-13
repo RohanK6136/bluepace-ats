@@ -253,6 +253,7 @@ export default function AtsWorkspace() {
   ));
   const [publicJobs, setPublicJobs] = useState([]);
   const [publicLoading, setPublicLoading] = useState(false);
+  const [publicApplying, setPublicApplying] = useState(false);
   const [publicApplyJob, setPublicApplyJob] = useState(null);
   const [publicResume, setPublicResume] = useState(null);
   const publicResumeInputRef = useRef(null);
@@ -1218,7 +1219,7 @@ export default function AtsWorkspace() {
     body.append("email", publicForm.email.trim());
     if (publicForm.phone.trim()) body.append("phone", publicForm.phone.trim());
 
-    setPublicLoading(true);
+    setPublicApplying(true);
     try {
       const response = await apiRequest(null, "post", `/public/jobs/${publicApplyJob.id}/apply`, {
         data: body,
@@ -1230,7 +1231,7 @@ export default function AtsWorkspace() {
     } catch (requestError) {
       setPublicError(errorText(requestError));
     } finally {
-      setPublicLoading(false);
+      setPublicApplying(false);
     }
   }
 
@@ -1451,8 +1452,8 @@ export default function AtsWorkspace() {
                   <button type="button" className={`${buttonSecondary} flex-1`} onClick={closePublicApplication}>
                     Cancel
                   </button>
-                  <button type="submit" disabled={publicLoading} className={`${buttonPrimary} flex-1`}>
-                    {publicLoading ? "Submitting…" : "Submit Application"}
+                  <button type="submit" disabled={publicApplying} className={`${buttonPrimary} flex-1`}>
+                    {publicApplying ? "Submitting…" : "Submit Application"}
                   </button>
                 </div>
               </form>
