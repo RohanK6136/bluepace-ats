@@ -118,7 +118,7 @@ from app.services.matching import MATCH_WEIGHTS, matching_service
 from app.services.reranker import reranker_service
 from app.services.match_explanation import build_match_explanation
 from app.routers.merge_center import router as merge_center_router
-from app.routers.demo_data import router as demo_data_router
+from app.routers.demo_data import router as demo_data_router, populate_demo_data
 from app.routers.offer_management import router as offer_management_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
 from app.services.workflow import (
@@ -233,6 +233,23 @@ async def _delayed_resume_dispatcher_start():
 async def lifespan(_app: FastAPI):
     initialize_database()
     ensure_bootstrap_account()
+    if APP_ENV != "test" and os.getenv("AUTO_POPULATE_DEMO_DATA", "").strip().lower() == "true":
+        with SessionLocal() as seed_db:
+            configured_name = os.getenv("BOOTSTRAP_ORGANIZATION_NAME", "").strip()
+            if configured_name:
+                target_org = seed_db.scalar(select(Organization).where(Organization.name == configured_name).order_by(Organization.id.asc()).limit(1))
+            else:
+                organizations = seed_db.scalars(select(Organization).order_by(Organization.id.asc()).limit(2)).all()
+                target_org = organizations[0] if len(organizations) == 1 else None
+            if target_org is None:
+                print("[demo-data] Startup population skipped: target organisation is ambiguous or missing.", flush=True)
+            else:
+                seed_admin = seed_db.scalar(select(User).where(User.organization_id == target_org.id, User.role == Role.admin, User.is_active.is_(True)).order_by(User.id.asc()).limit(1))
+                if seed_admin is None:
+                    print("[demo-data] Startup population skipped: no active admin in target organisation.", flush=True)
+                else:
+                    seed_result = populate_demo_data(user=seed_admin, db=seed_db)
+                    print(f"[demo-data] Startup population complete: {seed_result.get('created')} total={seed_result.get('total_created')}", flush=True)
 
     reminder_task = None if APP_ENV == "test" else asyncio.create_task(interview_reminder_loop())
     resume_dispatcher_task = None
