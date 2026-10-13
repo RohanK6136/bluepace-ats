@@ -753,3 +753,210 @@ html.dark .bp-admin-shell .ats-mobile-more [aria-current="page"] {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* ============================================================================
+   Final alignment pass — consistent admin workspace rhythm
+   Keep page/module behavior intact; normalize shared sizing and alignment.
+   ========================================================================== */
+.bp-admin-shell {
+  background: var(--bp-bg) !important;
+}
+
+.bp-admin-shell > .lg\\:pl-60 {
+  width: 100%;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding-left: 236px !important;
+}
+
+.bp-admin-shell > aside {
+  width: 236px !important;
+  box-sizing: border-box;
+}
+
+.bp-admin-shell .ats-workspace-header {
+  box-sizing: border-box;
+  align-items: center;
+  gap: 16px;
+  padding-inline: clamp(16px, 2.2vw, 32px) !important;
+  background: var(--bp-surface) !important;
+  color: var(--bp-text) !important;
+  border-bottom: 1px solid var(--bp-border) !important;
+}
+
+.bp-admin-shell .ats-workspace-header > div:first-child {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.bp-admin-shell .ats-workspace-header > div:first-child p {
+  margin: 0 0 3px;
+  color: var(--bp-muted) !important;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.bp-admin-shell .ats-workspace-header h1 {
+  margin: 0;
+  color: var(--bp-text) !important;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.bp-admin-shell .ats-workspace-header > div:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bp-admin-shell .ats-mobile-nav,
+.bp-admin-shell .ats-mobile-more {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.bp-admin-shell #ats-workspace-content {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: clamp(20px, 2.4vw, 32px) clamp(16px, 2.2vw, 32px) 40px !important;
+}
+
+.bp-admin-shell #ats-workspace-content > *,
+.bp-admin-shell #ats-workspace-content .grid > *,
+.bp-admin-shell #ats-workspace-content .flex > * {
+  min-width: 0;
+}
+
+.bp-admin-shell #ats-workspace-content :is(
+  .bp-dashboard-hero,
+  .bp-metric-card,
+  .bp-flow-card,
+  .bp-dashboard-primary,
+  .bp-visual-card,
+  .ats-jobs-grid
+) {
+  box-sizing: border-box;
+  max-width: 100%;
+  border-radius: 12px !important;
+}
+
+.bp-admin-shell #ats-workspace-content form {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+
+.bp-admin-shell #ats-workspace-content label {
+  min-width: 0;
+  align-content: start;
+  line-height: 1.4;
+}
+
+.bp-admin-shell #ats-workspace-content :is(
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea
+) {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.bp-admin-shell #ats-workspace-content :is(
+  input:not([type="checkbox"]):not([type="radio"]),
+  select
+) {
+  min-height: 42px;
+}
+
+.bp-admin-shell #ats-workspace-content :is(
+  .overflow-x-auto,
+  .ats-applications-table,
+  .ats-jobs-table
+) {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.bp-admin-shell #ats-workspace-content table {
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.bp-admin-shell #ats-workspace-content th {
+  vertical-align: middle;
+  line-height: 1.35;
+}
+
+.bp-admin-shell #ats-workspace-content td {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.bp-admin-shell aside nav {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bp-admin-shell aside nav button {
+  box-sizing: border-box;
+  min-height: 40px;
+  gap: 10px;
+  line-height: 1.35;
+}
+
+.bp-admin-shell aside > div:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1199px) {
+  .bp-admin-shell .bp-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1023px) {
+  .bp-admin-shell > .lg\\:pl-60 {
+    padding-left: 0 !important;
+  }
+
+  .bp-admin-shell #ats-workspace-content {
+    padding-inline: clamp(16px, 3vw, 28px) !important;
+  }
+
+  .bp-admin-shell .ats-workspace-header {
+    padding-inline: clamp(16px, 3vw, 28px) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .bp-admin-shell .ats-workspace-header > div:nth-child(2) {
+    justify-content: flex-start;
+  }
+
+  .bp-admin-shell #ats-workspace-content {
+    padding-top: 20px !important;
+    padding-bottom: 28px !important;
+  }
+
+  .bp-admin-shell #ats-workspace-content :is(button, a[role="button"]) {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 380px) {
+  .bp-admin-shell .bp-metric-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
