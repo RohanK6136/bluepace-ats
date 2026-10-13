@@ -118,6 +118,7 @@ from app.services.matching import MATCH_WEIGHTS, matching_service
 from app.services.reranker import reranker_service
 from app.services.match_explanation import build_match_explanation
 from app.routers.merge_center import router as merge_center_router
+from app.routers.demo_data import router as demo_data_router
 from app.routers.offer_management import router as offer_management_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
 from app.services.workflow import (
@@ -252,6 +253,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
 app.include_router(merge_center_router)
+app.include_router(demo_data_router)
 app.include_router(offer_management_router)
 app.include_router(next_features_router)
 
