@@ -374,3 +374,264 @@ body {
   }
 }
 
+
+
+/* Executive workspace refinement — make the visual hierarchy unmistakable. */
+:root {
+  --bp-bg: #f3f6fa;
+  --bp-surface: #ffffff;
+  --bp-text: #11263b;
+  --bp-muted: #5f7185;
+  --bp-border: #dbe4ee;
+  --bp-blue: #1559b7;
+  --bp-blue-dark: #10458f;
+  --bp-navy: #081d31;
+  --bp-navy-2: #0d2a45;
+}
+
+.bp-admin-shell {
+  background: var(--bp-bg) !important;
+  color: var(--bp-text);
+}
+
+.bp-admin-shell > aside {
+  width: 264px !important;
+  background: linear-gradient(180deg, #081d31 0%, #0c2943 100%) !important;
+  box-shadow: 8px 0 30px rgba(8,29,49,.07);
+}
+
+.bp-admin-shell > aside > div:first-child {
+  min-height: 82px;
+  padding-inline: 22px;
+  background: rgba(255,255,255,.015);
+}
+
+.bp-admin-shell > aside nav {
+  padding-inline: 12px;
+  padding-top: 22px;
+}
+
+.bp-admin-shell > aside nav > p {
+  padding-left: 12px;
+  margin-bottom: 9px;
+  color: #8fa4ba !important;
+  font-size: 10px;
+  letter-spacing: .16em;
+}
+
+.bp-admin-shell > aside nav button {
+  min-height: 42px;
+  margin-block: 2px;
+  padding-inline: 13px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #c9d6e3;
+  font-size: 13px;
+  letter-spacing: .005em;
+}
+
+.bp-admin-shell > aside nav button:hover {
+  background: rgba(255,255,255,.07) !important;
+  color: #fff !important;
+}
+
+.bp-admin-shell > aside nav button[class*="bg-white/10"] {
+  background: rgba(73,132,203,.20) !important;
+  border-color: rgba(124,174,231,.20);
+  box-shadow: inset 3px 0 0 #73b1ff;
+  color: #fff !important;
+}
+
+.bp-admin-shell > aside > div:last-child {
+  padding: 19px 22px;
+  border-color: rgba(255,255,255,.13) !important;
+  background: rgba(3,17,30,.34) !important;
+}
+
+.ats-workspace-header {
+  min-height: 82px !important;
+  padding-inline: clamp(20px, 2.4vw, 36px) !important;
+  border-bottom-color: #e0e7ef !important;
+  background: rgba(255,255,255,.97) !important;
+  box-shadow: 0 2px 8px rgba(17,38,59,.025) !important;
+}
+
+.ats-workspace-header > div:first-child > p {
+  margin-bottom: 4px;
+  color: #77889a !important;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .01em;
+}
+
+.ats-workspace-header h1 {
+  color: #10263b !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  letter-spacing: -.02em;
+}
+
+.bp-admin-shell > div[class*="lg:pl-60"] {
+  padding-left: 264px;
+}
+
+.bp-admin-shell main {
+  max-width: 1560px !important;
+  padding: clamp(24px, 3vw, 42px) clamp(20px, 3vw, 44px) 56px !important;
+}
+
+.bp-dashboard-hero {
+  align-items: center !important;
+  margin-bottom: 28px !important;
+  padding: 26px 28px;
+  border: 1px solid #dce6f1;
+  border-radius: 14px;
+  background: linear-gradient(112deg, #fff 0%, #fff 68%, #f1f6fc 100%);
+  box-shadow: 0 4px 16px rgba(16,38,59,.035);
+}
+
+.bp-eyebrow {
+  color: #1559b7 !important;
+  letter-spacing: .16em !important;
+}
+
+.bp-dashboard-copy h2 {
+  margin-top: 8px !important;
+  color: #10263b !important;
+  font-size: clamp(26px, 2.5vw, 34px) !important;
+  font-weight: 720 !important;
+  letter-spacing: -.045em !important;
+}
+
+.bp-dashboard-copy > p:last-child {
+  max-width: 680px;
+  margin-top: 12px !important;
+  color: #62758a !important;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.bp-admin-shell button[class*="bg-[#c49a4a]"] {
+  border: 1px solid #124b97 !important;
+  background: #1559b7 !important;
+  color: #fff !important;
+  box-shadow: 0 2px 5px rgba(21,89,183,.14);
+}
+
+.bp-admin-shell button[class*="bg-[#c49a4a]"]:hover {
+  border-color: #0c3d7e !important;
+  background: #10478f !important;
+}
+
+.bp-admin-shell button[class*="border-ink-100"][class*="bg-white"] {
+  border-color: #d8e2ed !important;
+  color: #304b65 !important;
+  background: #fff !important;
+}
+
+.bp-admin-shell .bp-metric-strip {
+  gap: 14px;
+  margin-bottom: 30px !important;
+}
+
+.bp-admin-shell .bp-metric-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 132px;
+  padding: 22px 23px 19px;
+  border-color: #dbe4ee;
+  border-radius: 13px;
+  box-shadow: 0 3px 12px rgba(18,38,59,.035);
+}
+
+.bp-admin-shell .bp-metric-card::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, #1559b7 0%, #8db8ed 100%);
+  content: "";
+}
+
+.bp-admin-shell .bp-metric-card:hover {
+  border-color: #a9c7e9;
+  box-shadow: 0 8px 22px rgba(18,38,59,.075);
+}
+
+.bp-admin-shell .bp-metric-label {
+  color: #63778c;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.bp-admin-shell .bp-metric-card strong {
+  margin-top: 12px;
+  color: #0e2944;
+  font-size: 34px;
+  font-weight: 750;
+  letter-spacing: -.05em;
+}
+
+.bp-admin-shell .bp-metric-card small {
+  margin-top: 9px;
+  color: #7a8b9d;
+  font-size: 11px;
+}
+
+.bp-dashboard-primary > div {
+  border-color: #dce5ef !important;
+}
+
+.bp-admin-shell main table thead th {
+  background: #f2f6fa !important;
+  color: #5a6e83 !important;
+  font-size: 10px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.bp-admin-shell main table tbody td {
+  color: #30485f;
+}
+
+.bp-admin-shell main h2,
+.bp-admin-shell main h3 {
+  letter-spacing: -.02em;
+}
+
+.bp-admin-shell input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
+.bp-admin-shell select:focus,
+.bp-admin-shell textarea:focus {
+  border-color: #7ba6dc !important;
+  box-shadow: 0 0 0 3px rgba(21,89,183,.10);
+}
+
+.bp-admin-shell .bp-flow-card {
+  border-color: #dce5ef !important;
+  background: #fff !important;
+}
+
+@media (max-width: 1023px) {
+  .bp-admin-shell > div[class*="lg:pl-60"] {
+    padding-left: 0;
+  }
+  .bp-admin-shell main {
+    padding: 20px 16px 40px !important;
+  }
+  .bp-dashboard-hero {
+    padding: 22px;
+  }
+}
+
+@media (max-width: 640px) {
+  .bp-dashboard-hero {
+    padding: 18px;
+    border-radius: 11px;
+  }
+  .bp-dashboard-copy h2 {
+    font-size: 25px !important;
+  }
+}
