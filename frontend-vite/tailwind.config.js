@@ -5,43 +5,54 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Instrument Sans"', "Inter", "system-ui", "sans-serif"],
+        sans: ['"Inter"', '"Instrument Sans"', "ui-sans-serif", "system-ui", "sans-serif"],
         serif: ['"Instrument Serif"', "Georgia", "serif"],
         mono: ['"IBM Plex Mono"', "ui-monospace", "monospace"],
       },
       colors: {
-        ink: {
-          50: "#f4f5f7",
-          100: "#e8eaee",
-          400: "#8b93a7",
-          500: "#6b7388",
-          700: "#3a4052",
-          800: "#1c2030",
-          900: "#10131c",
-          950: "#08090e",
+        /* Brand palette sampled from the Blupace Tech logo */
+        brand: {
+          indigo: "#3954A5",
+          azure: "#0089CD",
+          lime: "#B4D435",
         },
+        /* Neutral ink scale (cool navy greys) */
+        ink: {
+          50: "#f4f7fb",
+          100: "#e8eef6",
+          200: "#d5dfec",
+          400: "#8b97ab",
+          500: "#5b6b82",
+          600: "#46566c",
+          700: "#33445c",
+          800: "#1e2e44",
+          900: "#122032",
+          950: "#0a1626",
+        },
+        /* Former gold accent now carries the brand azure/indigo */
         gold: {
-          50: "#fbf7ef",
-          100: "#f3ead6",
-          300: "#e2c890",
-          400: "#d4b06a",
-          500: "#c49a4a",
-          600: "#a67d32",
+          50: "#eef7fd",
+          100: "#d9edfa",
+          200: "#b6ddf4",
+          300: "#7cc4ea",
+          400: "#39a6dc",
+          500: "#0089CD",
+          600: "#006fa8",
         },
       },
       boxShadow: {
         panel:
-          "0 1px 0 rgba(255,255,255,0.04) inset, 0 24px 80px -32px rgba(0,0,0,0.55)",
+          "0 1px 0 rgba(255,255,255,0.04) inset, 0 20px 60px -28px rgba(0,0,0,0.5)",
         "panel-light":
-          "0 1px 0 rgba(255,255,255,0.8) inset, 0 18px 50px -28px rgba(16,19,28,0.18)",
-        glow: "0 0 0 1px rgba(212,176,106,0.18), 0 12px 40px -18px rgba(196,154,74,0.45)",
+          "0 1px 0 rgba(255,255,255,0.8) inset, 0 16px 44px -26px rgba(16,26,43,0.16)",
+        glow: "0 0 0 1px rgba(0,137,205,0.18), 0 12px 40px -18px rgba(0,137,205,0.4)",
       },
       letterSpacing: {
-        kicker: "0.22em",
+        kicker: "0.2em",
       },
       backgroundImage: {
         grain:
-          "radial-gradient(1200px 600px at 12% -10%, rgba(212,176,106,0.09), transparent 50%), radial-gradient(900px 500px at 110% 110%, rgba(90,110,160,0.12), transparent 45%)",
+          "radial-gradient(1200px 600px at 12% -10%, rgba(0,137,205,0.08), transparent 50%), radial-gradient(900px 500px at 110% 110%, rgba(57,84,165,0.10), transparent 45%)",
       },
     },
   },
