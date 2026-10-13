@@ -878,3 +878,31 @@ body {
     padding: 18px !important;
   }
 }
+
+
+/* Explicitly neutralise older template-card effects in the public portal. */
+.bp-public-jobs-grid .bp-job-card {
+  min-height: 0 !important;
+  border-radius: 11px !important;
+  box-shadow: 0 2px 8px rgba(16,38,59,.025) !important;
+  transform: none !important;
+}
+.bp-public-jobs-grid .bp-job-card:hover {
+  border-color: #b8cce3 !important;
+  box-shadow: 0 5px 16px rgba(16,38,59,.05) !important;
+  transform: none !important;
+}
+.bp-public-jobs-grid .bp-job-card button[class*="bg-[#c49a4a]"] {
+  border: 1px solid #1559b7 !important;
+  background: #1559b7 !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+@media (max-width: 420px) {
+  .bp-public-header .bp-public-nav-link {
+    display: none;
+  }
+  .bp-public-header > div {
+    gap: 12px;
+  }
+}
