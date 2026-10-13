@@ -1643,35 +1643,6 @@ export default function AtsWorkspace() {
                   <small>Scheduled candidate meetings</small>
                 </button>
               </section>
-              <section className="bp-dashboard-primary grid gap-5 lg:grid-cols-[1.45fr_0.55fr]">
-                <div className="border-b border-ink-200 pb-6">
-                  <div className="flex flex-wrap items-baseline justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Hiring pipeline</p>
-                      <p className="mt-2 text-sm text-ink-600">Current distribution by application stage</p>
-                    </div>
-                    <button className="text-sm font-semibold text-ink-900 underline underline-offset-4" onClick={() => setView("pipeline")}>Open applications</button>
-                  </div>
-                  <div className="mt-5 grid grid-cols-3 gap-x-6 gap-y-5 sm:grid-cols-6">
-                    {STAGES.map((stage) => {
-                      const value = dashboardData.stage_counts?.[stage] || 0;
-                      return <button key={stage} onClick={() => setView("pipeline")} className="text-left">
-                        <p className="text-xs text-ink-500">{stage}</p>
-                        <p className="mt-1 text-2xl font-semibold">{value}</p>
-                      </button>;
-                    })}
-                  </div>
-                </div>
-
-                <div className="border-b border-ink-200 pb-6 lg:border-l lg:border-b-0 lg:pl-6">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Workspace</p>
-                  <div className="mt-3 grid gap-3 text-sm">
-                    <button onClick={() => setView("jobs")} className="flex justify-between border-b border-ink-100 pb-3 text-left"><span>Open jobs</span><span className="font-semibold">{dashboardData.metrics.open_jobs}</span></button>
-                    <button onClick={() => setView("candidates")} className="flex justify-between border-b border-ink-100 pb-3 text-left"><span>Total candidates</span><span className="font-semibold">{candidates.length}</span></button>
-                    <button onClick={() => setView("interviews-2")} className="flex justify-between text-left"><span>Upcoming interviews</span><span className="font-semibold">{dashboardData.upcoming_interviews?.length || 0}</span></button>
-                  </div>
-                </div>
-              </section>
 
               <section className="bp-dashboard-secondary mt-8 grid gap-8 lg:grid-cols-2">
                 <div>
