@@ -1214,31 +1214,50 @@ export default function AtsWorkspace() {
 
   if (!token && accessMode === "public") {
     return (
-      <main className="min-h-screen bg-[#f3f4f1] text-ink-900">
-        <header className="bp-public-header border-b border-white/10 bg-ink-950 px-5 py-4 text-white">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-5">
-            <a href="/" className="bp-wordmark flex items-center gap-3 no-underline">
+      <main className="bp-public-shell min-h-screen text-ink-900">
+        <header className="bp-public-header">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-5 px-5 py-4">
+            <a href="/" className="bp-wordmark flex items-center gap-3 no-underline" aria-label="BluePace Careers home">
               <span className="bp-logo-mark">BP</span>
               <span>
-                <span className="block text-[15px] font-bold tracking-tight">BluePace ATS</span>
-                <span className="block text-[9px] font-semibold uppercase tracking-[0.22em] text-ink-400">Talent workspace</span>
+                <span className="block text-[15px] font-bold tracking-tight">BluePace</span>
+                <span className="block text-[10px] font-medium tracking-wide">Careers</span>
               </span>
             </a>
-            <nav className="hidden items-center gap-7 text-sm font-medium text-ink-600 md:flex" aria-label="Public navigation">
-              <a className="hover:text-blue-700" href="#jobs">Open roles</a>
-              <a className="hover:text-blue-700" href="#how-it-works">How it works</a>
-              <button className="font-semibold text-blue-700 hover:text-blue-800" onClick={() => switchAccessMode("admin")}>
-                Recruiter sign in
-              </button>
+            <nav className="flex items-center gap-6 text-sm font-medium" aria-label="Careers navigation">
+              <a className="bp-public-nav-link" href="#jobs">Open roles</a>
+              <button type="button" className="bp-public-signin" onClick={() => switchAccessMode("admin")}>Recruiter sign in</button>
             </nav>
-            <div className="flex items-center gap-2 md:hidden">
-              <ThemeToggle theme={theme} onToggle={toggleTheme} />
-              <button className="border-ink-100 bg-white text-ink-800" onClick={() => switchAccessMode("admin")}>
-                Sign in
-              </button>
-            </div>
           </div>
         </header>
+
+        <section className="bp-careers-hero">
+          <div className="bp-careers-hero-inner mx-auto max-w-7xl px-5">
+            <p className="bp-careers-eyebrow">CAREERS AT BLUEPACE</p>
+            <h1>Find your next opportunity.</h1>
+            <p className="bp-careers-intro">Explore current openings and apply directly. Find a role that fits your skills and experience.</p>
+            <form
+              className="bp-template-search"
+              onSubmit={(event) => { event.preventDefault(); document.getElementById("jobs")?.scrollIntoView({ behavior: "smooth" }); }}
+            >
+              <label className="sr-only" htmlFor="public-role-search">Search open roles</label>
+              <input
+                id="public-role-search"
+                placeholder="Search by job title, skill or department"
+                value={publicFilters.search}
+                onChange={(event) => setPublicFilters({ ...publicFilters, search: event.target.value })}
+              />
+              <label className="sr-only" htmlFor="public-work-mode">Work mode</label>
+              <select id="public-work-mode" value={publicFilters.work_mode} onChange={(event) => setPublicFilters({ ...publicFilters, work_mode: event.target.value })}>
+                <option value="">All work modes</option>
+                <option value="remote">Remote</option>
+                <option value="hybrid">Hybrid</option>
+                <option value="onsite">On-site</option>
+              </select>
+              <button type="submit">Search roles</button>
+            </form>
+          </div>
+        </section>
 
         <section className="bp-template-hero relative overflow-hidden border-b border-ink-100">
           <div className="bp-template-hero-inner mx-auto grid max-w-7xl lg:grid-cols-[1.03fr_0.97fr]">
@@ -1294,17 +1313,9 @@ export default function AtsWorkspace() {
           </div>
         </section>
 
-        <section id="how-it-works" className="bp-public-process border-y border-ink-100 bg-white">
-          <div className="mx-auto grid max-w-7xl gap-4 px-5 py-7 sm:grid-cols-3">
-            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">01</p><h3 className="mt-2 text-sm font-bold">Capture applications</h3><p className="mt-1 text-sm leading-6 text-ink-500">Collect resumes and role requirements in one place.</p></div>
-            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">02</p><h3 className="mt-2 text-sm font-bold">Match with evidence</h3><p className="mt-1 text-sm leading-6 text-ink-500">Combine structured fields, semantic retrieval and clear skill gaps.</p></div>
-            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">03</p><h3 className="mt-2 text-sm font-bold">Review and move</h3><p className="mt-1 text-sm leading-6 text-ink-500">Keep decisions with recruiters while the ATS handles the busywork.</p></div>
-          </div>
-        </section>
-
-        <section id="jobs" className="mx-auto max-w-7xl px-5 py-10">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-xl font-semibold">Open Positions</h2>
+        <section id="jobs" className="bp-public-jobs mx-auto max-w-7xl px-5 py-12">
+            <div className="bp-public-jobs-heading flex items-end justify-between gap-3">
+              <div><p className="bp-section-eyebrow">OPPORTUNITIES</p><h2 className="mt-1 text-2xl font-semibold">Open roles</h2><p className="mt-2 text-sm text-ink-500">Explore our current opportunities.</p></div>
               {publicJobs.length > 0 && <span className="text-sm text-ink-500">{publicJobs.length} position(s)</span>}
             </div>
 
@@ -1327,9 +1338,9 @@ export default function AtsWorkspace() {
               </div>
             )}
 
-            <div className="bp-public-jobs-grid mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            <div className="bp-public-jobs-grid mt-7 grid gap-4 md:grid-cols-2">
               {publicJobs.map((job) => (
-                <article key={job.id} className="rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
+                <article key={job.id} className="bp-job-card rounded-xl border border-ink-100 bg-white p-5">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <h3 className="text-lg font-semibold">{job.title}</h3>
@@ -1341,11 +1352,11 @@ export default function AtsWorkspace() {
                       <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Fresher friendly</span>
                     )}
                   </div>
-                  <p className="mt-4 line-clamp-4 whitespace-pre-line text-sm leading-6 text-ink-600">{job.description}</p>
+                  <p className="mt-4 line-clamp-3 whitespace-pre-line text-sm leading-6 text-ink-600">{job.description}</p>
                   {job.required_skills?.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {job.required_skills.slice(0, 8).map((skill) => (
-                        <span key={skill} className="rounded-full border border-ink-100 bg-[#f8f8f5] px-2.5 py-1 text-xs text-ink-600">{skill}</span>
+                      {job.required_skills.slice(0, 4).map((skill) => (
+                        <span key={skill} className="bp-job-skill rounded-md border border-ink-100 bg-white px-2 py-1 text-[11px] text-ink-600">{skill}</span>
                       ))}
                     </div>
                   )}
@@ -1369,7 +1380,7 @@ export default function AtsWorkspace() {
             <div className="mx-auto max-w-lg rounded-2xl bg-white p-7 shadow-xl">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-gold-700">Apply</p>
+                  <p className="bp-section-eyebrow">APPLICATION</p>
                   <h2 className="mt-1 text-xl font-semibold">{publicApplyJob.title}</h2>
                 </div>
                 <button className="text-xl text-ink-400 hover:text-ink-800" onClick={() => setPublicApplyJob(null)} aria-label="Close">×</button>
@@ -1423,24 +1434,12 @@ export default function AtsWorkspace() {
           </div>
         )}
 
-        <PublicHelpCenter />
-
-        <footer className="bp-public-footer mt-16 border-t border-ink-100 bg-ink-950 px-5 py-10 text-white">
-          <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <p className="text-lg font-semibold">blupace<span className="text-orange-400">.</span>tech</p>
-              <p className="mt-2 max-w-sm text-sm leading-6 text-white/60">Enterprise technology and global capability centres.</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Careers</p>
-              <a className="mt-3 block text-sm text-white/75 hover:text-white" href="#jobs">Open positions</a>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Connect</p>
-              <a className="mt-3 block text-sm text-white/75 hover:text-white" href="mailto:hello@blupacetech.com">hello@blupacetech.com</a>
-            </div>
+        <footer className="bp-public-footer">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold">BluePace <span>Careers</span></p>
+            <a href="mailto:hello@blupacetech.com" className="text-sm">hello@blupacetech.com</a>
+            <p className="text-xs">© BluePace Tech</p>
           </div>
-          <div className="mx-auto mt-8 max-w-7xl border-t border-white/10 pt-5 text-[11px] text-white/40">© Blupace Tech · Careers &amp; Talent</div>
         </footer>
       </main>
     );
