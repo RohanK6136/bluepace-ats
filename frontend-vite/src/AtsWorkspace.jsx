@@ -1617,34 +1617,6 @@ export default function AtsWorkspace() {
               </div>
             </div>
 
-            <section className="bp-flow-card mb-8 rounded-xl border border-ink-100 bg-white p-4 sm:p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Simple hiring flow</p>
-                  <p className="mt-1 text-sm text-ink-600">Follow the same five steps every time.</p>
-                </div>
-              </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-5">
-                {[
-                  ["jobs", "1", "Create job"],
-                  ["candidates", "2", "Add candidates"],
-                  ["pipeline", "3", "Review applications"],
-                  ["interviews-2", "4", "Interview"],
-                  ["offers", "5", "Offer / hire"],
-                ].map(([stepId, number, label]) => (
-                  <button
-                    key={stepId}
-                    type="button"
-                    onClick={() => { setView(stepId); setError(""); setMoreOpen(false); }}
-                    className="flex items-center gap-3 rounded-lg border border-ink-100 bg-ink-50 px-3 py-3 text-left transition hover:border-blue-200 hover:bg-white"
-                  >
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink-950 text-xs font-semibold text-white">{number}</span>
-                    <span className="text-xs font-semibold text-ink-800">{label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-
             {dashboardLoading && <p className="mb-6 text-sm text-ink-500">Loading dashboard…</p>}
             {dashboardData && <>
               <section className="bp-metric-strip mb-7" aria-label="Recruiting overview">
