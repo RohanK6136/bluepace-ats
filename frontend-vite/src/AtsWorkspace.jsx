@@ -292,6 +292,7 @@ export default function AtsWorkspace() {
   const [loading, setLoading] = useState(false);
   const [dashboardData, setDashboardData] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [demoPopulationLoading, setDemoPopulationLoading] = useState(false);
   const [candidateActivity, setCandidateActivity] = useState(null);
   const [candidateCollaboration, setCandidateCollaboration] = useState(null);
   const [collabComment, setCollabComment] = useState("");
@@ -496,6 +497,45 @@ export default function AtsWorkspace() {
     setJobs(jobsResponse.data);
     if (candidateResponse) setCandidates(candidateResponse.data);
     if (applicationResponse) setApplications(applicationResponse.data);
+  }
+
+  async function populateDemoData() {
+    if (!token || demoPopulationLoading) return;
+    const confirmed = window.confirm(
+      "Add synthetic demo records to this ATS organization? Existing records will be preserved. Demo jobs will remain draft, automation examples will stay disabled, and no emails will be sent."
+    );
+    if (!confirmed) return;
+
+    setDemoPopulationLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const seedResponse = await apiRequest(token, "post", "/demo-data/populate", { data: {} });
+      const [jobsResponse, candidatesResponse, applicationsResponse, dashboardResponse] = await Promise.all([
+        apiRequest(token, "get", "/jobs", { params: { limit: 100 } }),
+        apiRequest(token, "get", "/candidates", { params: { limit: 100 } }),
+        apiRequest(token, "get", "/applications", { params: { limit: 100 } }),
+        apiRequest(token, "get", "/dashboard"),
+      ]);
+      setJobs(jobsResponse.data || []);
+      setCandidates(candidatesResponse.data || []);
+      setApplications(applicationsResponse.data || []);
+      setDashboardData(dashboardResponse.data || null);
+      setView("dashboard");
+
+      const counts = seedResponse.data?.created || {};
+      if (seedResponse.data?.already_populated) {
+        setNotice("Demo data is already populated. No duplicate records were added.");
+      } else {
+        setNotice(
+          `Demo data added: ${counts.jobs || 0} jobs, ${counts.candidates || 0} candidates, ${counts.applications || 0} applications, ${counts.interviews || 0} interviews, ${counts.offers || 0} offers, and related workflow examples. No emails were sent; demo jobs remain draft.`
+        );
+      }
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setDemoPopulationLoading(false);
+    }
   }
 
   async function signIn(event) {
@@ -1658,6 +1698,13 @@ export default function AtsWorkspace() {
               <div className="bp-dashboard-actions flex gap-2">
                 {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
                 {canWrite && <button className={buttonSecondary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
+                {canWrite && <button type="button" className={buttonSecondary} onClick={populateDemoData} disabled={demoPopulationLoading} title="Add synthetic jobs, candidates, pipeline stages, interviews, offers, talent pools, and workflow examples. Existing data is preserved.">
+                  <svg aria-hidden="true" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <ellipse cx="12" cy="5" rx="8" ry="3" />
+                    <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+                  </svg>
+                  {demoPopulationLoading ? "Populating…" : "Populate demo data"}
+                </button>}
               </div>
             </div>
 
