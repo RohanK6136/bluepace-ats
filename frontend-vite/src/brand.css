@@ -489,3 +489,107 @@ html.dark .bp-public-shell #apply > div {
   background: var(--bp-blue) !important;
   border-color: var(--bp-blue) !important;
 }
+
+/* ============================================================================
+   Admin workspace refinements
+   ========================================================================== */
+/* Metric cards: pack content to the top (the source CSS stretched rows,
+   leaving a large void in the middle of each card). */
+.bp-metric-card {
+  min-height: 116px !important;
+  align-content: start;
+  gap: 8px !important;
+  padding: 18px !important;
+  border-color: var(--bp-border) !important;
+  border-radius: var(--bp-radius) !important;
+  background: var(--bp-surface) !important;
+}
+.bp-metric-card::before {
+  background: var(--bp-brand-gradient) !important;
+}
+.bp-metric-card strong {
+  color: var(--bp-text) !important;
+  font-size: 30px !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+}
+.bp-metric-label {
+  color: var(--bp-muted) !important;
+}
+.bp-metric-card small {
+  color: var(--bp-muted) !important;
+}
+
+/* Admin sidebar logo mark adopts the brand gradient. */
+.bp-admin-shell aside .bp-logo-mark {
+  background: var(--bp-brand-gradient) !important;
+  color: #fff !important;
+  border-radius: 9px !important;
+  box-shadow: 0 4px 14px -6px rgba(0, 137, 205, 0.6);
+}
+
+/* Wordmark dot on brand azure (was generic orange). */
+.bp-admin-shell .text-orange-400,
+.bp-admin-shell .text-orange-500 {
+  color: var(--bp-brand-azure) !important;
+}
+
+/* Slightly stronger secondary text in dark mode for the admin surfaces. */
+html.dark [class*="text-ink-600"] {
+  color: #b7c4d6 !important;
+}
+
+/* ============================================================================
+   Admin sidebar — reconcile conflicting source rules.
+   professional.css forced a dark-navy sidebar while index.css forced dark-grey
+   nav text, so in light mode the nav was unreadable. Make it coherent.
+   ========================================================================== */
+.bp-admin-shell aside,
+.bp-admin-shell > aside {
+  background: var(--bp-surface) !important;
+  color: var(--bp-text) !important;
+  border-right: 1px solid var(--bp-border) !important;
+  box-shadow: none !important;
+}
+
+html.dark .bp-admin-shell aside,
+html.dark .bp-admin-shell > aside {
+  background: var(--bp-surface) !important;
+  border-right-color: var(--bp-border) !important;
+}
+
+.bp-admin-shell aside > div:first-child,
+.bp-admin-shell > aside > div:first-child {
+  background: transparent !important;
+  border-bottom: 1px solid var(--bp-border) !important;
+}
+
+.bp-admin-shell aside nav > p,
+.bp-admin-shell > aside nav > p,
+.bp-admin-shell aside .text-ink-400 {
+  color: var(--bp-muted) !important;
+}
+
+.bp-admin-shell aside nav button,
+.bp-admin-shell > aside nav button {
+  color: var(--bp-muted) !important;
+}
+
+.bp-admin-shell aside nav button:hover,
+.bp-admin-shell > aside nav button:hover {
+  background: var(--bp-surface-muted) !important;
+  color: var(--bp-text) !important;
+}
+
+.bp-admin-shell aside nav button[class*="bg-white/10"],
+.bp-admin-shell > aside nav button[class*="bg-white/10"] {
+  background: var(--bp-console-blue-soft) !important;
+  color: var(--bp-blue) !important;
+  box-shadow: inset 3px 0 0 var(--bp-blue) !important;
+}
+
+.bp-admin-shell aside .bp-logo-mark,
+.bp-admin-shell > aside .bp-logo-mark {
+  background: var(--bp-brand-gradient) !important;
+  color: #fff !important;
+}

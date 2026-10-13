@@ -1517,7 +1517,7 @@ export default function AtsWorkspace() {
     <div className="bp-admin-shell min-h-screen bg-[#f3f4f1] text-ink-900">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto bg-ink-950 text-white lg:flex">
         <div className="flex h-[72px] items-center gap-3 border-b border-white/10 px-5">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-gold-500 text-xs font-bold text-ink-950">BP</div>
+          <div className="bp-logo-mark grid h-9 w-9 place-items-center rounded-md bg-gold-500 text-xs font-bold text-ink-950">BP</div>
           <div>
             <p className="text-sm font-semibold tracking-tight">blupace<span className="text-orange-400">.</span>tech</p>
             
