@@ -2411,7 +2411,8 @@ export default function AtsWorkspace() {
                   apiRequest={apiRequest}
                   onNotice={setNotice}
                   onError={(requestError) => setError(errorText(requestError))}
-                />\n                <RecruiterToolsPanel
+                />
+                <RecruiterToolsPanel
                   token={token}
                   candidates={candidates}
                   applications={applications}
