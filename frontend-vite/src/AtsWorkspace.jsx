@@ -25,7 +25,6 @@ const API_URL = (
 const REQUEST_TIMEOUT_MS = 90_000;
 const AUTH_TIMEOUT_MS = 120_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
-const STAGES = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
 const MATCH_WEIGHTS = {
   required_skill_coverage: 25,
   preferred_skill_coverage: 10,
@@ -306,7 +305,6 @@ export default function AtsWorkspace() {
   const [portalToken] = useState(() => new URLSearchParams(window.location.search).get("portal") || "");
   const [portalLink, setPortalLink] = useState("");
   const [portalLinkLoading, setPortalLinkLoading] = useState(false);
-  const [filters, setFilters] = useState({ search: "", skill: "", stage_name: "", source: "", applied_after: "", applied_before: "" });
   const [jobFormOpen, setJobFormOpen] = useState(false);
   const [jobEntryMode, setJobEntryMode] = useState("manual");
   const [jobDocumentFile, setJobDocumentFile] = useState(null);
@@ -329,12 +327,6 @@ export default function AtsWorkspace() {
   const [candidateForm, setCandidateForm] = useState({ first_name: "", last_name: "", email: "", phone: "", source: "Direct", job_id: "" });
   const [resumeFile, setResumeFile] = useState(null);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
-  const [applicationFormOpen, setApplicationFormOpen] = useState(false);
-  const [applicationEntryMode, setApplicationEntryMode] = useState("existing");
-  const [applicationForm, setApplicationForm] = useState({ job_id: "", candidate_id: "" });
-  const [applicationResumeFile, setApplicationResumeFile] = useState(null);
-  const [selectedApplications, setSelectedApplications] = useState([]);
-  const [bulkStage, setBulkStage] = useState("Screening");
   const [matchJobId, setMatchJobId] = useState("");
   const [matchAnalysis, setMatchAnalysis] = useState(null);
   const [matches, setMatches] = useState([]);
@@ -437,7 +429,7 @@ export default function AtsWorkspace() {
   useEffect(() => {
     if (!token) return undefined;
     const needsCandidates = new Set(["candidates", "merge-center"]);
-    const needsApplications = new Set(["pipeline", "compare", "interviews-2", "offers"]);
+    const needsApplications = new Set(["compare", "interviews-2", "offers"]);
     if (!needsCandidates.has(view) && !needsApplications.has(view)) return undefined;
     let active = true;
     async function loadViewData() {
@@ -468,7 +460,7 @@ export default function AtsWorkspace() {
   async function refreshWorkspace() {
     if (!token) return;
     const needsCandidates = new Set(["candidates", "merge-center"]);
-    const needsApplications = new Set(["pipeline", "compare", "interviews-2", "offers"]);
+    const needsApplications = new Set(["compare", "interviews-2", "offers"]);
     const requests = [];
     requests.push(apiRequest(token, "get", "/jobs", { params: { limit: 100 } }));
     requests.push(
@@ -478,12 +470,7 @@ export default function AtsWorkspace() {
     );
     requests.push(
       needsApplications.has(view)
-        ? apiRequest(token, "get", "/applications", {
-            params: {
-              ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)),
-              limit: 100,
-            },
-          })
+        ? apiRequest(token, "get", "/applications", { params: { limit: 100 } })
         : Promise.resolve(null),
     );
     const [jobsResponse, candidateResponse, applicationResponse] = await Promise.all(requests);
@@ -612,21 +599,6 @@ export default function AtsWorkspace() {
     }
   }
 
-  async function loadFilteredApplications(event) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    try {
-      const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
-      const response = await apiRequest(token, "get", "/applications", { params: { ...params, limit: 100 } });
-      setApplications(response.data);
-      setSelectedApplications([]);
-    } catch (requestError) {
-      setError(errorText(requestError));
-    } finally {
-      setLoading(false);
-    }
-  }
 
 
   useEffect(() => {
@@ -894,47 +866,6 @@ export default function AtsWorkspace() {
     }
   }
 
-  async function createApplication(event) {
-    event.preventDefault();
-    setError("");
-    try {
-      if (!applicationForm.job_id) {
-        setError("Choose an open job.");
-        return;
-      }
-      if (applicationEntryMode === "upload") {
-        if (!applicationResumeFile) {
-          setError("Select a PDF or DOCX resume.");
-          return;
-        }
-        if (applicationResumeFile.size > MAX_DOCUMENT_SIZE_BYTES) {
-          setError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`);
-          return;
-        }
-        const body = new FormData();
-        body.append("file", applicationResumeFile);
-        body.append("job_id", String(Number(applicationForm.job_id)));
-        await apiRequest(token, "post", "/candidates/from-resume", { data: body });
-        setNotice("Resume parsed, application added to Applied, and candidate matched to the selected job");
-      } else {
-        if (!applicationForm.candidate_id) {
-          setError("Choose a candidate.");
-          return;
-        }
-        await apiRequest(token, "post", "/applications", {
-          data: { job_id: Number(applicationForm.job_id), candidate_id: Number(applicationForm.candidate_id) },
-        });
-        setNotice("Application added to Applied and matched to the selected job");
-      }
-      setApplicationFormOpen(false);
-      setApplicationEntryMode("existing");
-      setApplicationResumeFile(null);
-      setApplicationForm({ job_id: "", candidate_id: "" });
-      await refreshWorkspace();
-    } catch (requestError) {
-      setError(errorText(requestError));
-    }
-  }
 
   function openInterviewDialog(application) {
     const start = new Date(Date.now() + 60 * 60 * 1000);
@@ -1030,34 +961,6 @@ export default function AtsWorkspace() {
     }
   }
 
-  async function moveSelected(stageName = bulkStage) {
-    if (!selectedApplications.length) return;
-    try {
-      await apiRequest(token, "post", "/applications/bulk-stage", {
-        data: { application_ids: selectedApplications, stage_name: stageName },
-      });
-      setSelectedApplications([]);
-      setNotice(`${selectedApplications.length} application(s) moved to ${stageName}`);
-      await refreshWorkspace();
-    } catch (requestError) {
-      setError(errorText(requestError));
-    }
-  }
-
-  async function exportCsv() {
-    try {
-      const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
-      const response = await apiRequest(token, "get", "/applications/export.csv", { params, responseType: "blob" });
-      const url = URL.createObjectURL(response.data);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "applications.csv";
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (requestError) {
-      setError(errorText(requestError));
-    }
-  }
 
   async function selectMatchJob(jobId) {
     setMatchJobId(jobId);
@@ -1122,12 +1025,6 @@ export default function AtsWorkspace() {
     }
   }
 
-  function toggleApplication(id) {
-    setSelectedApplications((current) => current.includes(id)
-      ? current.filter((selectedId) => selectedId !== id)
-      : [...current, id]);
-  }
-
   async function semanticSearch(event) {
     event?.preventDefault();
     if (!token || !semanticQuery.trim()) return;
@@ -1158,10 +1055,6 @@ export default function AtsWorkspace() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function setFilter(field, value) {
-    setFilters((current) => ({ ...current, [field]: value }));
   }
 
   async function submitPublicApplication(event) {
@@ -1501,7 +1394,6 @@ export default function AtsWorkspace() {
     { id: "dashboard", label: "Dashboard" },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
-    { id: "pipeline", label: "Applications", count: applications.length },
     { id: "interviews-2", label: "Interviews" },
   ];
   const secondaryNavItems = [
@@ -1558,7 +1450,6 @@ export default function AtsWorkspace() {
             <h1 className="text-lg font-semibold">{navItems.find((item) => item.id === view)?.label || secondaryNavItems.find((item) => item.id === view)?.label}</h1>
           </div>
           <div className="flex items-center gap-2">
-            {view === "pipeline" && canWrite && <button className={buttonPrimary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
             {view === "jobs" && canWrite && <button className={buttonPrimary} onClick={() => resetJobForm()}>New job</button>}
             {view === "candidates" && canWrite && <button className={buttonPrimary} onClick={() => setCandidateFormOpen(true)}>Add candidate</button>}
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
@@ -1619,7 +1510,6 @@ export default function AtsWorkspace() {
               </div>
               <div className="bp-dashboard-actions flex gap-2">
                 {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
-                {canWrite && <button className={buttonSecondary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
                 {canWrite && import.meta.env.DEV && <button type="button" className={buttonSecondary} onClick={populateDemoData} disabled={demoPopulationLoading} title="Add synthetic jobs, candidates, pipeline stages, interviews, offers, talent pools, and workflow examples. Existing data is preserved.">
                   <svg aria-hidden="true" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <ellipse cx="12" cy="5" rx="8" ry="3" />
@@ -1649,11 +1539,11 @@ export default function AtsWorkspace() {
                   <strong>{candidates.length}</strong>
                   <small>Profiles available to your team</small>
                 </button>
-                <button type="button" className="bp-metric-card" onClick={() => setView("pipeline")}>
-                  <span className="bp-metric-label">Applications in pipeline</span>
+                <div className="bp-metric-card">
+                  <span className="bp-metric-label">Applications received</span>
                   <strong>{dashboardData.metrics?.total_applications ?? 0}</strong>
-                  <small>Applications across all stages</small>
-                </button>
+                  <small>Applications recorded in the ATS</small>
+                </div>
                 <button type="button" className="bp-metric-card" onClick={() => setView("interviews-2")}>
                   <span className="bp-metric-label">Upcoming interviews</span>
                   <strong>{dashboardData.upcoming_interviews?.length || 0}</strong>
@@ -1664,8 +1554,7 @@ export default function AtsWorkspace() {
               <section className="bp-dashboard-secondary mt-8 grid gap-8 lg:grid-cols-2">
                 <div>
                   <div className="flex items-baseline justify-between gap-3">
-                    <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Attention</p><h3 className="mt-1 text-lg font-semibold">Latest applications</h3></div>
-                    <button className="text-sm font-semibold underline underline-offset-4" onClick={() => setView("pipeline")}>View all</button>
+                    <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Attention</p><h3 className="mt-1 text-lg font-semibold">Recent applications</h3></div>
                   </div>
                   <div className="mt-3 divide-y divide-ink-100">
                     {(dashboardData.recent_applications || []).slice(0, 6).map((application) => <button key={application.id} className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-ink-50" onClick={() => { setSelectedCandidate(application.candidate_id); setView("candidates"); }}>
@@ -1719,117 +1608,6 @@ export default function AtsWorkspace() {
                 </div>
               </details>
             </>}
-          </>}
-
-          {view === "pipeline" && <>
-            <div className="mb-6 flex flex-col gap-4 border-b border-ink-100 pb-5 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-xs font-medium text-ink-500">Candidate pipeline</p>
-                <h2 className="mt-1 text-2xl font-semibold tracking-tight">Applications</h2>
-                <p className="mt-1 text-sm text-ink-500">Make the next recruiting decision: who needs review, movement, or follow-up?</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button className={buttonSecondary} onClick={exportCsv}>Export CSV</button>
-                {canWrite && <button className={buttonPrimary} onClick={() => { setApplicationFormOpen(true); setError(""); }}>Add application</button>}
-              </div>
-            </div>
-
-            <form onSubmit={loadFilteredApplications} className="mb-5">
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <div className="min-w-0 flex-1">
-                  <label className="sr-only" htmlFor="application-search">Search applications</label>
-                  <input id="application-search" className={inputStyle} placeholder="Search candidate, email, or role" value={filters.search} onChange={(event) => setFilter("search", event.target.value)} />
-                </div>
-                <SelectField label="Stage" value={filters.stage_name} onChange={(event) => setFilter("stage_name", event.target.value)}>
-                  <option value="">All stages</option>
-                  {STAGES.map((stage) => <option key={stage}>{stage}</option>)}
-                </SelectField>
-                <button type="submit" className={buttonSecondary}>Apply</button>
-                <details className="relative">
-                  <summary className="cursor-pointer list-none rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm font-semibold text-ink-700 hover:bg-ink-50">More filters</summary>
-                  <div className="absolute right-0 z-10 mt-2 w-[min(92vw,680px)] border border-ink-100 bg-white p-4 shadow-lg">
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <Field label="Skill" placeholder="Python" value={filters.skill} onChange={(event) => setFilter("skill", event.target.value)} />
-                      <Field label="Source" placeholder="Referral" value={filters.source} onChange={(event) => setFilter("source", event.target.value)} />
-                      <Field label="Applied after" type="date" value={filters.applied_after} onChange={(event) => setFilter("applied_after", event.target.value)} />
-                      <Field label="Applied before" type="date" value={filters.applied_before} onChange={(event) => setFilter("applied_before", event.target.value)} />
-                    </div>
-                    <button type="button" className="mt-3 text-xs font-semibold text-ink-500 underline underline-offset-4" onClick={() => setFilters({ search: "", skill: "", stage_name: "", source: "", applied_after: "", applied_before: "" })}>Clear all filters</button>
-                  </div>
-                </details>
-              </div>
-            </form>
-
-            {canWrite && selectedApplications.length > 0 && (
-              <div className="mb-4 flex flex-wrap items-center gap-3 border-y border-gold-200 bg-[#fbf7ef] px-3 py-3">
-                <span className="mr-auto text-sm font-semibold">{selectedApplications.length} selected</span>
-                <div className="w-40"><SelectField label="Move to" value={bulkStage} onChange={(event) => setBulkStage(event.target.value)}>{STAGES.map((stage) => <option key={stage}>{stage}</option>)}</SelectField></div>
-                <button className={buttonPrimary} onClick={() => moveSelected()}>Move stage</button>
-                <button className="rounded-md border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50" onClick={() => moveSelected("Rejected")}>Reject</button>
-              </div>
-            )}
-
-            <div className="overflow-x-auto border-y border-ink-100 bg-white">
-              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
-                <thead className="border-b border-ink-100 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
-                  <tr>
-                    <th className="w-10 px-3 py-3 text-center"><span className="sr-only">Select</span></th>
-                    <th className="px-3 py-3">Candidate</th>
-                    <th className="px-3 py-3">Role</th>
-                    <th className="px-3 py-3">Stage</th>
-                    <th className="px-3 py-3">Match signal</th>
-                    <th className="px-3 py-3">Applied</th>
-                    <th className="px-3 py-3">Next action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-ink-100">
-                  {applications.map((application) => {
-                    const signal = applicationMatchSignal(application, jobs);
-                    const candidateName = `${application.candidate.first_name || ""} ${application.candidate.last_name || ""}`.trim() || "Unnamed candidate";
-                    const stage = application.stage_name || "Applied";
-                    const nextAction = stage === "Applied" ? "Review" : stage === "Screening" ? "Screen" : stage === "Interview" ? "Collect feedback" : stage === "Offer" ? "Review offer" : stage === "Hired" ? "Complete" : "Review";
-                    return (
-                      <tr key={application.id} className="group hover:bg-[#fcfcfa]">
-                        <td className="px-3 py-4 text-center align-top">
-                          <input aria-label={`Select ${candidateName}`} type="checkbox" checked={selectedApplications.includes(application.id)} onChange={() => toggleApplication(application.id)} disabled={!canWrite} className="h-4 w-4" />
-                        </td>
-                        <td className="px-3 py-4 align-top">
-                          <button className="text-left font-semibold text-ink-900 hover:underline" onClick={() => { setSelectedCandidate(application.candidate_id); setView("candidates"); }}>{candidateName}</button>
-                          <p className="mt-1 max-w-[250px] truncate text-xs text-ink-500">{application.candidate.email}</p>
-                        </td>
-                        <td className="px-3 py-4 align-top">
-                          <p className="max-w-[220px] truncate font-medium text-ink-800">{application.job_title || "Role not specified"}</p>
-                          <p className="mt-1 text-xs text-ink-500">{application.candidate.source || "Direct"}</p>
-                        </td>
-                        <td className="px-3 py-4 align-top">
-                          <select aria-label={`Stage for ${candidateName}`} className="rounded-md border border-ink-100 bg-white px-2.5 py-2 text-xs font-semibold text-ink-800 outline-none focus:border-ink-300 focus:ring-2 focus:ring-ink-100" value={stage} disabled={!canWrite} onChange={(event) => changeStage(application.id, event.target.value)}>
-                            {STAGES.map((item) => <option key={item}>{item}</option>)}
-                          </select>
-                        </td>
-                        <td className="px-3 py-4 align-top">
-                          {signal.value === null ? (
-                            <span className="text-xs text-ink-400">{signal.label}</span>
-                          ) : (
-                            <div>
-                              <div className="flex items-baseline gap-2">
-                                <span className={`text-sm font-semibold ${signal.value >= 80 ? "text-emerald-700" : signal.value >= 50 ? "text-amber-700" : "text-rose-700"}`}>{signal.value}%</span>
-                                <span className="text-xs text-ink-500">{signal.label}</span>
-                              </div>
-                              <p className="mt-1 text-xs text-ink-500">{signal.detail}</p>
-                            </div>
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-4 align-top text-xs text-ink-500">{new Date(application.applied_at).toLocaleDateString()}</td>
-                        <td className="px-3 py-4 align-top">
-                          <button type="button" className="text-sm font-semibold text-ink-900 underline underline-offset-4 hover:text-ink-600" onClick={() => { setSelectedCandidate(application.candidate_id); setView("candidates"); }}>{nextAction}</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {!applications.length && <EmptyState title="No applications found" detail="Create an application or adjust your filters." />}
-            </div>
           </>}
 
           {view === "jobs" && <>
@@ -2496,34 +2274,6 @@ export default function AtsWorkspace() {
         />
       )}
 
-      {applicationFormOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setApplicationFormOpen(false); setApplicationResumeFile(null); } }}>
-        <form onSubmit={createApplication} className="w-full max-w-lg bg-white p-5 shadow-xl">
-          <div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold">Add to pipeline</h2><button type="button" aria-label="Close dialog" onClick={() => { setApplicationFormOpen(false); setApplicationResumeFile(null); }}>×</button></div>
-          <div className="mb-5 flex gap-2 border-b border-ink-100 pb-3">
-            <button type="button" onClick={() => setApplicationEntryMode("existing")} className={applicationEntryMode === "existing" ? buttonPrimary : buttonSecondary}>Select candidate</button>
-            <button type="button" onClick={() => setApplicationEntryMode("upload")} className={applicationEntryMode === "upload" ? buttonPrimary : buttonSecondary}>Upload resume</button>
-          </div>
-          <div className="grid gap-4">
-            <SelectField label="Open job" required value={applicationForm.job_id} onChange={(event) => setApplicationForm({ ...applicationForm, job_id: event.target.value })}>
-              <option value="">Choose a job</option>
-              {jobs.filter((job) => job.status === "open").map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
-            </SelectField>
-            {applicationEntryMode === "existing" ? (
-              <SelectField label="Candidate" required value={applicationForm.candidate_id} onChange={(event) => setApplicationForm({ ...applicationForm, candidate_id: event.target.value })}>
-                <option value="">Choose a candidate</option>
-                {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.first_name} {candidate.last_name} · {candidate.email}</option>)}
-              </SelectField>
-            ) : (
-              <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
-                Resume (PDF or DOCX)
-                <input className={inputStyle + " p-2"} type="file" accept=".pdf,.docx" required onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setApplicationResumeFile(null); setError(`Resume must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setApplicationResumeFile(selected); setError(""); }} />
-                <span className="text-[11px] font-normal text-ink-400">{applicationResumeFile ? applicationResumeFile.name : "Upload the candidate resume. Details are extracted automatically and the application is matched to the selected job."}</span>
-              </label>
-            )}
-          </div>
-          <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => { setApplicationFormOpen(false); setApplicationResumeFile(null); }}>Cancel</button><button type="submit" className={buttonPrimary}>{applicationEntryMode === "upload" ? "Upload & add application" : "Add application"}</button></div>
-        </form>
-      </div>}
     </div>
   );
 }
