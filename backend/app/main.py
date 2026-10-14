@@ -413,11 +413,89 @@ def _split_candidate_name(name: str | None) -> tuple[str, str]:
 
 def _infer_work_mode(text: str | None) -> str:
     content = str(text or "")
-    if re.search(r"\b(remote|work from home|wfh|fully remote)\b", content, re.IGNORECASE):
-        return "remote"
     if re.search(r"\b(hybrid|flexible work|hybrid work)\b", content, re.IGNORECASE):
         return "hybrid"
+    if re.search(r"\b(remote|work from home|wfh|fully remote|telecommute)\b", content, re.IGNORECASE):
+        return "remote"
     return "onsite"
+
+
+def _normalize_employment_type(value) -> str | None:
+    if isinstance(value, list):
+        value = ", ".join(str(item) for item in value if item)
+    raw = re.sub(r"\s+", " ", str(value or "").replace("_", " ").replace("-", " ")).strip()
+    if not raw:
+        return None
+    normalized = raw.casefold()
+    if re.search(r"\b(intern|internship|apprentice|apprenticeship)\b", normalized):
+        return "Internship"
+    if re.search(r"\bpart\s*time\b", normalized):
+        return "Part-time"
+    if re.search(r"\btemporary|seasonal\b", normalized):
+        return "Temporary"
+    if re.search(r"\b(contract|contractor|fixed\s*term|freelance)\b", normalized):
+        return "Contract"
+    if re.search(r"\b(full\s*time|permanent)\b", normalized):
+        return "Full-time"
+    return raw.title()[:50]
+
+
+def _infer_employment_type(text: str | None) -> str | None:
+    content = str(text or "")
+    return _normalize_employment_type(content) if re.search(
+        r"\b(intern(ship)?|apprentice(ship)?|part[ -]?time|temporary|seasonal|contract(or)?|fixed[ -]?term|freelance|full[ -]?time|permanent)\b",
+        content,
+        re.IGNORECASE,
+    ) else None
+
+
+def _infer_job_department(title: str | None, description: str | None, structured_industry=None) -> str | None:
+    if isinstance(structured_industry, dict):
+        structured_industry = structured_industry.get("name") or structured_industry.get("value")
+    if isinstance(structured_industry, list):
+        structured_industry = ", ".join(str(item) for item in structured_industry if item)
+    industry = re.sub(r"\s+", " ", str(structured_industry or "")).strip()
+    if industry:
+        # Some job boards prefix occupational categories with a taxonomy code.
+        industry = re.sub(r"^\d{2}-\d{4}(?:\.\d+)?\s*[-:]\s*", "", industry)
+        if industry and len(industry) <= 200:
+            return industry
+
+    def classify(text: str) -> str | None:
+        checks = (
+            (r"\b(data scientist|data science|data engineer|machine learning|artificial intelligence|\bai engineer|analytics engineer|research scientist)\b", "Data & AI"),
+            (r"\b(software engineer|software developer|developer|engineering|engineer|devops|site reliability|cloud engineer|quality assurance|qa engineer|automation tester|cybersecurity|information technology|\bsre\b)\b", "Engineering & Technology"),
+            (r"\b(product manager|product owner|product management)\b", "Product"),
+            (r"\b(recruiter|recruiting|talent acquisition|human resources|\bhr manager)\b", "Human Resources"),
+            (r"\b(marketing|growth marketing|seo specialist|content strategist|brand manager)\b", "Marketing"),
+            (r"\b(account executive|sales representative|business development|sales manager)\b", "Sales"),
+            (r"\b(accountant|accounting|financial analyst|finance manager|auditor)\b", "Finance"),
+            (r"\b(customer support|customer service|customer success|support specialist)\b", "Customer Support"),
+            (r"\b(operations manager|operations analyst|supply chain|logistics|warehouse)\b", "Operations"),
+            (r"\b(designer|ux designer|ui designer|graphic design)\b", "Design"),
+        )
+        for pattern, department_name in checks:
+            if re.search(pattern, text, re.IGNORECASE):
+                return department_name
+        return None
+
+    title_text = str(title or "").strip()
+    return classify(title_text) or classify(title_text + "\n" + str(description or "")[:3000])
+
+
+def _salary_from_jobposting(posting: dict) -> dict | None:
+    salary = posting.get("baseSalary")
+    if not isinstance(salary, dict):
+        return None
+    value = salary.get("value") if isinstance(salary.get("value"), dict) else {}
+    result = {
+        "currency": salary.get("currency"),
+        "unit": value.get("unitText") or salary.get("unitText"),
+        "minimum": value.get("minValue"),
+        "maximum": value.get("maxValue"),
+        "value": value.get("value"),
+    }
+    return {key: item for key, item in result.items() if item is not None and item != ""}
 
 
 def _public_admin_id(db: Session, organization_id: int) -> int:
@@ -460,10 +538,12 @@ class _JobPageParser(HTMLParser):
     def __init__(self):
         super().__init__()
         self.title_parts = []
+        self.h1_parts = []
         self.visible_parts = []
         self.meta = {}
         self.jsonld_blocks = []
         self._capture_title = False
+        self._capture_h1 = False
         self._capture_script = False
         self._script_type = ""
         self._script_parts = []
@@ -473,6 +553,8 @@ class _JobPageParser(HTMLParser):
         attrs_map = dict(attrs)
         if tag == "title":
             self._capture_title = True
+        elif tag == "h1":
+            self._capture_h1 = True
         elif tag == "meta":
             key = attrs_map.get("name") or attrs_map.get("property")
             value = attrs_map.get("content")
@@ -490,6 +572,8 @@ class _JobPageParser(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "title":
             self._capture_title = False
+        elif tag == "h1":
+            self._capture_h1 = False
         elif tag == "script":
             if self._capture_script and "ld+json" in self._script_type:
                 self.jsonld_blocks.append("".join(self._script_parts))
@@ -502,6 +586,8 @@ class _JobPageParser(HTMLParser):
     def handle_data(self, data):
         if self._capture_title:
             self.title_parts.append(data)
+        if self._capture_h1:
+            self.h1_parts.append(data)
         if self._capture_script:
             self._script_parts.append(data)
         if self._skip_depth == 0 and not self._capture_script and data.strip():
@@ -512,6 +598,9 @@ class _JobPageParser(HTMLParser):
 
     def title(self):
         return re.sub(r"\s+", " ", " ".join(self.title_parts)).strip()
+
+    def heading(self):
+        return re.sub(r"\s+", " ", " ".join(self.h1_parts)).strip()
 
 
 def _clean_job_link(value: str) -> tuple[str | None, str]:
@@ -754,7 +843,17 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
         )
 
     posting = _jsonld_jobposting(parser.jsonld_blocks)
-    title = str(posting.get("title") or rendered_title or parser.title() or "").strip()
+    # Prefer role-specific metadata/headings to generic page titles such as
+    # "Careers" or "Open positions" when JSON-LD JobPosting is unavailable.
+    title = str(
+        posting.get("title")
+        or parser.heading()
+        or parser.meta.get("og:title")
+        or parser.meta.get("twitter:title")
+        or rendered_title
+        or parser.title()
+        or ""
+    ).strip()
     if " | " in title:
         title = title.split(" | ", 1)[0].strip()
     location = None
@@ -770,10 +869,38 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
     if not location:
         location = parser.meta.get("location")
 
+    employment_type = _normalize_employment_type(posting.get("employmentType")) if posting else None
+    employment_type = employment_type or _infer_employment_type(description)
+    hiring_organization = posting.get("hiringOrganization") if posting else None
+    company_name = (
+        hiring_organization.get("name")
+        if isinstance(hiring_organization, dict)
+        else str(hiring_organization).strip() if hiring_organization else None
+    )
+    industry = (posting.get("industry") or posting.get("occupationalCategory")) if posting else None
+    location_type = str(posting.get("jobLocationType") or "").casefold() if posting else ""
+    structured_work_mode = (
+        "remote" if "telecommute" in location_type or "remote" in location_type
+        else "hybrid" if "hybrid" in location_type
+        else None
+    )
+    if not location and re.search(r"\b(remote|worldwide|anywhere)\b", description, re.IGNORECASE):
+        location = "Remote"
+    salary = _salary_from_jobposting(posting) if posting else None
+    department = _infer_job_department(title, description, industry)
+
     return final_url, title, {
         "description": description,
         "location": location,
-        "employment_type": posting.get("employmentType") if posting else None,
+        "employment_type": employment_type,
+        "work_mode": structured_work_mode or _infer_work_mode(description),
+        "company_name": company_name,
+        "department": department,
+        "industry": industry,
+        "salary": salary,
+        "date_posted": posting.get("datePosted") if posting else None,
+        "valid_through": posting.get("validThrough") if posting else None,
+        "identifier": posting.get("identifier") if posting else None,
         "source_url": final_url,
         "source": "Job URL import",
     }
@@ -784,7 +911,7 @@ async def resume_lab_job_description(
     file: UploadFile | None = File(default=None),
     job_url: str | None = Form(default=None),
 ):
-    """Load a job description from PDF/DOCX or a public job URL."""
+    """Extract the full JD plus machine-detected metadata for Resume Lab."""
     cleaned_url = (job_url or "").strip()
     if file is None and not cleaned_url:
         raise HTTPException(status_code=400, detail="Provide a JD PDF/DOCX file or a public job URL.")
@@ -802,29 +929,93 @@ async def resume_lab_job_description(
         if not content:
             raise HTTPException(status_code=400, detail="The uploaded JD file is empty.")
         try:
-            extracted = extractor_service.extract_to_json(content, f"job-description{suffix}")
+            extracted = await asyncio.to_thread(
+                extractor_service.extract_to_json, content, f"job-description{suffix}"
+            )
         except DocumentExtractionError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         description = str(extracted.get("raw_text") or "").strip()
         if len(description) < 40:
             raise HTTPException(status_code=422, detail="Could not extract a usable job description from that file.")
+
+        lines = [line.strip() for line in description.splitlines() if line.strip()]
+        generic_headings = {"job description", "job description:", "jd", "job profile", "job opening", "position"}
+        title = next(
+            (line[:200] for line in lines if len(line) <= 200 and line.casefold() not in generic_headings),
+            Path(file.filename or "Job opening").stem.replace("_", " ").replace("-", " ").strip()[:200] or "Job opening",
+        )
+        analysis = matching_service.parse_job_description(title, description, use_llm=False)
+        employment_type = _infer_employment_type(description)
+        work_mode = _infer_work_mode(description)
+        department = _infer_job_department(title, description)
+        fresher_allowed = bool(
+            re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", description, re.IGNORECASE)
+            or re.search(r"\b0\s*(?:years?|yrs?)\b", description, re.IGNORECASE)
+        )
+        analysis.update({
+            "source": "Job description document import",
+            "source_file": file.filename,
+            "department": department,
+            "employment_type": employment_type,
+            "work_mode": work_mode,
+            "fresher_allowed": fresher_allowed,
+        })
         return {
             "status": "success",
             "source": "file",
             "filename": file.filename,
-            "title": "",
+            "title": title,
             "description": description,
+            "department": department,
+            "location": analysis.get("location"),
+            "employment_type": employment_type,
+            "work_mode": work_mode,
+            "required_skills": analysis.get("required_skills", []),
+            "minimum_experience_years": analysis.get("minimum_experience_years"),
+            "fresher_allowed": fresher_allowed,
+            "jd_analysis": analysis,
         }
 
     final_url, title, payload = await asyncio.to_thread(_fetch_job_page, cleaned_url)
+    analysis = matching_service.parse_job_description(
+        title, payload["description"], payload.get("location"), use_llm=False
+    )
+    analysis.update({
+        "source_url": final_url,
+        "source": "Job URL import",
+        "company_name": payload.get("company_name"),
+        "department": payload.get("department"),
+        "employment_type": payload.get("employment_type"),
+        "salary": payload.get("salary"),
+        "industry": payload.get("industry"),
+        "date_posted": payload.get("date_posted"),
+        "valid_through": payload.get("valid_through"),
+        "external_identifier": payload.get("identifier"),
+        "work_mode": payload.get("work_mode"),
+        "fresher_allowed": bool(
+            re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", payload["description"], re.IGNORECASE)
+            or re.search(r"\b0\s*(?:years?|yrs?)\b", payload["description"], re.IGNORECASE)
+        ),
+    })
     return {
         "status": "success",
         "source": "url",
         "source_url": final_url,
         "title": title,
         "description": payload["description"],
-        "location": payload.get("location"),
+        "location": payload.get("location") or analysis.get("location"),
+        "department": payload.get("department"),
+        "company_name": payload.get("company_name"),
         "employment_type": payload.get("employment_type"),
+        "work_mode": payload.get("work_mode"),
+        "salary": payload.get("salary"),
+        "industry": payload.get("industry"),
+        "date_posted": payload.get("date_posted"),
+        "valid_through": payload.get("valid_through"),
+        "required_skills": analysis.get("required_skills", []),
+        "minimum_experience_years": analysis.get("minimum_experience_years"),
+        "fresher_allowed": analysis.get("fresher_allowed", False),
+        "jd_analysis": analysis,
     }
 
 
@@ -1588,29 +1779,65 @@ async def create_job_from_url(
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
+    """Create a job directly from a public posting and infer available metadata."""
     input_url, markdown_title = _clean_job_link(url)
     source_url, page_title, page = await asyncio.to_thread(_fetch_job_page, input_url or url)
     effective_title = (title or markdown_title or page_title or "Imported job").strip()[:200]
-    analysis = matching_service.parse_job_description(effective_title, page["description"], location or page.get("location"), use_llm=False)
+    description = page["description"]
+    effective_location = (location.strip() if location else None) or page.get("location")
+    effective_department = (department.strip() if department else None) or page.get("department") or _infer_job_department(
+        effective_title, description, page.get("industry")
+    )
+    effective_employment_type = (
+        (employment_type.strip() if employment_type else None)
+        or page.get("employment_type")
+        or _infer_employment_type(description)
+    )
+    effective_work_mode = (
+        work_mode if work_mode in {"remote", "hybrid", "onsite"}
+        else page.get("work_mode") or _infer_work_mode(description)
+    )
+    analysis = matching_service.parse_job_description(
+        effective_title, description, effective_location, use_llm=False
+    )
+    inferred_fresher = bool(
+        re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", description, re.IGNORECASE)
+        or re.search(r"\b0\s*(?:years?|yrs?)\b", description, re.IGNORECASE)
+    )
+    allow_fresher = bool(fresher_allowed) if fresher_allowed is not None else inferred_fresher
+    analysis.update({
+        "source_url": source_url,
+        "source": "Job URL import",
+        "company_name": page.get("company_name"),
+        "department": effective_department,
+        "employment_type": effective_employment_type,
+        "salary": page.get("salary"),
+        "industry": page.get("industry"),
+        "date_posted": page.get("date_posted"),
+        "valid_through": page.get("valid_through"),
+        "external_identifier": page.get("identifier"),
+        "fresher_allowed": allow_fresher,
+        "work_mode": effective_work_mode,
+    })
+
     job = Job(
         organization_id=user.organization_id,
         created_by_id=user.id,
         title=effective_title,
-        description=page["description"],
-        department=department.strip() if department else None,
-        location=(location.strip() if location else page.get("location")),
-        employment_type=(employment_type.strip() if employment_type else page.get("employment_type")),
-        work_mode=work_mode if work_mode in {"remote", "hybrid", "onsite"} else _infer_work_mode(page["description"]),
+        description=description,
+        department=effective_department,
+        location=effective_location or analysis.get("location"),
+        employment_type=effective_employment_type,
+        work_mode=effective_work_mode,
         status=status_value if status_value in {"draft", "open", "paused", "closed"} else "open",
         required_skills=list(dict.fromkeys(analysis.get("required_skills", []))),
         minimum_experience_years=(
-            minimum_experience_years if minimum_experience_years is not None else analysis.get("minimum_experience_years")
+            minimum_experience_years
+            if minimum_experience_years is not None
+            else analysis.get("minimum_experience_years")
         ),
-        fresher_allowed=bool(fresher_allowed) if fresher_allowed is not None else bool(
-            re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", page["description"], re.IGNORECASE)
-            or re.search(r"\b0\s*(?:years?|yrs?)\b", page["description"], re.IGNORECASE)
-        ),
-        jd_analysis={**analysis, "source_url": source_url, "source": "Job URL import"},
+        fresher_allowed=allow_fresher,
+        jd_analysis=analysis,
         embedding=None,
     )
     db.add(job)
@@ -1635,7 +1862,7 @@ async def create_job_from_document(
     title: str | None = Form(default=None),
     department: str | None = Form(default=None),
     location: str | None = Form(default=None),
-    employment_type: str | None = Form(default="Full-time"),
+    employment_type: str | None = Form(default=None),
     work_mode: str | None = Form(default=None),
     status_value: str = Form(default="open"),
     minimum_experience_years: int | None = Form(default=None),
@@ -1643,48 +1870,65 @@ async def create_job_from_document(
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
+    """Create a job from a PDF/DOCX and infer all fields present in the document."""
     if status_value not in {"draft", "open", "paused", "closed"}:
         raise HTTPException(status_code=400, detail="Invalid job status.")
 
     suffix, content = await _read_resume_upload(file)
     try:
         parsed = await asyncio.to_thread(
-        extractor_service.extract_to_json,
-        content,
-        f"job{suffix}",
-    )
+            extractor_service.extract_to_json,
+            content,
+            f"job{suffix}",
+        )
     except DocumentExtractionError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
     raw_text = str(parsed.get("raw_text") or "").strip()
-    if not raw_text:
-        raise HTTPException(status_code=422, detail="No readable job description text was found.")
+    if len(raw_text) < 40:
+        raise HTTPException(status_code=422, detail="No usable job description text was found in that file.")
 
     lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    generic_headings = {"job description", "job description:", "jd", "job profile", "job opening", "position"}
     inferred_title = next(
-        (
-            line[:200]
-            for line in lines
-            if len(line) <= 200 and line.casefold() not in {"job description", "job description:", "jd", "job profile"}
-        ),
+        (line[:200] for line in lines if len(line) <= 200 and line.casefold() not in generic_headings),
         Path(file.filename or "Job opening").stem.replace("_", " ").replace("-", " ").strip()[:200] or "Job opening",
     )
     effective_title = (title or inferred_title).strip()[:200]
-    analysis = matching_service.parse_job_description(effective_title, raw_text, location)
+    analysis = matching_service.parse_job_description(effective_title, raw_text, location, use_llm=False)
+    effective_location = (location.strip() if location else None) or analysis.get("location")
+    effective_department = (department.strip() if department else None) or _infer_job_department(
+        effective_title, raw_text
+    )
+    effective_employment_type = (
+        (employment_type.strip() if employment_type else None) or _infer_employment_type(raw_text)
+    )
+    effective_work_mode = (
+        work_mode if work_mode in {"remote", "hybrid", "onsite"} else _infer_work_mode(raw_text)
+    )
     inferred_fresher = bool(
         re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", raw_text, re.IGNORECASE)
         or re.search(r"\b0\s*(?:years?|yrs?)\b", raw_text, re.IGNORECASE)
     )
+    allow_fresher = bool(fresher_allowed) if fresher_allowed is not None else inferred_fresher
+    analysis.update({
+        "source": "Job description document import",
+        "source_file": file.filename,
+        "department": effective_department,
+        "employment_type": effective_employment_type,
+        "fresher_allowed": allow_fresher,
+        "work_mode": effective_work_mode,
+    })
 
     job = Job(
         organization_id=user.organization_id,
         created_by_id=user.id,
         title=effective_title,
         description=raw_text,
-        department=department.strip() if department else None,
-        location=(location.strip() if location else analysis.get("location")),
-        employment_type=employment_type.strip() if employment_type else None,
-        work_mode=work_mode if work_mode in {"remote", "hybrid", "onsite"} else _infer_work_mode(raw_text),
+        department=effective_department,
+        location=effective_location,
+        employment_type=effective_employment_type,
+        work_mode=effective_work_mode,
         status=status_value,
         required_skills=list(dict.fromkeys(analysis.get("required_skills", []))),
         minimum_experience_years=(
@@ -1692,11 +1936,10 @@ async def create_job_from_document(
             if minimum_experience_years is not None
             else analysis.get("minimum_experience_years")
         ),
-        fresher_allowed=inferred_fresher if fresher_allowed is None else bool(fresher_allowed),
+        fresher_allowed=allow_fresher,
         jd_analysis=analysis,
         embedding=None,
     )
-    analysis["fresher_allowed"] = job.fresher_allowed
     db.add(job)
     db.flush()
     ensure_job_stages(db, job)
@@ -1755,7 +1998,18 @@ def update_job(
     if set(updates) & {
         "title", "description", "location", "work_mode", "required_skills", "minimum_experience_years", "fresher_allowed"
     }:
-        job.jd_analysis = matching_service.analyze_job(job)
+        previous_analysis = job.jd_analysis if isinstance(job.jd_analysis, dict) else {}
+        refreshed_analysis = matching_service.analyze_job(job)
+        # Keep provenance metadata attached to URL/document imports when the
+        # derived matching analysis is rebuilt after a recruiter edits a field.
+        for metadata_field in (
+            "source_url", "source", "source_file", "company_name", "salary",
+            "industry", "date_posted", "valid_through", "external_identifier",
+            "department", "employment_type",
+        ):
+            if metadata_field in previous_analysis and metadata_field not in refreshed_analysis:
+                refreshed_analysis[metadata_field] = previous_analysis[metadata_field]
+        job.jd_analysis = refreshed_analysis
         job.embedding = None
     record_audit(
         db,
@@ -1765,6 +2019,79 @@ def update_job(
         job.id,
         before=before,
         after=_audit_job(job),
+    )
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+@app.post("/jobs/{job_id}/refresh-source", response_model=JobRead)
+async def refresh_job_from_source(
+    job_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Refresh an imported job from its saved public source URL without manual re-entry."""
+    job = _get_org_record(db, Job, job_id, user.organization_id)
+    before = _audit_job(job)
+    source_url = str(((job.jd_analysis or {}).get("source_url") or "")).strip()
+    if not source_url:
+        raise HTTPException(
+            status_code=422,
+            detail="This job has no saved public source URL. Import an updated PDF/DOCX document to replace its description.",
+        )
+
+    source_url, page_title, page = await asyncio.to_thread(_fetch_job_page, source_url)
+    description = str(page.get("description") or "").strip()
+    if len(description) < 40:
+        raise HTTPException(status_code=422, detail="The source page did not return a usable job description.")
+
+    title = str(page_title or job.title or "Imported job").strip()[:200]
+    location = page.get("location")
+    department = page.get("department") or _infer_job_department(title, description, page.get("industry"))
+    employment_type = page.get("employment_type") or _infer_employment_type(description)
+    work_mode = page.get("work_mode") or _infer_work_mode(description)
+    fresher_allowed = bool(
+        re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", description, re.IGNORECASE)
+        or re.search(r"\b0\s*(?:years?|yrs?)\b", description, re.IGNORECASE)
+    )
+
+    analysis = matching_service.parse_job_description(title, description, location, use_llm=False)
+    analysis.update({
+        "source_url": source_url,
+        "source": "Job URL import",
+        "company_name": page.get("company_name"),
+        "department": department,
+        "employment_type": employment_type,
+        "salary": page.get("salary"),
+        "industry": page.get("industry"),
+        "date_posted": page.get("date_posted"),
+        "valid_through": page.get("valid_through"),
+        "external_identifier": page.get("identifier"),
+        "work_mode": work_mode,
+        "fresher_allowed": fresher_allowed,
+    })
+
+    job.title = title
+    job.description = description
+    job.department = department
+    job.location = location or analysis.get("location")
+    job.employment_type = employment_type
+    job.work_mode = work_mode
+    job.required_skills = list(dict.fromkeys(analysis.get("required_skills", [])))
+    job.minimum_experience_years = analysis.get("minimum_experience_years")
+    job.fresher_allowed = fresher_allowed
+    job.jd_analysis = analysis
+    job.embedding = None
+
+    record_audit(
+        db,
+        user,
+        "job.refreshed_from_source",
+        "job",
+        job.id,
+        before=before,
+        after={**_audit_job(job), "source_url": source_url},
     )
     db.commit()
     db.refresh(job)

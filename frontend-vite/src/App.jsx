@@ -101,10 +101,71 @@ function FieldValue({ value }) {
   return <span>{String(value)}</span>;
 }
 
+function JobDescriptionPreview({ source, description, details }) {
+  const hasDescription = Boolean(String(description || "").trim());
+  const salary = details?.salary || details?.jd_analysis?.salary;
+  const salaryText = salary && typeof salary === "object"
+    ? [
+        salary.currency,
+        salary.minimum != null || salary.maximum != null
+          ? [salary.minimum, salary.maximum].filter((value) => value != null).join("–")
+          : salary.value,
+        salary.unit,
+      ].filter(Boolean).join(" ")
+    : salary;
+  const skillValue = details?.required_skills || details?.jd_analysis?.required_skills;
+  const rows = [
+    ["Title", details?.title],
+    ["Company", details?.company_name || details?.jd_analysis?.company_name],
+    ["Department", details?.department || details?.jd_analysis?.department],
+    ["Location", details?.location || details?.jd_analysis?.location],
+    ["Employment", details?.employment_type || details?.jd_analysis?.employment_type],
+    ["Work mode", details?.work_mode || details?.jd_analysis?.work_mode],
+    ["Required skills", Array.isArray(skillValue) ? skillValue.join(", ") : skillValue],
+    ["Minimum experience", details?.minimum_experience_years ?? details?.jd_analysis?.minimum_experience_years],
+    ["Education", details?.jd_analysis?.education || details?.education],
+    ["Salary", salaryText],
+    ["Posted", details?.date_posted || details?.jd_analysis?.date_posted],
+    ["Closes", details?.valid_through || details?.jd_analysis?.valid_through],
+  ].filter(([, value]) => value !== null && value !== undefined && value !== "");
+  return (
+    <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3" aria-live="polite">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-ink-700">Active job description source</p>
+        <span className={hasDescription ? "text-[11px] font-semibold text-emerald-700" : "text-[11px] font-semibold text-amber-700"}>
+          {hasDescription ? "Loaded" : "Not selected"}
+        </span>
+      </div>
+      <p className="mt-1 text-xs font-medium text-ink-600">{source || "Select an ATS job or import a public URL/PDF/DOCX."}</p>
+      {rows.length > 0 && (
+        <dl className="mt-3 grid gap-x-4 gap-y-2 border-t border-ink-100 pt-3 sm:grid-cols-2">
+          {rows.map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">{label}</dt>
+              <dd className="mt-0.5 break-words text-xs leading-5 text-ink-700">{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {hasDescription ? (
+        <details className="mt-3 border-t border-ink-100 pt-2">
+          <summary className="cursor-pointer text-xs font-semibold text-blue-700 hover:underline">Review full extracted description ({String(description).length.toLocaleString()} characters)</summary>
+          <p className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs leading-5 text-ink-600">{description}</p>
+        </details>
+      ) : (
+        <p className="mt-2 text-xs leading-5 text-ink-500">Choose an existing job below or import its source once. No manual description typing is required.</p>
+      )}
+    </div>
+  );
+}
+
 export default function App({ theme = "light", onToggleTheme = () => {}, token = "" }) {
   const [file, setFile] = useState(null);
   const [jsonData, setJsonData] = useState(null);
   const [jobDescription, setJobDescription] = useState("");
+  const [jobDescriptionSource, setJobDescriptionSource] = useState("");
+  const [jobDescriptionMetadata, setJobDescriptionMetadata] = useState(null);
+  const [jdSourceMode, setJdSourceMode] = useState("");
   const [jdFile, setJdFile] = useState(null);
   const [jobDescriptionUrl, setJobDescriptionUrl] = useState("");
   const [jdLoading, setJdLoading] = useState(false);
@@ -148,13 +209,47 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     })
       .then((response) => {
         if (!active) return;
-        const rows = Array.isArray(response.data) ? response.data.filter((job) => job.status === "open") : [];
+        const rows = Array.isArray(response.data) ? response.data.filter((job) => job.status !== "archived") : [];
         setResumeLabJobs(rows);
-        setResumeLabJobId((current) => current || String(rows[0]?.id || ""));
+        const preferredJob = rows.find((job) => job.status === "open") || rows[0];
+        setResumeLabJobId((current) => current || String(preferredJob?.id || ""));
       })
       .catch(() => {});
     return () => { active = false; };
   }, [token]);
+
+  useEffect(() => {
+    const selectedJob = resumeLabJobs.find((job) => String(job.id) === String(resumeLabJobId));
+    if (!selectedJob || (jdSourceMode && jdSourceMode !== "ats-job")) return;
+    setJobDescription(selectedJob.description || "");
+    setJobDescriptionSource(`ATS job · ${selectedJob.title}`);
+    setJobDescriptionMetadata(selectedJob);
+    setJdSourceMode("ats-job");
+    setJdFile(null);
+    setJdError("");
+  }, [resumeLabJobId, resumeLabJobs, jdSourceMode]);
+
+  function handleResumeLabJobChange(value) {
+    setResumeLabJobId(value);
+    setJdError("");
+    setJdFile(null);
+    if (!value) {
+      setJobDescription("");
+      setJobDescriptionSource("");
+      setJobDescriptionMetadata(null);
+      setJdSourceMode("");
+      setJobDescriptionUrl("");
+      return;
+    }
+    const selectedJob = resumeLabJobs.find((job) => String(job.id) === String(value));
+    if (selectedJob) {
+      setJobDescription(selectedJob.description || "");
+      setJobDescriptionSource(`ATS job · ${selectedJob.title}`);
+      setJobDescriptionMetadata(selectedJob);
+      setJdSourceMode("ats-job");
+      setJobDescriptionUrl(selectedJob.jd_analysis?.source_url || "");
+    }
+  }
 
   async function loadJobDescriptionFromFile() {
     if (!jdFile) {
@@ -171,9 +266,14 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       const body = new FormData();
       body.append("file", jdFile);
       const response = await postToApi("/resume-processing/job-description", body, {}, token);
-      setJobDescription(response.data?.description || "");
+      const extractedDescription = String(response.data?.description || "").trim();
+      if (!extractedDescription) throw new Error("No job description text was extracted.");
+      setJobDescription(extractedDescription);
+      setJobDescriptionSource(`Uploaded JD · ${response.data?.filename || jdFile.name}`);
+      setJobDescriptionMetadata(response.data || null);
+      setJdSourceMode("file");
+      setResumeLabJobId("");
       setJobDescriptionUrl("");
-      if (!response.data?.description) throw new Error("No job description text was extracted.");
     } catch (error) {
       setJdError(apiErrorMessage(error, "Could not read the JD file."));
     } finally {
@@ -193,11 +293,14 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       const body = new FormData();
       body.append("job_url", value);
       const response = await postToApi("/resume-processing/job-description", body, {}, token);
-      setJobDescription(response.data?.description || "");
-      if (response.data?.title) {
-        setJdError("");
-      }
-      if (!response.data?.description) throw new Error("No job description text was extracted from the link.");
+      const extractedDescription = String(response.data?.description || "").trim();
+      if (!extractedDescription) throw new Error("No job description text was extracted from the link.");
+      setJobDescription(extractedDescription);
+      setJobDescriptionSource(`Imported URL · ${response.data?.title || response.data?.source_url || value}`);
+      setJobDescriptionMetadata(response.data || null);
+      setJdSourceMode("url");
+      setResumeLabJobId("");
+      setJobDescriptionUrl(response.data?.source_url || value);
     } catch (error) {
       setJdError(apiErrorMessage(error, "Could not import the job description from that link."));
     } finally {
@@ -266,7 +369,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
 
   async function handleExtract() {
     if (!file) { setUploadError("Choose a PDF or DOCX resume first."); return; }
-    if (!jobDescription.trim()) { setUploadError("Paste the job description first so the candidate fit can be calculated."); return; }
+    if (!jobDescription.trim()) { setUploadError("Select an ATS job or import a JD from a public URL/PDF/DOCX before calculating candidate fit."); return; }
 
     setLoading(true);
     setJsonData(null);
@@ -381,7 +484,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       return;
     }
     if (!jobDescription.trim()) {
-      setBulkError("Paste the job description before queueing resumes so every candidate can be evaluated for fit.");
+      setBulkError("Select an ATS job or import a JD from a public URL/PDF/DOCX before queueing resumes.");
       return;
     }
 
@@ -598,7 +701,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
 
   async function handleValidate() {
     if (!jsonData || !jobDescription.trim()) {
-      setValidationError("Extract a resume and enter a job description first.");
+      setValidationError("Extract a resume and select or import a job description first.");
       return;
     }
     setValidating(true); setValidationResult(null); setValidationError(""); setValidationTiming(null);
@@ -664,17 +767,11 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             <div className="mt-5 grid gap-3">
               <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
                 Job description for matching
-                <select value={resumeLabJobId} onChange={(event) => setResumeLabJobId(event.target.value)} className="w-full rounded-md border border-ink-100 bg-white p-3 text-sm outline-none focus:border-gold-500">
+                <select value={resumeLabJobId} onChange={(event) => handleResumeLabJobChange(event.target.value)} className="w-full rounded-md border border-ink-100 bg-white p-3 text-sm outline-none focus:border-gold-500">
                   <option value="">No ATS job — Resume Lab only</option>
                   {resumeLabJobs.map((job) => <option key={job.id} value={job.id}>Sync to: {job.title}</option>)}
                 </select>
-                <textarea
-                  rows={5}
-                  value={jobDescription}
-                  onChange={(event) => { setJobDescription(event.target.value); setJdError(""); }}
-                  placeholder="Paste the specific job description. Or import it from a file or public link below."
-                  className="w-full resize-y rounded-md border border-ink-100 bg-[#fafaf8] p-3 text-sm leading-6 outline-none focus:border-gold-500"
-                />
+                <JobDescriptionPreview source={jobDescriptionSource} description={jobDescription} details={jobDescriptionMetadata} />
               </label>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
@@ -683,9 +780,9 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                   <button type="button" onClick={loadJobDescriptionFromFile} disabled={!jdFile || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use uploaded JD"}</button>
                 </div>
                 <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
-                  <p className="text-xs font-semibold text-ink-700">Upload link</p>
-                  <input value={jobDescriptionUrl} onChange={(event) => { setJobDescriptionUrl(event.target.value); setJdError(""); }} placeholder="https://..." className="mt-2 w-full rounded-md border border-ink-100 bg-white px-3 py-2 text-xs outline-none focus:border-gold-500" />
-                  <button type="button" onClick={loadJobDescriptionFromUrl} disabled={!jobDescriptionUrl.trim() || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use JD link"}</button>
+                  <p className="text-xs font-semibold text-ink-700">Import from public job URL</p>
+                  <input value={jobDescriptionUrl} onChange={(event) => { setJobDescriptionUrl(event.target.value); setJdError(""); }} placeholder="https://careers.example.com/jobs/123" className="mt-2 w-full rounded-md border border-ink-100 bg-white px-3 py-2 text-xs outline-none focus:border-gold-500" />
+                  <button type="button" onClick={loadJobDescriptionFromUrl} disabled={!jobDescriptionUrl.trim() || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Importing…" : "Import URL and extract"}</button>
                 </div>
               </div>
               {jdError && <p role="alert" className="text-xs text-rose-700">{jdError}</p>}
@@ -768,20 +865,14 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             </div>
             <label className="mt-5 grid gap-1.5 text-xs font-semibold text-ink-700">
               Target ATS job (optional)
-              <select value={resumeLabJobId} onChange={(event) => setResumeLabJobId(event.target.value)} className="w-full border border-ink-100 bg-white p-3 text-sm outline-none focus:border-gold-500">
+              <select value={resumeLabJobId} onChange={(event) => handleResumeLabJobChange(event.target.value)} className="w-full border border-ink-100 bg-white p-3 text-sm outline-none focus:border-gold-500">
                 <option value="">Resume Lab only</option>
                 {resumeLabJobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
               </select>
             </label>
             <label className="mt-5 grid gap-1.5 text-xs font-semibold text-ink-700">
               Job description for candidate fit
-              <textarea
-                rows={6}
-                value={jobDescription}
-                onChange={(event) => { setJobDescription(event.target.value); setJdError(""); }}
-                placeholder="Paste the specific job description to calculate fit, strengths, skill gaps and evidence."
-                className="w-full resize-y border border-ink-100 bg-[#fafaf8] p-3 text-sm leading-6 outline-none focus:border-gold-500"
-              />
+              <JobDescriptionPreview source={jobDescriptionSource} description={jobDescription} details={jobDescriptionMetadata} />
               <span className="text-[11px] font-normal text-ink-400">The candidate summary is decision-support only and is based on resume-to-JD evidence.</span>
             </label>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -883,7 +974,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               <div><p className="text-xs font-semibold text-ink-500">03 · Validate</p><h3 className="mt-1 text-lg font-semibold">Compare against a job description</h3></div>
               {validationTiming && <span className="text-xs text-ink-500">Server {validationTiming.serverMs.toFixed(0)} ms · Round trip {validationTiming.totalMs} ms</span>}
             </div>
-            <textarea rows={7} value={jobDescription} onChange={(event) => setJobDescription(event.target.value)} placeholder="Paste the job description here…" className="mt-5 w-full resize-y border border-ink-100 bg-[#fafaf8] p-4 text-sm leading-6 outline-none focus:border-gold-500" />
+            <div className="mt-5"><JobDescriptionPreview source={jobDescriptionSource} description={jobDescription} details={jobDescriptionMetadata} /></div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-ink-500">Matching is deterministic and decision-support only. It does not make a hiring decision.</p>
               <button type="button" onClick={handleValidate} disabled={validating || !jobDescription.trim()} className="inline-flex items-center justify-center rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#10131c] hover:bg-[#d4b06a] disabled:opacity-50">
