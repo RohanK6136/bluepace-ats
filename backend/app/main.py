@@ -20,7 +20,7 @@ from html import unescape
 from html.parser import HTMLParser
 from contextlib import asynccontextmanager
 from time import perf_counter
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -33,7 +33,7 @@ from pydantic import BaseModel
 from celery.result import AsyncResult
 
 APP_ENV = os.getenv("APP_ENV", "development")
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -108,7 +108,7 @@ from app.schemas import (
     UserCreate,
     UserRead,
 )
-from app.security import JWT_SECRET, create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
+from app.security import JWT_SECRET, USING_DEVELOPMENT_JWT_FALLBACK, create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
 from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
 from app.services.private_storage import private_storage
 from app.services.request_limits import read_request_body_limited
@@ -230,10 +230,58 @@ async def _delayed_resume_dispatcher_start():
         await resume_queue_dispatcher_loop()
 
 
+def _log_jwt_rotation_impact() -> None:
+    """Log non-sensitive impact counts before a required production key rotation."""
+    if (
+        not USING_DEVELOPMENT_JWT_FALLBACK
+        or os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip().lower() != "production"
+    ):
+        return
+
+    now = datetime.now(timezone.utc)
+    email_cutoff = now - timedelta(days=30)
+    try:
+        with SessionLocal() as db:
+            active_sessions = db.scalar(
+                select(func.count(AuthSession.id)).where(
+                    AuthSession.revoked_at.is_(None),
+                    AuthSession.expires_at > now,
+                )
+            ) or 0
+            recent_portal_emails = db.scalar(
+                select(func.count(Email.id)).where(
+                    Email.status == "sent",
+                    Email.sent_at.is_not(None),
+                    Email.sent_at >= email_cutoff,
+                    or_(
+                        Email.body.ilike("%?portal=%"),
+                        Email.body.ilike("%/public/application/%"),
+                    ),
+                )
+            ) or 0
+
+        print(
+            "[security] JWT rotation impact inventory: "
+            f"active_recruiter_sessions={int(active_sessions)}; "
+            "sent_emails_with_candidate_portal_links_last_30d="
+            f"{int(recent_portal_emails)}; "
+            "manually shared portal links are not persisted for inventory.",
+            flush=True,
+        )
+    except Exception as error:
+        print(
+            "[security] JWT rotation impact inventory failed "
+            f"({type(error).__name__}); review sessions and candidate links "
+            "before rotating secrets.",
+            flush=True,
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     initialize_database()
     ensure_bootstrap_account()
+    _log_jwt_rotation_impact()
     if APP_ENV != "test" and os.getenv("AUTO_POPULATE_DEMO_DATA", "").strip().lower() == "true":
         with SessionLocal() as seed_db:
             configured_name = os.getenv("BOOTSTRAP_ORGANIZATION_NAME", "").strip()
