@@ -46,7 +46,7 @@
           const target = event.target;
           if (
             target instanceof HTMLScriptElement &&
-            /\\/assets\\/.+\\.js(?:\\?|$)/.test(target.src)
+            /\/assets\/.+\.js(?:\?|$)/.test(target.src)
           ) {
             refreshForFreshAssets();
           }
