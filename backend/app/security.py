@@ -96,19 +96,25 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise unauthorized
+
+    # Every recruiter access token must map to a persisted, non-revoked session.
+    # Without this check, a token signed with a predictable fallback secret and
+    # lacking a jti would bypass the session lookup entirely.
     jti = payload.get("jti")
-    if jti:
-        session = db.scalar(
-            select(AuthSession).where(
-                AuthSession.jti == str(jti),
-                AuthSession.user_id == user.id,
-            )
+    if not isinstance(jti, str) or not jti:
+        raise unauthorized
+
+    session = db.scalar(
+        select(AuthSession).where(
+            AuthSession.jti == jti,
+            AuthSession.user_id == user.id,
         )
-        now = datetime.now(timezone.utc)
-        expires_at = _as_utc(session.expires_at if session is not None else None)
-        revoked_at = _as_utc(session.revoked_at if session is not None else None)
-        if session is None or revoked_at is not None or expires_at is None or expires_at <= now:
-            raise unauthorized
+    )
+    now = datetime.now(timezone.utc)
+    expires_at = _as_utc(session.expires_at if session is not None else None)
+    revoked_at = _as_utc(session.revoked_at if session is not None else None)
+    if session is None or revoked_at is not None or expires_at is None or expires_at <= now:
+        raise unauthorized
     return user
 
 
