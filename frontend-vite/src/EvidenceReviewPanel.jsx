@@ -51,6 +51,14 @@ export default function EvidenceReviewPanel({ analysis }) {
     semantic_similarity: "Semantic similarity",
   };
   const scoreRows = Object.keys(scoreLabels).filter((key) => Number.isFinite(Number(scoreBreakdown[key])));
+  const weightedScoreAvailable = scoreRows.length > 0 && scoreRows.every((key) => Number.isFinite(Number(scoreWeights[key])));
+  const weightedScore = weightedScoreAvailable
+    ? scoreRows.reduce((total, key) => total + Number(scoreBreakdown[key]) * Number(scoreWeights[key]), 0)
+    : null;
+  const reportedModelScore = Number(analysis?.model_score ?? analysis?.match_score);
+  const scoreReconciles = weightedScore !== null && Number.isFinite(reportedModelScore)
+    ? Math.abs(weightedScore - reportedModelScore) <= 0.5
+    : null;
   const skillEvidenceRows = [
     ...cleanList(matchEvidence.required_skills).map((item) => ({ ...item, category: "Required skill" })),
     ...cleanList(matchEvidence.preferred_skills).map((item) => ({ ...item, category: "Preferred skill" })),
@@ -131,17 +139,25 @@ export default function EvidenceReviewPanel({ analysis }) {
         <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h6 className="text-xs font-semibold uppercase tracking-wide text-slate-500">How the score is composed</h6>
-            <span className="text-[10px] text-slate-500">Current model components and weights</span>
+            {weightedScore !== null ? (
+              <span className="text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+                Weighted total: {weightedScore.toFixed(1)} / 100
+                {scoreReconciles === true ? " · Reconciles to model score" : scoreReconciles === false ? " · Does not reconcile" : ""}
+              </span>
+            ) : (
+              <span className="text-[10px] text-slate-500">Current model components and weights</span>
+            )}
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {scoreRows.map((key) => {
               const score = Math.max(0, Math.min(100, Number(scoreBreakdown[key])));
               const weight = Number(scoreWeights[key]);
+              const contribution = Number.isFinite(weight) ? score * weight : null;
               return (
                 <div key={key}>
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="font-medium text-slate-700 dark:text-slate-200">{scoreLabels[key]}</span>
-                    <span className="tabular-nums text-slate-600 dark:text-slate-300">{score}%{Number.isFinite(weight) ? ` · ${Math.round(weight * 100)}% weight` : ""}</span>
+                    <span className="tabular-nums text-slate-600 dark:text-slate-300">{score}%{Number.isFinite(weight) ? ` · ${Math.round(weight * 100)}% weight · ${contribution.toFixed(1)} pts` : ""}</span>
                   </div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                     <div className="h-full rounded-full bg-slate-500" style={{ width: `${score}%` }} />
