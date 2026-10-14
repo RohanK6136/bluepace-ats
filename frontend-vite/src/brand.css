@@ -960,3 +960,73 @@ html.dark .bp-admin-shell .ats-mobile-more [aria-current="page"] {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+
+/* Align the ATS header content with the same centered grid as each page module.
+   Keep the header background full-width; constrain only its actual controls. */
+.bp-admin-shell .ats-workspace-header {
+  display: block !important;
+  padding: 0 !important;
+}
+.bp-admin-shell .ats-workspace-header-inner {
+  display: flex;
+  width: 100%;
+  max-width: 1440px;
+  min-height: 82px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-inline: auto;
+  padding: 16px clamp(16px, 2.2vw, 32px);
+}
+.bp-admin-shell .ats-workspace-header-inner > div:first-child {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.bp-admin-shell .ats-workspace-header-inner > div:first-child p {
+  margin: 0 0 3px;
+  color: var(--bp-muted) !important;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.bp-admin-shell .ats-workspace-header-inner h1 {
+  margin: 0;
+  color: var(--bp-text) !important;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.bp-admin-shell .ats-workspace-header-actions {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bp-admin-shell .ats-workspace-header-inner .ats-mobile-nav,
+.bp-admin-shell .ats-workspace-header-inner .ats-mobile-more {
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 100%;
+  box-sizing: border-box;
+}
+@media (max-width: 1023px) {
+  .bp-admin-shell .ats-workspace-header-inner {
+    padding-inline: clamp(16px, 3vw, 28px);
+  }
+}
+@media (max-width: 640px) {
+  .bp-admin-shell .ats-workspace-header-inner {
+    gap: 12px;
+    padding: 14px clamp(16px, 3vw, 28px);
+  }
+  .bp-admin-shell .ats-workspace-header-inner > div:first-child {
+    flex: 1 1 150px;
+  }
+  .bp-admin-shell .ats-workspace-header-actions {
+    flex: 0 1 auto;
+  }
+}

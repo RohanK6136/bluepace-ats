@@ -1450,43 +1450,45 @@ export default function AtsWorkspace() {
       </aside>
 
       <div className="lg:pl-60">
-        <header className="ats-workspace-header sticky top-0 z-20 flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b border-ink-100 bg-white/95 px-4 py-3 backdrop-blur sm:px-7">
-          <div>
-            <p className="text-xs font-medium text-ink-500">{user?.email}</p>
-            <h1 className="text-lg font-semibold">{navItems.find((item) => item.id === view)?.label || secondaryNavItems.find((item) => item.id === view)?.label}</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            {view === "jobs" && canWrite && <button className={buttonPrimary} onClick={() => resetJobForm()}>New job</button>}
-            {view === "candidates" && canWrite && <button className={buttonPrimary} onClick={() => setCandidateFormOpen(true)}>Add candidate</button>}
-            <ThemeToggle theme={theme} onToggle={toggleTheme} />
-            <button className={`${buttonSecondary} lg:hidden`} onClick={signOut}>Sign out</button>
-          </div>
-          <nav className="ats-mobile-nav flex w-full gap-1 overflow-x-auto pb-0.5 lg:hidden" aria-label="Workspace">
-            {navItems.map((item) => <button key={item.id} type="button" aria-current={view === item.id ? "page" : undefined} onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
-            <button
-              type="button"
-              onClick={() => setMoreOpen((open) => !open)}
-              aria-expanded={moreOpen}
-              className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${secondaryNavItems.some((item) => item.id === view) ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}
-            >
-              More {moreOpen ? "−" : "+"}
-            </button>
-          </nav>
-          {moreOpen && (
-            <div className="ats-mobile-more mt-2 flex gap-1 overflow-x-auto border-t border-ink-100 pt-2 lg:hidden" aria-label="More workspace">
-              {secondaryNavItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-current={view === item.id ? "page" : undefined}
-                  onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }}
-                  className={`whitespace-nowrap rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-medium ${view === item.id ? "border-ink-950 bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}
-                >
-                  {item.label}
-                </button>
-              ))}
+        <header className="ats-workspace-header sticky top-0 z-20 min-h-[72px] border-b border-ink-100 bg-white/95 backdrop-blur">
+          <div className="ats-workspace-header-inner">
+            <div>
+              <p className="text-xs font-medium text-ink-500">{user?.email}</p>
+              <h1 className="text-lg font-semibold">{navItems.find((item) => item.id === view)?.label || secondaryNavItems.find((item) => item.id === view)?.label}</h1>
             </div>
-          )}
+            <div className="ats-workspace-header-actions flex items-center gap-2">
+              {view === "jobs" && canWrite && <button className={buttonPrimary} onClick={() => resetJobForm()}>New job</button>}
+              {view === "candidates" && canWrite && <button className={buttonPrimary} onClick={() => setCandidateFormOpen(true)}>Add candidate</button>}
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
+              <button className={`${buttonSecondary} lg:hidden`} onClick={signOut}>Sign out</button>
+            </div>
+            <nav className="ats-mobile-nav flex w-full gap-1 overflow-x-auto pb-0.5 lg:hidden" aria-label="Workspace">
+              {navItems.map((item) => <button key={item.id} type="button" aria-current={view === item.id ? "page" : undefined} onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }} className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${view === item.id ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}>{item.label}</button>)}
+              <button
+                type="button"
+                onClick={() => setMoreOpen((open) => !open)}
+                aria-expanded={moreOpen}
+                className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${secondaryNavItems.some((item) => item.id === view) ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}
+              >
+                More {moreOpen ? "−" : "+"}
+              </button>
+            </nav>
+            {moreOpen && (
+              <div className="ats-mobile-more mt-2 flex gap-1 overflow-x-auto border-t border-ink-100 pt-2 lg:hidden" aria-label="More workspace">
+                {secondaryNavItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-current={view === item.id ? "page" : undefined}
+                    onClick={() => { setView(item.id); setMoreOpen(false); setError(""); }}
+                    className={`whitespace-nowrap rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-medium ${view === item.id ? "border-ink-950 bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-50"}`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </header>
 
         <Suspense fallback={<div className="mx-auto max-w-[1440px] rounded-xl border border-ink-100 bg-white p-6 text-sm text-ink-500">Loading workspace module…</div>}>
