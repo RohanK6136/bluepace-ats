@@ -1172,3 +1172,66 @@ def test_recruiter_assistant_returns_question_specific_structured_answer(client,
     assert payload["screening_email"]
     assert payload["requirement_explanation"]
     assert payload["guardrails"]
+
+
+
+def test_job_source_refresh_reextracts_description_and_metadata(client, monkeypatch):
+    headers = register_and_login(
+        client,
+        email="job-source-refresh@example.com",
+        organization="Source Refresh ATS",
+    )
+    source_url = "https://jobs.example.com/roles/python-engineer"
+
+    initial_page = {
+        "description": "Python Engineer. Build Python APIs and SQL services. Full-time onsite role.",
+        "location": "Pune",
+        "employment_type": "Full-time",
+        "work_mode": "onsite",
+        "company_name": "Example Labs",
+        "department": "Engineering & Technology",
+        "industry": "Technology",
+        "salary": None,
+        "date_posted": "2026-10-01",
+        "valid_through": None,
+        "identifier": {"value": "python-101"},
+        "source_url": source_url,
+        "source": "Job URL import",
+    }
+    latest_page = {
+        **initial_page,
+        "description": "Senior Python Engineer. Build Python and SQL platforms. Minimum 5 years of experience. Hybrid role.",
+        "location": "Hyderabad",
+        "work_mode": "hybrid",
+        "salary": {"currency": "INR", "minimum": 2500000, "maximum": 3500000, "unit": "YEAR"},
+        "date_posted": "2026-10-10",
+    }
+    fetch_state = {"page": initial_page}
+
+    def fake_fetch(url):
+        assert url == source_url
+        page = fetch_state["page"]
+        return source_url, "Senior Python Engineer" if page is latest_page else "Python Engineer", page
+
+    monkeypatch.setattr(api, "_fetch_job_page", fake_fetch)
+    created = client.post(
+        "/jobs/from-url",
+        data={"url": source_url, "status_value": "open"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    job_id = created.json()["id"]
+    assert created.json()["description"] == initial_page["description"]
+
+    fetch_state["page"] = latest_page
+    refreshed = client.post(f"/jobs/{job_id}/refresh-source", headers=headers)
+
+    assert refreshed.status_code == 200, refreshed.text
+    payload = refreshed.json()
+    assert payload["title"] == "Senior Python Engineer"
+    assert payload["description"] == latest_page["description"]
+    assert payload["location"] == "Hyderabad"
+    assert payload["work_mode"] == "hybrid"
+    assert payload["minimum_experience_years"] == 5
+    assert payload["jd_analysis"]["source_url"] == source_url
+    assert payload["jd_analysis"]["salary"]["minimum"] == 2500000
