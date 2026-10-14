@@ -18,6 +18,41 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (() => {
+        const recoveryKey = "bluepace:asset-recovery-at";
+        const refreshForFreshAssets = () => {
+          try {
+            const lastAttempt = Number(sessionStorage.getItem(recoveryKey) || "0");
+            // Avoid a reload loop if the requested asset is genuinely unavailable.
+            if (Date.now() - lastAttempt < 60000) return;
+            sessionStorage.setItem(recoveryKey, String(Date.now()));
+          } catch {
+            return;
+          }
+          window.location.reload();
+        };
+
+        // Existing tabs can request hashed chunks from the previous deployment.
+        // Vite emits this event when a lazy-loaded module cannot be fetched.
+        window.addEventListener("vite:preloadError", (event) => {
+          event.preventDefault();
+          refreshForFreshAssets();
+        });
+
+        // Also recover if the cached HTML points at an entry bundle removed by
+        // a deployment before the application JavaScript has started.
+        window.addEventListener("error", (event) => {
+          const target = event.target;
+          if (
+            target instanceof HTMLScriptElement &&
+            /\/assets\/.+\.js(?:\?|$)/.test(target.src)
+          ) {
+            refreshForFreshAssets();
+          }
+        }, true);
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
