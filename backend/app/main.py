@@ -538,10 +538,12 @@ class _JobPageParser(HTMLParser):
     def __init__(self):
         super().__init__()
         self.title_parts = []
+        self.h1_parts = []
         self.visible_parts = []
         self.meta = {}
         self.jsonld_blocks = []
         self._capture_title = False
+        self._capture_h1 = False
         self._capture_script = False
         self._script_type = ""
         self._script_parts = []
@@ -551,6 +553,8 @@ class _JobPageParser(HTMLParser):
         attrs_map = dict(attrs)
         if tag == "title":
             self._capture_title = True
+        elif tag == "h1":
+            self._capture_h1 = True
         elif tag == "meta":
             key = attrs_map.get("name") or attrs_map.get("property")
             value = attrs_map.get("content")
@@ -568,6 +572,8 @@ class _JobPageParser(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "title":
             self._capture_title = False
+        elif tag == "h1":
+            self._capture_h1 = False
         elif tag == "script":
             if self._capture_script and "ld+json" in self._script_type:
                 self.jsonld_blocks.append("".join(self._script_parts))
@@ -580,6 +586,8 @@ class _JobPageParser(HTMLParser):
     def handle_data(self, data):
         if self._capture_title:
             self.title_parts.append(data)
+        if self._capture_h1:
+            self.h1_parts.append(data)
         if self._capture_script:
             self._script_parts.append(data)
         if self._skip_depth == 0 and not self._capture_script and data.strip():
@@ -590,6 +598,9 @@ class _JobPageParser(HTMLParser):
 
     def title(self):
         return re.sub(r"\s+", " ", " ".join(self.title_parts)).strip()
+
+    def heading(self):
+        return re.sub(r"\s+", " ", " ".join(self.h1_parts)).strip()
 
 
 def _clean_job_link(value: str) -> tuple[str | None, str]:
@@ -832,7 +843,17 @@ def _fetch_job_page(raw_url: str) -> tuple[str, str, dict]:
         )
 
     posting = _jsonld_jobposting(parser.jsonld_blocks)
-    title = str(posting.get("title") or rendered_title or parser.title() or "").strip()
+    # Prefer role-specific metadata/headings to generic page titles such as
+    # "Careers" or "Open positions" when JSON-LD JobPosting is unavailable.
+    title = str(
+        posting.get("title")
+        or parser.heading()
+        or parser.meta.get("og:title")
+        or parser.meta.get("twitter:title")
+        or rendered_title
+        or parser.title()
+        or ""
+    ).strip()
     if " | " in title:
         title = title.split(" | ", 1)[0].strip()
     location = None
