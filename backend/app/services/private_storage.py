@@ -133,12 +133,12 @@ class PrivateStorage:
 
     def read_bytes(self, reference: str) -> bytes:
         if reference.startswith(B2_SCHEME):
+            key = self._normalize_key(reference[len(B2_SCHEME) :])
             client = self._get_client()
             if client is None:
                 raise RuntimeError(
                     "Backblaze B2 storage reference received but B2 is not configured"
                 )
-            key = self._normalize_key(reference[len(B2_SCHEME) :])
             response = client.get_object(Bucket=self.bucket, Key=key)
             return response["Body"].read()
 
@@ -163,10 +163,10 @@ class PrivateStorage:
             return
 
         if reference.startswith(B2_SCHEME):
+            key = self._normalize_key(reference[len(B2_SCHEME) :])
             client = self._get_client()
             if client is None:
                 return
-            key = self._normalize_key(reference[len(B2_SCHEME) :])
             client.delete_object(Bucket=self.bucket, Key=key)
             return
 
