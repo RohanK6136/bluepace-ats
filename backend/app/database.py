@@ -190,6 +190,7 @@ def upgrade_phase6_columns(target_engine):
     additions = {
         "interviews": [
             Interview.__table__.c.round_name,
+            Interview.__table__.c.round_type,
             Interview.__table__.c.round_number,
         ],
     }
