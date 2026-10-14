@@ -100,7 +100,18 @@ def test_fetch_job_page_preserves_metadata_with_trafilatura_fallback(monkeypatch
             "title": "Machine Learning Engineer",
             "description": "short",
             "employmentType": "FULL_TIME",
+            "jobLocationType": "TELECOMMUTE",
             "jobLocation": {"address": {"addressLocality": "Hyderabad"}},
+            "hiringOrganization": {"@type": "Organization", "name": "Example Labs"},
+            "industry": "Technology",
+            "baseSalary": {
+                "@type": "MonetaryAmount",
+                "currency": "USD",
+                "value": {"@type": "QuantitativeValue", "minValue": 120000, "maxValue": 160000, "unitText": "YEAR"},
+            },
+            "datePosted": "2026-10-01",
+            "validThrough": "2026-12-31T23:59:59Z",
+            "identifier": {"@type": "PropertyValue", "name": "Example", "value": "ml-123"},
         })
         + "</script></head><body><div id='app'></div></body></html>"
     )
@@ -134,5 +145,17 @@ def test_fetch_job_page_preserves_metadata_with_trafilatura_fallback(monkeypatch
     assert final_url == url
     assert title == "Machine Learning Engineer"
     assert payload["description"] == description
-    assert payload["employment_type"] == "FULL_TIME"
+    assert payload["employment_type"] == "Full-time"
     assert payload["location"] == "Hyderabad"
+    assert payload["work_mode"] == "remote"
+    assert payload["company_name"] == "Example Labs"
+    assert payload["department"] == "Technology"
+    assert payload["salary"] == {
+        "currency": "USD",
+        "unit": "YEAR",
+        "minimum": 120000,
+        "maximum": 160000,
+    }
+    assert payload["date_posted"] == "2026-10-01"
+    assert payload["valid_through"] == "2026-12-31T23:59:59Z"
+    assert payload["identifier"]["value"] == "ml-123"
