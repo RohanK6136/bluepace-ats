@@ -51,7 +51,10 @@ export default function EvidenceReviewPanel({ analysis }) {
     semantic_similarity: "Semantic similarity",
   };
   const scoreRows = Object.keys(scoreLabels).filter((key) => Number.isFinite(Number(scoreBreakdown[key])));
-  const weightedScoreAvailable = scoreRows.length > 0 && scoreRows.every((key) => Number.isFinite(Number(scoreWeights[key])));
+  const totalWeight = scoreRows.reduce((total, key) => total + Number(scoreWeights[key]), 0);
+  const weightedScoreAvailable = scoreRows.length === Object.keys(scoreLabels).length
+    && scoreRows.every((key) => Number.isFinite(Number(scoreWeights[key])))
+    && Math.abs(totalWeight - 1) < 1e-6;
   const weightedScore = weightedScoreAvailable
     ? scoreRows.reduce((total, key) => total + Number(scoreBreakdown[key]) * Number(scoreWeights[key]), 0)
     : null;
