@@ -158,7 +158,17 @@ class CandidateMatcher:
             if re.search(r"interview|assessment|technical round|technical interview", line, re.IGNORECASE):
                 interview_topics.extend(self._extract_skills(line))
 
-        location_match = re.search(r"\b(?:based in|located in|location\s*[:=]|office in|work from|in)\s+(remote|hybrid|[A-Z][A-Za-z]+(?:[ -][A-Z][A-Za-z]+){0,2})", text)
+        # Explicit labels must win over incidental phrases such as "degree in
+        # Computer Science", which are not candidate or job locations.
+        explicit_location_match = re.search(
+            r"\b(?:location\s*[:=]|based in|located in|office in)\s+(remote|hybrid|[A-Z][A-Za-z]+(?:[ -][A-Z][A-Za-z]+){0,2})",
+            text,
+            re.IGNORECASE,
+        )
+        location_match = explicit_location_match or re.search(
+            r"\b(?:work from|in)\s+(remote|hybrid|[A-Z][A-Za-z]+(?:[ -][A-Z][A-Za-z]+){0,2})",
+            text,
+        )
         work_mode = "remote" if re.search(r"\b(remote|work from home|wfh|fully remote)\b", lower_text) else "hybrid" if re.search(r"\bhybrid\b", lower_text) else "onsite"
         return {
             "required_skills": list(dict.fromkeys(required_skills)),
