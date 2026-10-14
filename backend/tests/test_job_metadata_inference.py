@@ -49,3 +49,17 @@ def test_explicit_job_location_wins_over_education_phrase():
     )
 
     assert analysis["location"] == "Hyderabad"
+
+
+def test_education_text_does_not_create_a_phantom_job_location():
+    description = (
+        "Responsibilities include building production APIs and cloud services.\n"
+        "Requirements include a Bachelor's degree in Computer Science and Python experience."
+    )
+    analysis = api.matching_service.parse_job_description(
+        "Python Platform Engineer",
+        description,
+        use_llm=False,
+    )
+
+    assert analysis["location"] is None
