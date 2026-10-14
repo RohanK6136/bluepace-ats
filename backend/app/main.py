@@ -890,7 +890,7 @@ async def resume_lab_job_description(
     file: UploadFile | None = File(default=None),
     job_url: str | None = Form(default=None),
 ):
-    """Load a job description from PDF/DOCX or a public job URL."""
+    """Extract the full JD plus machine-detected metadata for Resume Lab."""
     cleaned_url = (job_url or "").strip()
     if file is None and not cleaned_url:
         raise HTTPException(status_code=400, detail="Provide a JD PDF/DOCX file or a public job URL.")
@@ -908,29 +908,93 @@ async def resume_lab_job_description(
         if not content:
             raise HTTPException(status_code=400, detail="The uploaded JD file is empty.")
         try:
-            extracted = extractor_service.extract_to_json(content, f"job-description{suffix}")
+            extracted = await asyncio.to_thread(
+                extractor_service.extract_to_json, content, f"job-description{suffix}"
+            )
         except DocumentExtractionError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         description = str(extracted.get("raw_text") or "").strip()
         if len(description) < 40:
             raise HTTPException(status_code=422, detail="Could not extract a usable job description from that file.")
+
+        lines = [line.strip() for line in description.splitlines() if line.strip()]
+        generic_headings = {"job description", "job description:", "jd", "job profile", "job opening", "position"}
+        title = next(
+            (line[:200] for line in lines if len(line) <= 200 and line.casefold() not in generic_headings),
+            Path(file.filename or "Job opening").stem.replace("_", " ").replace("-", " ").strip()[:200] or "Job opening",
+        )
+        analysis = matching_service.parse_job_description(title, description, use_llm=False)
+        employment_type = _infer_employment_type(description)
+        work_mode = _infer_work_mode(description)
+        department = _infer_job_department(title, description)
+        fresher_allowed = bool(
+            re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", description, re.IGNORECASE)
+            or re.search(r"\b0\s*(?:years?|yrs?)\b", description, re.IGNORECASE)
+        )
+        analysis.update({
+            "source": "Job description document import",
+            "source_file": file.filename,
+            "department": department,
+            "employment_type": employment_type,
+            "work_mode": work_mode,
+            "fresher_allowed": fresher_allowed,
+        })
         return {
             "status": "success",
             "source": "file",
             "filename": file.filename,
-            "title": "",
+            "title": title,
             "description": description,
+            "department": department,
+            "location": analysis.get("location"),
+            "employment_type": employment_type,
+            "work_mode": work_mode,
+            "required_skills": analysis.get("required_skills", []),
+            "minimum_experience_years": analysis.get("minimum_experience_years"),
+            "fresher_allowed": fresher_allowed,
+            "jd_analysis": analysis,
         }
 
     final_url, title, payload = await asyncio.to_thread(_fetch_job_page, cleaned_url)
+    analysis = matching_service.parse_job_description(
+        title, payload["description"], payload.get("location"), use_llm=False
+    )
+    analysis.update({
+        "source_url": final_url,
+        "source": "Job URL import",
+        "company_name": payload.get("company_name"),
+        "department": payload.get("department"),
+        "employment_type": payload.get("employment_type"),
+        "salary": payload.get("salary"),
+        "industry": payload.get("industry"),
+        "date_posted": payload.get("date_posted"),
+        "valid_through": payload.get("valid_through"),
+        "external_identifier": payload.get("identifier"),
+        "work_mode": payload.get("work_mode"),
+        "fresher_allowed": bool(
+            re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", payload["description"], re.IGNORECASE)
+            or re.search(r"\b0\s*(?:years?|yrs?)\b", payload["description"], re.IGNORECASE)
+        ),
+    })
     return {
         "status": "success",
         "source": "url",
         "source_url": final_url,
         "title": title,
         "description": payload["description"],
-        "location": payload.get("location"),
+        "location": payload.get("location") or analysis.get("location"),
+        "department": payload.get("department"),
+        "company_name": payload.get("company_name"),
         "employment_type": payload.get("employment_type"),
+        "work_mode": payload.get("work_mode"),
+        "salary": payload.get("salary"),
+        "industry": payload.get("industry"),
+        "date_posted": payload.get("date_posted"),
+        "valid_through": payload.get("valid_through"),
+        "required_skills": analysis.get("required_skills", []),
+        "minimum_experience_years": analysis.get("minimum_experience_years"),
+        "fresher_allowed": analysis.get("fresher_allowed", False),
+        "jd_analysis": analysis,
     }
 
 
