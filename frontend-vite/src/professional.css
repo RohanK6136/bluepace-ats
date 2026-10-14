@@ -471,7 +471,7 @@ body {
   letter-spacing: -.02em;
 }
 
-.bp-admin-shell > div[class*="lg:pl-60"] {
+.bp-admin-shell > .ats-page-shell {
   padding-left: 264px;
 }
 
@@ -615,7 +615,7 @@ body {
 }
 
 @media (max-width: 1023px) {
-  .bp-admin-shell > div[class*="lg:pl-60"] {
+  .bp-admin-shell > .ats-page-shell {
     padding-left: 0;
   }
   .bp-admin-shell main {
