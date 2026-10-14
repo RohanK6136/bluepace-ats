@@ -11,11 +11,23 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import AuthSession, Role, User
+from app.services.security_config import resolve_jwt_secret
 
-JWT_SECRET = os.getenv("JWT_SECRET")
-if not JWT_SECRET and os.getenv("APP_ENV", "development") not in {"development", "test"}:
-    raise RuntimeError("JWT_SECRET must be configured outside development and test environments")
-JWT_SECRET = JWT_SECRET or "local-development-only-change-me"
+APP_ENV = os.getenv("APP_ENV", "development")
+JWT_SECRET, USING_DEVELOPMENT_JWT_FALLBACK = resolve_jwt_secret(
+    os.getenv("JWT_SECRET"),
+    APP_ENV,
+)
+if (
+    USING_DEVELOPMENT_JWT_FALLBACK
+    and os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip().lower() == "production"
+):
+    print(
+        "[security] WARNING: the development-only JWT fallback is active in the "
+        "Railway production environment. Configure JWT_SECRET after coordinating "
+        "the impact on active sessions and candidate-portal links.",
+        flush=True,
+    )
 JWT_ALGORITHM = "HS256"
 TOKEN_LIFETIME_MINUTES = 7 * 24 * 60
 TOKEN_REFRESH_GRACE_MINUTES = 60
