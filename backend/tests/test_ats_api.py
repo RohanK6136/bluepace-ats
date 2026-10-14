@@ -1235,3 +1235,43 @@ def test_job_source_refresh_reextracts_description_and_metadata(client, monkeypa
     assert payload["minimum_experience_years"] == 5
     assert payload["jd_analysis"]["source_url"] == source_url
     assert payload["jd_analysis"]["salary"]["minimum"] == 2500000
+
+
+
+def test_resume_lab_jd_upload_returns_full_description_and_structured_metadata(client, monkeypatch):
+    description = (
+        "Python Platform Engineer\n"
+        "Location: Hyderabad\n"
+        "Employment: Full-time\n"
+        "Hybrid role with flexible work.\n"
+        "Requirements: Python, SQL and minimum 3 years of experience.\n"
+        "Bachelor's degree in Computer Science preferred."
+    )
+    monkeypatch.setattr(
+        api.extractor_service,
+        "extract_to_json",
+        lambda _content, _filename: {"raw_text": description},
+    )
+
+    response = client.post(
+        "/resume-processing/job-description",
+        files={
+            "file": (
+                "platform-engineer.docx",
+                b"test document payload",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["description"] == description
+    assert payload["title"] == "Python Platform Engineer"
+    assert "Python" in payload["required_skills"]
+    assert "SQL" in payload["required_skills"]
+    assert payload["minimum_experience_years"] == 3
+    assert payload["location"] == "Hyderabad"
+    assert payload["employment_type"] == "Full-time"
+    assert payload["work_mode"] == "hybrid"
+    assert payload["jd_analysis"]["source"] == "Job description document import"
