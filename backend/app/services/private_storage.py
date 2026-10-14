@@ -2,8 +2,9 @@
 
 B2 is accessed through its S3-compatible API. When all B2 connection
 settings are present, uploaded documents are stored in B2 and references are
-returned as `b2://...`. Keeping the local fallback preserves development
-and test behavior without requiring cloud configuration during rollout.
+returned as `b2://...`. When B2 is not configured, Railway deployments with
+a mounted volume default to that persistent volume; development keeps the
+local `private_uploads` directory.
 """
 
 from __future__ import annotations
@@ -26,12 +27,24 @@ B2_BUCKET = os.getenv("B2_BUCKET", "").strip()
 
 class PrivateStorage:
     def __init__(self) -> None:
-        self.local_root = Path(
-            os.getenv(
-                "RESUME_STORAGE_DIR",
-                os.getenv("RESUME_QUEUE_STORAGE_DIR", "./private_uploads"),
-            )
+        # Respect explicit storage settings first. Older records may still use
+        # the original local directory, so keep that path for legacy reads.
+        configured_root = (
+            os.getenv("RESUME_STORAGE_DIR", "").strip()
+            or os.getenv("RESUME_QUEUE_STORAGE_DIR", "").strip()
         )
+        self.legacy_local_root = Path(configured_root or "./private_uploads")
+
+        if configured_root:
+            self.local_root = self.legacy_local_root
+        else:
+            volume_mount = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+            self.local_root = (
+                Path(volume_mount) / "private_uploads"
+                if volume_mount
+                else self.legacy_local_root
+            )
+
         self.endpoint = os.getenv("B2_ENDPOINT", "").strip()
         self.access_key = os.getenv("B2_ACCESS_KEY_ID", "").strip()
         self.secret_key = os.getenv("B2_SECRET_ACCESS_KEY", "").strip()
@@ -107,8 +120,18 @@ class PrivateStorage:
 
         if reference.startswith(LOCAL_SCHEME):
             key = reference[len(LOCAL_SCHEME) :].lstrip("/")
-            return (self.local_root / key).read_bytes()
+            current_path = self.local_root / key
+            if current_path.is_file():
+                return current_path.read_bytes()
 
+            # Compatibility for files created before local storage defaulted
+            # to a Railway volume.
+            legacy_path = self.legacy_local_root / key
+            if legacy_path != current_path and legacy_path.is_file():
+                return legacy_path.read_bytes()
+            return current_path.read_bytes()
+
+        # Older releases stored local references as direct filesystem paths.
         return Path(reference).read_bytes()
 
     def delete(self, reference: str) -> None:
@@ -126,6 +149,9 @@ class PrivateStorage:
         if reference.startswith(LOCAL_SCHEME):
             key = reference[len(LOCAL_SCHEME) :].lstrip("/")
             (self.local_root / key).unlink(missing_ok=True)
+            legacy_path = self.legacy_local_root / key
+            if legacy_path != self.local_root / key:
+                legacy_path.unlink(missing_ok=True)
             return
 
         Path(reference).unlink(missing_ok=True)
