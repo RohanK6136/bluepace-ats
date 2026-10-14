@@ -111,6 +111,7 @@ from app.schemas import (
 from app.security import JWT_SECRET, create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
 from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
 from app.services.private_storage import private_storage
+from app.services.request_limits import read_request_body_limited
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
@@ -5126,7 +5127,11 @@ async def upload_bulk_resume_to_local_storage(
     if not storage_key.startswith(expected_prefix):
         raise HTTPException(status_code=400, detail="Invalid bulk upload storage path.")
 
-    content = await request.body()
+    content = await read_request_body_limited(
+        request,
+        MAX_DOCUMENT_SIZE_BYTES,
+        detail="Resume must be 5 MB or smaller.",
+    )
     if len(content) > MAX_DOCUMENT_SIZE_BYTES:
         raise HTTPException(status_code=413, detail="Resume must be 5 MB or smaller.")
     _validate_resume_manifest_file(Path(storage_key).name, len(content))

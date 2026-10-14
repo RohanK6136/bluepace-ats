@@ -2,9 +2,9 @@
 
 B2 is accessed through its S3-compatible API. When all B2 connection
 settings are present, uploaded documents are stored in B2 and references are
-returned as `b2://...`. When B2 is not configured, Railway deployments with
+returned as b2://.... When B2 is not configured, Railway deployments with
 a mounted volume default to that persistent volume; development keeps the
-local `private_uploads` directory.
+local private_uploads directory.
 """
 
 from __future__ import annotations
@@ -52,6 +52,30 @@ class PrivateStorage:
         self.region = os.getenv("B2_REGION", "").strip()
         self._client = None
 
+    @staticmethod
+    def _normalize_key(key: str) -> str:
+        """Accept only relative POSIX storage keys without traversal segments."""
+        if not isinstance(key, str) or not key or key.startswith("/"):
+            raise ValueError("Invalid storage key.")
+        if "\\" in key or "\x00" in key:
+            raise ValueError("Invalid storage key.")
+        segments = key.split("/")
+        if any(segment in {"", ".", ".."} for segment in segments):
+            raise ValueError("Invalid storage key.")
+        return "/".join(segments)
+
+    @staticmethod
+    def _checked_local_path(key: str, root: Path) -> Path:
+        """Refuse paths that resolve outside the configured storage root."""
+        clean_key = PrivateStorage._normalize_key(key)
+        root_path = Path(root)
+        candidate = root_path.joinpath(*clean_key.split("/"))
+        resolved_root = root_path.resolve()
+        resolved_candidate = candidate.resolve()
+        if not resolved_candidate.is_relative_to(resolved_root) or resolved_candidate == resolved_root:
+            raise ValueError("Storage path escapes the configured root.")
+        return candidate
+
     @property
     def b2_enabled(self) -> bool:
         return all(
@@ -90,7 +114,7 @@ class PrivateStorage:
         content: bytes,
         content_type: str | None = None,
     ) -> str:
-        key = key.lstrip("/")
+        key = self._normalize_key(key)
         client = self._get_client()
         if client is not None:
             extra = {"ContentType": content_type} if content_type else {}
@@ -102,31 +126,31 @@ class PrivateStorage:
             )
             return f"{B2_SCHEME}{key}"
 
-        path = self.local_root / key
+        path = self._checked_local_path(key, self.local_root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
         return str(path)
 
     def read_bytes(self, reference: str) -> bytes:
         if reference.startswith(B2_SCHEME):
+            key = self._normalize_key(reference[len(B2_SCHEME) :])
             client = self._get_client()
             if client is None:
                 raise RuntimeError(
                     "Backblaze B2 storage reference received but B2 is not configured"
                 )
-            key = reference[len(B2_SCHEME) :].lstrip("/")
             response = client.get_object(Bucket=self.bucket, Key=key)
             return response["Body"].read()
 
         if reference.startswith(LOCAL_SCHEME):
-            key = reference[len(LOCAL_SCHEME) :].lstrip("/")
-            current_path = self.local_root / key
+            key = self._normalize_key(reference[len(LOCAL_SCHEME) :])
+            current_path = self._checked_local_path(key, self.local_root)
             if current_path.is_file():
                 return current_path.read_bytes()
 
             # Compatibility for files created before local storage defaulted
             # to a Railway volume.
-            legacy_path = self.legacy_local_root / key
+            legacy_path = self._checked_local_path(key, self.legacy_local_root)
             if legacy_path != current_path and legacy_path.is_file():
                 return legacy_path.read_bytes()
             return current_path.read_bytes()
@@ -139,18 +163,19 @@ class PrivateStorage:
             return
 
         if reference.startswith(B2_SCHEME):
+            key = self._normalize_key(reference[len(B2_SCHEME) :])
             client = self._get_client()
             if client is None:
                 return
-            key = reference[len(B2_SCHEME) :].lstrip("/")
             client.delete_object(Bucket=self.bucket, Key=key)
             return
 
         if reference.startswith(LOCAL_SCHEME):
-            key = reference[len(LOCAL_SCHEME) :].lstrip("/")
-            (self.local_root / key).unlink(missing_ok=True)
-            legacy_path = self.legacy_local_root / key
-            if legacy_path != self.local_root / key:
+            key = self._normalize_key(reference[len(LOCAL_SCHEME) :])
+            current_path = self._checked_local_path(key, self.local_root)
+            current_path.unlink(missing_ok=True)
+            legacy_path = self._checked_local_path(key, self.legacy_local_root)
+            if legacy_path != current_path:
                 legacy_path.unlink(missing_ok=True)
             return
 
@@ -169,7 +194,7 @@ class PrivateStorage:
         if client is None:
             return None
 
-        clean_key = key.lstrip("/")
+        clean_key = self._normalize_key(key)
         params = {"Bucket": self.bucket, "Key": clean_key}
         if content_type:
             params["ContentType"] = content_type
@@ -192,7 +217,7 @@ class PrivateStorage:
         if client is None:
             return None
 
-        key = reference[len(B2_SCHEME) :].lstrip("/")
+        key = self._normalize_key(reference[len(B2_SCHEME) :])
         return client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.bucket, "Key": key},
