@@ -70,3 +70,23 @@ test("rejects unsupported HTTP methods", async () => {
   assert.equal(response.status, 405);
   assert.equal(response.headers.get("allow"), "GET, HEAD");
 });
+
+test("fails healthfully when the production build entry point is missing", async () => {
+  const emptyDist = join(temporaryDirectory, "empty-dist");
+  await mkdir(emptyDist);
+  const emptyServer = createStaticServer({ distDir: emptyDist });
+  await new Promise((resolve, reject) => {
+    emptyServer.once("error", reject);
+    emptyServer.listen(0, "127.0.0.1", resolve);
+  });
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${emptyServer.address().port}/`);
+    assert.equal(response.status, 503);
+    assert.match(await response.text(), /build artifacts are unavailable/);
+  } finally {
+    await new Promise((resolve, reject) => {
+      emptyServer.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
