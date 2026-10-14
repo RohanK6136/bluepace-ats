@@ -1998,7 +1998,18 @@ def update_job(
     if set(updates) & {
         "title", "description", "location", "work_mode", "required_skills", "minimum_experience_years", "fresher_allowed"
     }:
-        job.jd_analysis = matching_service.analyze_job(job)
+        previous_analysis = job.jd_analysis if isinstance(job.jd_analysis, dict) else {}
+        refreshed_analysis = matching_service.analyze_job(job)
+        # Keep provenance metadata attached to URL/document imports when the
+        # derived matching analysis is rebuilt after a recruiter edits a field.
+        for metadata_field in (
+            "source_url", "source", "source_file", "company_name", "salary",
+            "industry", "date_posted", "valid_through", "external_identifier",
+            "department", "employment_type",
+        ):
+            if metadata_field in previous_analysis and metadata_field not in refreshed_analysis:
+                refreshed_analysis[metadata_field] = previous_analysis[metadata_field]
+        job.jd_analysis = refreshed_analysis
         job.embedding = None
     record_audit(
         db,
