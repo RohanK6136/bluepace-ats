@@ -36,7 +36,37 @@ export default function EvidenceReviewPanel({ analysis }) {
   const experience = cleanList(analysis?.experience);
   const projects = cleanList(analysis?.projects);
   const explanations = cleanList(analysis?.explanations);
+  const scoreBreakdown = analysis?.score_breakdown && typeof analysis.score_breakdown === "object" ? analysis.score_breakdown : {};
+  const scoreWeights = analysis?.score_weights && typeof analysis.score_weights === "object" ? analysis.score_weights : {};
+  const matchEvidence = analysis?.match_evidence && typeof analysis.match_evidence === "object" ? analysis.match_evidence : {};
+  const sourceLineText = (sources) => cleanList(sources).flatMap((source) => cleanList(source?.source_lines)).filter((line) => Number.isFinite(Number(line))).map((line) => `line ${line}`).join(", ");
+  const scoreLabels = {
+    required_skill_coverage: "Required skills",
+    preferred_skill_coverage: "Preferred skills",
+    experience_alignment: "Experience",
+    education_alignment: "Education",
+    location_alignment: "Location",
+    work_mode_alignment: "Work mode",
+    project_evidence: "Project evidence",
+    semantic_similarity: "Semantic similarity",
+  };
+  const scoreRows = Object.keys(scoreLabels).filter((key) => Number.isFinite(Number(scoreBreakdown[key])));
+  const skillEvidenceRows = [
+    ...cleanList(matchEvidence.required_skills).map((item) => ({ ...item, category: "Required skill" })),
+    ...cleanList(matchEvidence.preferred_skills).map((item) => ({ ...item, category: "Preferred skill" })),
+  ];
+  const projectEvidenceRows = cleanList(matchEvidence.projects);
   const evidenceItems = useMemo(() => [
+    ...skillEvidenceRows.map((item) => ({
+      title: `${item.category}: ${item.skill || "Skill"}`,
+      detail: sourceLineText(item.sources) ? `Source reference: ${sourceLineText(item.sources)}. Check the original resume before treating this as verified.` : "The matcher found this skill in parsed resume content, but a precise source-line reference is unavailable.",
+      source: "Parsed resume content (not independently verified)",
+    })),
+    ...projectEvidenceRows.map((item) => ({
+      title: item.project || "Relevant project",
+      detail: [cleanList(item.matched_required_skills).length ? `Matched terms: ${item.matched_required_skills.join(", ")}.` : "", item.excerpt || ""].filter(Boolean).join(" "),
+      source: "Parsed project text",
+    })),
     ...experience.map((item) => ({
       title: item?.title || "Relevant experience",
       detail: item?.details || "Experience was extracted from the resume; review the original document to confirm context.",
@@ -47,7 +77,7 @@ export default function EvidenceReviewPanel({ analysis }) {
       detail: typeof item === "string" ? "Project mentioned in the parsed resume." : (item?.details || "Project details were parsed from the resume."),
       source: "Resume-derived project",
     })),
-  ], [experience, projects]);
+  ], [experience, projects, skillEvidenceRows.length, projectEvidenceRows.length]);
 
   const primaryGap = gaps[0];
   const followUpQuestion = primaryGap
@@ -96,6 +126,33 @@ export default function EvidenceReviewPanel({ analysis }) {
           <p className="mt-1 text-xs text-slate-500">Parsed items that can be checked against the CV</p>
         </div>
       </div>
+
+      {scoreRows.length > 0 && (
+        <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h6 className="text-xs font-semibold uppercase tracking-wide text-slate-500">How the score is composed</h6>
+            <span className="text-[10px] text-slate-500">Current model components and weights</span>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {scoreRows.map((key) => {
+              const score = Math.max(0, Math.min(100, Number(scoreBreakdown[key])));
+              const weight = Number(scoreWeights[key]);
+              return (
+                <div key={key}>
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-medium text-slate-700 dark:text-slate-200">{scoreLabels[key]}</span>
+                    <span className="tabular-nums text-slate-600 dark:text-slate-300">{score}%{Number.isFinite(weight) ? ` · ${Math.round(weight * 100)}% weight` : ""}</span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                    <div className="h-full rounded-full bg-slate-500" style={{ width: `${score}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-[10px] leading-5 text-slate-500">Component percentages describe the current matching model, not a probability of success or a verified measure of job performance.</p>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
