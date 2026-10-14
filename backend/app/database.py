@@ -190,16 +190,22 @@ def upgrade_phase6_columns(target_engine):
     additions = {
         "interviews": [
             Interview.__table__.c.round_name,
+            Interview.__table__.c.round_type,
             Interview.__table__.c.round_number,
         ],
     }
     with target_engine.begin() as connection:
         existing_tables = set(inspect(connection).get_table_names())
-        # New tables are created by metadata.create_all above; this hook exists so
-        # later column changes can be added without a migration runner.
-        for table_name in additions:
+        for table_name, columns in additions.items():
             if table_name not in existing_tables:
                 continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
 
 def upgrade_phase7_columns(target_engine):
     from app.models import Candidate
