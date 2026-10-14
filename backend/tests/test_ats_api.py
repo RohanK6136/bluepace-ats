@@ -1223,6 +1223,15 @@ def test_job_source_refresh_reextracts_description_and_metadata(client, monkeypa
     job_id = created.json()["id"]
     assert created.json()["description"] == initial_page["description"]
 
+    # Editing a job field must not erase the imported posting's provenance.
+    edited = client.patch(
+        f"/jobs/{job_id}",
+        json={"title": "Python Platform Engineer"},
+        headers=headers,
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["jd_analysis"]["source_url"] == source_url
+
     fetch_state["page"] = latest_page
     refreshed = client.post(f"/jobs/{job_id}/refresh-source", headers=headers)
 
