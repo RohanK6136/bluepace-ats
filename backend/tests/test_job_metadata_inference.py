@@ -33,3 +33,19 @@ def test_salary_metadata_handles_missing_values():
             "value": {"minValue": 1000000, "unitText": "YEAR"},
         }
     }) == {"currency": "INR", "unit": "YEAR", "minimum": 1000000}
+
+
+
+def test_explicit_job_location_wins_over_education_phrase():
+    description = (
+        "Location: Hyderabad\n"
+        "Requirements include Python and SQL.\n"
+        "Bachelor's degree in Computer Science preferred."
+    )
+    analysis = api.matching_service.parse_job_description(
+        "Python Platform Engineer",
+        description,
+        use_llm=False,
+    )
+
+    assert analysis["location"] == "Hyderabad"
