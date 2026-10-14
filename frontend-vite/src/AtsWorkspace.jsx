@@ -310,6 +310,7 @@ export default function AtsWorkspace() {
   const [jobDocumentFile, setJobDocumentFile] = useState(null);
   const [jobLinkInput, setJobLinkInput] = useState("");
   const [editingJob, setEditingJob] = useState(null);
+  const [jobSourceRefreshing, setJobSourceRefreshing] = useState(false);
   const [jobForm, setJobForm] = useState({
     title: "",
     description: "",
@@ -738,6 +739,22 @@ export default function AtsWorkspace() {
       fresher_allowed: false,
     });
     setJobFormOpen(true);
+  }
+
+  async function refreshEditingJobSource() {
+    if (!editingJob?.id || !editingJob?.jd_analysis?.source_url) return;
+    setJobSourceRefreshing(true);
+    setError("");
+    try {
+      const response = await apiRequest(token, "post", `/jobs/${editingJob.id}/refresh-source`);
+      setNotice("Job description and available metadata refreshed from the saved source URL.");
+      await refreshWorkspace();
+      resetJobForm(response.data);
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setJobSourceRefreshing(false);
+    }
   }
 
   async function saveJob(event) {
@@ -1642,7 +1659,24 @@ export default function AtsWorkspace() {
                   <Field label="Required skills" placeholder="Python, PostgreSQL, AWS" value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
                   <Field label="Minimum experience (years)" type="number" min="0" max="60" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
                   <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700"><input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />Open to freshers</label>
-                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Description<textarea className={inputStyle + " min-h-28 resize-y"} required value={jobForm.description} onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })} /></label>
+                  <div className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>Imported job description · read-only</span>
+                      {editingJob?.jd_analysis?.source_url && (
+                        <button type="button" onClick={refreshEditingJobSource} disabled={jobSourceRefreshing} className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold disabled:opacity-50">
+                          {jobSourceRefreshing ? "Refreshing source…" : "Refresh from source"}
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-ink-100 bg-[#fafaf8] p-3 text-xs font-normal leading-5 text-ink-700">
+                      {jobForm.description || "No source description is available for this job."}
+                    </div>
+                    <span className="text-[11px] font-normal text-ink-400">
+                      Job descriptions are extracted from the original source, not retyped here.
+                      {editingJob?.jd_analysis?.source_url ? " Use Refresh from source to sync the latest public posting." : " To replace this content, import an updated public job URL or upload an updated PDF/DOCX."}
+                    </span>
+                    {editingJob?.jd_analysis?.source_url && <a className="break-all text-[11px] font-medium text-blue-700 hover:underline" href={editingJob.jd_analysis.source_url} target="_blank" rel="noreferrer">Open original job posting</a>}
+                  </div>
                 </div>
               )}
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Extract & create job" : "Import & create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
