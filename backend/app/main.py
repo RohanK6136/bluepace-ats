@@ -1993,6 +1993,79 @@ def update_job(
     return job
 
 
+@app.post("/jobs/{job_id}/refresh-source", response_model=JobRead)
+async def refresh_job_from_source(
+    job_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Refresh an imported job from its saved public source URL without manual re-entry."""
+    job = _get_org_record(db, Job, job_id, user.organization_id)
+    before = _audit_job(job)
+    source_url = str(((job.jd_analysis or {}).get("source_url") or "")).strip()
+    if not source_url:
+        raise HTTPException(
+            status_code=422,
+            detail="This job has no saved public source URL. Import an updated PDF/DOCX document to replace its description.",
+        )
+
+    source_url, page_title, page = await asyncio.to_thread(_fetch_job_page, source_url)
+    description = str(page.get("description") or "").strip()
+    if len(description) < 40:
+        raise HTTPException(status_code=422, detail="The source page did not return a usable job description.")
+
+    title = str(page_title or job.title or "Imported job").strip()[:200]
+    location = page.get("location")
+    department = page.get("department") or _infer_job_department(title, description, page.get("industry"))
+    employment_type = page.get("employment_type") or _infer_employment_type(description)
+    work_mode = page.get("work_mode") or _infer_work_mode(description)
+    fresher_allowed = bool(
+        re.search(r"freshers?|entry[ -]?level|new graduates?|recent graduates?", description, re.IGNORECASE)
+        or re.search(r"\b0\s*(?:years?|yrs?)\b", description, re.IGNORECASE)
+    )
+
+    analysis = matching_service.parse_job_description(title, description, location, use_llm=False)
+    analysis.update({
+        "source_url": source_url,
+        "source": "Job URL import",
+        "company_name": page.get("company_name"),
+        "department": department,
+        "employment_type": employment_type,
+        "salary": page.get("salary"),
+        "industry": page.get("industry"),
+        "date_posted": page.get("date_posted"),
+        "valid_through": page.get("valid_through"),
+        "external_identifier": page.get("identifier"),
+        "work_mode": work_mode,
+        "fresher_allowed": fresher_allowed,
+    })
+
+    job.title = title
+    job.description = description
+    job.department = department
+    job.location = location or analysis.get("location")
+    job.employment_type = employment_type
+    job.work_mode = work_mode
+    job.required_skills = list(dict.fromkeys(analysis.get("required_skills", [])))
+    job.minimum_experience_years = analysis.get("minimum_experience_years")
+    job.fresher_allowed = fresher_allowed
+    job.jd_analysis = analysis
+    job.embedding = None
+
+    record_audit(
+        db,
+        user,
+        "job.refreshed_from_source",
+        "job",
+        job.id,
+        before=before,
+        after={**_audit_job(job), "source_url": source_url},
+    )
+    db.commit()
+    db.refresh(job)
+    return job
+
+
 @app.post("/jobs/{job_id}/archive", response_model=JobRead)
 def archive_job(
     job_id: int,
