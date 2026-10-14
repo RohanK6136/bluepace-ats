@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 const cleanList = (value) => (Array.isArray(value) ? value : []).filter(Boolean);
 
@@ -56,7 +56,7 @@ export default function EvidenceReviewPanel({ analysis }) {
     ...cleanList(matchEvidence.preferred_skills).map((item) => ({ ...item, category: "Preferred skill" })),
   ];
   const projectEvidenceRows = cleanList(matchEvidence.projects);
-  const evidenceItems = useMemo(() => [
+  const evidenceItems = [
     ...skillEvidenceRows.map((item) => ({
       title: `${item.category}: ${item.skill || "Skill"}`,
       detail: sourceLineText(item.sources) ? `Source reference: ${sourceLineText(item.sources)}. Check the original resume before treating this as verified.` : "The matcher found this skill in parsed resume content, but a precise source-line reference is unavailable.",
@@ -77,7 +77,7 @@ export default function EvidenceReviewPanel({ analysis }) {
       detail: typeof item === "string" ? "Project mentioned in the parsed resume." : (item?.details || "Project details were parsed from the resume."),
       source: "Resume-derived project",
     })),
-  ], [experience, projects, skillEvidenceRows.length, projectEvidenceRows.length]);
+  ];
 
   const primaryGap = gaps[0];
   const followUpQuestion = primaryGap
