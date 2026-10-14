@@ -11,6 +11,7 @@ const CandidateMergeCenter = lazy(() => import("./CandidateMergeCenter.jsx"));
 const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
 const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
+const EvidenceReviewPanel = lazy(() => import("./EvidenceReviewPanel.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
@@ -2108,6 +2109,7 @@ export default function AtsWorkspace() {
                           </div>
                         </div>
                       </div>
+                      <EvidenceReviewPanel analysis={fitAnalysis} />
                       <div className="mt-5 grid gap-4 lg:grid-cols-3">
                       <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 lg:col-span-1">
                         <p className="text-xs font-semibold uppercase text-blue-700">Screening evidence</p>
