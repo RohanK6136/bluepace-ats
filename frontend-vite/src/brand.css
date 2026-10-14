@@ -1021,7 +1021,7 @@ html.dark .bp-admin-shell .ats-mobile-more [aria-current="page"] {
 @media (max-width: 640px) {
   .bp-admin-shell .ats-workspace-header-inner {
     gap: 12px;
-    padding: 14px 16px;
+    padding: 14px clamp(16px, 3vw, 28px);
   }
   .bp-admin-shell .ats-workspace-header-inner > div:first-child {
     flex: 1 1 150px;
