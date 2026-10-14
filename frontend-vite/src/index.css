@@ -1030,7 +1030,7 @@ button {
   color: #98a2b3 !important;
 }
 
-.bp-admin-shell > .lg\:pl-60 {
+.bp-admin-shell > .ats-page-shell {
   padding-left: 236px !important;
 }
 
@@ -1049,7 +1049,7 @@ button {
 }
 
 @media (max-width: 1024px) {
-  .bp-admin-shell > .lg\:pl-60 {
+  .bp-admin-shell > .ats-page-shell {
     padding-left: 0 !important;
   }
 }
@@ -1777,7 +1777,7 @@ html.dark .bp-template-hero {
   border-top: 1px solid var(--bp-console-border) !important;
 }
 
-.bp-admin-shell > .lg\\:pl-60 {
+.bp-admin-shell > .ats-page-shell {
   padding-left: 248px !important;
 }
 
@@ -2044,7 +2044,7 @@ html.dark .bp-template-hero {
 }
 
 @media (max-width: 1024px) {
-  .bp-admin-shell > .lg\\:pl-60 {
+  .bp-admin-shell > .ats-page-shell {
     padding-left: 0 !important;
   }
 
