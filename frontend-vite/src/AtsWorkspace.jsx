@@ -1449,7 +1449,7 @@ export default function AtsWorkspace() {
         </div>
       </aside>
 
-      <div className="lg:pl-60">
+      <div className="ats-page-shell lg:pl-60">
         <header className="ats-workspace-header sticky top-0 z-20 min-h-[72px] border-b border-ink-100 bg-white/95 backdrop-blur">
           <div className="ats-workspace-header-inner">
             <div>
