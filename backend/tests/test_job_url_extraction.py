@@ -159,3 +159,40 @@ def test_fetch_job_page_preserves_metadata_with_trafilatura_fallback(monkeypatch
     assert payload["date_posted"] == "2026-10-01"
     assert payload["valid_through"] == "2026-12-31T23:59:59Z"
     assert payload["identifier"]["value"] == "ml-123"
+
+
+
+def test_job_heading_wins_over_generic_browser_title_when_structured_title_is_missing(monkeypatch):
+    url = "https://jobs.example.com/roles/platform-engineer"
+    html = (
+        "<html><head><title>Careers | Example Labs</title>"
+        "<meta property='og:title' content='Jobs at Example Labs'></head>"
+        "<body><h1>Senior Platform Engineer</h1><main>"
+        "<p>Build production platform services and improve reliability for engineering teams.</p>"
+        "<p>Requirements include Python, SQL, cloud infrastructure, and production systems experience.</p>"
+        "</main></body></html>"
+    )
+
+    class FakeResponse:
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return html.encode("utf-8")
+
+        def geturl(self):
+            return url
+
+    monkeypatch.setattr(api, "_validate_public_job_url", lambda value: value)
+    monkeypatch.setattr(api.urllib.request, "urlopen", lambda request, timeout: FakeResponse())
+
+    final_url, title, payload = api._fetch_job_page(url)
+
+    assert final_url == url
+    assert title == "Senior Platform Engineer"
+    assert "Build production platform services" in payload["description"]
