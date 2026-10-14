@@ -763,7 +763,7 @@ html.dark .bp-admin-shell .ats-mobile-more [aria-current="page"] {
   background: var(--bp-bg) !important;
 }
 
-.bp-admin-shell > [class~="lg:pl-60"] {
+.bp-admin-shell > .ats-page-shell {
   width: 100%;
   min-height: 100vh;
   box-sizing: border-box;
@@ -926,7 +926,7 @@ html.dark .bp-admin-shell .ats-mobile-more [aria-current="page"] {
 }
 
 @media (max-width: 1023px) {
-  .bp-admin-shell > [class~="lg:pl-60"] {
+  .bp-admin-shell > .ats-page-shell {
     padding-left: 0 !important;
   }
 
