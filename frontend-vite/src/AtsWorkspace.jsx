@@ -306,7 +306,7 @@ export default function AtsWorkspace() {
   const [portalLink, setPortalLink] = useState("");
   const [portalLinkLoading, setPortalLinkLoading] = useState(false);
   const [jobFormOpen, setJobFormOpen] = useState(false);
-  const [jobEntryMode, setJobEntryMode] = useState("manual");
+  const [jobEntryMode, setJobEntryMode] = useState("link");
   const [jobDocumentFile, setJobDocumentFile] = useState(null);
   const [jobLinkInput, setJobLinkInput] = useState("");
   const [editingJob, setEditingJob] = useState(null);
@@ -711,7 +711,7 @@ export default function AtsWorkspace() {
 
   function resetJobForm(job = null) {
     setEditingJob(job);
-    setJobEntryMode(job ? "manual" : "manual");
+    setJobEntryMode(job ? "manual" : "link");
     setJobDocumentFile(null);
     setJobLinkInput(job?.jd_analysis?.source_url || "");
     setJobForm(job ? {
@@ -751,14 +751,9 @@ export default function AtsWorkspace() {
         }
         const body = new FormData();
         body.append("url", jobLinkInput.trim());
-        if (jobForm.title.trim()) body.append("title", jobForm.title.trim());
-        if (jobForm.location.trim()) body.append("location", jobForm.location.trim());
-        body.append("work_mode", jobForm.work_mode);
-        body.append("status_value", jobForm.status);
-        if (jobForm.minimum_experience_years !== "") body.append("minimum_experience_years", String(Number(jobForm.minimum_experience_years)));
-        body.append("fresher_allowed", String(Boolean(jobForm.fresher_allowed)));
+        body.append("status_value", jobForm.status || "open");
         await apiRequest(token, "post", "/jobs/from-url", { data: body });
-        setNotice("Job link imported, requirements extracted, and matching criteria prepared");
+        setNotice("Job posting imported. BluePace extracted the description and available job details automatically.");
       } else if (!editingJob && jobEntryMode === "upload") {
         if (!jobDocumentFile) {
           setError("Select a PDF or DOCX job description.");
@@ -766,16 +761,9 @@ export default function AtsWorkspace() {
         }
         const body = new FormData();
         body.append("file", jobDocumentFile);
-        if (jobForm.title.trim()) body.append("title", jobForm.title.trim());
-        if (jobForm.department.trim()) body.append("department", jobForm.department.trim());
-        if (jobForm.location.trim()) body.append("location", jobForm.location.trim());
-        if (jobForm.employment_type.trim()) body.append("employment_type", jobForm.employment_type.trim());
-        body.append("work_mode", jobForm.work_mode);
-        body.append("status_value", jobForm.status);
-        if (jobForm.minimum_experience_years !== "") body.append("minimum_experience_years", String(Number(jobForm.minimum_experience_years)));
-        body.append("fresher_allowed", String(Boolean(jobForm.fresher_allowed)));
+        body.append("status_value", jobForm.status || "open");
         await apiRequest(token, "post", "/jobs/from-document", { data: body });
-        setNotice("Job document parsed, job created, and JD requirements extracted");
+        setNotice("Job document extracted. BluePace created the job and prepared its matching criteria automatically.");
       } else {
         const jobPayload = {
           ...jobForm,
@@ -786,14 +774,15 @@ export default function AtsWorkspace() {
           await apiRequest(token, "patch", `/jobs/${editingJob.id}`, { data: jobPayload });
           setNotice("Job updated");
         } else {
-          await apiRequest(token, "post", "/jobs", { data: jobPayload });
-          setNotice("Job created");
+          // New jobs are created through URL import or document extraction.
+          setError("Use a public job posting URL or upload a PDF/DOCX so BluePace can extract the job details automatically.");
+          return;
         }
       }
       setJobFormOpen(false);
       setJobDocumentFile(null);
       setJobLinkInput("");
-      setJobEntryMode("manual");
+      setJobEntryMode("link");
       await refreshWorkspace();
     } catch (requestError) {
       setError(errorText(requestError));
@@ -1615,43 +1604,32 @@ export default function AtsWorkspace() {
             {jobFormOpen && <form onSubmit={saveJob} className="mb-6 border-y border-ink-100 bg-white p-4 sm:p-5">
               <div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">{editingJob ? "Edit job" : "New job"}</h2><button type="button" aria-label="Close form" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>×</button></div>
               {!editingJob && <div className="mb-5 flex flex-wrap gap-2 border-b border-ink-100 pb-3">
-                <button type="button" onClick={() => setJobEntryMode("manual")} className={jobEntryMode === "manual" ? buttonPrimary : buttonSecondary}>Manual entry</button>
-                <button type="button" onClick={() => setJobEntryMode("upload")} className={jobEntryMode === "upload" ? buttonPrimary : buttonSecondary}>Upload JD</button>
-                <button type="button" onClick={() => setJobEntryMode("link")} className={jobEntryMode === "link" ? buttonPrimary : buttonSecondary}>Import job link</button>
+                <button type="button" onClick={() => setJobEntryMode("link")} className={jobEntryMode === "link" ? buttonPrimary : buttonSecondary}>Import from job URL</button>
+                <button type="button" onClick={() => setJobEntryMode("upload")} className={jobEntryMode === "upload" ? buttonPrimary : buttonSecondary}>Upload JD file</button>
               </div>}
               {jobEntryMode === "link" && !editingJob ? (
                 <div className="grid gap-4">
-                  <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4 text-sm text-ink-700">Paste a job link exactly like <code>[AI Infrastructure Engineer, pAGI](https://jobs.ashbyhq.com/openai/...)</code> or the public URL alone. The ATS imports the page, extracts requirements and prepares it for resume matching.</div>
-                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Job link
-                    <input className={inputStyle} required value={jobLinkInput} placeholder="[AI Infrastructure Engineer, pAGI](https://jobs.ashbyhq.com/openai/...)" onChange={(event) => setJobLinkInput(event.target.value)} />
-                    <span className="text-[11px] font-normal text-ink-400">Supports Ashby-style links and standard public job pages.</span>
-                  </label>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Field label="Title override (optional)" placeholder="AI Infrastructure Engineer, pAGI" value={jobForm.title} onChange={(event) => setJobForm({ ...jobForm, title: event.target.value })} />
-                    <Field label="Location override (optional)" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
-                    <SelectField label="Work mode" value={jobForm.work_mode} onChange={(event) => setJobForm({ ...jobForm, work_mode: event.target.value })}>
-                      <option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site / Offline</option>
-                    </SelectField>
-                    <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
+                  <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4 text-sm leading-6 text-ink-700">
+                    <p className="font-semibold">Automatic job intake</p>
+                    <p className="mt-1">Paste a public job-posting URL or an <code>[Job title](URL)</code> link. BluePace retrieves the source page and automatically extracts the complete readable description, title, location, employment type, work mode, skills, experience and other available requirements. No description typing or field-by-field setup is needed.</p>
+                    <p className="mt-2 text-xs">If a field is not available on the source page, it may remain unknown. The imported description is preserved for recruiter review.</p>
                   </div>
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Public job posting URL
+                    <input className={inputStyle} required value={jobLinkInput} placeholder="https://careers.example.com/jobs/123" onChange={(event) => setJobLinkInput(event.target.value)} />
+                    <span className="text-[11px] font-normal text-ink-400">Supports public HTML job pages, including many job-board links. Sign-in-only pages may not be accessible.</span>
+                  </label>
                 </div>
               ) : jobEntryMode === "upload" && !editingJob ? (
                 <div className="grid gap-4">
-                  <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4 text-sm text-ink-700">Upload the job description as PDF or DOCX. BluePace extracts the text, required skills, experience, location and education requirements automatically, then uses the same matching engine for applicants.</div>
-                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Job description document
+                  <div className="rounded-xl border border-gold-200 bg-[#fbf7ef] p-4 text-sm leading-6 text-ink-700">
+                    <p className="font-semibold">Automatic document extraction</p>
+                    <p className="mt-1">Upload the original JD as a PDF or DOCX. BluePace extracts its complete readable text and automatically identifies the title, location, employment type, work mode, required skills, experience and education requirements where available.</p>
+                    <p className="mt-2 text-xs">Maximum file size: 5 MB. You do not need to retype the description or metadata.</p>
+                  </div>
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Job description file
                     <input className={inputStyle + " p-2"} type="file" accept=".pdf,.docx" required onChange={(event) => { const selected = event.target.files?.[0] || null; if (selected && selected.size > MAX_DOCUMENT_SIZE_BYTES) { setJobDocumentFile(null); setError(`Job document must be ${MAX_DOCUMENT_SIZE_LABEL} or smaller.`); event.target.value = ""; return; } setJobDocumentFile(selected); setError(""); }} />
                     <span className="text-[11px] font-normal text-ink-400">{jobDocumentFile ? jobDocumentFile.name : "PDF or DOCX, up to 5 MB."}</span>
                   </label>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Field label="Job title override (optional)" value={jobForm.title} onChange={(event) => setJobForm({ ...jobForm, title: event.target.value })} />
-                    <Field label="Department override (optional)" value={jobForm.department} onChange={(event) => setJobForm({ ...jobForm, department: event.target.value })} />
-                    <Field label="Location override (optional)" value={jobForm.location} onChange={(event) => setJobForm({ ...jobForm, location: event.target.value })} />
-                    <SelectField label="Employment type" value={jobForm.employment_type} onChange={(event) => setJobForm({ ...jobForm, employment_type: event.target.value })}>{["Full-time", "Part-time", "Contract", "Temporary", "Internship"].map((type) => <option key={type}>{type}</option>)}</SelectField>
-                    <SelectField label="Work mode" value={jobForm.work_mode} onChange={(event) => setJobForm({ ...jobForm, work_mode: event.target.value })}><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site / Offline</option></SelectField>
-                    <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
-                    <Field label="Minimum experience override" type="number" min="0" max="60" placeholder="Auto-detect" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
-                  </div>
-                  <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700"><input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />Open to freshers (override)</label>
                 </div>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1667,7 +1645,7 @@ export default function AtsWorkspace() {
                   <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">Description<textarea className={inputStyle + " min-h-28 resize-y"} required value={jobForm.description} onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })} /></label>
                 </div>
               )}
-              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Upload & create job" : jobEntryMode === "link" ? "Import & create job" : "Create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
+              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Extract & create job" : "Import & create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
             </form>}
             <div className="mb-5"><p className="text-sm text-ink-500">{jobs.length} total jobs</p><h2 className="mt-1 text-xl font-semibold">Job openings</h2></div>
             <div className="ats-jobs-table overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-sm"><div className="min-w-[980px]">
