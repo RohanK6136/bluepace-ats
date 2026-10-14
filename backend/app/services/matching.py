@@ -165,10 +165,21 @@ class CandidateMatcher:
             text,
             re.IGNORECASE,
         )
-        location_match = explicit_location_match or re.search(
-            r"\b(?:work from|in)\s+(remote|hybrid|[A-Z][A-Za-z]+(?:[ -][A-Z][A-Za-z]+){0,2})",
-            text,
-        )
+        location_match = explicit_location_match
+        if not location_match:
+            generic_location_pattern = re.compile(
+                r"\b(?:work from|in)\s+(remote|hybrid|[A-Z][A-Za-z]+(?:[ -][A-Z][A-Za-z]+){0,2})"
+            )
+            non_location_context = re.compile(
+                r"\b(?:degree|bachelor(?:'s)?|master(?:'s)?|education|university|college|school|experience|proficiency|knowledge|fluency|expertise)\s+in\b",
+                re.IGNORECASE,
+            )
+            for line in text.splitlines():
+                if non_location_context.search(line):
+                    continue
+                location_match = generic_location_pattern.search(line)
+                if location_match:
+                    break
         work_mode = "remote" if re.search(r"\b(remote|work from home|wfh|fully remote)\b", lower_text) else "hybrid" if re.search(r"\bhybrid\b", lower_text) else "onsite"
         return {
             "required_skills": list(dict.fromkeys(required_skills)),
