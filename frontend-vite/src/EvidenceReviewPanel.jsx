@@ -36,6 +36,7 @@ export default function EvidenceReviewPanel({ analysis }) {
   const experience = cleanList(analysis?.experience);
   const projects = cleanList(analysis?.projects);
   const explanations = cleanList(analysis?.explanations);
+  const parsedExperienceProjectCount = experience.length + projects.length;
   const scoreBreakdown = analysis?.score_breakdown && typeof analysis.score_breakdown === "object" ? analysis.score_breakdown : {};
   const scoreWeights = analysis?.score_weights && typeof analysis.score_weights === "object" ? analysis.score_weights : {};
   const matchEvidence = analysis?.match_evidence && typeof analysis.match_evidence === "object" ? analysis.match_evidence : {};
@@ -133,8 +134,8 @@ export default function EvidenceReviewPanel({ analysis }) {
         </div>
         <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Experience / project records</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{evidenceItems.length}</p>
-          <p className="mt-1 text-xs text-slate-500">Parsed items that can be checked against the CV</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{parsedExperienceProjectCount}</p>
+          <p className="mt-1 text-xs text-slate-500">Parsed experience and project records to verify</p>
         </div>
       </div>
 
