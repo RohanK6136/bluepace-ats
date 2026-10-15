@@ -360,9 +360,7 @@ def public_offer_response_v2(token: str, request: OfferResponseRequest, http_req
         user_agent=http_request.headers.get("user-agent"),
     )
     db.add(record)
-    record_audit(db, user, "offer.responded", "offer", offer.id, after={"status": offer.status, "acceptance_record_id": record.id}) if False else None
     db.commit()
-    background_tasks.add_task(deliver_outbox_email, email_id)
     return {"status": offer.status, "message": f"Offer response recorded as {request.status}.", "acceptance_record_id": record.id}
 
 
