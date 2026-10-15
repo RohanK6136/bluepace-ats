@@ -1,41 +1,57 @@
-from io import BytesIO
-from urllib.error import HTTPError
+from types import SimpleNamespace
 
-from app.services.email_notifications import _delivery_error_message
-
-
-def make_http_error(status_code: int, payload: bytes = b""):
-    return HTTPError(
-        url="https://api.brevo.com/v3/smtp/email",
-        code=status_code,
-        msg="Provider error",
-        hdrs=None,
-        fp=BytesIO(payload),
-    )
+from app.services import email_notifications
 
 
-def test_brevo_401_gives_actionable_api_key_guidance():
-    error = make_http_error(401, b'{"message":"Key not found"}')
+class FakeSession:
+    def __init__(self, record):
+        self.record = record
+        self.committed = False
 
-    detail = _delivery_error_message(error, "brevo")
+    def __enter__(self):
+        return self
 
-    assert "HTTP 401" in detail
-    assert "BREVO_API_KEY" in detail
-    assert "active Brevo REST API key" in detail
-    assert "Key not found" in detail
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
+    def get(self, model, email_id):
+        return self.record if self.record and self.record.id == email_id else None
 
-def test_brevo_403_points_to_sender_and_account_permissions():
-    detail = _delivery_error_message(make_http_error(403), "brevo")
-
-    assert "HTTP 403" in detail
-    assert "sender verification" in detail
+    def commit(self):
+        self.committed = True
 
 
-def test_provider_error_message_does_not_log_credentials():
-    secret = "never-print-this-secret"
-    error = make_http_error(401, b'{"message":"Key not found"}')
+def test_pending_legacy_email_is_disabled_without_sending(monkeypatch):
+    record = SimpleNamespace(id=7, status="pending", sent_at=None, error_message=None)
+    db = FakeSession(record)
+    monkeypatch.setattr(email_notifications, "SessionLocal", lambda: db)
 
-    detail = _delivery_error_message(error, "brevo")
+    email_notifications.deliver_outbox_email(7)
 
-    assert secret not in detail
+    assert record.status == "disabled"
+    assert record.sent_at is None
+    assert "disabled" in record.error_message.lower()
+    assert db.committed is True
+
+
+def test_failed_legacy_email_is_disabled_without_sending(monkeypatch):
+    record = SimpleNamespace(id=8, status="failed", sent_at=None, error_message="old provider error")
+    db = FakeSession(record)
+    monkeypatch.setattr(email_notifications, "SessionLocal", lambda: db)
+
+    email_notifications.deliver_outbox_email(8)
+
+    assert record.status == "disabled"
+    assert "disabled" in record.error_message.lower()
+
+
+def test_historical_sent_email_is_not_rewritten(monkeypatch):
+    record = SimpleNamespace(id=9, status="sent", sent_at="historic-time", error_message=None)
+    db = FakeSession(record)
+    monkeypatch.setattr(email_notifications, "SessionLocal", lambda: db)
+
+    email_notifications.deliver_outbox_email(9)
+
+    assert record.status == "sent"
+    assert record.sent_at == "historic-time"
+    assert db.committed is False
