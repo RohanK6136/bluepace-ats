@@ -39,13 +39,11 @@ from app.security import (
     get_current_user,
     require_roles,
 )
-from app.services.email_notifications import deliver_outbox_email
 from app.services.llm_validator import llm_validator
 from app.services.matching import matching_service
 from app.services.rag import rag_service
 from app.services.workflow import (
     PIPELINE_STAGES,
-    queue_application_email,
     record_audit,
     ensure_job_stages,
 )
@@ -598,24 +596,6 @@ def reschedule_interview(
         details += f", {meeting_url}"
     elif location:
         details += f", {location}"
-    subject = f"Interview rescheduled: {application.job.title}"
-    body = (
-        f"Hello {application.candidate.first_name},\n\n"
-        f"Your {interview.round_name} for {application.job.title} has been rescheduled.\n\n"
-        f"New schedule: {details}.\n\n"
-        "Please use the secure candidate portal for the latest application details.\n\n"
-        "Blupace Tech Recruiting"
-    )
-    calendar_bytes = _interview_ics(interview, application).encode("utf-8")
-    email_id = queue_application_email(
-        db,
-        application,
-        subject,
-        body,
-        attachment_filename=f"blupace-interview-{interview.id}.ics",
-        attachment_content=base64.b64encode(calendar_bytes).decode("ascii"),
-        attachment_content_type="text/calendar",
-    )
     record_audit(
         db,
         user,
@@ -634,7 +614,6 @@ def reschedule_interview(
     )
     db.commit()
     db.refresh(interview)
-    background_tasks.add_task(deliver_outbox_email, email_id)
     return {
         "id": interview.id,
         "application_id": application.id,
@@ -648,7 +627,6 @@ def reschedule_interview(
         "round_number": interview.round_number,
         "feedback_deadline": interview.feedback_deadline,
         "cancellation_reason": interview.cancellation_reason,
-        "email_id": email_id,
     }
 
 
@@ -674,19 +652,10 @@ def cancel_interview(
     interview.cancellation_reason = (reason or "").strip() or None
     interview.reminder_24_sent = True
     interview.reminder_1h_sent = True
-    subject = f"Interview cancelled: {application.job.title}"
-    body = (
-        f"Hello {application.candidate.first_name},\n\n"
-        f"Your {interview.round_name} for {application.job.title} scheduled for "
-        f"{interview.starts_at.strftime('%d %B %Y at %I:%M %p')} has been cancelled. "
-        "Please keep your candidate portal link for future updates.\n\n"
-        "Blupace Tech Recruiting"
-    )
-    email_id = queue_application_email(db, application, subject, body)
     record_audit(db, user, "interview.cancelled", "interview", interview.id, after={"status": "cancelled", "reason": interview.cancellation_reason})
     db.commit()
     background_tasks.add_task(deliver_outbox_email, email_id)
-    return {"id": interview.id, "status": interview.status, "email_id": email_id}
+    return {"id": interview.id, "status": interview.status, "cancellation_reason": interview.cancellation_reason}
 
 
 @router.get("/interviews/{interview_id}/ics")
@@ -913,10 +882,10 @@ def public_offer_response(
 @router.post("/applications/{application_id}/offer/send")
 def send_offer(
     application_id: int,
-    background_tasks: BackgroundTasks,
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
+    """Publish an approved offer to the candidate portal without sending email."""
     application = _org_record(db, Application, application_id, user.organization_id)
     offer = db.scalar(select(Offer).where(Offer.application_id == application.id))
     if offer is None:
@@ -926,23 +895,12 @@ def send_offer(
     if not offer.position_title:
         raise HTTPException(status_code=422, detail="Offer position title is required.")
     if offer.status != "approved":
-        raise HTTPException(status_code=409, detail="Approve the offer internally before sending it.")
+        raise HTTPException(status_code=409, detail="Approve the offer internally before publication.")
     offer.status = "sent"
     offer.sent_at = datetime.now(timezone.utc)
-    subject = f"Offer from Blupace Tech: {offer.position_title}"
-    body = (
-        f"Hello {application.candidate.first_name},\n\n"
-        f"We are pleased to share an offer for {offer.position_title}."
-        + (f" Annual CTC: {offer.annual_ctc} {offer.currency}." if offer.annual_ctc else "")
-        + (f" Joining date: {offer.joining_date.strftime('%d %B %Y')}." if offer.joining_date else "")
-        + (f" Offer letter: {offer.offer_letter_url}" if offer.offer_letter_url else "")
-        + "\n\nPlease use your secure candidate portal to review and respond to the offer.\n\nBlupace Tech Recruiting"
-    )
-    email_id = queue_application_email(db, application, subject, body)
-    record_audit(db, user, "offer.sent", "application", application.id, after={"offer_id": offer.id, "status": offer.status})
+    record_audit(db, user, "offer.published", "application", application.id, after={"offer_id": offer.id, "status": offer.status, "channel": "candidate_portal"})
     db.commit()
-    background_tasks.add_task(deliver_outbox_email, email_id)
-    return {"status": offer.status, "offer_id": offer.id, "email_id": email_id}
+    return {"status": offer.status, "offer_id": offer.id, "delivery": "candidate_portal"}
 
 
 @router.post("/public/application/{token}/interviews/{interview_id}.ics")
