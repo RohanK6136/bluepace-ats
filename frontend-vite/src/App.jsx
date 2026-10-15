@@ -431,7 +431,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
           .then((syncResponse) => {
             setResumeLabSyncStatus(
               syncResponse.data?.application_id
-                ? "Resume extracted and synced to Candidates, Applications, matching, and the Applied email template."
+                ? "Resume extracted and synced to Candidates, Applications, and matching."
                 : "Resume extracted and synced to the ATS Candidate record.",
             );
           })
