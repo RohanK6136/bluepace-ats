@@ -141,6 +141,41 @@ def test_health_endpoint(client):
     assert response.json() == {"status": "ok"}
     assert float(response.headers["x-process-time-ms"]) >= 0
 
+def test_email_delivery_is_disabled_and_test_send_is_rejected(client):
+    headers = register_and_login(client)
+
+    status_response = client.get("/email-delivery/status", headers=headers)
+    assert status_response.status_code == 200
+    assert status_response.json()["enabled"] is False
+    assert status_response.json()["provider"] == "disabled"
+
+    test_response = client.post(
+        "/email-templates/test",
+        json={"template_name": "Applied", "recipient": "nobody@example.com"},
+        headers=headers,
+    )
+    assert test_response.status_code == 410
+    assert "disabled" in test_response.json()["detail"].lower()
+
+
+def test_email_automation_action_is_rejected(client):
+    headers = register_and_login(client)
+    response = client.post(
+        "/automation-rules",
+        json={
+            "name": "No email action",
+            "trigger_event": "stage_changed",
+            "trigger_stage": "Screening",
+            "action_type": "send_email",
+            "subject": "Test",
+            "body": "Test",
+            "enabled": True,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
 def test_request_id_is_returned_and_invalid_ids_are_replaced(client):
     accepted = client.get("/health", headers={"X-Request-ID": "test-request-0001"})
     assert accepted.status_code == 200
@@ -500,6 +535,8 @@ def test_application_starts_applied_and_can_advance(client):
     assert created.status_code == 201
     application_id = created.json()["id"]
     assert created.json()["stage_name"] == "Applied"
+    with client.app.state.test_session() as test_db:
+        assert test_db.query(Email).count() == 0
 
     moved = client.post(
         f"/applications/{application_id}/stage",
