@@ -919,8 +919,7 @@ export default function AtsWorkspace() {
     }
     try {
       await apiRequest(token, "post", `/applications/${applicationId}/stage`, { data: { stage_name: stageName } });
-      const emailStage = stageName === "Offer" ? "Offer email sent" : stageName === "Hired" ? "Selection email sent" : stageName === "Rejected" ? "Rejection email sent" : `Application moved to ${stageName}`;
-      setNotice(emailStage);
+      setNotice(`Application moved to ${stageName}`);
       await refreshWorkspace();
     } catch (requestError) {
       setError(errorText(requestError));
@@ -1592,20 +1591,12 @@ export default function AtsWorkspace() {
 
               <details className="bp-operational-details mt-8 border-t border-ink-200 pt-4">
                 <summary className="cursor-pointer text-sm font-semibold text-ink-700">Operational details</summary>
-                <div className="mt-5 grid gap-8 md:grid-cols-3">
+                <div className="mt-5 grid gap-8 md:grid-cols-2">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Applications by job</p>
                     <div className="mt-3 grid gap-2">
                       {(dashboardData.job_counts || []).slice(0, 7).map((item) => <div key={item.name} className="flex justify-between gap-3 text-sm"><span className="truncate">{item.name}</span><span className="font-semibold">{item.count}</span></div>)}
                       {!dashboardData.job_counts?.length && <p className="text-sm text-ink-500">No data.</p>}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Email delivery</p>
-                    <div className="mt-3 grid gap-2 text-sm">
-                      <div className="flex justify-between"><span>Sent</span><span className="font-semibold">{dashboardData.email_counts?.sent || 0}</span></div>
-                      <div className="flex justify-between"><span>Pending</span><span className="font-semibold">{dashboardData.email_counts?.pending || 0}</span></div>
-                      <div className="flex justify-between"><span>Failed</span><span className="font-semibold">{dashboardData.email_counts?.failed || 0}</span></div>
                     </div>
                   </div>
                   <div>
@@ -2275,10 +2266,10 @@ export default function AtsWorkspace() {
               <Field label="Interview location / address" required placeholder="Blupace Tech office, Hyderabad..." value={interviewForm.location} onChange={(event) => setInterviewForm({ ...interviewForm, location: event.target.value })} />
             )}
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-              The candidate will be moved to <strong>Interview</strong> and an email will be sent to <strong>{interviewDialogApplication.candidate.email}</strong>. It will include the date, time, duration and {interviewModeLabel(interviewForm.mode).toLowerCase()} details.
+              The application will move to <strong>Interview</strong>. The date, time, duration and {interviewModeLabel(interviewForm.mode).toLowerCase()} details will be saved in the ATS.
             </div>
           </div>
-          <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => setInterviewDialogApplication(null)}>Cancel</button><button type="submit" className={buttonPrimary}>Schedule & send email</button></div>
+          <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => setInterviewDialogApplication(null)}>Cancel</button><button type="submit" className={buttonPrimary}>Schedule interview</button></div>
         </form>
       </div>}
 
