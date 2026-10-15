@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import html
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, select
@@ -11,8 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, Session
 from app.database import Base, get_db
 from app.models import Application, Offer, Role, User
 from app.security import decode_candidate_portal_token, require_roles
-from app.services.workflow import queue_application_email, record_audit
-from app.services.email_notifications import deliver_outbox_email
+from app.services.workflow import record_audit
 
 router = APIRouter()
 READ_ROLES = (Role.admin, Role.recruiter, Role.hiring_manager, Role.interviewer)
@@ -246,21 +245,25 @@ def approve_offer(offer_id: int, request: OfferTransitionRequest, user: User = D
 
 
 @router.post("/offer-management/offers/{offer_id}/send")
-def send_offer_v2(offer_id: int, background_tasks: BackgroundTasks, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
+def publish_offer(offer_id: int, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
+    """Publish an approved offer to the secure candidate portal; do not send email."""
     offer = _org_offer(db, offer_id, user.organization_id)
     application = db.get(Application, offer.application_id)
     if application is None or application.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Application not found")
     if offer.status != "approved":
-        raise HTTPException(status_code=409, detail="Offer must be approved before it can be sent.")
-    offer.status = "sent"
+        raise HTTPException(status_code=409, detail="Offer must be approved before publication.")
+    offer.status = "sent"  # Existing status used by candidate-portal visibility and response rules.
     offer.sent_at = _now()
-    subject = f"Offer from Blupace Tech: {offer.position_title}"
-    body = f"Hello {application.candidate.first_name},\\n\\nYour offer for {offer.position_title} is ready in your secure candidate portal. Annual CTC: {offer.annual_ctc or 'As specified'} {offer.currency}.\\n\\nPlease review and respond using your candidate portal."
-    email_id = queue_application_email(db, application, subject, body)
-    record_audit(db, user, "offer.sent", "offer", offer.id, after={"status": offer.status, "revision": offer.revision})
+    record_audit(
+        db,
+        user,
+        "offer.published",
+        "offer",
+        offer.id,
+        after={"status": offer.status, "revision": offer.revision, "channel": "candidate_portal"},
+    )
     db.commit()
-    background_tasks.add_task(deliver_outbox_email, email_id)
     return _serialize_offer(db, offer)
 
 
@@ -326,7 +329,7 @@ def public_offer_letter(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/public/application/{token}/offer-response")
-def public_offer_response_v2(token: str, request: OfferResponseRequest, http_request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def public_offer_response_v2(token: str, request: OfferResponseRequest, http_request: Request, db: Session = Depends(get_db)):
     try:
         application_id = decode_candidate_portal_token(token)
     except Exception as error:
@@ -357,10 +360,7 @@ def public_offer_response_v2(token: str, request: OfferResponseRequest, http_req
         user_agent=http_request.headers.get("user-agent"),
     )
     db.add(record)
-    record_audit(db, None, "offer.responded", "offer", offer.id, after={"status": offer.status, "acceptance_record_id": record.id}) if False else None
-    subject = f"Offer {request.status}: {offer.position_title}"
-    body = f"Hello {application.candidate.first_name},\\n\\nYour offer response has been recorded as {request.status}.\\n\\nBlupace Tech Recruiting"
-    email_id = queue_application_email(db, application, subject, body)
+    record_audit(db, user, "offer.responded", "offer", offer.id, after={"status": offer.status, "acceptance_record_id": record.id}) if False else None
     db.commit()
     background_tasks.add_task(deliver_outbox_email, email_id)
     return {"status": offer.status, "message": f"Offer response recorded as {request.status}.", "acceptance_record_id": record.id}
