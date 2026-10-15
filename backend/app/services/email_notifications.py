@@ -17,3 +17,22 @@ def deliver_outbox_email(email_id: int) -> None:
         email_record.sent_at = None
         email_record.error_message = DELIVERY_DISABLED_MESSAGE
         db.commit()
+
+
+
+def disable_pending_email_records() -> int:
+    """Mark all unsent legacy outbox records disabled without contacting a provider."""
+    with SessionLocal() as db:
+        changed = db.query(Email).filter(
+            Email.status.in_(("draft", "pending", "queued", "failed"))
+        ).update(
+            {
+                Email.status: "disabled",
+                Email.sent_at: None,
+                Email.error_message: DELIVERY_DISABLED_MESSAGE,
+            },
+            synchronize_session=False,
+        )
+        if changed:
+            db.commit()
+        return int(changed)
