@@ -141,6 +141,18 @@ def test_health_endpoint(client):
     assert response.json() == {"status": "ok"}
     assert float(response.headers["x-process-time-ms"]) >= 0
 
+def test_request_id_is_returned_and_invalid_ids_are_replaced(client):
+    accepted = client.get("/health", headers={"X-Request-ID": "test-request-0001"})
+    assert accepted.status_code == 200
+    assert accepted.headers["x-request-id"] == "test-request-0001"
+
+    rejected = client.get("/health", headers={"X-Request-ID": "bad id with spaces"})
+    assert rejected.status_code == 200
+    generated = rejected.headers["x-request-id"]
+    assert generated
+    assert " " not in generated
+    assert generated != "bad id with spaces"
+
 
 def test_fast_resume_validation_does_not_require_auth(client):
     response = client.post(
