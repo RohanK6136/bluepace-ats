@@ -300,7 +300,7 @@ async def lifespan(_app: FastAPI):
                     seed_result = populate_demo_data(user=seed_admin, db=seed_db)
                     print(f"[demo-data] Startup population complete: {seed_result.get('created')} total={seed_result.get('total_created')}", flush=True)
 
-    reminder_task = None if APP_ENV == "test" else asyncio.create_task(interview_reminder_loop())
+    reminder_task = None  # Candidate email reminders are disabled.
     resume_dispatcher_task = None
     if APP_ENV != "test":
         resume_dispatcher_task = asyncio.create_task(_delayed_resume_dispatcher_start())
@@ -3273,50 +3273,12 @@ def preview_email_template(
 
 @app.post("/email-templates/test")
 def send_email_template_test(
-    request: EmailTemplateTestRequest,
-    background_tasks: BackgroundTasks,
     user: User = Depends(require_roles(*WRITE_ROLES)),
-    db: Session = Depends(get_db),
 ):
-    labels = {"Applied", "Screening", "Interview", "Offer", "Hired", "Rejected", "Interview Reminder 24h", "Interview Reminder 1h"}
-    if request.template_name not in labels:
-        raise HTTPException(status_code=400, detail="Unknown email template")
-    organization = db.get(Organization, user.organization_id)
-    custom = organization.email_templates if organization and organization.email_templates else {}
-    defaults = dict(DEFAULT_EMAIL_TEMPLATES)
-    defaults["Interview Reminder 24h"] = REMINDER_EMAIL_TEMPLATES["24h"]
-    defaults["Interview Reminder 1h"] = REMINDER_EMAIL_TEMPLATES["1h"]
-    template = custom.get(request.template_name) or defaults.get(request.template_name)
-    if not template:
-        raise HTTPException(status_code=404, detail="Email template not found")
-
-    values = {
-        "candidate_name": "Test Candidate",
-        "job_title": "Sample role",
-        "interview_date": "01 October 2026",
-        "interview_time": "10:00 AM IST",
-        "interview_duration": "60",
-        "interview_mode": "Online",
-        "meeting_link": "https://example.com/interview",
-        "interview_location": "Blupace Tech office",
-        "candidate_portal_url": "https://bluepace-ats-frontend.onrender.com/?portal=preview",
-        "company_name": "Blupace Tech",
-    }
-    subject, body = _render_email_template(template, values)
-    email = Email(
-        organization_id=user.organization_id,
-        application_id=None,
-        recipient=request.recipient.strip(),
-        subject=subject,
-        body=body,
-        status="pending",
+    raise HTTPException(
+        status_code=410,
+        detail="Outgoing email delivery is disabled for this ATS.",
     )
-    db.add(email)
-    db.flush()
-    record_audit(db, user, "email.template_test_sent", "organization", organization.id, after={"template_name": request.template_name, "recipient": request.recipient.strip()})
-    db.commit()
-    background_tasks.add_task(deliver_outbox_email, email.id)
-    return {"status": "queued", "email_id": email.id, "recipient": email.recipient, "subject": email.subject}
 
 
 @app.patch("/email-templates")
@@ -4164,60 +4126,25 @@ def dashboard_summary(
 def email_delivery_status(
     user: User = Depends(require_roles(*READ_ROLES)),
 ):
-    provider = os.getenv("EMAIL_PROVIDER", "").strip().lower() or "smtp"
-    sender = (
-        os.getenv("EMAIL_FROM")
-        or os.getenv("SMTP_FROM")
-        or os.getenv("SMTP_USER")
-        or ""
-    ).strip()
-
-    if provider == "brevo":
-        missing = []
-        if not os.getenv("BREVO_API_KEY", "").strip():
-            missing.append("BREVO_API_KEY")
-        if not sender:
-            missing.append("EMAIL_FROM")
-    else:
-        missing = []
-        if not os.getenv("SMTP_HOST", "").strip():
-            missing.append("SMTP_HOST")
-        if not sender:
-            missing.append("SMTP_FROM or SMTP_USER")
-        smtp_port = os.getenv("SMTP_PORT", "587").strip()
-        try:
-            int(smtp_port)
-        except ValueError:
-            missing.append("SMTP_PORT")
-
     return {
-        "provider": provider,
-        "configured": not missing,
-        "missing": missing,
-        "sender_configured": bool(sender),
+        "provider": "disabled",
+        "enabled": False,
+        "configured": False,
+        "missing": [],
+        "sender_configured": False,
+        "reason": "Outgoing email delivery is disabled for this ATS.",
     }
 
 
 @app.post("/emails/{email_id}/retry")
 def retry_email(
     email_id: int,
-    background_tasks: BackgroundTasks,
     user: User = Depends(require_roles(*WRITE_ROLES)),
-    db: Session = Depends(get_db),
 ):
-    email = _get_org_record(db, Email, email_id, user.organization_id)
-    if email.status == "sent":
-        raise HTTPException(status_code=409, detail="This email has already been sent.")
-    email.status = "pending"
-    email.error_message = None
-    email.sent_at = None
-    db.commit()
-    background_tasks.add_task(deliver_outbox_email, email.id)
-    return {
-        "status": "queued",
-        "email_id": email.id,
-        "recipient": email.recipient,
-    }
+    raise HTTPException(
+        status_code=410,
+        detail="Outgoing email delivery is disabled for this ATS.",
+    )
 
 
 @app.get("/emails")
