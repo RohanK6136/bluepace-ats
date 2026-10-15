@@ -44,6 +44,7 @@ def client(monkeypatch):
 
     api.app.dependency_overrides[get_db] = override_get_db
     monkeypatch.setattr(api, "initialize_database", lambda: None)
+    monkeypatch.setattr(api, "disable_pending_email_records", lambda: 0)
     monkeypatch.setattr(api, "deliver_outbox_email", lambda _email_id: None)
     with TestClient(api.app) as test_client:
         test_client.app.state.test_session = test_session
