@@ -147,7 +147,7 @@ class AutomationRuleCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     trigger_event: str = Field(default="stage_changed", pattern="^(stage_changed|scorecards_complete)$")
     trigger_stage: str | None = Field(default=None, max_length=100)
-    action_type: str = Field(default="send_email", pattern="^(send_email|assign_owner|assign_interviewer|mark_review|move_stage)$")
+    action_type: str = Field(default="mark_review", pattern="^(assign_owner|assign_interviewer|mark_review|move_stage)$")
     action_value: str | None = Field(default=None, max_length=500)
     subject: str = Field(default="", max_length=500)
     body: str = Field(default="", max_length=10000)
@@ -158,7 +158,7 @@ class AutomationRuleUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     trigger_event: str | None = Field(default=None, pattern="^(stage_changed|scorecards_complete)$")
     trigger_stage: str | None = Field(default=None, max_length=100)
-    action_type: str | None = Field(default=None, pattern="^(send_email|assign_owner|assign_interviewer|mark_review|move_stage)$")
+    action_type: str | None = Field(default=None, pattern="^(assign_owner|assign_interviewer|mark_review|move_stage)$")
     action_value: str | None = Field(default=None, max_length=500)
     subject: str | None = Field(default=None, max_length=500)
     body: str | None = Field(default=None, max_length=10000)
@@ -869,26 +869,7 @@ def public_withdraw_application(
         return {"status": "withdrawn", "message": "This application is already marked as withdrawn."}
 
     application.status = "withdrawn"
-    reason = (request.reason or "").strip()
-    subject = f"Application withdrawal confirmed: {application.job.title}"
-    body = (
-        f"Hello {application.candidate.first_name},\n\n"
-        f"We have recorded your withdrawal from {application.job.title}."
-        + (f" Your reason was recorded as: {reason}." if reason else "")
-        + "\n\nBlupace Tech Recruiting"
-    )
-    email = Email(
-        organization_id=application.organization_id,
-        application_id=application.id,
-        recipient=application.candidate.email,
-        subject=subject,
-        body=body,
-        status="pending",
-    )
-    db.add(email)
     db.commit()
-    db.refresh(email)
-    background_tasks.add_task(deliver_outbox_email, email.id)
     return {"status": "withdrawn", "message": "Your application has been marked as withdrawn."}
 
 
@@ -925,24 +906,7 @@ def public_offer_response(
     offer.status = request.status
     offer.responded_at = datetime.now(timezone.utc)
     verb = "accepted" if request.status == "accepted" else "declined"
-    subject = f"Offer {verb}: {offer.position_title}"
-    body = (
-        f"Hello {application.candidate.first_name},\n\n"
-        f"Your offer response for {offer.position_title} has been recorded as {verb}."
-        "\n\nBlupace Tech Recruiting"
-    )
-    email = Email(
-        organization_id=application.organization_id,
-        application_id=application.id,
-        recipient=application.candidate.email,
-        subject=subject,
-        body=body,
-        status="pending",
-    )
-    db.add(email)
     db.commit()
-    db.refresh(email)
-    background_tasks.add_task(deliver_outbox_email, email.id)
     return {"status": offer.status, "message": f"Offer response recorded as {verb}."}
 
 
@@ -1811,14 +1775,9 @@ def _apply_automation_action(
 ) -> list[int]:
     queued = []
     if rule.action_type == "send_email":
-        if rule.subject.strip() and rule.body.strip():
-            queued.append(queue_application_email(
-                db,
-                application,
-                _render_automation(rule.subject, application, stage_name),
-                _render_automation(rule.body, application, stage_name),
-            ))
-    elif rule.action_type == "assign_owner":
+        # Legacy rules remain inert so existing database rows stay readable.
+        return queued
+    if rule.action_type == "assign_owner":
         try:
             owner_id = int(rule.action_value or "")
         except (TypeError, ValueError):
@@ -1850,15 +1809,7 @@ def _apply_automation_action(
             if stage is not None:
                 application.stage_id = stage.id
                 application.status = "active" if target not in {"Hired", "Rejected"} else target.casefold()
-                subject = f"Application update — {application.job.title}"
-                body = (
-                    f"Hello {application.candidate.first_name},\n\n"
-                    f"Your application for {application.job.title} has moved to the {target} stage. "
-                    "Please keep your candidate portal link for future updates.\n\n"
-                    "Blupace Tech Recruiting"
-                )
-                if not stage_email_automation_enabled(db, application, target):
-                    queued.append(queue_application_email(db, application, subject, body))
+                # Workflow stage changes are recorded in-app; email delivery is disabled.
                 db.add(AuditLog(
                     organization_id=application.organization_id,
                     actor_id=rule.created_by_id,
