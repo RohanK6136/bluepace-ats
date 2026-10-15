@@ -12,6 +12,42 @@ from app.database import SessionLocal
 from app.models import Email
 
 
+def _delivery_error_message(error, provider: str) -> str:
+    """Return a safe, actionable delivery error without exposing credentials."""
+    if isinstance(error, urllib.error.HTTPError):
+        provider_message = ""
+        try:
+            payload = json.loads(error.read(4096).decode("utf-8", errors="replace"))
+            if isinstance(payload, dict):
+                provider_message = str(payload.get("message") or payload.get("error") or "").strip()
+        except (OSError, ValueError, TypeError):
+            pass
+        provider_message = provider_message[:400]
+
+        if provider == "brevo" and error.code == 401:
+            message = (
+                "Brevo rejected API authentication (HTTP 401). Update BREVO_API_KEY in "
+                "Railway with an active Brevo REST API key for the correct account, then "
+                "redeploy and retry the failed emails."
+            )
+        elif provider == "brevo" and error.code == 403:
+            message = (
+                "Brevo refused the send request (HTTP 403). Check account permissions, "
+                "sender verification, and the account's sending status."
+            )
+        else:
+            message = f"Email provider returned HTTP {error.code} {error.reason}."
+        if provider_message:
+            message += f" Provider message: {provider_message}"
+        return message
+
+    if isinstance(error, smtplib.SMTPAuthenticationError):
+        return "SMTP authentication failed. Verify SMTP_USER and SMTP_PASSWORD for the configured provider."
+    if isinstance(error, urllib.error.URLError):
+        return f"Email provider connection failed: {str(error.reason)[:400]}"
+    return str(error)[:2000]
+
+
 def _mark_sent(email_record):
     email_record.status = "sent"
     email_record.sent_at = datetime.now(timezone.utc)
@@ -122,10 +158,11 @@ def deliver_outbox_email(email_id: int):
             _mark_sent(email_record)
         except (OSError, smtplib.SMTPException, urllib.error.URLError, ValueError, RuntimeError, json.JSONDecodeError) as error:
             email_record.status = "failed"
-            email_record.error_message = str(error)[:2000]
+            detail = _delivery_error_message(error, provider or "smtp")
+            email_record.error_message = detail
             print(
-                f"EMAIL_DELIVERY_FAILED id={email_record.id} recipient={email_record.recipient} "
-                f"provider={provider or 'smtp'} error={error}",
+                f"EMAIL_DELIVERY_FAILED id={email_record.id} "
+                f"provider={provider or 'smtp'} error={detail}",
                 flush=True,
             )
             traceback.print_exc()
