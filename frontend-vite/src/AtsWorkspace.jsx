@@ -11,6 +11,7 @@ const CandidateMergeCenter = lazy(() => import("./CandidateMergeCenter.jsx"));
 const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
 const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
+const AutomationPanel = lazy(() => import("./AutomationPanel.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
@@ -1409,6 +1410,7 @@ export default function AtsWorkspace() {
     { id: "matching", label: "AI Match" },
     { id: "assistant", label: "AI Assistant" },
     { id: "merge-center", label: "Merge Center" },
+    { id: "automation", label: "Automation" },
   ];
 
   return (
