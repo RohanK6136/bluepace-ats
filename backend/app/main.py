@@ -336,6 +336,40 @@ def readyz(db: Session = Depends(get_db)):
 
 
 @app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    """Attach a safe request ID for correlating client reports with server logs."""
+    supplied_id = request.headers.get("X-Request-ID", "").strip()
+    request_id = (
+        supplied_id
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{7,63}", supplied_id)
+        else uuid4().hex
+    )
+    request.state.request_id = request_id
+    started = perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = (perf_counter() - started) * 1000
+        print(
+            f"[http-error] request_id={request_id} method={request.method} "
+            f"path={request.url.path} duration_ms={elapsed_ms:.2f}",
+            flush=True,
+        )
+        raise
+
+    response.headers["X-Request-ID"] = request_id
+    if response.status_code >= 500:
+        elapsed_ms = (perf_counter() - started) * 1000
+        print(
+            f"[http-error] request_id={request_id} method={request.method} "
+            f"path={request.url.path} status={response.status_code} "
+            f"duration_ms={elapsed_ms:.2f}",
+            flush=True,
+        )
+    return response
+
+
+@app.middleware("http")
 async def security_headers_middleware(request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
