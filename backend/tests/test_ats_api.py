@@ -745,7 +745,7 @@ def test_pipeline_filters_bulk_actions_csv_and_audit_logs(client):
     logs = client.get("/audit-logs?entity_type=application", headers=headers).json()
     assert len(logs) >= 5
     with client.app.state.test_session() as db:
-        assert len(db.scalars(select(Email)).all()) >= 5
+        assert len(db.scalars(select(Email)).all()) == 0  # Delivery is disabled; workflow changes stay in-app.
 
 
 def test_job_archive_is_audited(client):
