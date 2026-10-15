@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 const stages = ["draft", "internal_review", "approved", "sent", "viewed", "accepted", "declined", "expired"];
-const label = (value) => String(value || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const label = (value) => value === "sent" ? "Published" : String(value || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 export default function OfferManagement({ token, apiRequest, applications = [], onNotice, onError }) {
   const [offers, setOffers] = useState([]);
@@ -35,7 +35,7 @@ export default function OfferManagement({ token, apiRequest, applications = [], 
   }
 
   async function action(path, data) {
-    try { const response = await apiRequest(token, "post", path, { data: data || {} }); setSelected(response.data); onNotice?.("Offer updated"); await loadOffers(); }
+    try { const response = await apiRequest(token, "post", path, { data: data || {} }); setSelected(response.data); onNotice?.(response.data?.status === "sent" ? "Offer published in the candidate portal. No email was sent." : "Offer updated"); await loadOffers(); }
     catch (error) { onError?.(error); }
   }
 
@@ -75,7 +75,7 @@ export default function OfferManagement({ token, apiRequest, applications = [], 
 
   return <section>
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div><p className="text-sm text-ink-500">Offer lifecycle</p><h2 className="mt-1 text-xl font-semibold">Offers</h2></div>
+      <div><p className="text-sm text-ink-500">Offer lifecycle · portal publication only</p><h2 className="mt-1 text-xl font-semibold">Offers</h2></div>
       <button className="inline-flex items-center justify-center rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold" onClick={loadOffers}>Refresh</button>
     </div>
     <details className="mb-5 border-y border-ink-100 py-3">
