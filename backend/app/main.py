@@ -3403,6 +3403,10 @@ def submit_application_scorecard(
         application.id,
         after={"recommendation": request.recommendation, "ratings": request.ratings},
     )
+    # The session is configured with autoflush disabled. Flush the submitted
+    # scorecard before querying completion so the scorecard-complete automation
+    # sees this submission in the current transaction.
+    db.flush()
     email_ids = run_scorecard_automations(db, application) if not was_complete else []
     db.commit()
     db.refresh(scorecard)
