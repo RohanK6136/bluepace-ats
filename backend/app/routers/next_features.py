@@ -654,7 +654,6 @@ def cancel_interview(
     interview.reminder_1h_sent = True
     record_audit(db, user, "interview.cancelled", "interview", interview.id, after={"status": "cancelled", "reason": interview.cancellation_reason})
     db.commit()
-    background_tasks.add_task(deliver_outbox_email, email_id)
     return {"id": interview.id, "status": interview.status, "cancellation_reason": interview.cancellation_reason}
 
 
