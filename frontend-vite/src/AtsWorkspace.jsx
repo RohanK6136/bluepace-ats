@@ -903,7 +903,7 @@ export default function AtsWorkspace() {
         },
       });
       setInterviewDialogApplication(null);
-      setNotice(`Interview scheduled and invitation sent to ${interviewDialogApplication.candidate.email}`);
+      setNotice("Interview scheduled and saved in the ATS.");
       await refreshWorkspace();
     } catch (requestError) {
       setError(errorText(requestError));
