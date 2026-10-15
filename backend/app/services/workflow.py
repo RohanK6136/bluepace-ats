@@ -39,20 +39,8 @@ def queue_application_email(
     attachment_content: str | None = None,
     attachment_content_type: str | None = None,
 ) -> int:
-    email = Email(
-        organization_id=application.organization_id,
-        application_id=application.id,
-        recipient=application.candidate.email,
-        subject=subject,
-        body=body,
-        status="pending",
-        attachment_filename=attachment_filename,
-        attachment_content=attachment_content,
-        attachment_content_type=attachment_content_type,
-    )
-    db.add(email)
-    db.flush()
-    return email.id
+    """Compatibility shim: outgoing email delivery is disabled for this ATS."""
+    return 0
 
 
 def serialize_application(application: Application) -> dict:
