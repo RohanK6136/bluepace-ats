@@ -25,8 +25,6 @@ export default function EmailTemplatesPanel({ token, apiRequest, onNotice, onErr
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [testRecipient, setTestRecipient] = useState("");
-  const [testSending, setTestSending] = useState(false);
   const [savedAt, setSavedAt] = useState("");
 
   async function loadTemplates() {
@@ -64,7 +62,7 @@ export default function EmailTemplatesPanel({ token, apiRequest, onNotice, onErr
       setTemplates(nextTemplates);
       setDraft(nextTemplates[active] || EMPTY_TEMPLATE);
       setSavedAt(new Date().toLocaleTimeString());
-      onNotice("Email template saved successfully. New lifecycle emails will use this template.");
+      onNotice("Email template saved successfully. The template is saved for reference only; no email is sent.");
     } catch (error) {
       onError(error);
     } finally {
@@ -86,31 +84,12 @@ export default function EmailTemplatesPanel({ token, apiRequest, onNotice, onErr
     }
   }
 
-  async function sendTest() {
-    const recipient = testRecipient.trim();
-    if (!recipient) {
-      onError(new Error("Enter a test recipient email address."));
-      return;
-    }
-    setTestSending(true);
-    try {
-      const response = await apiRequest(token, "post", "/email-templates/test", {
-        data: { template_name: active, recipient },
-      });
-      onNotice(response.data?.status === "queued"
-        ? `Test email queued for ${response.data.recipient}. Check Email Center for delivery status.`
-        : "Test email request completed.");
-    } catch (error) {
-      onError(error);
-    } finally {
-      setTestSending(false);
-    }
-  }
+
 
   return (
     <section>
       <div className="mb-5">
-        <p className="text-sm text-ink-500">Edit, preview, and test every candidate notification template.</p>
+        <p className="text-sm text-ink-500">Saved reference templates can be reviewed, but this ATS does not send email notifications.</p>
         <h2 className="mt-1 text-xl font-semibold">Email templates</h2>
       </div>
 
@@ -176,15 +155,6 @@ export default function EmailTemplatesPanel({ token, apiRequest, onNotice, onErr
               </section>
             )}
 
-            <section className="rounded-xl border border-ink-100 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Delivery check</p>
-              <h3 className="mt-1 font-semibold">Send a test email</h3>
-              <p className="mt-1 text-sm text-ink-500">This tests the selected template and your SMTP configuration. Delivery status appears in Email Center.</p>
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                <input className={inputStyle} type="email" value={testRecipient} placeholder="recruiter@example.com" onChange={(event) => setTestRecipient(event.target.value)} />
-                <button type="button" className={buttonPrimary} disabled={testSending || !testRecipient.trim()} onClick={sendTest}>{testSending ? "Queueing…" : "Send test"}</button>
-              </div>
-            </section>
           </div>
         </div>
       )}
