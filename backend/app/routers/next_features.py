@@ -1887,6 +1887,12 @@ def list_automation_rules(
         .where(AutomationRule.organization_id == user.organization_id)
         .order_by(AutomationRule.created_at.desc())
     ).all()
+    legacy_email_rules = [row for row in rows if row.action_type == "send_email"]
+    for row in legacy_email_rules:
+        row.enabled = False
+    if legacy_email_rules:
+        db.commit()
+    rows = [row for row in rows if row.action_type != "send_email"]
     return [
         {
             "id": row.id,
