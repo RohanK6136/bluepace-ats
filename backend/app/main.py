@@ -113,7 +113,7 @@ from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCU
 from app.services.private_storage import private_storage
 from app.services.request_limits import read_request_body_limited
 from app.services.extractor import DocumentExtractionError, extractor_service
-from app.services.email_notifications import deliver_outbox_email
+from app.services.email_notifications import deliver_outbox_email, disable_pending_email_records
 from app.services.llm_validator import llm_validator
 from app.services.matching import MATCH_WEIGHTS, matching_service
 from app.services.reranker import reranker_service
@@ -280,6 +280,9 @@ def _log_jwt_rotation_impact() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     initialize_database()
+    disabled_email_count = disable_pending_email_records()
+    if disabled_email_count:
+        print(f"[email] disabled {disabled_email_count} unsent email record(s); delivery is off.", flush=True)
     ensure_bootstrap_account()
     _log_jwt_rotation_impact()
     if APP_ENV != "test" and os.getenv("AUTO_POPULATE_DEMO_DATA", "").strip().lower() == "true":
