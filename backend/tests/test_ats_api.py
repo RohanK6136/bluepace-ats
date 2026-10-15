@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import pytest
@@ -236,6 +237,141 @@ def test_offer_can_be_published_to_portal_without_email(client):
             log.action == "offer.published"
             for log in db.scalars(select(api.AuditLog)).all()
         )
+
+
+def test_email_free_hiring_workflow_through_portal_offer(client):
+    """Exercise the full hiring path in an isolated in-memory database."""
+    headers = register_and_login(client, email="workflow-owner@example.com", organization="Workflow QA")
+
+    job_response = client.post(
+        "/jobs",
+        json={"title": "QA Platform Engineer", "description": "Python APIs, SQL, testing", "status": "open"},
+        headers=headers,
+    )
+    assert job_response.status_code == 201
+    job = job_response.json()
+
+    candidate_response = client.post(
+        "/candidates",
+        json={
+            "first_name": "Taylor",
+            "last_name": "Test",
+            "email": "taylor.test@example.com",
+            "source": "workflow-test",
+            "resume_data": {"skills": ["Python", "SQL", "API testing"]},
+        },
+        headers=headers,
+    )
+    assert candidate_response.status_code == 201
+    candidate = candidate_response.json()
+
+    application_response = client.post(
+        "/applications",
+        json={"job_id": job["id"], "candidate_id": candidate["id"]},
+        headers=headers,
+    )
+    assert application_response.status_code == 201
+    application_id = application_response.json()["id"]
+    assert application_response.json()["stage_name"] == "Applied"
+
+    rule_response = client.post(
+        "/automation-rules",
+        json={
+            "name": "All scorecards complete → Offer review",
+            "trigger_event": "scorecards_complete",
+            "action_type": "move_stage",
+            "action_value": "Offer",
+            "enabled": True,
+        },
+        headers=headers,
+    )
+    assert rule_response.status_code == 200
+
+    screening = client.post(
+        f"/applications/{application_id}/stage",
+        json={"stage_name": "Screening"},
+        headers=headers,
+    )
+    assert screening.status_code == 200
+    assert screening.json()["stage_name"] == "Screening"
+
+    interview_response = client.post(
+        f"/applications/{application_id}/interviews",
+        json={
+            "starts_at": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
+            "duration_minutes": 45,
+            "mode": "online",
+            "meeting_url": "https://example.test/interview-room",
+            "round_name": "Technical",
+            "round_type": "technical",
+        },
+        headers=headers,
+    )
+    assert interview_response.status_code == 200
+    interview = interview_response.json()
+    assert interview["status"] == "scheduled"
+    assert interview["mode"] == "online"
+
+    scorecard_response = client.post(
+        f"/applications/{application_id}/scorecard",
+        json={
+            "ratings": {"python": 4, "sql": 4, "problem_solving": 5},
+            "recommendation": "strong_yes",
+        },
+        headers=headers,
+    )
+    assert scorecard_response.status_code == 200
+    assert scorecard_response.json()["submitted_at"] is not None
+
+    current_applications = client.get("/applications?limit=100", headers=headers)
+    assert current_applications.status_code == 200
+    candidate_application = next(item for item in current_applications.json() if item["id"] == application_id)
+    assert candidate_application["stage_name"] == "Offer"
+
+    offer_response = client.post(
+        "/offer-management/offers",
+        json={
+            "application_id": application_id,
+            "position_title": "QA Platform Engineer",
+            "annual_ctc": "1200000",
+            "currency": "INR",
+        },
+        headers=headers,
+    )
+    assert offer_response.status_code == 200
+    offer_id = offer_response.json()["id"]
+
+    internal_review = client.post(
+        f"/offer-management/offers/{offer_id}/submit-review",
+        json={"comment": "Workflow end-to-end test"},
+        headers=headers,
+    )
+    assert internal_review.status_code == 200
+    approval = client.post(
+        f"/offer-management/offers/{offer_id}/approve",
+        json={"comment": "Approved for portal publication"},
+        headers=headers,
+    )
+    assert approval.status_code == 200
+    published = client.post(
+        f"/offer-management/offers/{offer_id}/send",
+        json={},
+        headers=headers,
+    )
+    assert published.status_code == 200
+    assert published.json()["status"] == "sent"
+    assert "email_id" not in published.json()
+
+    with client.app.state.test_session() as db:
+        assert len(db.scalars(select(Email)).all()) == 0
+        audit_actions = {
+            row.action
+            for row in db.scalars(select(api.AuditLog)).all()
+        }
+        assert "application.stage_changed" in audit_actions
+        assert "interview.round_scheduled" in audit_actions
+        assert "interview.scorecard_submitted" in audit_actions
+        assert "offer.published" in audit_actions
 
 
 def test_request_id_is_returned_and_invalid_ids_are_replaced(client):
