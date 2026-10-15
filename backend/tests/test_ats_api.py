@@ -177,6 +177,67 @@ def test_email_automation_action_is_rejected(client):
     assert response.status_code == 422
 
 
+def test_offer_can_be_published_to_portal_without_email(client):
+    headers = register_and_login(client)
+    job = client.post(
+        "/jobs",
+        json={"title": "Platform Engineer", "description": "Build platform", "status": "open"},
+        headers=headers,
+    ).json()
+    candidate = client.post(
+        "/candidates",
+        json={"first_name": "Casey", "last_name": "Morgan", "email": "casey@example.com"},
+        headers=headers,
+    ).json()
+    application = client.post(
+        "/applications",
+        json={"job_id": job["id"], "candidate_id": candidate["id"]},
+        headers=headers,
+    ).json()
+
+    created = client.post(
+        "/offer-management/offers",
+        json={
+            "application_id": application["id"],
+            "position_title": "Platform Engineer",
+            "annual_ctc": "1200000",
+            "currency": "INR",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    offer_id = created.json()["id"]
+
+    review = client.post(
+        f"/offer-management/offers/{offer_id}/submit-review",
+        json={"comment": "Reviewed"},
+        headers=headers,
+    )
+    assert review.status_code == 200
+    approval = client.post(
+        f"/offer-management/offers/{offer_id}/approve",
+        json={"comment": "Approved"},
+        headers=headers,
+    )
+    assert approval.status_code == 200
+
+    published = client.post(
+        f"/offer-management/offers/{offer_id}/send",
+        json={},
+        headers=headers,
+    )
+    assert published.status_code == 200
+    assert published.json()["status"] == "sent"
+    assert "email_id" not in published.json()
+
+    with client.app.state.test_session() as db:
+        assert len(db.scalars(select(Email)).all()) == 0
+        assert any(
+            log.action == "offer.published"
+            for log in db.scalars(select(api.AuditLog)).all()
+        )
+
+
 def test_request_id_is_returned_and_invalid_ids_are_replaced(client):
     accepted = client.get("/health", headers={"X-Request-ID": "test-request-0001"})
     assert accepted.status_code == 200
