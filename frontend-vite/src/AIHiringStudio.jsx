@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const DEFAULT_MODEL = "openrouter/free";
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const tabs = [
   { id: "generate", label: "Generate JD" },
@@ -45,7 +45,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     try { return sessionStorage.getItem("bluepace_openrouter_key") || ""; } catch { return ""; }
   });
   const [model, setModel] = useState(() => {
-    try { return sessionStorage.getItem("bluepace_openrouter_model") || DEFAULT_MODEL; } catch { return DEFAULT_MODEL; }
+    try { const saved = sessionStorage.getItem("bluepace_openrouter_model"); return !saved || saved === "openai/gpt-4o-mini" ? DEFAULT_MODEL : saved; } catch { return DEFAULT_MODEL; }
   });
   const [connection, setConnection] = useState(null);
   const [serverKeyConfigured, setServerKeyConfigured] = useState(null);
@@ -447,7 +447,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
             <label className="block text-sm font-semibold text-slate-700">Model identifier<input className={fieldClass + " mt-1.5 font-mono"} value={model} onChange={(event) => { setModel(event.target.value); setConnection(null); }} placeholder={DEFAULT_MODEL} /><span className="mt-1 block text-xs font-normal text-slate-500">Default: {DEFAULT_MODEL}. You can enter another OpenRouter model ID.</span></label>
             <div className="flex flex-wrap gap-2"><button type="button" onClick={saveSettings} className={btnSecondary}>Save for this tab session</button><button type="button" onClick={() => void testConnection()} disabled={Boolean(busy)} className={btnPrimary}>{busy === "test" ? "Testing…" : "Test OpenRouter connection"}</button></div>
             {connection && <div className={"rounded-xl border p-4 " + (connection.model_listed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")}><div className="flex flex-wrap items-center gap-2"><MetaPill tone={connection.model_listed ? "good" : "warn"}>{connection.model_listed ? "Connection successful" : "API key accepted"}</MetaPill><MetaPill>{connection.latency_ms} ms</MetaPill></div><p className="mt-2 text-sm text-slate-800">{connection.message}</p><p className="mt-1 text-xs text-slate-600">Selected model: {connection.model} · {connection.available_model_count} model IDs listed · Key source: {connection.key_source}</p></div>}
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><strong className="text-slate-800">Deployment note:</strong> OpenRouter calls run on the backend. Do not put API keys in Vite environment variables or commit them to GitHub. Provider latency and usage-based charges depend on the selected model and account.</div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><strong className="text-slate-800">Deployment note:</strong> OpenRouter calls run on the backend. Do not put API keys in Vite environment variables or commit them to GitHub. The default openrouter/free router chooses an available free model; capacity, quality, and rate limits can vary. Check provider data-use terms before sending candidate data. Paid models may incur charges.</div>
           </div>}
 
           {tab === "rubric" && <div className="space-y-5">

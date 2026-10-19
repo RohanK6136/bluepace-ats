@@ -120,6 +120,14 @@ def test_rubric_normalizer_rejects_non_object_criteria():
 
 
 
+def test_default_model_uses_free_openrouter_router(monkeypatch):
+    from app.routers.ai_hiring_studio import DEFAULT_MODEL, _model_name
+
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
+    assert DEFAULT_MODEL == "openrouter/free"
+    assert _model_name(None) == "openrouter/free"
+
+
 def test_ai_configuration_status_reports_missing_server_key(monkeypatch):
     from app.routers.ai_hiring_studio import _configuration_status
 

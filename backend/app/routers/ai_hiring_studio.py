@@ -22,7 +22,7 @@ router = APIRouter(prefix="/ai-hiring", tags=["AI Hiring Studio"])
 WRITE_ROLES = (Role.admin, Role.recruiter, Role.hiring_manager)
 CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
-DEFAULT_MODEL = "openai/gpt-4o-mini"
+DEFAULT_MODEL = "openrouter/free"
 MAX_TEXT_CHARS = 50000
 
 
