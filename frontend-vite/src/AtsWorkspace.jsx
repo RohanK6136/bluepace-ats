@@ -1396,18 +1396,18 @@ export default function AtsWorkspace() {
     );
   }
 
-  // Keep the everyday hiring path short. Advanced tools stay available under More.
+  // AI Hiring Studio is a primary workflow, not a hidden advanced tool.
   const navItems = [
     { id: "dashboard", label: "Dashboard" },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
     { id: "interviews-2", label: "Interviews" },
+    { id: "ai-studio", label: "AI Hiring Studio" },
   ];
   const secondaryNavItems = [
     { id: "compare", label: "Compare candidates" },
     { id: "offers", label: "Offers" },
     { id: "resume", label: "Resume Lab" },
-    { id: "ai-studio", label: "AI Hiring Studio" },
     { id: "matching", label: "AI Match" },
     { id: "assistant", label: "AI Assistant" },
     { id: "merge-center", label: "Merge Center" },
@@ -1460,6 +1460,9 @@ export default function AtsWorkspace() {
               <h1 className="text-lg font-semibold">{navItems.find((item) => item.id === view)?.label || secondaryNavItems.find((item) => item.id === view)?.label}</h1>
             </div>
             <div className="ats-workspace-header-actions flex items-center gap-2">
+              <button type="button" className={buttonPrimary} onClick={() => { setView("ai-studio"); setMoreOpen(false); setError(""); setNotice(""); }}>
+                AI Hiring Studio
+              </button>
               {view === "jobs" && canWrite && <button className={buttonPrimary} onClick={() => resetJobForm()}>New job</button>}
               {view === "candidates" && canWrite && <button className={buttonPrimary} onClick={() => setCandidateFormOpen(true)}>Add candidate</button>}
               <ThemeToggle theme={theme} onToggle={toggleTheme} />
@@ -1520,6 +1523,9 @@ export default function AtsWorkspace() {
                 </p>
               </div>
               <div className="bp-dashboard-actions flex gap-2">
+                <button type="button" className={buttonPrimary} onClick={() => { setView("ai-studio"); setMoreOpen(false); setError(""); setNotice(""); }}>
+                  Open AI Hiring Studio
+                </button>
                 {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
                 {canWrite && import.meta.env.DEV && <button type="button" className={buttonSecondary} onClick={populateDemoData} disabled={demoPopulationLoading} title="Add synthetic jobs, candidates, pipeline stages, interviews, offers, talent pools, and workflow examples. Existing data is preserved.">
                   <svg aria-hidden="true" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
