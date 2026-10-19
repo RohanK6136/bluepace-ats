@@ -48,6 +48,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     try { return sessionStorage.getItem("bluepace_openrouter_model") || DEFAULT_MODEL; } catch { return DEFAULT_MODEL; }
   });
   const [connection, setConnection] = useState(null);
+  const [serverKeyConfigured, setServerKeyConfigured] = useState(null);
   const [sourceText, setSourceText] = useState("");
   const [selectedJobId, setSelectedJobId] = useState("");
   const [mode, setMode] = useState("detailed");
@@ -355,6 +356,18 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     if (tab === "history") void loadHistory();
   }, [tab]);
 
+  useEffect(() => {
+    let active = true;
+    apiRequest(token, "get", "/ai-hiring/status")
+      .then((response) => {
+        if (active) setServerKeyConfigured(Boolean(response.data?.server_key_configured));
+      })
+      .catch(() => {
+        if (active) setServerKeyConfigured(null);
+      });
+    return () => { active = false; };
+  }, [token, apiRequest]);
+
   function updateJobDetail(field, value) {
     setJobDetails((previous) => ({ ...previous, [field]: value }));
   }
@@ -377,6 +390,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => { setTab(item.id); setError(""); }} className={"whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition " + (tab === item.id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100")}>{item.label}</button>)}
         </div>
         {(error || notice) && <div className="px-5 pt-4 sm:px-7">{error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div>}</div>}
+        {serverKeyConfigured === false && !apiKey.trim() && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong> No shared OpenRouter key is configured on the backend. Enter a key in Settings for this tab, or configure <code>OPENROUTER_API_KEY</code> in Railway backend variables.</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
 
         <div className="p-5 sm:p-7">
           {tab === "generate" && <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -428,7 +442,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           </div>}
 
           {tab === "settings" && <div className="mx-auto max-w-2xl space-y-5">
-            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Configuration</p><h3 className="mt-1 text-lg font-semibold text-slate-900">OpenRouter connection</h3><p className="mt-1 text-sm leading-6 text-slate-500">The API key is sent over HTTPS to the backend only when you run an AI task. It is excluded from AI run history. For a shared production key, set OPENROUTER_API_KEY in Railway backend variables.</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Configuration</p><h3 className="mt-1 text-lg font-semibold text-slate-900">OpenRouter connection</h3><p className="mt-1 text-sm leading-6 text-slate-500">The API key is sent over HTTPS to the backend only when you run an AI task. It is excluded from AI run history. For a shared production key, set OPENROUTER_API_KEY in Railway backend variables.</p><div className="mt-3 flex flex-wrap items-center gap-2">{serverKeyConfigured === true ? <MetaPill tone="good">Server key configured</MetaPill> : serverKeyConfigured === false ? <MetaPill tone="warn">Server key missing</MetaPill> : <MetaPill>Configuration status unavailable</MetaPill>}<MetaPill>{model.trim() || DEFAULT_MODEL}</MetaPill></div></div>
             <label className="block text-sm font-semibold text-slate-700">OpenRouter API key<input type="password" autoComplete="new-password" className={fieldClass + " mt-1.5 font-mono"} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnection(null); }} placeholder="sk-or-v1-…" /></label>
             <label className="block text-sm font-semibold text-slate-700">Model identifier<input className={fieldClass + " mt-1.5 font-mono"} value={model} onChange={(event) => { setModel(event.target.value); setConnection(null); }} placeholder={DEFAULT_MODEL} /><span className="mt-1 block text-xs font-normal text-slate-500">Default: {DEFAULT_MODEL}. You can enter another OpenRouter model ID.</span></label>
             <div className="flex flex-wrap gap-2"><button type="button" onClick={saveSettings} className={btnSecondary}>Save for this tab session</button><button type="button" onClick={() => void testConnection()} disabled={Boolean(busy)} className={btnPrimary}>{busy === "test" ? "Testing…" : "Test OpenRouter connection"}</button></div>

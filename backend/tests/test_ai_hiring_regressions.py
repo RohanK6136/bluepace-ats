@@ -117,3 +117,27 @@ def test_rubric_normalizer_rejects_non_object_criteria():
 
     with pytest.raises(ValueError, match="no usable rubric criteria"):
         _normalize_rubric_result({"criteria": ["not an object", None]})
+
+
+
+def test_ai_configuration_status_reports_missing_server_key(monkeypatch):
+    from app.routers.ai_hiring_studio import _configuration_status
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    status = _configuration_status()
+
+    assert status["server_key_configured"] is False
+    assert status["key_source"] == "not configured"
+    assert status["default_model"]
+
+
+def test_ai_configuration_status_never_returns_server_key(monkeypatch):
+    from app.routers.ai_hiring_studio import _configuration_status
+
+    sentinel = "test-secret-must-never-be-returned"
+    monkeypatch.setenv("OPENROUTER_API_KEY", sentinel)
+    status = _configuration_status()
+
+    assert status["server_key_configured"] is True
+    assert status["key_source"] == "server environment"
+    assert sentinel not in repr(status)

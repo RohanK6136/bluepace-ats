@@ -282,6 +282,21 @@ def _mark_run_failed(db: Session, run: AIHiringRun, message: str) -> None:
     raise HTTPException(502, message)
 
 
+def _configuration_status() -> dict[str, Any]:
+    """Report safe AI configuration metadata without disclosing credentials."""
+    configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+    return {
+        "server_key_configured": configured,
+        "default_model": _model_name(None),
+        "key_source": "server environment" if configured else "not configured",
+    }
+
+
+@router.get("/status")
+def get_ai_configuration_status(user: User = Depends(require_roles(*WRITE_ROLES))):
+    return _configuration_status()
+
+
 @router.post("/test")
 def test_openrouter(request: OpenRouterRequest, user: User = Depends(require_roles(*WRITE_ROLES))):
     key = _api_key(request.api_key)
