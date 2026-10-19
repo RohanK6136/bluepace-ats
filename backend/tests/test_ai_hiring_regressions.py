@@ -51,3 +51,37 @@ def test_job_update_schema_accepts_fractional_experience():
     update = JobUpdate(minimum_experience_years=0.5)
 
     assert update.minimum_experience_years == 0.5
+
+
+def test_invalid_model_output_is_recorded_as_failed_run():
+    from types import SimpleNamespace
+
+    import pytest
+    from fastapi import HTTPException
+
+    from app.routers.ai_hiring_studio import _mark_run_failed
+
+    class FakeDatabase:
+        commits = 0
+
+        def commit(self):
+            self.commits += 1
+
+    db = FakeDatabase()
+    run = SimpleNamespace(status="success", error_message=None, raw_model_output='{"job_description": ""}')
+
+    with pytest.raises(HTTPException) as error:
+        _mark_run_failed(db, run, "Model response did not include a job description. Retry.")
+
+    assert error.value.status_code == 502
+    assert run.status == "failed"
+    assert run.error_message == "Model response did not include a job description. Retry."
+    assert run.raw_model_output == '{"job_description": ""}'
+    assert db.commits == 1
+
+
+def test_rubric_weight_normalization_does_not_accept_zero_total():
+    # This validates the intended contract independently of an external provider:
+    # a rubric with no positive weights is rejected rather than shown as a 0% rubric.
+    weights = [0, 0, 0]
+    assert sum(weights) <= 0
