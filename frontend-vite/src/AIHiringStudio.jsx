@@ -109,17 +109,18 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   }
 
   async function importJDFile(event) {
-    const file = event.currentTarget.files && event.currentTarget.files[0];
+    const input = event.currentTarget;
+    const file = input.files && input.files[0];
     setError("");
     setNotice("");
     if (!file) return;
     if (!/\\.(pdf|docx)$/i.test(file.name)) {
-      event.currentTarget.value = "";
+      input.value = "";
       setError("Choose a PDF or DOCX job description.");
       return;
     }
     if (file.size === 0 || file.size > MAX_FILE_BYTES) {
-      event.currentTarget.value = "";
+      input.value = "";
       setError(file.size === 0 ? "The selected file is empty." : "Job description files must be 5 MB or smaller.");
       return;
     }
@@ -137,7 +138,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setError(explainError(requestError));
     } finally {
       setBusy("");
-      event.currentTarget.value = "";
+      input.value = "";
     }
   }
 
@@ -255,19 +256,20 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   }
 
   async function extractResume(event) {
-    const file = event.currentTarget.files && event.currentTarget.files[0];
+    const input = event.currentTarget;
+    const file = input.files && input.files[0];
     setError("");
     setNotice("");
     setAnalysis(null);
     if (!file) return;
     if (!/\\.(pdf|docx)$/i.test(file.name)) {
-      event.currentTarget.value = "";
+      input.value = "";
       setResumeFile(null);
       setError("Choose a PDF or DOCX resume.");
       return;
     }
     if (file.size === 0 || file.size > MAX_FILE_BYTES) {
-      event.currentTarget.value = "";
+      input.value = "";
       setResumeFile(null);
       setError(file.size === 0 ? "The selected resume is empty." : "Resume files must be 5 MB or smaller.");
       return;
@@ -288,7 +290,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setError(explainError(requestError));
     } finally {
       setBusy("");
-      event.currentTarget.value = "";
+      input.value = "";
     }
   }
 
