@@ -231,6 +231,14 @@ def _detail(run: AIHiringRun):
     }
 
 
+def _mark_run_failed(db: Session, run: AIHiringRun, message: str) -> None:
+    """Keep run history consistent when a model response violates its task contract."""
+    run.status = "failed"
+    run.error_message = message[:1000]
+    db.commit()
+    raise HTTPException(502, message)
+
+
 @router.post("/test")
 def test_openrouter(request: OpenRouterRequest, user: User = Depends(require_roles(*WRITE_ROLES))):
     key = _api_key(request.api_key)
@@ -284,7 +292,7 @@ def generate_jd(request: GenerateJDRequest, user: User = Depends(require_roles(*
     result, run = _run_model(request, user, db, "generate_jd", system, prompt,
                              {"source_text": source[:MAX_TEXT_CHARS], "mode": mode, "overrides": request.overrides})
     if not str(result.get("job_description") or "").strip():
-        raise HTTPException(502, "Model response did not include a job description. Retry.")
+        _mark_run_failed(db, run, "Model response did not include a job description. Retry.")
     return {"request_id": run.request_id, "model": run.model, "latency_ms": run.latency_ms,
             "token_usage": run.token_usage, "model_call_count": run.model_call_count, "result": result}
 
@@ -303,7 +311,7 @@ def build_rubric(request: BuildRubricRequest, user: User = Depends(require_roles
     result, run = _run_model(request, user, db, "build_rubric", system, prompt, {"job_description": jd[:MAX_TEXT_CHARS]}, 2200)
     items = result.get("criteria")
     if not isinstance(items, list) or not items:
-        raise HTTPException(502, "The model returned no rubric criteria. Retry.")
+        _mark_run_failed(db, run, "The model returned no rubric criteria. Retry.")
     clean = []
     for index, item in enumerate(items):
         if not isinstance(item, dict):
@@ -316,8 +324,12 @@ def build_rubric(request: BuildRubricRequest, user: User = Depends(require_roles
                       "category": str(item.get("category") or "Skill")[:60],
                       "required": bool(item.get("required", False)), "weight": round(weight, 2),
                       "keywords": item.get("keywords") if isinstance(item.get("keywords"), list) else []})
+    if not clean:
+        _mark_run_failed(db, run, "The model returned no usable rubric criteria. Retry.")
     total = sum(row["weight"] for row in clean)
-    if total > 0 and abs(total - 100) > 0.1:
+    if total <= 0:
+        _mark_run_failed(db, run, "The model returned rubric criteria with no positive weights. Retry.")
+    if abs(total - 100) > 0.1:
         for row in clean:
             row["weight"] = round(row["weight"] * 100 / total, 2)
         clean[-1]["weight"] = round(100 - sum(row["weight"] for row in clean[:-1]), 2)
@@ -350,8 +362,8 @@ def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_r
     }, ensure_ascii=False, default=str)
     result, run = _run_model(request, user, db, "analyze_resume", system, prompt,
                              {"resume_data": request.resume_data, "rubric": request.rubric}, 2400)
-    if not isinstance(result.get("criteria"), list):
-        raise HTTPException(502, "The model did not return criterion-level scores. Retry.")
+    if not isinstance(result.get("criteria"), list) or not result.get("criteria"):
+        _mark_run_failed(db, run, "The model did not return criterion-level scores. Retry.")
     result["decision_support_only"] = True
     return {"request_id": run.request_id, "model": run.model, "latency_ms": run.latency_ms,
             "token_usage": run.token_usage, "model_call_count": run.model_call_count, "analysis": result}
