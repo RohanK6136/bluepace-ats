@@ -80,8 +80,40 @@ def test_invalid_model_output_is_recorded_as_failed_run():
     assert db.commits == 1
 
 
-def test_rubric_weight_normalization_does_not_accept_zero_total():
-    # This validates the intended contract independently of an external provider:
-    # a rubric with no positive weights is rejected rather than shown as a 0% rubric.
-    weights = [0, 0, 0]
-    assert sum(weights) <= 0
+def test_rubric_weights_are_normalized_to_100():
+    from app.routers.ai_hiring_studio import _normalize_rubric_result
+
+    rubric = _normalize_rubric_result({
+        "title": "Platform Engineer",
+        "criteria": [
+            {"name": "Python", "weight": 2, "required": True},
+            {"name": "APIs", "weight": 1, "required": True},
+            {"name": "Cloud", "weight": 1, "required": False},
+        ],
+    })
+
+    assert [item["weight"] for item in rubric["criteria"]] == [50.0, 25.0, 25.0]
+    assert rubric["total_weight"] == 100.0
+
+
+def test_rubric_normalizer_rejects_zero_total_weights():
+    import pytest
+
+    from app.routers.ai_hiring_studio import _normalize_rubric_result
+
+    with pytest.raises(ValueError, match="no positive weights"):
+        _normalize_rubric_result({
+            "criteria": [
+                {"name": "Python", "weight": 0},
+                {"name": "APIs", "weight": 0},
+            ],
+        })
+
+
+def test_rubric_normalizer_rejects_non_object_criteria():
+    import pytest
+
+    from app.routers.ai_hiring_studio import _normalize_rubric_result
+
+    with pytest.raises(ValueError, match="no usable rubric criteria"):
+        _normalize_rubric_result({"criteria": ["not an object", None]})
