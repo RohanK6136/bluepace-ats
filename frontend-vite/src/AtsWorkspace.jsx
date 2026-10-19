@@ -12,6 +12,7 @@ const InterviewManagement2 = lazy(() => import("./InterviewManagement2.jsx"));
 const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
 const AutomationPanel = lazy(() => import("./AutomationPanel.jsx"));
+const AIHiringStudio = lazy(() => import("./AIHiringStudio.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
@@ -1406,6 +1407,7 @@ export default function AtsWorkspace() {
     { id: "compare", label: "Compare candidates" },
     { id: "offers", label: "Offers" },
     { id: "resume", label: "Resume Lab" },
+    { id: "ai-studio", label: "AI Hiring Studio" },
     { id: "matching", label: "AI Match" },
     { id: "assistant", label: "AI Assistant" },
     { id: "merge-center", label: "Merge Center" },
@@ -2242,6 +2244,7 @@ export default function AtsWorkspace() {
             </div>}
           </section>}
           {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
+          {view === "ai-studio" && <AIHiringStudio token={token} apiRequest={apiRequest} jobs={jobs} onSaved={refreshWorkspace} />}
           {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab theme={theme} onToggleTheme={toggleTheme} token={token} /></section>}
           </main>
         </Suspense>
