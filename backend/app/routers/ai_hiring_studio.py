@@ -231,6 +231,49 @@ def _detail(run: AIHiringRun):
     }
 
 
+def _normalize_rubric_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize rubric weights before returning a rubric to recruiters."""
+    items = result.get("criteria")
+    if not isinstance(items, list) or not items:
+        raise ValueError("The model returned no rubric criteria. Retry.")
+
+    clean = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        try:
+            weight = float(item.get("weight", 0))
+        except (TypeError, ValueError):
+            weight = 0.0
+        if not (weight >= 0):
+            weight = 0.0
+        weight = max(0.0, min(100.0, weight))
+        clean.append({
+            **item,
+            "name": str(item.get("name") or f"Criterion {index + 1}")[:160],
+            "category": str(item.get("category") or "Skill")[:60],
+            "required": bool(item.get("required", False)),
+            "weight": round(weight, 2),
+            "keywords": item.get("keywords") if isinstance(item.get("keywords"), list) else [],
+        })
+
+    if not clean:
+        raise ValueError("The model returned no usable rubric criteria. Retry.")
+
+    total = sum(row["weight"] for row in clean)
+    if total <= 0:
+        raise ValueError("The model returned rubric criteria with no positive weights. Retry.")
+
+    if abs(total - 100) > 0.1:
+        for row in clean:
+            row["weight"] = round(row["weight"] * 100 / total, 2)
+        clean[-1]["weight"] = round(100 - sum(row["weight"] for row in clean[:-1]), 2)
+
+    result["criteria"] = clean
+    result["total_weight"] = round(sum(row["weight"] for row in clean), 2)
+    return result
+
+
 def _mark_run_failed(db: Session, run: AIHiringRun, message: str) -> None:
     """Keep run history consistent when a model response violates its task contract."""
     run.status = "failed"
@@ -309,32 +352,10 @@ def build_rubric(request: BuildRubricRequest, user: User = Depends(require_roles
     )
     prompt = json.dumps({"task": "Build an assessment rubric for this job description.", "job_description": jd[:MAX_TEXT_CHARS]}, ensure_ascii=False)
     result, run = _run_model(request, user, db, "build_rubric", system, prompt, {"job_description": jd[:MAX_TEXT_CHARS]}, 2200)
-    items = result.get("criteria")
-    if not isinstance(items, list) or not items:
-        _mark_run_failed(db, run, "The model returned no rubric criteria. Retry.")
-    clean = []
-    for index, item in enumerate(items):
-        if not isinstance(item, dict):
-            continue
-        try:
-            weight = max(0.0, min(100.0, float(item.get("weight", 0))))
-        except (TypeError, ValueError):
-            weight = 0.0
-        clean.append({**item, "name": str(item.get("name") or f"Criterion {index + 1}")[:160],
-                      "category": str(item.get("category") or "Skill")[:60],
-                      "required": bool(item.get("required", False)), "weight": round(weight, 2),
-                      "keywords": item.get("keywords") if isinstance(item.get("keywords"), list) else []})
-    if not clean:
-        _mark_run_failed(db, run, "The model returned no usable rubric criteria. Retry.")
-    total = sum(row["weight"] for row in clean)
-    if total <= 0:
-        _mark_run_failed(db, run, "The model returned rubric criteria with no positive weights. Retry.")
-    if abs(total - 100) > 0.1:
-        for row in clean:
-            row["weight"] = round(row["weight"] * 100 / total, 2)
-        clean[-1]["weight"] = round(100 - sum(row["weight"] for row in clean[:-1]), 2)
-    result["criteria"] = clean
-    result["total_weight"] = round(sum(row["weight"] for row in clean), 2)
+    try:
+        result = _normalize_rubric_result(result)
+    except ValueError as error:
+        _mark_run_failed(db, run, str(error))
     return {"request_id": run.request_id, "model": run.model, "latency_ms": run.latency_ms,
             "token_usage": run.token_usage, "model_call_count": run.model_call_count, "rubric": result}
 
