@@ -46,7 +46,7 @@ class JobCreate(BaseModel):
     work_mode: str = Field(default="onsite", pattern="^(remote|hybrid|onsite)$")
     status: str = Field(default="draft", pattern="^(draft|open|paused|closed|archived)$")
     required_skills: list[str] = Field(default_factory=list, max_length=100)
-    minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
+    minimum_experience_years: Optional[float] = Field(default=None, ge=0, le=60)
     fresher_allowed: bool = False
 
 
@@ -59,7 +59,7 @@ class JobUpdate(BaseModel):
     work_mode: Optional[str] = Field(default=None, pattern="^(remote|hybrid|onsite)$")
     status: Optional[str] = Field(default=None, pattern="^(draft|open|paused|closed|archived)$")
     required_skills: Optional[list[str]] = Field(default=None, max_length=100)
-    minimum_experience_years: Optional[int] = Field(default=None, ge=0, le=60)
+    minimum_experience_years: Optional[float] = Field(default=None, ge=0, le=60)
     fresher_allowed: Optional[bool] = None
 
 
@@ -77,7 +77,7 @@ class JobRead(BaseModel):
     work_mode: str
     status: str
     required_skills: Optional[list[str]]
-    minimum_experience_years: Optional[int]
+    minimum_experience_years: Optional[float]
     fresher_allowed: bool
     jd_analysis: Optional[dict]
     created_at: datetime

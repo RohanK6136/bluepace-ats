@@ -1,7 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy import Integer, create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.schema import CreateColumn
 
@@ -72,6 +72,7 @@ def initialize_database():
     upgrade_phase8_columns(engine)
     upgrade_phase9_columns(engine)
     upgrade_phase10_columns(engine)
+    upgrade_phase11_job_experience_precision(engine)
 
 
 def upgrade_phase1_columns(target_engine):
@@ -327,3 +328,33 @@ def upgrade_phase9_columns(target_engine):
                 definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
                 existing_columns.add(column.name)
+
+
+def upgrade_phase11_job_experience_precision(target_engine):
+    """Upgrade existing PostgreSQL jobs to store fractional experience years."""
+    if target_engine.dialect.name != "postgresql":
+        # SQLite's INTEGER affinity can store non-integral REAL values; model
+        # reads and writes use SQLAlchemy Float after this application version.
+        return
+
+    with target_engine.begin() as connection:
+        inspector = inspect(connection)
+        if "jobs" not in set(inspector.get_table_names()):
+            return
+        experience_column = next(
+            (
+                column
+                for column in inspector.get_columns("jobs")
+                if column["name"] == "minimum_experience_years"
+            ),
+            None,
+        )
+        if experience_column is not None and isinstance(experience_column["type"], Integer):
+            connection.execute(
+                text(
+                    "ALTER TABLE jobs "
+                    "ALTER COLUMN minimum_experience_years TYPE DOUBLE PRECISION "
+                    "USING minimum_experience_years::double precision"
+                )
+            )
+

@@ -114,7 +114,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     setError("");
     setNotice("");
     if (!file) return;
-    if (!/\\.(pdf|docx)$/i.test(file.name)) {
+    if (!/\.(pdf|docx)$/i.test(file.name)) {
       input.value = "";
       setError("Choose a PDF or DOCX job description.");
       return;
@@ -206,9 +206,12 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setError("Generate or edit a job description first.");
       return;
     }
-    const title = jobDetails.job_title.trim() || jobDescription.split("\\n").map((line) => line.replace(/^#+\\s*/, "").trim()).find(Boolean)?.slice(0, 200) || "New role";
-    const exp = jobDetails.minimum_experience_years === "" || !Number.isFinite(Number(jobDetails.minimum_experience_years))
-      || !Number.isInteger(Number(jobDetails.minimum_experience_years)) ? null : Number(jobDetails.minimum_experience_years);
+    const title = jobDetails.job_title.trim() || jobDescription.split(/\r?\n/).map((line) => line.replace(/^#+\s*/, "").trim()).find(Boolean)?.slice(0, 200) || "New role";
+    const exp = jobDetails.minimum_experience_years === "" ? null : Number(jobDetails.minimum_experience_years);
+    if (exp !== null && (!Number.isFinite(exp) || exp < 0 || exp > 60)) {
+      setError("Minimum experience must be between 0 and 60 years.");
+      return;
+    }
     const modeValue = String(jobDetails.work_mode || "").toLowerCase();
     const workMode = modeValue.includes("remote") ? "remote" : modeValue.includes("hybrid") ? "hybrid" : "onsite";
     setBusy("save-job");
@@ -262,7 +265,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     setNotice("");
     setAnalysis(null);
     if (!file) return;
-    if (!/\\.(pdf|docx)$/i.test(file.name)) {
+    if (!/\.(pdf|docx)$/i.test(file.name)) {
       input.value = "";
       setResumeFile(null);
       setError("Choose a PDF or DOCX resume.");
@@ -420,7 +423,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
               </div>
               {suggestions.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4"><h4 className="text-sm font-semibold text-slate-900">Suggested missing details</h4><p className="mt-1 text-xs text-slate-600">Suggestions are not facts. Apply only the values that the hiring team confirms.</p><div className="mt-3 grid gap-2">{suggestions.map((item, index) => <div key={String(item.field || index) + "-" + index} className="rounded-lg border border-amber-100 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-slate-800">{String(item.field || "Missing field").replaceAll("_", " ")}</p><button type="button" onClick={() => useSuggestion(item)} className="text-xs font-semibold text-amber-800 underline underline-offset-2">Use suggestion</button></div><p className="mt-1 text-sm text-slate-700">{String(item.suggested_value ?? "No suggestion")}</p><p className="mt-1 text-xs leading-5 text-slate-500">{String(item.reason || "Review with the hiring team.")}</p></div>)}</div><button type="button" onClick={() => void generateJD(jobDetails)} disabled={Boolean(busy)} className={btnSecondary + " mt-3"}>Regenerate using edited fields</button></div>}
               <div className="flex flex-wrap gap-2"><button type="button" className={btnSecondary} onClick={() => { setSourceText(jobDescription); setTab("rubric"); }}>Use this JD for rubric</button><button type="button" className={btnPrimary} disabled={Boolean(busy) || !jobDescription.trim()} onClick={() => void saveDraftJob()}>{busy === "save-job" ? "Saving…" : "Save as ATS draft"}</button></div>
-              <p className="text-xs leading-5 text-slate-500">Saving creates a draft only. It does not publish the role. Fractional experience values are retained in this editor, but the current ATS job schema only stores whole years.</p>
+              <p className="text-xs leading-5 text-slate-500">Saving creates a draft only. It does not publish the role. Fractional experience values are supported and saved to the ATS job record.</p>
             </div>
           </div>}
 

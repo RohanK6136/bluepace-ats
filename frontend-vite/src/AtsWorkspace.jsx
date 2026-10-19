@@ -1660,7 +1660,7 @@ export default function AtsWorkspace() {
                   <SelectField label="Work mode" value={jobForm.work_mode} onChange={(event) => setJobForm({ ...jobForm, work_mode: event.target.value })}><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site / Offline</option></SelectField>
                   <SelectField label="Status" value={jobForm.status} onChange={(event) => setJobForm({ ...jobForm, status: event.target.value })}>{["draft", "open", "paused", "closed"].map((value) => <option key={value} value={value}>{value}</option>)}</SelectField>
                   <Field label="Required skills" placeholder="Python, PostgreSQL, AWS" value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
-                  <Field label="Minimum experience (years)" type="number" min="0" max="60" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
+                  <Field label="Minimum experience (years)" type="number" min="0" max="60" step="0.5" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
                   <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700"><input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />Open to freshers</label>
                   <div className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">

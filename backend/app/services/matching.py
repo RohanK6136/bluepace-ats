@@ -111,7 +111,8 @@ class CandidateMatcher:
                 normalized[field] = value.strip().casefold() if field == "seniority" else value.strip()
         minimum = data.get("minimum_experience_years")
         if isinstance(minimum, (int, float)) and 0 <= minimum <= 60:
-            normalized["minimum_experience_years"] = int(minimum)
+            minimum_value = float(minimum)
+            normalized["minimum_experience_years"] = int(minimum_value) if minimum_value.is_integer() else minimum_value
         return normalized
 
     def parse_job_description(self, title: str, description: str, location: str | None = None, *, use_llm: bool = False):
@@ -124,12 +125,15 @@ class CandidateMatcher:
 
         minimum_years = None
         maximum_years = None
-        range_match = re.search(r"\b(\d{1,2})\s*(?:-|to)\s*(\d{1,2})\+?\s*(?:years|yrs)\b", text, re.IGNORECASE)
-        single_match = re.search(r"\b(?:at least|minimum of|min(?:imum)?|more than|over)?\s*(\d{1,2})\+?\s*(?:years|yrs)(?: of)? experience\b", text, re.IGNORECASE)
+        range_match = re.search(r"\b(\d{1,2}(?:\.\d+)?)\s*(?:-|to)\s*(\d{1,2}(?:\.\d+)?)\+?\s*(?:years|yrs)\b", text, re.IGNORECASE)
+        single_match = re.search(r"\b(?:at least|minimum of|min(?:imum)?|more than|over)?\s*(\d{1,2}(?:\.\d+)?)\+?\s*(?:years|yrs)(?: of)? experience\b", text, re.IGNORECASE)
         if range_match:
-            minimum_years, maximum_years = int(range_match.group(1)), int(range_match.group(2))
+            minimum_value, maximum_value = float(range_match.group(1)), float(range_match.group(2))
+            minimum_years = int(minimum_value) if minimum_value.is_integer() else minimum_value
+            maximum_years = int(maximum_value) if maximum_value.is_integer() else maximum_value
         elif single_match:
-            minimum_years = int(single_match.group(1))
+            minimum_value = float(single_match.group(1))
+            minimum_years = int(minimum_value) if minimum_value.is_integer() else minimum_value
 
         seniority = "unspecified"
         for level, pattern in (
