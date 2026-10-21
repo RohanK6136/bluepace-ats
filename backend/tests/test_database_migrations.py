@@ -67,6 +67,8 @@ def test_phase12_backfills_rubric_family_version_and_hash_idempotently():
 
         columns = {column["name"] for column in inspect(engine).get_columns("ai_hiring_rubrics")}
         assert {"family_id", "version", "content_hash"} <= columns
+        version_indexes = inspect(engine).get_indexes("ai_hiring_rubrics")
+        assert any(index["name"] == "uq_ai_hiring_rubrics_family_version" and index["unique"] for index in version_indexes)
         with engine.connect() as connection:
             row = connection.execute(text(
                 "SELECT rubric_id, title, job_title, rubric_data, family_id, version, content_hash "
