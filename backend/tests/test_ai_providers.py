@@ -11,6 +11,9 @@ def test_provider_aliases_and_defaults(monkeypatch):
     assert ai_providers.provider_name("chatgpt") == "openai"
     assert ai_providers.provider_name("anthropic") == "claude"
     assert ai_providers.provider_name("qwen") == "ollama"
+    assert ai_providers.provider_name("google") == "gemini"
+    assert ai_providers.provider_name("google_genai") == "gemini"
+    assert ai_providers.default_model("gemini") == "gemini-2.5-flash"
     assert ai_providers.default_model("ollama") == "qwen3.5:4b"
     assert ai_providers.default_model("deepseek") == "deepseek-flash"
     assert ai_providers.default_model("cloudflare") == "@cf/qwen/qwen3.8-27b"
@@ -114,3 +117,51 @@ def test_cloudflare_configuration_status_includes_account_id_state(monkeypatch):
     assert status["account_id_configured"] is False
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
     assert _configuration_status("cloudflare")["account_id_configured"] is True
+
+
+
+def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
+    import sys
+    import types
+
+    captured = {}
+    class FakeUsage:
+        prompt_token_count = 11
+        candidates_token_count = 9
+        total_token_count = 20
+    class FakeResponse:
+        text = '{"ok": true}'
+        usage_metadata = FakeUsage()
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            captured.update(kwargs)
+            return FakeResponse()
+    class FakeClient:
+        def __init__(self, api_key):
+            captured["api_key"] = api_key
+            self.models = FakeModels()
+    class FakeConfig:
+        def __init__(self, **kwargs):
+            captured["config"] = kwargs
+    fake_genai = types.ModuleType("google.genai")
+    fake_genai.Client = FakeClient
+    fake_types = types.ModuleType("google.genai.types")
+    fake_types.GenerateContentConfig = FakeConfig
+    fake_google = types.ModuleType("google")
+    fake_google.genai = fake_genai
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+    monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
+    monkeypatch.setitem(sys.modules, "google.genai.types", fake_types)
+
+    result = ai_providers.call_ai_provider(
+        "gemini", "test-key", "gemini-2.5-flash", "system instructions",
+        "write JSON", max_tokens=100, json_mode=True,
+    )
+    assert captured["api_key"] == "test-key"
+    assert captured["model"] == "gemini-2.5-flash"
+    assert captured["contents"] == "write JSON"
+    assert captured["config"]["system_instruction"] == "system instructions"
+    assert captured["config"]["response_mime_type"] == "application/json"
+    assert result["content"] == '{"ok": true}'
+    assert result["usage"]["total_tokens"] == 20
+    assert result["actual_model"] == "gemini/gemini-2.5-flash"
