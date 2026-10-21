@@ -11,6 +11,7 @@ def test_provider_aliases_and_defaults(monkeypatch):
     assert ai_providers.provider_name("anthropic") == "claude"
     assert ai_providers.provider_name("qwen") == "ollama"
     assert ai_providers.default_model("ollama") == "qwen3.5:4b"
+    assert ai_providers.default_model("deepseek") == "deepseek-flash"
     assert ai_providers.default_model("cloudflare") == "@cf/qwen/qwen3.8-27b"
 
 
