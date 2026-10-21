@@ -3,6 +3,7 @@ import json
 import pytest
 from fastapi import HTTPException
 from app.services import ai_providers
+from app.routers.ai_hiring_studio import _configuration_status
 
 
 def test_provider_aliases_and_defaults(monkeypatch):
@@ -95,3 +96,21 @@ def test_provider_key_resolution_uses_server_environment(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "provider-key-sentinel")
     assert ai_providers.provider_has_server_key("openai") is True
     assert ai_providers.resolve_api_key(None, "openai") == "provider-key-sentinel"
+
+
+def test_ollama_does_not_claim_a_server_api_key_is_configured():
+    assert ai_providers.provider_has_server_key("ollama") is False
+    status = _configuration_status("ollama")
+    assert status["requires_api_key"] is False
+    assert status["server_key_configured"] is False
+    assert status["key_source"] == "local endpoint (no API key required)"
+
+
+def test_cloudflare_configuration_status_includes_account_id_state(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
+    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+    status = _configuration_status("cloudflare")
+    assert status["server_key_configured"] is True
+    assert status["account_id_configured"] is False
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
+    assert _configuration_status("cloudflare")["account_id_configured"] is True
