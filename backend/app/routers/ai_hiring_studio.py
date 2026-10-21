@@ -75,13 +75,13 @@ def _redact_resume_pii(resume_data: dict[str, Any]) -> dict[str, Any]:
     collect_names(resume_data)
 
     private_line = re.compile(
-        r"(?im)^\\s*(?:full\\s+name|candidate\\s+name|name|email(?:\\s+address)?|"
-        r"phone(?:\\s+number)?|mobile|contact\\s+number|address|date\\s+of\\s+birth|"
-        r"birthdate|dob|age|gender|sex|nationality|citizenship|national\\s+origin|"
-        r"race|ethnicity|religion|marital\\s+status|current\\s+location)\\s*[:\\-]\\s*.*$"
+        r"(?im)^\s*(?:full\s+name|candidate\s+name|name|email(?:\s+address)?|"
+        r"phone(?:\s+number)?|mobile|contact\s+number|address|date\s+of\s+birth|"
+        r"birthdate|dob|age|gender|sex|nationality|citizenship|national\s+origin|"
+        r"race|ethnicity|religion|marital\s+status|current\s+location)\s*[:\-]\s*.*$"
     )
-    email_pattern = re.compile(r"(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b")
-    phone_pattern = re.compile(r"(?<!\\w)(?=(?:\\D*\\d){10,})\\+?\\d[\\d\\s().-]{7,}\\d(?!\\w)")
+    email_pattern = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+    phone_pattern = re.compile(r"(?<!\w)(?=(?:\D*\d){10,})\+?\d[\d\s().-]{7,}\d(?!\w)")
 
     def clean(value: Any) -> Any:
         if isinstance(value, dict):
