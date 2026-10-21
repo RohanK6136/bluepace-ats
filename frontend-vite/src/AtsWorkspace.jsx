@@ -1553,7 +1553,7 @@ export default function AtsWorkspace() {
                 </button>
                 <button type="button" className="bp-metric-card" onClick={() => setView("candidates")}>
                   <span className="bp-metric-label">Candidate database</span>
-                  <strong>{candidates.length}</strong>
+                  <strong>{dashboardData.metrics?.total_candidates ?? 0}</strong>
                   <small>Profiles available to your team</small>
                 </button>
                 <div className="bp-metric-card">
