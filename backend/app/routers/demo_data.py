@@ -184,7 +184,7 @@ def populate_demo_data(
                     location=item["location"],
                     employment_type="Full-time",
                     work_mode=item["work_mode"],
-                    status="open",
+                    status="draft",
                     required_skills=item["skills"],
                     minimum_experience_years=item["experience"],
                     fresher_allowed=False,
@@ -195,9 +195,9 @@ def populate_demo_data(
                 db.add(job)
                 db.flush()
                 created["jobs"] += 1
-            elif job.status != "open":
-                # Promote previously-seeded demo jobs so the public careers portal lists them.
-                job.status = "open"
+            elif job.status != "draft":
+                # Demo fixtures are internal-only and must never be publicly advertised.
+                job.status = "draft"
             stages_before = db.query(Stage).filter_by(job_id=job.id).count()
             stage_map = ensure_job_stages(db, job)
             created["stages"] += max(0, len(stage_map) - stages_before)
