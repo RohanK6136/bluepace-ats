@@ -385,6 +385,7 @@ def upgrade_phase12_ai_hiring_rubric_versions(target_engine):
             "SELECT rubric_id, title, job_title, rubric_data, family_id, version, content_hash "
             "FROM ai_hiring_rubrics"
         )).mappings().all()
+
         for row in rows:
             rubric_data = row["rubric_data"]
             if isinstance(rubric_data, str):
@@ -410,3 +411,8 @@ def upgrade_phase12_ai_hiring_rubric_versions(target_engine):
                     "family_id": family_id, "version": version,
                     "content_hash": content_hash, "rubric_id": row["rubric_id"],
                 })
+
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_hiring_rubrics_family_version "
+            "ON ai_hiring_rubrics (family_id, version)"
+        ))
