@@ -28,7 +28,7 @@ with st.sidebar:
     api_url = st.text_input("Backend API URL", value=os.getenv("ATS_API_URL", DEFAULT_API_URL)).strip().rstrip("/")
     st.caption("Keep API keys and passwords in Streamlit Secrets or service environment variables. Never paste secrets into the app.")
     st.divider()
-    page = st.radio("Workspace", ["Overview", "Resume review", "Integration guide"])
+    page = st.radio("Workspace", ["Overview", "Resume review", "Zoho Recruit", "Integration guide"])
     st.divider()
     st.markdown("[Open main ATS](https://bluepace-ats-frontend.vercel.app/?mode=admin)")
     st.markdown("[Backend API docs](" + api_url + "/docs)")
