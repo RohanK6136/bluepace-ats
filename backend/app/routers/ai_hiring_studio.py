@@ -407,7 +407,8 @@ def generate_jd(request: GenerateJDRequest, user: User = Depends(require_roles(*
 def build_rubric(request: BuildRubricRequest, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
     jd = request.job_description.strip()
     system = (
-        "Design a transparent, job-related assessment rubric. Return JSON with title, rubric_summary, criteria, total_weight. "
+        "Design a transparent, job-related assessment rubric. Return JSON with title, rubric_summary, minimum_years_overall number or null, "
+        "education_minimum string or null, equivalent_experience_accepted boolean, criteria, and total_weight. "
         "Each criterion must have name, category, required boolean, weight number, minimum_years number or null, keywords array, description, "
         "and scoring_guide object with missing, partial, strong descriptions. Include role-relevant skills, responsibilities, certifications, "
         "languages only where job-related, must-have vs nice-to-have, and experience years. Support fractional years and freshers when allowed. "

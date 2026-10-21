@@ -253,7 +253,13 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         data: { ...credentials(), job_description: jobDescription.trim() },
         timeout: 90000,
       });
-      const generatedRubric = response.data?.rubric || null;
+      const rawRubric = response.data?.rubric || null;
+      const generatedRubric = rawRubric ? {
+        ...rawRubric,
+        minimum_years_overall: rawRubric.minimum_years_overall ?? (jobDetails.minimum_experience_years === "" ? null : Number(jobDetails.minimum_experience_years)),
+        education_minimum: rawRubric.education_minimum || "",
+        equivalent_experience_accepted: Boolean(rawRubric.equivalent_experience_accepted),
+      } : null;
       setRubric(generatedRubric);
       setRubricTitle(String(generatedRubric?.title || jobDetails.job_title || "Assessment rubric"));
       setSavedRubricId("");
@@ -441,6 +447,11 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       if (!previous) return previous;
       return { ...previous, criteria: previous.criteria.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item) };
     });
+    setSavedRubricId("");
+  }
+
+  function updateRubricField(field, value) {
+    setRubric((previous) => previous ? { ...previous, [field]: value } : previous);
     setSavedRubricId("");
   }
 
@@ -645,6 +656,11 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div><p className="font-semibold text-slate-900">{rubric.title || rubricTitle || "Assessment rubric"}</p><p className="mt-1 text-sm text-slate-600">{rubric.rubric_summary || "A transparent set of job-related criteria."}</p></div>
                 <div className="text-right"><p className="text-2xl font-semibold text-slate-900">{totalRubricWeight.toFixed(1)}%</p><p className="text-xs text-slate-500">Current weight total · saved version normalizes to 100%</p></div>
+              </div>
+              <div className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-3">
+                <label className="block text-sm font-semibold text-slate-700">Required experience overall (years)<input type="number" min="0" max="60" step="0.5" className={fieldClass + " mt-1.5"} value={rubric.minimum_years_overall ?? ""} onChange={(event) => updateRubricField("minimum_years_overall", event.target.value === "" ? null : Number(event.target.value))} /><span className="mt-1 block text-xs font-normal text-slate-500">Use only an approved, job-related requirement.</span></label>
+                <label className="block text-sm font-semibold text-slate-700">Minimum education<input className={fieldClass + " mt-1.5"} value={String(rubric.education_minimum || "")} onChange={(event) => updateRubricField("education_minimum", event.target.value)} placeholder="e.g. Not required; relevant degree preferred" /><span className="mt-1 block text-xs font-normal text-slate-500">Keep equivalent practical experience in mind.</span></label>
+                <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700"><input type="checkbox" className="mt-1 h-4 w-4 accent-amber-600" checked={Boolean(rubric.equivalent_experience_accepted)} onChange={(event) => updateRubricField("equivalent_experience_accepted", event.target.checked)} /><span>Equivalent experience accepted<span className="mt-1 block text-xs font-normal text-slate-500">Do not treat a degree as the only path when equivalent experience is accepted.</span></span></label>
               </div>
               <div className="overflow-hidden rounded-xl border border-slate-200">
                 <div className="hidden grid-cols-[minmax(0,1fr)_140px_100px_100px_42px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid"><span>Requirement</span><span>Category</span><span>Importance</span><span>Weight %</span><span /></div>
