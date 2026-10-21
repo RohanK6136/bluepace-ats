@@ -1,17 +1,13 @@
 name: Deploy frontend to Vercel
 
-# Ships the Vite frontend to Vercel on every push to main.
+# Deploy the Vite frontend from main. A missing token must fail visibly rather
+# than reporting a green run while skipping deployment.
 #
-# This workflow stays quiet until it is configured: if the VERCEL_TOKEN secret
-# is not present, the deploy job is skipped and the run succeeds.
+# Required repository secret:
+#   VERCEL_TOKEN - a Vercel personal access token with access to this project.
 #
-# Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   VERCEL_TOKEN       - a Vercel personal access token
-#   VERCEL_ORG_ID      - from `vercel link` (or the project's .vercel/project.json)
-#   VERCEL_PROJECT_ID  - from `vercel link` (or the project's .vercel/project.json)
-#
-# Note: if the Vercel project is connected to this repo in the Vercel dashboard
-# instead (Settings -> Git), Vercel deploys on its own and this file is redundant.
+# The non-secret org/project identifiers are pinned here to the existing
+# BluePace Vercel project so the workflow does not silently use another scope.
 
 on:
   push:
@@ -22,30 +18,22 @@ on:
   workflow_dispatch:
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.gate.outputs.enabled }}
-    steps:
-      - id: gate
-        env:
-          TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          if [ -n "$TOKEN" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "VERCEL_TOKEN is not configured - skipping Vercel deploy."
-          fi
-
   deploy:
-    needs: check
-    if: needs.check.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: team_Rjt1DblVvXgrkIwTZ9t91a9L
+      VERCEL_PROJECT_ID: prj_DpQbpA1dF1LtdcPyxBMAHEiZU1fy
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
     steps:
+      - name: Validate deployment credentials
+        shell: bash
+        run: |
+          if [[ -z "$VERCEL_TOKEN" ]]; then
+            echo "::error title=Vercel deployment is not configured::Add the VERCEL_TOKEN repository secret in Settings > Secrets and variables > Actions. The workflow will not report a successful deployment until credentials are present."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -59,16 +47,16 @@ jobs:
         run: npm ci
 
       - name: Install Vercel CLI
-        run: npm i -g vercel@latest
+        run: npm install --global vercel@latest
 
       - name: Pull Vercel project settings
         working-directory: frontend-vite
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
-      - name: Build
+      - name: Build production artifacts
         working-directory: frontend-vite
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod --token="$VERCEL_TOKEN"
 
       - name: Deploy to production
         working-directory: frontend-vite
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
