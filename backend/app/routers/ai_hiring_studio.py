@@ -88,6 +88,9 @@ class BuildRubricRequest(OpenRouterRequest):
 class AnalyzeResumeRequest(OpenRouterRequest):
     resume_data: dict[str, Any]
     rubric: dict[str, Any]
+    saved_rubric_id: str | None = Field(default=None, max_length=36)
+    saved_rubric_version: int | None = Field(default=None, ge=1)
+    saved_rubric_sha256: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class SavedRubricRequest(BaseModel):
@@ -499,6 +502,34 @@ def build_rubric(request: BuildRubricRequest, user: User = Depends(require_roles
 def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
     if not isinstance(request.rubric.get("criteria"), list) or not request.rubric.get("criteria"):
         raise HTTPException(422, "Build or select an assessment rubric first.")
+    saved_rubric_metadata = None
+    if request.saved_rubric_id:
+        if request.saved_rubric_version is None or not request.saved_rubric_sha256:
+            raise HTTPException(422, "A saved rubric ID, version, and checksum are required together.")
+        saved_rubric = db.scalar(
+            select(SavedAssessmentRubric).where(
+                SavedAssessmentRubric.rubric_id == request.saved_rubric_id,
+                SavedAssessmentRubric.organization_id == user.organization_id,
+            )
+        )
+        if saved_rubric is None:
+            raise HTTPException(404, "Saved rubric not found in this organisation.")
+        if saved_rubric.version != request.saved_rubric_version or saved_rubric.content_sha256 != request.saved_rubric_sha256:
+            raise HTTPException(409, "The saved rubric version or checksum changed. Reload the frozen rubric and retry.")
+        submitted = _validated_saved_rubric(request.rubric)
+        stored = _validated_saved_rubric(saved_rubric.rubric)
+        canonical = lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        if canonical(submitted) != canonical(stored):
+            raise HTTPException(409, "The submitted rubric differs from its frozen version. Save a new version before scoring.")
+        saved_rubric_metadata = {
+            "rubric_id": saved_rubric.rubric_id,
+            "family_id": saved_rubric.family_id,
+            "version": saved_rubric.version,
+            "content_sha256": saved_rubric.content_sha256,
+            "frozen": True,
+        }
+    elif request.saved_rubric_version is not None or request.saved_rubric_sha256:
+        raise HTTPException(422, "A saved rubric ID, version, and checksum are required together.")
     safe_resume_data = _privacy_safe_resume_data(request.resume_data)
     if not safe_resume_data:
         raise HTTPException(422, "The resume contained no job-related fields after identifying fields were removed.")
@@ -522,14 +553,16 @@ def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_r
             "Use supplied resume evidence only; separate missing evidence from confirmed mismatch.",
         ],
     }, ensure_ascii=False, default=str)
-    result, run = _run_model(request, user, db, "analyze_resume", system, prompt,
-                             {"resume_data": safe_resume_data, "rubric": request.rubric}, 2400)
+    run_input = {"resume_data": safe_resume_data, "rubric": request.rubric}
+    if saved_rubric_metadata:
+        run_input["saved_rubric"] = saved_rubric_metadata
+    result, run = _run_model(request, user, db, "analyze_resume", system, prompt, run_input, 2400)
     if not isinstance(result.get("criteria"), list) or not result.get("criteria"):
         _mark_run_failed(db, run, "The model did not return criterion-level scores. Retry.")
     result["decision_support_only"] = True
     return {"request_id": run.request_id, "model": run.model, "latency_ms": run.latency_ms,
             "token_usage": run.token_usage, "model_call_count": run.model_call_count,
-            "privacy_redaction_applied": True, "analysis": result}
+            "privacy_redaction_applied": True, "saved_rubric": saved_rubric_metadata, "analysis": result}
 
 
 def _validated_saved_rubric(value: dict[str, Any]) -> dict[str, Any]:
