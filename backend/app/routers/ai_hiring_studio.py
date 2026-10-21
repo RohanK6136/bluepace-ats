@@ -47,6 +47,21 @@ class AIHiringRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class SavedAssessmentRubric(Base):
+    __tablename__ = "ai_assessment_rubrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rubric_id: Mapped[str] = mapped_column(String(36), unique=True, index=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    job_title: Mapped[str] = mapped_column(String(200))
+    job_description: Mapped[str] = mapped_column(Text)
+    rubric: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class OpenRouterRequest(BaseModel):
     api_key: str | None = None
     model: str | None = None
@@ -65,6 +80,15 @@ class BuildRubricRequest(OpenRouterRequest):
 class AnalyzeResumeRequest(OpenRouterRequest):
     resume_data: dict[str, Any]
     rubric: dict[str, Any]
+
+
+class SavedRubricRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    job_title: str = Field(default="Assessment rubric", max_length=200)
+    job_description: str = Field(min_length=10, max_length=MAX_TEXT_CHARS)
+    rubric: dict[str, Any]
+
+
 
 
 def _model_name(value: str | None) -> str:
@@ -498,6 +522,83 @@ def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_r
     return {"request_id": run.request_id, "model": run.model, "latency_ms": run.latency_ms,
             "token_usage": run.token_usage, "model_call_count": run.model_call_count,
             "privacy_redaction_applied": True, "analysis": result}
+
+
+def _saved_rubric_payload(item: SavedAssessmentRubric) -> dict[str, Any]:
+    return {
+        "rubric_id": item.rubric_id,
+        "title": item.title,
+        "job_title": item.job_title,
+        "job_description": item.job_description,
+        "rubric": item.rubric,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+    }
+
+
+@router.get("/rubrics")
+def list_saved_rubrics(user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
+    items = db.scalars(
+        select(SavedAssessmentRubric)
+        .where(SavedAssessmentRubric.organization_id == user.organization_id)
+        .order_by(SavedAssessmentRubric.updated_at.desc())
+        .limit(100)
+    ).all()
+    return {"rubrics": [_saved_rubric_payload(item) for item in items]}
+
+
+@router.post("/rubrics")
+def create_saved_rubric(request: SavedRubricRequest, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
+    normalized = _normalize_rubric_result(dict(request.rubric))
+    item = SavedAssessmentRubric(
+        rubric_id=str(uuid4()),
+        organization_id=user.organization_id,
+        user_id=user.id,
+        title=request.title.strip() or "Assessment rubric",
+        job_title=request.job_title.strip() or "Assessment rubric",
+        job_description=request.job_description.strip()[:MAX_TEXT_CHARS],
+        rubric=normalized,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return _saved_rubric_payload(item)
+
+
+@router.put("/rubrics/{rubric_id}")
+def update_saved_rubric(rubric_id: str, request: SavedRubricRequest,
+                         user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
+    item = db.scalar(
+        select(SavedAssessmentRubric).where(
+            SavedAssessmentRubric.rubric_id == rubric_id,
+            SavedAssessmentRubric.organization_id == user.organization_id,
+        )
+    )
+    if item is None:
+        raise HTTPException(404, "Saved rubric not found.")
+    item.title = request.title.strip() or "Assessment rubric"
+    item.job_title = request.job_title.strip() or "Assessment rubric"
+    item.job_description = request.job_description.strip()[:MAX_TEXT_CHARS]
+    item.rubric = _normalize_rubric_result(dict(request.rubric))
+    item.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(item)
+    return _saved_rubric_payload(item)
+
+
+@router.delete("/rubrics/{rubric_id}")
+def delete_saved_rubric(rubric_id: str, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
+    item = db.scalar(
+        select(SavedAssessmentRubric).where(
+            SavedAssessmentRubric.rubric_id == rubric_id,
+            SavedAssessmentRubric.organization_id == user.organization_id,
+        )
+    )
+    if item is None:
+        raise HTTPException(404, "Saved rubric not found.")
+    db.delete(item)
+    db.commit()
+    return {"deleted": True, "rubric_id": rubric_id}
 
 
 @router.get("/history")
