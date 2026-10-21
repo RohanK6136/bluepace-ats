@@ -5068,8 +5068,6 @@ def _mark_resume_jobs_for_dispatch(
     if not jobs:
         return
 
-    from app.services.queue_tasks import process_resume_ingest_job
-
     if _resume_dispatcher_enabled():
         for item in jobs:
             item.task_id = f"dispatcher:{item.id}"
@@ -5079,7 +5077,7 @@ def _mark_resume_jobs_for_dispatch(
         for item in jobs:
             item.task_id = f"background:{item.id}"
         for item in jobs:
-            background_tasks.add_task(process_resume_ingest_job.run, item.id)
+            background_tasks.add_task(_run_resume_job_background, item.id)
         return
 
     # Celery is an optional external-worker mode. Keep the HTTP request free
