@@ -6,9 +6,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import DateTime, Integer, String, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
+import hmac
 
 from app.database import Base, SessionLocal, get_db
 from app.models import Candidate, Job, Organization, Role, User
@@ -178,9 +179,67 @@ def zoho_status(user: User = Depends(_authorized_user)):
         "provider": "Zoho Recruit", "direction": "Zoho Recruit -> BluePace ATS",
         "automatic_sync_enabled": os.getenv("ZOHO_SYNC_ENABLED", "").strip().lower() == "true",
         "configured": all(os.getenv(k, "").strip() for k in ("ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN")),
-        "interval_minutes": max(5, int(os.getenv("ZOHO_SYNC_INTERVAL_MINUTES", "15"))),
+        "webhook_configured": bool(os.getenv("ZOHO_WEBHOOK_SECRET", "").strip()),
+        "webhook_url": "/integrations/zoho/webhook",
+        "reconciliation_interval_minutes": max(5, int(os.getenv("ZOHO_SYNC_INTERVAL_MINUTES", "15"))),
         "credential_values_returned": False,
     }
+
+
+def _run_background_sync(organization_id: int) -> None:
+    """Run an authenticated full reconciliation after a validated Zoho event."""
+    with SessionLocal() as db:
+        org = db.get(Organization, organization_id)
+        if org is None:
+            return
+        actor = db.scalar(select(User).where(
+            User.organization_id == org.id,
+            User.is_active.is_(True),
+            User.role == Role.admin,
+        ).order_by(User.id.asc()))
+        if actor is None:
+            return
+        try:
+            result = sync_zoho_for_organization(db, org, actor)
+            print(
+                f"[zoho-webhook-sync] organization_id={org.id} "
+                f"candidates={result['candidates_synced']} jobs={result['jobs_synced']}",
+                flush=True,
+            )
+        except Exception as exc:
+            db.rollback()
+            print(f"[zoho-webhook-sync] failed={type(exc).__name__}", flush=True)
+
+
+@router.post("/webhook", status_code=202)
+async def zoho_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Accept Zoho workflow notifications; never trust webhook fields as record data.
+
+    Configure Zoho to send `webhook_token` as a custom parameter. The event triggers
+    a server-to-server reconciliation, which fetches canonical records via OAuth.
+    """
+    secret = os.getenv("ZOHO_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(503, "Zoho webhook receiver is not configured.")
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(400, "Webhook body must be valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Webhook body must be a JSON object.")
+    supplied = str(payload.get("webhook_token") or request.query_params.get("webhook_token") or request.headers.get("x-zoho-webhook-token") or "")
+    if not supplied or not hmac.compare_digest(supplied, secret):
+        raise HTTPException(401, "Invalid webhook authentication.")
+    if os.getenv("ZOHO_SYNC_ENABLED", "").strip().lower() != "true":
+        raise HTTPException(503, "Zoho automatic sync is disabled.")
+    try:
+        organization_id = int(os.getenv("ZOHO_ORGANIZATION_ID", ""))
+    except ValueError as exc:
+        raise HTTPException(503, "Zoho webhook organization is not configured.") from exc
+    # Do not log or persist potentially sensitive payload fields. The event is
+    # only a wake-up signal; canonical records are re-read through the OAuth API.
+    background_tasks.add_task(_run_background_sync, organization_id)
+    return {"accepted": True, "mode": "reconcile", "message": "Zoho event accepted; canonical records will be reconciled."}
 
 
 @router.post("/sync")
