@@ -1418,6 +1418,20 @@ def _serialize_candidate_match(match: CandidateJobMatch, job: Job | None = None)
     }
 
 
+def _is_demo_job(job: Job) -> bool:
+    """Recognize synthetic fixture jobs so they cannot appear or accept public applications."""
+    title = str(job.title or "").strip().casefold()
+    description = str(job.description or "").strip().casefold()
+    tags = job.tags if isinstance(job.tags, list) else []
+    normalized_tags = {str(tag).strip().casefold() for tag in tags}
+    return (
+        title.startswith("[demo]")
+        or "demo data" in normalized_tags
+        or description.startswith("demo data")
+        or "this synthetic job remains in draft and is not publicly advertised" in description
+    )
+
+
 @app.get("/public/jobs")
 def public_jobs(
     search: str | None = None,
@@ -1427,14 +1441,20 @@ def public_jobs(
     db: Session = Depends(get_db),
 ):
     organization = _public_organization(db)
-    statement = select(Job).where(Job.organization_id == organization.id, Job.status == "open")
+    statement = select(Job).where(
+        Job.organization_id == organization.id,
+        Job.status == "open",
+        ~Job.title.ilike("%[demo]%"),
+        ~Job.description.ilike("DEMO DATA%"),
+        ~Job.description.ilike("%this synthetic job remains in draft and is not publicly advertised%"),
+    )
     if department:
         statement = statement.where(Job.department.ilike("%" + department.strip() + "%"))
     if location:
         statement = statement.where(Job.location.ilike("%" + location.strip() + "%"))
     if work_mode:
         statement = statement.where(Job.work_mode == work_mode)
-    jobs = db.scalars(statement.order_by(Job.created_at.desc()).limit(100)).all()
+    jobs = [job for job in db.scalars(statement.order_by(Job.created_at.desc()).limit(100)).all() if not _is_demo_job(job)]
     if search:
         needle = search.casefold().strip()
         jobs = [job for job in jobs if needle in " ".join([job.title, job.description, job.department or "", job.location or "", " ".join(job.required_skills or [])]).casefold()]
@@ -1474,7 +1494,8 @@ async def public_apply(
             Job.status == "open",
         )
     )
-    if job is None:
+    if job is None or _is_demo_job(job):
+        # Do not disclose whether a private synthetic job exists.
         raise HTTPException(status_code=404, detail="Open job not found")
 
     if not (email or "").strip():
