@@ -1,10 +1,12 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 # Import the API module so all ORM models are registered on Base.metadata.
-from app.main import app  # noqa: F401
+from app.main import app, _recover_stale_resume_jobs  # noqa: F401
 from app.database import Base
 from app.models import ResumeProcessingJob
 from app.services.extractor import DocumentExtractionError
@@ -112,3 +114,47 @@ def test_invalid_document_is_not_retried(
     assert job.status == "failed"
     assert job.completed_at is not None
     assert "not a supported" in job.error_message
+
+
+def test_stale_processing_jobs_are_requeued_without_touching_recent_jobs(
+    resume_job_store,
+):
+    test_session, existing_job_id = resume_job_store
+    now = datetime.now(timezone.utc)
+
+    with test_session() as db:
+        existing = db.get(ResumeProcessingJob, existing_job_id)
+        existing.status = "processing"
+        existing.started_at = now - timedelta(hours=3)
+        existing.error_message = "worker interrupted"
+
+        fresh = ResumeProcessingJob(
+            batch_id="resume-retry-test",
+            organization_id=None,
+            created_by_id=None,
+            filename="recent.pdf",
+            storage_path="local://resume_queue/resume-retry-test/recent.pdf",
+            content_type="application/pdf",
+            size_bytes=100,
+            status="processing",
+            started_at=now - timedelta(minutes=5),
+        )
+        db.add(fresh)
+        db.commit()
+        fresh_id = fresh.id
+
+        recovered_count = _recover_stale_resume_jobs(
+            db, now=now, stale_after_minutes=120
+        )
+
+    assert recovered_count == 1
+
+    stale_job = _read_job(test_session, existing_job_id)
+    assert stale_job.status == "queued"
+    assert stale_job.started_at is None
+    assert stale_job.completed_at is None
+    assert "interrupted processing" in stale_job.error_message
+
+    fresh_job = _read_job(test_session, fresh_id)
+    assert fresh_job.status == "processing"
+    assert fresh_job.started_at is not None
