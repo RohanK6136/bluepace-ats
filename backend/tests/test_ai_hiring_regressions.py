@@ -278,3 +278,16 @@ def test_nested_profile_name_is_redacted_from_free_text():
 
     assert "Aisha Khan" not in repr(redacted)
     assert "Python API deployments" in repr(redacted)
+
+
+
+def test_resume_name_redaction_does_not_change_larger_words():
+    from app.routers.ai_hiring_studio import _redact_resume_pii
+
+    redacted = _redact_resume_pii({
+        "name": "Ann",
+        "summary": "Ann built annual reporting pipelines.",
+    })
+
+    assert "Ann" not in redacted["summary"]
+    assert "annual reporting pipelines" in redacted["summary"]
