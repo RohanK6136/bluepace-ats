@@ -189,6 +189,10 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [resumeLabJobs, setResumeLabJobs] = useState([]);
   const [resumeLabJobId, setResumeLabJobId] = useState("");
   const [resumeLabSyncStatus, setResumeLabSyncStatus] = useState("");
+  const [zohoStatus, setZohoStatus] = useState(null);
+  const [zohoStatusError, setZohoStatusError] = useState("");
+  const [zohoSyncResult, setZohoSyncResult] = useState(null);
+  const [zohoSyncing, setZohoSyncing] = useState(false);
 
   const quality = jsonData?.resume_quality || {};
   const evidence = jsonData?.extraction_evidence || [];
@@ -736,6 +740,36 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     } finally { setValidating(false); }
   }
 
+  async function handleZohoStatus() {
+    setZohoStatusError("");
+    try {
+      const currentToken = sessionStorage.getItem("bluepace_token") || token;
+      if (!currentToken) throw new Error("Sign in to BluePace as an admin or recruiter to view integration status.");
+      const response = await axios.get(`${API_URL}/integrations/zoho/status`, {
+        timeout: 15000,
+        headers: { Authorization: `Bearer ${currentToken}` },
+      });
+      setZohoStatus(response.data);
+    } catch (error) {
+      setZohoStatusError(apiErrorMessage(error, "Could not load Zoho integration status."));
+    }
+  }
+
+  async function handleZohoSync() {
+    setZohoSyncing(true);
+    setZohoSyncResult(null);
+    setZohoStatusError("");
+    try {
+      const response = await postToApi("/integrations/zoho/sync", {});
+      setZohoSyncResult(response.data);
+      await handleZohoStatus();
+    } catch (error) {
+      setZohoStatusError(apiErrorMessage(error, "Zoho sync failed. Check backend configuration and logs."));
+    } finally {
+      setZohoSyncing(false);
+    }
+  }
+
   const candidateRows = [
     ["name", jsonData?.name], ["email", jsonData?.email], ["phone", jsonData?.phone],
     ["current_location", jsonData?.current_location], ["preferred_location", jsonData?.preferred_location],
@@ -765,6 +799,32 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             The first pass uses deterministic PDF/DOCX extraction. Structured fields are validated before they enter the ATS; AI enrichment stays optional.
           </p>
         </div>
+
+        {token && (
+          <section className="mb-6 border border-ink-100 bg-white p-5 sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Connected systems</p>
+                <h2 className="mt-1 text-lg font-semibold">Zoho Recruit integration</h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-600">Zoho remains the source of truth. Webhook events trigger a secure backend reconciliation, with scheduled reconciliation as a fallback.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={handleZohoStatus} className="rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-ink-50">Check status</button>
+                <button type="button" onClick={handleZohoSync} disabled={zohoSyncing} className="rounded-md bg-[#c49a4a] px-3 py-2 text-xs font-semibold text-[#10131c] disabled:opacity-50">{zohoSyncing ? "Syncing…" : "Sync now"}</button>
+              </div>
+            </div>
+            {zohoStatus && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="border border-ink-100 bg-[#fafaf8] p-3"><p className="text-[10px] uppercase tracking-wide text-ink-500">OAuth</p><p className="mt-1 text-sm font-semibold">{zohoStatus.configured ? "Configured" : "Needs credentials"}</p></div>
+                <div className="border border-ink-100 bg-[#fafaf8] p-3"><p className="text-[10px] uppercase tracking-wide text-ink-500">Webhook receiver</p><p className="mt-1 text-sm font-semibold">{zohoStatus.webhook_configured ? "Configured" : "Needs secret"}</p></div>
+                <div className="border border-ink-100 bg-[#fafaf8] p-3"><p className="text-[10px] uppercase tracking-wide text-ink-500">Reconciliation</p><p className="mt-1 text-sm font-semibold">{zohoStatus.automatic_sync_enabled ? `Every ${zohoStatus.reconciliation_interval_minutes || 15} min` : "Disabled"}</p></div>
+              </div>
+            )}
+            {zohoSyncResult && <p role="status" className="mt-3 text-xs text-emerald-700">Last sync: {zohoSyncResult.candidates_synced} candidates and {zohoSyncResult.jobs_synced} job openings processed.</p>}
+            {zohoStatusError && <p role="alert" className="mt-3 text-xs text-rose-700">{zohoStatusError}</p>}
+            <p className="mt-3 text-[11px] leading-5 text-ink-500">Configure OAuth credentials, webhook secret, organization ID and sync schedule on the backend. Never put Zoho secrets in this frontend.</p>
+          </section>
+        )}
 
         {token && (
           <section className="mb-6 border border-ink-100 bg-white p-5 sm:p-6">
