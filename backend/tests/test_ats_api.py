@@ -572,6 +572,10 @@ def test_demo_jobs_are_never_public_or_accept_applications(client, monkeypatch):
     assert public_jobs.status_code == 200
     assert all(job["id"] != job_id for job in public_jobs.json())
 
+    dashboard = client.get("/dashboard", headers=headers)
+    assert dashboard.status_code == 200
+    assert dashboard.json()["metrics"]["open_jobs"] == 0
+
     rejected = client.post(
         f"/public/jobs/{job_id}/apply",
         data={"full_name": "Sample Applicant", "email": "sample.applicant@example.com"},
