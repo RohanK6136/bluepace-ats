@@ -27,3 +27,22 @@ Optionally set `ATS_API_URL` to override the default backend URL.
 - Set the main file path to `streamlit_app/app.py`.
 - Deploy using the requirements file at `streamlit_app/requirements.txt`.
 - No API keys are required for the included features.
+
+
+## Zoho Recruit inbound sync
+
+The companion now has a **Zoho Recruit** workspace. Sign in with a BluePace admin/recruiter account to check integration status or trigger a one-off sync. OAuth secrets must only be configured on the backend service.
+
+### Railway backend variables
+
+- `ZOHO_CLIENT_ID`: Zoho API Console OAuth client ID
+- `ZOHO_CLIENT_SECRET`: matching OAuth client secret
+- `ZOHO_REFRESH_TOKEN`: offline OAuth refresh token authorized for the Zoho Recruit tenant
+- `ZOHO_ACCOUNTS_DOMAIN`: Zoho Accounts data centre suffix, e.g. `in`, `com`, or `eu`
+- `ZOHO_RECRUIT_API_BASE`: API base for your data centre, e.g. `https://recruit.zoho.in/recruit/v2`
+- `ZOHO_SYNC_ENABLED`: set to `true` to enable automatic polling
+- `ZOHO_SYNC_INTERVAL_MINUTES`: polling interval, minimum 5 minutes (default 15)
+
+Create a Zoho OAuth client and authorize it with the narrowest read scopes available for Candidates and Job Openings. Generate an offline refresh token. Do not commit these values or paste them into chat. Set them in Railway → backend service → Variables, then redeploy. Use one backend replica while the in-process scheduler is enabled; multiple replicas would each poll. Zoho Recruit API quotas apply.
+
+Current inbound fields include candidate name/email/phone/LinkedIn and job title/description/department/location/status/employment type. Sync uses a local mapping table for idempotency and only writes into the authenticated user's organization. It does not upload resume files, delete local records, or write changes back to Zoho. Verify field API names and scopes against the tenant's Zoho Recruit API version before enabling production sync.
