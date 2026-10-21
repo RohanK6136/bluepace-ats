@@ -146,10 +146,39 @@ async def _run_resume_job_background(job_id: int) -> None:
     print(f"[resume-dispatcher] starting job_id={job_id}", flush=True)
     try:
         from app.services.queue_tasks import process_resume_ingest_job
-        result = await asyncio.to_thread(process_resume_ingest_job.run, job_id)
-        print(f"[resume-dispatcher] finished job_id={job_id} result={result}", flush=True)
+
+        max_attempts = 4  # Initial attempt plus three bounded retries.
+        for attempt in range(max_attempts):
+            try:
+                result = await asyncio.to_thread(
+                    process_resume_ingest_job.run,
+                    job_id,
+                    attempt,
+                )
+                print(
+                    f"[resume-dispatcher] finished job_id={job_id} result={result}",
+                    flush=True,
+                )
+                return
+            except DocumentExtractionError:
+                # A corrupt or unsupported document will not improve with retries.
+                raise
+            except Exception as error:
+                if attempt >= max_attempts - 1:
+                    raise
+                delay_seconds = min(2 ** attempt, 8)
+                print(
+                    f"[resume-dispatcher] retrying job_id={job_id} "
+                    f"attempt={attempt + 2}/{max_attempts} "
+                    f"after={type(error).__name__} delay_seconds={delay_seconds}",
+                    flush=True,
+                )
+                await asyncio.sleep(delay_seconds)
     except Exception as error:
-        print(f"[resume-dispatcher] failed job_id={job_id}: {error}", flush=True)
+        print(
+            f"[resume-dispatcher] failed job_id={job_id}: {type(error).__name__}",
+            flush=True,
+        )
         traceback.print_exc()
     finally:
         _resume_dispatcher_in_flight.discard(job_id)
