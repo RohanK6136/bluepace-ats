@@ -1,4 +1,5 @@
 """Protected AI Hiring Studio endpoints using OpenRouter."""
+import hashlib
 import json
 import os
 import re
@@ -11,7 +12,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, select
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, func, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.database import Base, get_db
@@ -139,6 +140,7 @@ class AIHiringRun(Base):
 class AIHiringRubric(Base):
     """An organisation-scoped, versionable rubric that recruiters can reuse."""
     __tablename__ = "ai_hiring_rubrics"
+    __table_args__ = (Index("uq_ai_hiring_rubrics_family_version", "family_id", "version", unique=True),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     rubric_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
@@ -147,6 +149,9 @@ class AIHiringRubric(Base):
     title: Mapped[str] = mapped_column(String(200))
     job_title: Mapped[str] = mapped_column(String(200), default="")
     rubric_data: Mapped[dict] = mapped_column(JSON)
+    family_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
@@ -174,7 +179,9 @@ class SavedRubricRequest(BaseModel):
 
 class AnalyzeResumeRequest(OpenRouterRequest):
     resume_data: dict[str, Any]
-    rubric: dict[str, Any]
+    # Server loads this saved snapshot; client-supplied rubric JSON is not authoritative.
+    rubric_id: str | None = None
+    rubric: dict[str, Any] = Field(default_factory=dict)
 
 
 def _model_name(value: str | None) -> str:
@@ -284,11 +291,14 @@ def _parse_json_output(raw: str) -> dict[str, Any]:
 
 
 def _run_model(request, user: User, db: Session, task_type: str, system_prompt: str, user_prompt: str,
-               input_data: dict[str, Any], max_tokens: int = 1800, persist_prompt_content: bool = True):
+               input_data: dict[str, Any], max_tokens: int = 1800, persist_prompt_content: bool = True,
+               privacy_metadata: dict[str, Any] | None = None):
     model = _model_name(request.model)
     # Resume assessment runs keep metrics/status only: candidate content, prompts,
     # and model-generated evidence are returned to the caller but not retained.
-    stored_input_data = input_data if persist_prompt_content else {"privacy_mode": "ephemeral_assessment"}
+    stored_input_data = input_data if persist_prompt_content else {
+        "privacy_mode": "ephemeral_assessment", **(privacy_metadata or {})
+    }
     stored_system_prompt = system_prompt if persist_prompt_content else "[not stored: ephemeral assessment]"
     stored_user_prompt = user_prompt if persist_prompt_content else "[not stored: ephemeral assessment]"
     run = AIHiringRun(
@@ -397,9 +407,23 @@ def _mark_run_failed(db: Session, run: AIHiringRun, message: str) -> None:
     raise HTTPException(502, message)
 
 
+def _rubric_content_hash(title: str, job_title: str, rubric_data: dict[str, Any]) -> str:
+    """Hash the canonical title, job title, and normalized rubric snapshot."""
+    payload = {
+        "title": str(title or "").strip(),
+        "job_title": str(job_title or "").strip(),
+        "rubric": rubric_data,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _saved_rubric_payload(row: AIHiringRubric) -> dict[str, Any]:
     return {
         "rubric_id": row.rubric_id,
+        "family_id": row.family_id or row.rubric_id,
+        "version": int(row.version or 1),
+        "content_hash": row.content_hash or _rubric_content_hash(row.title, row.job_title, row.rubric_data),
         "title": row.title,
         "job_title": row.job_title,
         "rubric": row.rubric_data,
@@ -520,8 +544,22 @@ def build_rubric(request: BuildRubricRequest, user: User = Depends(require_roles
 
 @router.post("/analyze-resume")
 def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
-    if not isinstance(request.rubric.get("criteria"), list) or not request.rubric.get("criteria"):
-        raise HTTPException(422, "Build or select an assessment rubric first.")
+    if not request.rubric_id:
+        raise HTTPException(422, "Select a saved rubric version before assessing resumes.")
+
+    # The saved server-side snapshot is authoritative, never mutable browser JSON.
+    rubric_row = db.scalar(
+        select(AIHiringRubric).where(
+            AIHiringRubric.rubric_id == request.rubric_id,
+            AIHiringRubric.organization_id == user.organization_id,
+        )
+    )
+    if rubric_row is None:
+        raise HTTPException(404, "Saved assessment rubric version not found in this organisation.")
+    assessment_rubric = rubric_row.rubric_data or {}
+    if not isinstance(assessment_rubric.get("criteria"), list) or not assessment_rubric.get("criteria"):
+        raise HTTPException(422, "The selected saved rubric has no usable criteria.")
+
     safe_resume_data = _redact_resume_pii(request.resume_data)
     system = (
         "You are an evidence-based resume reviewer. Compare only job-related resume evidence to the supplied rubric. Return JSON with "
@@ -533,25 +571,40 @@ def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_r
         "This is decision support, not an automated hiring decision. Clearly identify when human review is needed."
     )
     prompt = json.dumps({
-        "task": "Assess this redacted structured resume against every rubric criterion.",
-        "rubric": request.rubric, "resume_evidence": safe_resume_data,
+        "task": "Assess this redacted structured resume against the selected immutable saved rubric snapshot.",
+        "rubric": assessment_rubric, "resume_evidence": safe_resume_data,
         "requirements": [
             "Score every criterion from 0 to 100.",
             "weighted_score = score * weight / 100; overall_score is the sum when rubric weights total 100.",
             "Use supplied resume evidence only; separate missing evidence from confirmed mismatch.",
+            "Do not modify the supplied rubric or its criterion weights.",
         ],
     }, ensure_ascii=False, default=str)
+    version_metadata = {
+        "rubric_id": rubric_row.rubric_id,
+        "rubric_family_id": rubric_row.family_id or rubric_row.rubric_id,
+        "rubric_version": int(rubric_row.version or 1),
+        "rubric_hash": rubric_row.content_hash or _rubric_content_hash(
+            rubric_row.title, rubric_row.job_title, assessment_rubric
+        ),
+    }
     result, run = _run_model(
         request, user, db, "analyze_resume", system, prompt,
-        {"resume_data": safe_resume_data, "rubric": request.rubric},
-        2400, persist_prompt_content=False,
+        {"resume_data": safe_resume_data, "rubric": assessment_rubric},
+        2400, persist_prompt_content=False, privacy_metadata=version_metadata,
     )
     if not isinstance(result.get("criteria"), list) or not result.get("criteria"):
         _mark_run_failed(db, run, "The model did not return criterion-level scores. Retry.")
     result["decision_support_only"] = True
-    return {"request_id": run.request_id, "model": run.model, "latency_ms": run.latency_ms,
-            "token_usage": run.token_usage, "model_call_count": run.model_call_count, "analysis": result}
-
+    return {
+        "request_id": run.request_id, "model": run.model, "latency_ms": run.latency_ms,
+        "token_usage": run.token_usage, "model_call_count": run.model_call_count,
+        "rubric_id": version_metadata["rubric_id"],
+        "rubric_family_id": version_metadata["rubric_family_id"],
+        "rubric_version": version_metadata["rubric_version"],
+        "rubric_hash": version_metadata["rubric_hash"],
+        "analysis": result,
+    }
 
 @router.get("/rubrics")
 def list_saved_rubrics(
@@ -576,13 +629,18 @@ def create_saved_rubric(
 ):
     rubric = _prepare_saved_rubric(request)
     now = datetime.now(timezone.utc)
+    rubric_id = str(uuid4())
+    job_title = request.job_title.strip()[:200]
     row = AIHiringRubric(
-        rubric_id=str(uuid4()),
+        rubric_id=rubric_id,
         organization_id=user.organization_id,
         user_id=user.id,
         title=request.title.strip(),
-        job_title=request.job_title.strip()[:200],
+        job_title=job_title,
         rubric_data=rubric,
+        family_id=rubric_id,
+        version=1,
+        content_hash=_rubric_content_hash(request.title.strip(), job_title, rubric),
         created_at=now,
         updated_at=now,
     )
@@ -616,24 +674,44 @@ def update_saved_rubric(
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
-    row = db.scalar(
+    """Create an immutable next version within the selected rubric family."""
+    previous = db.scalar(
         select(AIHiringRubric).where(
             AIHiringRubric.rubric_id == rubric_id,
             AIHiringRubric.organization_id == user.organization_id,
         )
     )
-    if row is None:
+    if previous is None:
         raise HTTPException(404, "Saved assessment rubric not found.")
-    rubric = _prepare_saved_rubric(request)
-    row.title = request.title.strip()
-    row.job_title = request.job_title.strip()[:200]
-    row.rubric_data = rubric
-    row.user_id = user.id
-    row.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(row)
-    return _saved_rubric_payload(row)
 
+    rubric = _prepare_saved_rubric(request)
+    family_id = previous.family_id or previous.rubric_id
+    latest_version = db.scalar(
+        select(func.max(AIHiringRubric.version)).where(
+            AIHiringRubric.organization_id == user.organization_id,
+            AIHiringRubric.family_id == family_id,
+        )
+    )
+    version = max(int(latest_version or 0), int(previous.version or 1)) + 1
+    now = datetime.now(timezone.utc)
+    job_title = request.job_title.strip()[:200]
+    new_row = AIHiringRubric(
+        rubric_id=str(uuid4()),
+        organization_id=user.organization_id,
+        user_id=user.id,
+        title=request.title.strip(),
+        job_title=job_title,
+        rubric_data=rubric,
+        family_id=family_id,
+        version=version,
+        content_hash=_rubric_content_hash(request.title.strip(), job_title, rubric),
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(new_row)
+    db.commit()
+    db.refresh(new_row)
+    return _saved_rubric_payload(new_row)
 
 @router.delete("/rubrics/{rubric_id}")
 def delete_saved_rubric(
@@ -649,10 +727,10 @@ def delete_saved_rubric(
     )
     if row is None:
         raise HTTPException(404, "Saved assessment rubric not found.")
-    db.delete(row)
-    db.commit()
-    return {"deleted": True, "rubric_id": rubric_id}
-
+    raise HTTPException(
+        409,
+        "Saved rubric versions are retained for assessment auditability. Create a new version instead of deleting a saved snapshot.",
+    )
 
 @router.get("/history")
 def list_history(limit: int = Query(default=30, ge=1, le=100),
