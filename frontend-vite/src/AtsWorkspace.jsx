@@ -1402,6 +1402,7 @@ export default function AtsWorkspace() {
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
     { id: "interviews-2", label: "Interviews" },
+    { id: "assessment", label: "Application assessment" },
     { id: "ai-studio", label: "AI Hiring Studio" },
   ];
   const secondaryNavItems = [
@@ -2250,6 +2251,7 @@ export default function AtsWorkspace() {
             </div>}
           </section>}
           {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
+          {view === "assessment" && <AIHiringStudio token={token} apiRequest={apiRequest} jobs={jobs} onSaved={refreshWorkspace} initialTab="assessment" />}
           {view === "ai-studio" && <AIHiringStudio token={token} apiRequest={apiRequest} jobs={jobs} onSaved={refreshWorkspace} />}
           {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab theme={theme} onToggleTheme={toggleTheme} token={token} /></section>}
           </main>
