@@ -14,7 +14,7 @@ Set the provider's secrets in the backend's environment or enter its API key und
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-flash` |
 | Cloudflare Workers AI | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `@cf/qwen/qwen3.8-27b` |
 
-The model ID is editable because availability depends on provider account, plan and region. The Test connection action sends a short prompt for direct provider adapters and may create a small usage charge. OpenRouter test validates the key and checks the model list.
+The model ID is editable because availability depends on provider account, plan and region. The Test connection action sends a short prompt for direct provider adapters and may create a small usage charge. OpenRouter test validates the key and checks the model list. DeepSeek defaults to `deepseek-flash`, its current API model name; see the [official model and pricing docs](https://api-docs.deepseek.com/quick_start/pricing/).
 
 ## Local Ollama with Qwen
 
