@@ -184,11 +184,52 @@ async def _run_resume_job_background(job_id: int) -> None:
         _resume_dispatcher_in_flight.discard(job_id)
 
 
+
+def _recover_stale_resume_jobs(
+    db: Session,
+    now: datetime | None = None,
+    stale_after_minutes: int = 120,
+) -> int:
+    """Requeue resumes abandoned by a crashed worker without deleting their files."""
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(
+        minutes=max(1, int(stale_after_minutes))
+    )
+    stale_jobs = db.scalars(
+        select(ResumeProcessingJob)
+        .where(
+            ResumeProcessingJob.status == "processing",
+            ResumeProcessingJob.started_at.is_not(None),
+            ResumeProcessingJob.started_at < cutoff,
+        )
+        .order_by(ResumeProcessingJob.id.asc())
+        .limit(1000)
+    ).all()
+    for job in stale_jobs:
+        job.status = "queued"
+        job.started_at = None
+        job.completed_at = None
+        job.error_message = "Recovered after interrupted processing; queued for retry."
+    if stale_jobs:
+        db.commit()
+    return len(stale_jobs)
+
 async def resume_queue_dispatcher_loop() -> None:
     """DB-backed resume dispatcher used when no external Celery worker is attached."""
     concurrency = max(1, min(int(os.getenv("RESUME_DISPATCHER_CONCURRENCY", "2")), 8))
+    last_recovery_check = 0.0
     while True:
         try:
+            now_tick = perf_counter()
+            if now_tick - last_recovery_check >= 300:
+                last_recovery_check = now_tick
+                with SessionLocal() as recovery_db:
+                    recovered_count = _recover_stale_resume_jobs(recovery_db)
+                if recovered_count:
+                    print(
+                        f"[resume-dispatcher] recovered stale jobs count={recovered_count}",
+                        flush=True,
+                    )
+
             available = concurrency - len(_resume_dispatcher_in_flight)
             if available > 0:
                 with SessionLocal() as db:
