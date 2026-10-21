@@ -4005,9 +4005,8 @@ def dashboard_summary(
 ):
     org_id = user.organization_id
 
-    jobs = db.execute(
-        select(Job.id, Job.title, Job.status)
-        .where(Job.organization_id == org_id)
+    jobs = db.scalars(
+        select(Job).where(Job.organization_id == org_id)
     ).all()
     stage_rows = db.execute(
         select(Stage.name, func.count(Application.id))
@@ -4148,7 +4147,7 @@ def dashboard_summary(
         "metrics": {
             "total_candidates": total_candidates,
             "upcoming_interviews_count": total_upcoming_interviews,
-            "open_jobs": sum(1 for job in jobs if job.status == "open"),
+            "open_jobs": sum(1 for job in jobs if job.status == "open" and not _is_demo_job(job)),
             "total_jobs": len(jobs),
             "total_applications": total_applications,
             "screening": stage_counts.get("Screening", 0),
