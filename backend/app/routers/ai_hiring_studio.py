@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func, select
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, func, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.database import Base, get_db
@@ -140,6 +140,7 @@ class AIHiringRun(Base):
 class AIHiringRubric(Base):
     """An organisation-scoped, versionable rubric that recruiters can reuse."""
     __tablename__ = "ai_hiring_rubrics"
+    __table_args__ = (Index("uq_ai_hiring_rubrics_family_version", "family_id", "version", unique=True),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     rubric_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
