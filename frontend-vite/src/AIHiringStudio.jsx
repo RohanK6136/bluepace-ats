@@ -62,10 +62,13 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   const [jdFileName, setJdFileName] = useState("");
   const [rubric, setRubric] = useState(null);
   const [rubricMeta, setRubricMeta] = useState(null);
-  const [resumeFile, setResumeFile] = useState(null);
-  const [resumeData, setResumeData] = useState(null);
-  const [analysis, setAnalysis] = useState(null);
-  const [analysisMeta, setAnalysisMeta] = useState(null);
+  const [savedRubrics, setSavedRubrics] = useState([]);
+  const [savedRubricId, setSavedRubricId] = useState("");
+  const [rubricTitle, setRubricTitle] = useState("");
+  const [rubricListBusy, setRubricListBusy] = useState(false);
+  const [resumeBatch, setResumeBatch] = useState([]);
+  const [resumeSort, setResumeSort] = useState("score");
+  const [expandedResumeId, setExpandedResumeId] = useState("");
   const [history, setHistory] = useState([]);
   const [historyDetail, setHistoryDetail] = useState(null);
   const [busy, setBusy] = useState("");
@@ -179,7 +182,9 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setGenerationMeta(response.data);
       setNotice("Draft generated. Review the fields and job description before saving it as an ATS draft.");
       setRubric(null);
-      setAnalysis(null);
+      setRubricTitle("");
+      setSavedRubricId("");
+      setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
     } catch (requestError) {
       setError(explainError(requestError));
     } finally {
@@ -248,10 +253,13 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         data: { ...credentials(), job_description: jobDescription.trim() },
         timeout: 90000,
       });
-      setRubric(response.data?.rubric || null);
+      const generatedRubric = response.data?.rubric || null;
+      setRubric(generatedRubric);
+      setRubricTitle(String(generatedRubric?.title || jobDetails.job_title || "Assessment rubric"));
+      setSavedRubricId("");
       setRubricMeta(response.data);
-      setAnalysis(null);
-      setNotice("Rubric created. Review criterion weights and requirements before using it.");
+      setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
+      setNotice("Rubric created. Edit the criteria, then save the version before assessing resumes.");
     } catch (requestError) {
       setError(explainError(requestError));
     } finally {
@@ -259,71 +267,205 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     }
   }
 
-  async function extractResume(event) {
+  function updateResumeRow(id, patch) {
+    setResumeBatch((previous) => previous.map((item) => item.id === id ? { ...item, ...patch } : item));
+  }
+
+  async function extractResumes(event) {
     const input = event.currentTarget;
-    const file = input.files && input.files[0];
-    setError("");
+    const selectedFiles = Array.from(input.files || []);
+    input.value = "";
+    if (!selectedFiles.length) return;
+
+    const validFiles = [];
+    const rejected = [];
+    selectedFiles.forEach((file) => {
+      const supported = file.name.toLowerCase().endsWith(".pdf") || file.name.toLowerCase().endsWith(".docx");
+      if (!supported) rejected.push(file.name + " (only PDF/DOCX files are supported)");
+      else if (file.size === 0) rejected.push(file.name + " (empty file)");
+      else if (file.size > MAX_FILE_BYTES) rejected.push(file.name + " (over 5 MB)");
+      else validFiles.push(file);
+    });
+    const acceptedFiles = validFiles.slice(0, 25);
+    if (validFiles.length > 25) rejected.push((validFiles.length - 25) + " additional file(s) (maximum 25 resumes per assessment batch)");
+    if (!acceptedFiles.length) {
+      setError(rejected.join("; ") || "Choose one or more PDF or DOCX resumes.");
+      return;
+    }
+
+    const rows = acceptedFiles.map((file, index) => ({
+      id: String(Date.now()) + "-" + String(index) + "-" + String(file.lastModified),
+      file,
+      resumeData: null,
+      analysis: null,
+      meta: null,
+      status: "queued",
+      error: "",
+    }));
+    setResumeBatch(rows);
+    setExpandedResumeId("");
+    setError(rejected.length ? "Skipped: " + rejected.join("; ") : "");
     setNotice("");
-    setAnalysis(null);
-    if (!file) return;
-    if (!/\.(pdf|docx)$/i.test(file.name)) {
-      input.value = "";
-      setResumeFile(null);
-      setError("Choose a PDF or DOCX resume.");
-      return;
-    }
-    if (file.size === 0 || file.size > MAX_FILE_BYTES) {
-      input.value = "";
-      setResumeFile(null);
-      setError(file.size === 0 ? "The selected resume is empty." : "Resume files must be 5 MB or smaller.");
-      return;
-    }
-    setResumeFile(file);
     setBusy("resume-extract");
-    try {
-      const body = new FormData();
-      body.append("file", file);
-      const response = await apiRequest(token, "post", "/extract/", { data: body, timeout: 90000 });
-      const data = response.data?.data || response.data?.resume_json || null;
-      if (!data || typeof data !== "object") throw new Error("The extraction service returned no structured resume data.");
-      setResumeData(data);
-      setNotice("Resume extracted for rubric-based analysis. It has not been saved as a candidate record.");
-    } catch (requestError) {
-      setResumeFile(null);
-      setResumeData(null);
-      setError(explainError(requestError));
-    } finally {
-      setBusy("");
-      input.value = "";
-    }
+
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(3, rows.length) }, async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= rows.length) return;
+        const row = rows[index];
+        updateResumeRow(row.id, { status: "extracting", error: "" });
+        try {
+          const body = new FormData();
+          body.append("file", row.file);
+          const response = await apiRequest(token, "post", "/extract/", { data: body, timeout: 90000 });
+          const data = response.data?.data || response.data?.resume_json || null;
+          if (!data || typeof data !== "object") throw new Error("No structured resume data was returned.");
+          updateResumeRow(row.id, { resumeData: data, status: "ready", error: "" });
+        } catch (requestError) {
+          updateResumeRow(row.id, { status: "failed", error: explainError(requestError) });
+        }
+      }
+    });
+    await Promise.all(workers);
+    setBusy("");
+    setNotice("Resume extraction finished. Review the files below, then assess the ready resumes against the saved rubric.");
   }
 
-  async function analyzeResume() {
-    if (!resumeData) {
-      setError("Upload a PDF or DOCX resume first.");
-      return;
-    }
+  async function analyzeResumes() {
     if (!rubric?.criteria?.length) {
       setError("Build an assessment rubric first.");
       setTab("rubric");
       return;
     }
-    setBusy("analysis");
+    if (!savedRubricId) {
+      setError("Save the rubric version first so every resume is scored against a consistent, reusable framework.");
+      setTab("rubric");
+      return;
+    }
+    const pending = resumeBatch.filter((item) => item.resumeData && !item.analysis);
+    if (!pending.length) {
+      setError("Upload resumes first, or clear the current results to assess them again.");
+      return;
+    }
+    setBusy("batch-analysis");
+    setError("");
+    setNotice("");
+    let nextIndex = 0;
+    let successes = 0;
+    let failures = 0;
+    const workers = Array.from({ length: Math.min(2, pending.length) }, async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= pending.length) return;
+        const item = pending[index];
+        updateResumeRow(item.id, { status: "analyzing", error: "" });
+        try {
+          const response = await apiRequest(token, "post", "/ai-hiring/analyze-resume", {
+            data: { ...credentials(), resume_data: item.resumeData, rubric },
+            timeout: 90000,
+          });
+          updateResumeRow(item.id, { analysis: response.data?.analysis || null, meta: response.data, status: "complete", error: "" });
+          successes += 1;
+        } catch (requestError) {
+          updateResumeRow(item.id, { status: "failed", error: explainError(requestError) });
+          failures += 1;
+        }
+      }
+    });
+    await Promise.all(workers);
+    setBusy("");
+    setNotice("Assessment finished: " + successes + " completed, " + failures + " failed. Scores are decision support only and need human review.");
+  }
+
+  async function loadSavedRubric(id) {
+    if (!id) {
+      setSavedRubricId("");
+      return;
+    }
+    setBusy("load-rubric");
     setError("");
     setNotice("");
     try {
-      const response = await apiRequest(token, "post", "/ai-hiring/analyze-resume", {
-        data: { ...credentials(), resume_data: resumeData, rubric },
-        timeout: 90000,
-      });
-      setAnalysis(response.data?.analysis || null);
-      setAnalysisMeta(response.data);
-      setNotice("Assessment completed. Review evidence and gaps; the output supports human review only.");
+      const response = await apiRequest(token, "get", "/ai-hiring/rubrics/" + encodeURIComponent(id));
+      const saved = response.data;
+      setRubric(saved?.rubric || null);
+      setRubricTitle(String(saved?.title || "Assessment rubric"));
+      setSavedRubricId(String(saved?.rubric_id || id));
+      setJobDetails((previous) => ({ ...previous, job_title: String(saved?.job_title || previous.job_title) }));
+      setRubricMeta(null);
+      setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
+      setNotice("Saved rubric loaded. Existing scores were cleared so resumes are assessed against the selected version.");
     } catch (requestError) {
       setError(explainError(requestError));
     } finally {
       setBusy("");
     }
+  }
+
+  async function saveRubric() {
+    if (!rubric?.criteria?.length) {
+      setError("Generate a rubric or add at least one criterion before saving.");
+      return;
+    }
+    const title = rubricTitle.trim() || String(rubric.title || jobDetails.job_title || "Assessment rubric").trim();
+    if (!title) {
+      setError("Enter a name for this assessment rubric.");
+      return;
+    }
+    setBusy("save-rubric");
+    setError("");
+    setNotice("");
+    try {
+      const route = savedRubricId ? "/ai-hiring/rubrics/" + encodeURIComponent(savedRubricId) : "/ai-hiring/rubrics";
+      const method = savedRubricId ? "put" : "post";
+      const response = await apiRequest(token, method, route, {
+        data: { title, job_title: String(jobDetails.job_title || ""), rubric },
+      });
+      const saved = response.data;
+      setRubric(saved?.rubric || rubric);
+      setRubricTitle(String(saved?.title || title));
+      setSavedRubricId(String(saved?.rubric_id || ""));
+      setSavedRubrics((previous) => [saved, ...previous.filter((item) => item.rubric_id !== saved?.rubric_id)]);
+      setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
+      setNotice("Rubric saved. All resume results were cleared because the assessment version changed.");
+    } catch (requestError) {
+      setError(explainError(requestError));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function updateRubricCriterion(index, field, value) {
+    setRubric((previous) => {
+      if (!previous) return previous;
+      return { ...previous, criteria: previous.criteria.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item) };
+    });
+    setSavedRubricId("");
+  }
+
+  function addRubricCriterion() {
+    setRubric((previous) => ({
+      ...(previous || {}),
+      title: rubricTitle || previous?.title || "Assessment rubric",
+      rubric_summary: previous?.rubric_summary || "",
+      criteria: [...(previous?.criteria || []), {
+        name: "New requirement",
+        category: "Skill",
+        required: false,
+        weight: 5,
+        minimum_years: null,
+        keywords: [],
+        description: "Describe the job-related evidence to look for.",
+        scoring_guide: { missing: "No evidence found", partial: "Some relevant evidence", strong: "Clear, specific evidence" },
+      }],
+    }));
+    setSavedRubricId("");
+  }
+
+  function removeRubricCriterion(index) {
+    setRubric((previous) => previous ? { ...previous, criteria: previous.criteria.filter((_, itemIndex) => itemIndex !== index) } : previous);
+    setSavedRubricId("");
   }
 
   async function loadHistory() {
@@ -357,6 +499,23 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   }, [tab]);
 
   useEffect(() => {
+    if (tab !== "rubric") return undefined;
+    let active = true;
+    setRubricListBusy(true);
+    apiRequest(token, "get", "/ai-hiring/rubrics")
+      .then((response) => {
+        if (active) setSavedRubrics(Array.isArray(response.data?.rubrics) ? response.data.rubrics : []);
+      })
+      .catch((requestError) => {
+        if (active) setError(explainError(requestError));
+      })
+      .finally(() => {
+        if (active) setRubricListBusy(false);
+      });
+    return () => { active = false; };
+  }, [tab, token, apiRequest]);
+
+  useEffect(() => {
     let active = true;
     apiRequest(token, "get", "/ai-hiring/status")
       .then((response) => {
@@ -375,6 +534,18 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   const fieldClass = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100";
   const btnPrimary = "inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50";
   const btnSecondary = "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
+  const totalRubricWeight = (rubric?.criteria || []).reduce((total, item) => total + (Number(item.weight) || 0), 0);
+  const sortedResumeBatch = [...resumeBatch].sort((a, b) => {
+    if (resumeSort === "name") {
+      const aName = String(a.resumeData?.name || a.resumeData?.full_name || a.file.name).toLowerCase();
+      const bName = String(b.resumeData?.name || b.resumeData?.full_name || b.file.name).toLowerCase();
+      return aName.localeCompare(bName);
+    }
+    const aScore = a.analysis ? Number(a.analysis.overall_score) : -1;
+    const bScore = b.analysis ? Number(b.analysis.overall_score) : -1;
+    return bScore - aScore;
+  });
+  const readyResumeCount = resumeBatch.filter((item) => item.resumeData && !item.analysis && item.status !== "analyzing").length;
 
   return (
     <div className="space-y-5 pb-10">
@@ -451,29 +622,92 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           </div>}
 
           {tab === "rubric" && <div className="space-y-5">
-            <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Assessment framework</p><h3 className="mt-1 text-lg font-semibold text-slate-900">Build a weighted rubric from the job description</h3><p className="mt-1 text-sm text-slate-500">Includes must-have/nice-to-have skills, experience, relevant certifications and language requirements where appropriate.</p></div><button type="button" className={btnPrimary} disabled={Boolean(busy) || !jobDescription.trim()} onClick={() => void buildRubric()}>{busy === "rubric" ? "Building rubric…" : "Generate assessment rubric"}</button></div>
-            <label className="block text-sm font-semibold text-slate-700">Job description used for scoring<textarea className={fieldClass + " mt-1.5 min-h-40 leading-6"} value={jobDescription} onChange={(event) => setJobDescription(event.target.value)} placeholder="Generate a JD in the first tab or paste the job description here." /></label>
-            {rubricMeta && <div className="flex flex-wrap gap-2"><MetaPill tone="good">Rubric generated</MetaPill><MetaPill>{rubricMeta.model}</MetaPill><MetaPill>{rubricMeta.latency_ms} ms</MetaPill><MetaPill>Total weight {rubric?.total_weight ?? 100}%</MetaPill></div>}
-            {rubric && <div className="overflow-hidden rounded-xl border border-slate-200"><div className="border-b border-slate-200 bg-slate-50 p-4"><h4 className="font-semibold text-slate-900">{rubric.title || "Assessment rubric"}</h4><p className="mt-1 text-sm text-slate-600">{rubric.rubric_summary || "Job-related criteria for structured human review."}</p></div><div className="divide-y divide-slate-100">{rubric.criteria.map((item, index) => <div key={String(item.name || index) + index} className="grid gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_140px]"><div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-900">{item.name}</p><MetaPill tone={item.required ? "blue" : "neutral"}>{item.required ? "Must-have" : "Nice-to-have"}</MetaPill><MetaPill>{item.category}</MetaPill></div><p className="mt-1 text-sm leading-5 text-slate-600">{item.description || item.scoring_guide?.strong || "Review against evidence from the resume."}</p>{item.keywords?.length > 0 && <p className="mt-2 text-xs text-slate-500">Keywords: {item.keywords.join(", ")}</p>}{item.minimum_years !== null && item.minimum_years !== undefined && <p className="mt-1 text-xs text-slate-500">Experience reference: {item.minimum_years} year(s)</p>}</div><div className="sm:text-right"><p className="text-2xl font-semibold text-slate-900">{item.weight}%</p><p className="text-xs text-slate-500">Weight</p></div></div>)}</div><div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 p-4"><span className="text-sm text-slate-600">{rubric.criteria.length} criteria · weights normalized to {rubric.total_weight}%</span><button type="button" onClick={() => setTab("resume")} className={btnPrimary}>Analyze a resume against rubric</button></div></div>}
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Assessment framework</p><h3 className="mt-1 text-lg font-semibold text-slate-900">Build, edit and save a weighted rubric</h3><p className="mt-1 text-sm text-slate-500">Use job-related criteria, must-have vs nice-to-have requirements and transparent evidence guidance. Rubrics are saved within your organisation.</p></div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className={btnSecondary} disabled={Boolean(busy) || !jobDescription.trim()} onClick={() => void buildRubric()}>{busy === "rubric" ? "Building…" : "Generate from job description"}</button>
+                <button type="button" className={btnPrimary} disabled={Boolean(busy) || !rubric?.criteria?.length} onClick={() => void saveRubric()}>{busy === "save-rubric" ? "Saving…" : savedRubricId ? "Save rubric changes" : "Save rubric version"}</button>
+              </div>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <label className="block text-sm font-semibold text-slate-700">Load a saved rubric
+                <select className={fieldClass + " mt-1.5"} value={savedRubricId} onChange={(event) => void loadSavedRubric(event.target.value)} disabled={Boolean(busy)}>
+                  <option value="">Current unsaved rubric</option>
+                  {savedRubrics.map((item) => <option key={item.rubric_id} value={item.rubric_id}>{item.title}{item.job_title ? " · " + item.job_title : ""}</option>)}
+                </select>
+                <span className="mt-1 block text-xs font-normal text-slate-500">{rubricListBusy ? "Refreshing saved rubrics…" : String(savedRubrics.length) + " saved rubric(s) available"}</span>
+              </label>
+              <label className="block text-sm font-semibold text-slate-700">Rubric name<input className={fieldClass + " mt-1.5"} value={rubricTitle} onChange={(event) => { setRubricTitle(event.target.value); setSavedRubricId(""); }} placeholder="e.g. Senior Backend Engineer — v1" /></label>
+            </div>
+            <label className="block text-sm font-semibold text-slate-700">Job description used for scoring<textarea className={fieldClass + " mt-1.5 min-h-40 leading-6"} value={jobDescription} onChange={(event) => { setJobDescription(event.target.value); setSavedRubricId(""); }} placeholder="Generate a job description in the first tab or paste the approved job description here." /></label>
+            {rubricMeta && <div className="flex flex-wrap gap-2"><MetaPill tone="good">Rubric generated</MetaPill><MetaPill>{rubricMeta.model}</MetaPill><MetaPill>{rubricMeta.latency_ms} ms</MetaPill></div>}
+            {rubric && <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div><p className="font-semibold text-slate-900">{rubric.title || rubricTitle || "Assessment rubric"}</p><p className="mt-1 text-sm text-slate-600">{rubric.rubric_summary || "A transparent set of job-related criteria."}</p></div>
+                <div className="text-right"><p className="text-2xl font-semibold text-slate-900">{totalRubricWeight.toFixed(1)}%</p><p className="text-xs text-slate-500">Current weight total · saved version normalizes to 100%</p></div>
+              </div>
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <div className="hidden grid-cols-[minmax(0,1fr)_140px_100px_100px_42px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid"><span>Requirement</span><span>Category</span><span>Importance</span><span>Weight %</span><span /></div>
+                <div className="divide-y divide-slate-100">
+                  {rubric.criteria.map((item, index) => <div key={String(item.name || index) + "-" + index} className="grid gap-3 p-4 lg:grid-cols-[minmax(0,1fr)_140px_100px_100px_42px] lg:items-start">
+                    <div className="space-y-2">
+                      <label className="block text-xs font-semibold text-slate-500">Requirement name<input className={fieldClass + " mt-1"} value={String(item.name || "")} onChange={(event) => updateRubricCriterion(index, "name", event.target.value)} /></label>
+                      <label className="block text-xs font-semibold text-slate-500">Description / evidence to look for<textarea className={fieldClass + " mt-1 min-h-16"} value={String(item.description || "")} onChange={(event) => updateRubricCriterion(index, "description", event.target.value)} /></label>
+                      <label className="block text-xs font-semibold text-slate-500">Search terms / aliases, comma separated<input className={fieldClass + " mt-1"} value={(item.keywords || []).join(", ")} onChange={(event) => updateRubricCriterion(index, "keywords", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} /></label>
+                    </div>
+                    <label className="block text-xs font-semibold text-slate-500">Category<select className={fieldClass + " mt-1"} value={String(item.category || "Skill")} onChange={(event) => updateRubricCriterion(index, "category", event.target.value)}><option>Skill</option><option>Cloud & tools</option><option>Coding</option><option>Experience</option><option>Education</option><option>Certification</option><option>Communication</option><option>Soft skill</option><option>Other</option></select></label>
+                    <label className="block text-xs font-semibold text-slate-500">Importance<select className={fieldClass + " mt-1"} value={item.required ? "required" : "optional"} onChange={(event) => updateRubricCriterion(index, "required", event.target.value === "required")}><option value="required">Must-have</option><option value="optional">Nice-to-have</option></select></label>
+                    <label className="block text-xs font-semibold text-slate-500">Weight %<input type="number" min="0" max="100" step="0.5" className={fieldClass + " mt-1"} value={Number(item.weight ?? 0)} onChange={(event) => updateRubricCriterion(index, "weight", Number(event.target.value))} /></label>
+                    <button type="button" className={btnSecondary + " self-start"} aria-label={"Remove " + String(item.name || "criterion")} onClick={() => removeRubricCriterion(index)}>×</button>
+                    <label className="block text-xs font-semibold text-slate-500 lg:col-start-1">Minimum years (optional)<input type="number" min="0" max="60" step="0.5" className={fieldClass + " mt-1 max-w-40"} value={item.minimum_years ?? ""} onChange={(event) => updateRubricCriterion(index, "minimum_years", event.target.value === "" ? null : Number(event.target.value))} /></label>
+                  </div>)}
+                  {!rubric.criteria.length && <div className="p-6 text-sm text-slate-500">No criteria yet. Add a criterion to continue.</div>}
+                </div>
+                <div className="flex flex-wrap justify-between gap-2 border-t border-slate-200 bg-slate-50 p-4"><button type="button" className={btnSecondary} onClick={addRubricCriterion}>Add requirement</button><span className="text-xs leading-5 text-slate-500">{rubric.criteria.length} criteria · saved weights are normalized to 100% · recruiter approval required</span></div>
+              </div>
+              {savedRubricId && <div className="flex flex-wrap items-center gap-2"><MetaPill tone="good">Saved rubric selected</MetaPill><MetaPill>{savedRubricId.slice(0, 8)}</MetaPill><button type="button" className={btnSecondary} onClick={() => setTab("resume")}>Assess resumes against this rubric</button></div>}
+            </div>}
+            {!rubric && <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center"><p className="font-semibold text-slate-800">No rubric loaded yet</p><p className="mt-1 text-sm text-slate-500">Paste or generate a job description, then create a rubric or load a saved version.</p></div>}
           </div>}
 
           {tab === "resume" && <div className="space-y-5">
-            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Evidence-based review</p><h3 className="mt-1 text-lg font-semibold text-slate-900">Compare a resume with the rubric</h3><p className="mt-1 text-sm text-slate-500">The resume is extracted for this analysis only and is not automatically added to the ATS candidate database.</p></div>
-            {!rubric && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Create an assessment rubric first. <button type="button" onClick={() => setTab("rubric")} className="font-semibold underline underline-offset-2">Build rubric</button></div>}
-            {rubric && <div className="flex flex-wrap items-center gap-2"><MetaPill tone="good">Rubric ready</MetaPill><MetaPill>{rubric.criteria.length} criteria</MetaPill><button type="button" className={btnSecondary} onClick={() => setTab("rubric")}>Review rubric</button></div>}
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5">
-              <label className="block text-sm font-semibold text-slate-800">Resume file (PDF/DOCX, up to 5 MB)<input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="mt-2 block w-full rounded-lg border border-slate-200 bg-white p-3 text-sm font-normal" onChange={extractResume} disabled={Boolean(busy)} /></label>
-              {resumeFile && <p className="mt-2 text-sm text-slate-600">Selected: {resumeFile.name} · {(resumeFile.size / 1024).toFixed(0)} KB</p>}
-              {busy === "resume-extract" && <p className="mt-2 text-sm text-slate-500">Extracting resume content…</p>}
-              <button type="button" className={btnPrimary + " mt-4"} disabled={Boolean(busy) || !resumeData || !rubric} onClick={() => void analyzeResume()}>{busy === "analysis" ? "Analyzing…" : "Analyze resume against rubric"}</button>
+            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Evidence-based review</p><h3 className="mt-1 text-lg font-semibold text-slate-900">Assess multiple resumes against one saved rubric</h3><p className="mt-1 text-sm text-slate-500">Upload up to 25 PDF/DOCX files per batch (5 MB each). Extraction runs with limited concurrency; assessments are scored against the same saved rubric version.</p></div>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div>{savedRubricId && rubric ? <><p className="font-semibold text-slate-900">{rubricTitle || rubric.title || "Assessment rubric"}</p><p className="mt-1 text-xs text-slate-500">{rubric.criteria.length} criteria · saved and ready for review</p></> : <><p className="font-semibold text-slate-900">A saved rubric is required</p><p className="mt-1 text-xs text-slate-500">Create or load a rubric and save the version before scoring resumes.</p></>}</div>
+              <button type="button" className={btnSecondary} onClick={() => setTab("rubric")}>Manage rubrics</button>
             </div>
-            {analysisMeta && <div className="flex flex-wrap gap-2"><MetaPill tone="good">Analysis complete</MetaPill><MetaPill>{analysisMeta.model}</MetaPill><MetaPill>{analysisMeta.latency_ms} ms</MetaPill><MetaPill>{analysisMeta.token_usage?.total_tokens ?? "Tokens n/a"} tokens</MetaPill></div>}
-            {analysis && <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-3"><Metric label="Overall alignment" value={String(Math.round(Number(analysis.overall_score || 0))) + "%"} /><Metric label="Criteria scored" value={String(analysis.criteria?.length || 0)} /><Metric label="Recommendation" value={analysis.recommendation || "Human review"} /></div>
-              <div className="rounded-xl border border-slate-200 p-4"><h4 className="font-semibold text-slate-900">Assessment summary</h4><p className="mt-2 text-sm leading-6 text-slate-600">{analysis.summary || "Review individual evidence below."}</p><p className="mt-2 text-xs text-slate-500">Decision support only. Do not use this score as the sole basis for a hiring decision.</p></div>
-              {analysis.criteria?.map((item, index) => <div key={String(item.name || index) + index} className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="font-semibold text-slate-900">{item.name || "Criterion"}</h4><p className="mt-1 text-xs text-slate-500">{item.assessment || "Review evidence."}</p></div><div className="text-right"><p className="text-xl font-semibold text-slate-900">{Math.round(Number(item.score || 0))}%</p><p className="text-xs text-slate-500">Weight {item.weight ?? 0}%</p></div></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-amber-500" style={{ width: Math.max(0, Math.min(100, Number(item.score || 0))) + "%" }} /></div><div className="mt-3 grid gap-3 sm:grid-cols-2"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence</p>{item.evidence?.length ? <ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-slate-700">{item.evidence.map((evidence, i) => <li key={i}>{String(evidence)}</li>)}</ul> : <p className="mt-1 text-sm text-slate-500">No explicit evidence returned.</p>}</div><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Gap / follow-up</p><p className="mt-1 text-sm leading-5 text-slate-700">{item.gap || "No gap specified."}</p></div></div></div>)}
-              <div className="grid gap-4 sm:grid-cols-3"><div className="rounded-xl border border-slate-200 p-4"><h4 className="font-semibold text-slate-900">Strengths</h4><ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">{(analysis.strengths || []).map((v, i) => <li key={i}>{String(v)}</li>)}</ul></div><div className="rounded-xl border border-slate-200 p-4"><h4 className="font-semibold text-slate-900">Concerns</h4><ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">{(analysis.concerns || []).map((v, i) => <li key={i}>{String(v)}</li>)}</ul></div><div className="rounded-xl border border-slate-200 p-4"><h4 className="font-semibold text-slate-900">Missing requirements</h4><ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">{(analysis.missing_requirements || []).map((v, i) => <li key={i}>{String(v)}</li>)}</ul></div></div>
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5">
+              <label className="block text-sm font-semibold text-slate-800">Resume files (PDF/DOCX, 5 MB maximum per file)
+                <input type="file" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="mt-2 block w-full rounded-lg border border-slate-200 bg-white p-3 text-sm font-normal" onChange={extractResumes} disabled={Boolean(busy)} />
+              </label>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button type="button" className={btnPrimary} disabled={Boolean(busy) || !savedRubricId || readyResumeCount === 0} onClick={() => void analyzeResumes()}>{busy === "batch-analysis" ? "Assessing resumes…" : "Assess ready resumes"}</button>
+                <button type="button" className={btnSecondary} disabled={Boolean(busy) || !resumeBatch.length} onClick={() => { setResumeBatch([]); setExpandedResumeId(""); setNotice(""); }}>Clear batch</button>
+                <span className="text-xs text-slate-500">{resumeBatch.length} file(s) · {resumeBatch.filter((item) => item.analysis).length} assessed · {resumeBatch.filter((item) => item.status === "failed").length} failed</span>
+              </div>
+            </div>
+            {resumeBatch.length > 0 && <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3"><h4 className="font-semibold text-slate-900">Applicant assessments</h4><label className="flex items-center gap-2 text-sm text-slate-600">Sort by<select className={fieldClass + " w-auto min-w-36"} value={resumeSort} onChange={(event) => setResumeSort(event.target.value)}><option value="score">Match score</option><option value="name">Name</option></select></label></div>
+              {sortedResumeBatch.map((item) => {
+                const resumeName = String(item.resumeData?.name || item.resumeData?.full_name || item.resumeData?.personal_information?.name || item.file.name.split(".").slice(0, -1).join(".") || item.file.name);
+                const score = item.analysis ? Math.max(0, Math.min(100, Math.round(Number(item.analysis.overall_score || 0)))) : null;
+                const expanded = expandedResumeId === item.id;
+                return <article key={item.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div className="min-w-0"><h5 className="break-words font-semibold text-slate-900">{resumeName}</h5><p className="mt-1 break-all text-xs text-slate-500">{item.file.name} · {(item.file.size / 1024).toFixed(0)} KB</p><div className="mt-2 flex flex-wrap items-center gap-2"><MetaPill tone={item.status === "complete" ? "good" : item.status === "failed" ? "bad" : item.status === "analyzing" || item.status === "extracting" ? "warn" : "neutral"}>{item.status}</MetaPill>{item.analysis && <MetaPill tone="blue">{score}% match</MetaPill>}{item.analysis?.recommendation && <MetaPill>{item.analysis.recommendation}</MetaPill>}</div></div>
+                    {item.analysis && <div className="text-right"><p className="text-2xl font-semibold text-slate-900">{score}%</p><p className="text-xs text-slate-500">Evidence alignment</p></div>}
+                    {item.resumeData && <button type="button" className={btnSecondary} onClick={() => setExpandedResumeId(expanded ? "" : item.id)}>{expanded ? "Hide evidence" : "View evidence"}</button>}
+                  </div>
+                  {item.error && <div className="border-t border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-800">{item.error}</div>}
+                  {item.analysis && expanded && <div className="space-y-4 border-t border-slate-200 bg-slate-50 p-4">
+                    <div><h6 className="font-semibold text-slate-900">Assessment summary</h6><p className="mt-1 text-sm leading-6 text-slate-600">{item.analysis.summary || "Review the criterion evidence below."}</p><p className="mt-1 text-xs text-slate-500">Decision support only. Do not use this score as the sole basis for hiring decisions.</p></div>
+                    <div className="space-y-3">{(item.analysis.criteria || []).map((criterion, criterionIndex) => <div key={String(criterion.name || criterionIndex)} className="rounded-lg border border-slate-200 bg-white p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-slate-900">{criterion.name || "Criterion"}</p><p className="mt-1 text-sm text-slate-600">{criterion.assessment || "Review evidence."}</p></div><p className="font-semibold text-slate-900">{Math.round(Number(criterion.score || 0))}% <span className="text-xs font-normal text-slate-500">· {criterion.weight ?? 0}% weight</span></p></div><div className="mt-3 grid gap-3 sm:grid-cols-2"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence</p>{criterion.evidence?.length ? <ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-slate-700">{criterion.evidence.map((evidence, evidenceIndex) => <li key={evidenceIndex}>{String(evidence)}</li>)}</ul> : <p className="mt-1 text-sm text-slate-500">No explicit evidence returned.</p>}</div><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Gap / follow-up</p><p className="mt-1 text-sm leading-5 text-slate-700">{criterion.gap || "No gap specified."}</p></div></div></div>)}</div>
+                    <div className="grid gap-3 md:grid-cols-3"><div className="rounded-lg border border-slate-200 bg-white p-3"><h6 className="font-semibold text-slate-900">Strengths</h6><ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">{(item.analysis.strengths || []).map((value, valueIndex) => <li key={valueIndex}>{String(value)}</li>)}</ul></div><div className="rounded-lg border border-slate-200 bg-white p-3"><h6 className="font-semibold text-slate-900">Concerns</h6><ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">{(item.analysis.concerns || []).map((value, valueIndex) => <li key={valueIndex}>{String(value)}</li>)}</ul></div><div className="rounded-lg border border-slate-200 bg-white p-3"><h6 className="font-semibold text-slate-900">Missing requirements</h6><ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">{(item.analysis.missing_requirements || []).map((value, valueIndex) => <li key={valueIndex}>{String(value)}</li>)}</ul></div></div>
+                  </div>}
+                </article>;
+              })}
             </div>}
+            <p className="text-xs leading-5 text-slate-500">Human review is mandatory. The system highlights evidence and gaps; it must not automatically reject or rank candidates as a hiring decision. Confirm local policy and provider data-use terms before uploading candidate information.</p>
           </div>}
 
           {tab === "history" && <div className="space-y-4">

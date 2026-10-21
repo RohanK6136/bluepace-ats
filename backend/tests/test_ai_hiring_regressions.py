@@ -149,3 +149,38 @@ def test_ai_configuration_status_never_returns_server_key(monkeypatch):
     assert status["server_key_configured"] is True
     assert status["key_source"] == "server environment"
     assert sentinel not in repr(status)
+
+
+
+def test_saved_rubric_preparation_normalizes_weights_and_keeps_title():
+    from app.routers.ai_hiring_studio import SavedRubricRequest, _prepare_saved_rubric
+
+    normalized = _prepare_saved_rubric(SavedRubricRequest(
+        title="Platform Engineer v1",
+        job_title="Platform Engineer",
+        rubric={
+            "title": "Generated title",
+            "criteria": [
+                {"name": "Python", "weight": 2, "required": True, "category": "Coding"},
+                {"name": "Cloud", "weight": 1, "required": False, "category": "Cloud & tools"},
+            ],
+        },
+    ))
+
+    assert normalized["title"] == "Platform Engineer v1"
+    assert [item["weight"] for item in normalized["criteria"]] == [66.67, 33.33]
+    assert normalized["total_weight"] == 100.0
+
+
+def test_saved_rubric_preparation_rejects_blank_title():
+    import pytest
+    from fastapi import HTTPException
+
+    from app.routers.ai_hiring_studio import SavedRubricRequest, _prepare_saved_rubric
+
+    with pytest.raises(HTTPException, match="Enter a name"):
+        _prepare_saved_rubric(SavedRubricRequest(
+            title=" ",
+            job_title="Engineer",
+            rubric={"criteria": [{"name": "Python", "weight": 100}]},
+        ))
