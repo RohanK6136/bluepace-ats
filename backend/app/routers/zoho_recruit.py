@@ -43,8 +43,11 @@ def _settings():
     api_base = os.getenv("ZOHO_RECRUIT_API_BASE", DEFAULT_API).strip().rstrip("/")
     if domain not in ACCOUNTS:
         raise HTTPException(500, "ZOHO_ACCOUNTS_DOMAIN is invalid.")
-    if not api_base.startswith("https://") or "zoho" not in api_base.lower():
-        raise HTTPException(500, "ZOHO_RECRUIT_API_BASE must be an HTTPS Zoho API domain.")
+    from urllib.parse import urlparse
+    parsed = urlparse(api_base)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not (host.endswith(".zohoapis.com") or host.endswith(".zohoapis.in") or host.endswith(".zohoapis.eu") or host.endswith(".zohoapis.com.au") or host.endswith(".zohoapis.jp") or host.endswith(".zohoapis.ca") or host.endswith(".zohoapis.com.cn") or host.endswith(".zohoapis.sa") or host == "recruit.zoho.in" or host == "recruit.zoho.com"):
+        raise HTTPException(500, "ZOHO_RECRUIT_API_BASE must be an approved HTTPS Zoho Recruit API host.")
     return ACCOUNTS[domain], api_base
 
 
