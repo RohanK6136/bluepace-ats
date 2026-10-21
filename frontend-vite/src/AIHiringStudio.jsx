@@ -395,7 +395,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         {serverKeyConfigured === false && !apiKey.trim() && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong> No shared OpenRouter key is configured on the backend. Enter a key in Settings for this tab, or configure <code>OPENROUTER_API_KEY</code> in Railway backend variables.</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
 
         <div className="p-5 sm:p-7">
-          {tab === "assessment" && <AIApplicationAssessment token={token} apiRequest={apiRequest} jobs={jobs} model={model} apiKey={apiKey} initialRubric={rubric} onRubricChange={setRubric} />}
+          {tab === "assessment" && <AIApplicationAssessment token={token} apiRequest={apiRequest} jobs={jobs} model={model} apiKey={apiKey} initialRubric={rubric} initialJobDescription={jobDescription} initialJobTitle={jobDetails.job_title} onRubricChange={setRubric} />}
           {tab === "generate" && <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="space-y-4">
               <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">01 · Source</p><h3 className="mt-1 text-lg font-semibold text-slate-900">Start from recruiter notes or an existing job</h3><p className="mt-1 text-sm text-slate-500">Upload a PDF/DOCX (5 MB max), paste content, or use an existing ATS job as the starting point.</p></div>
