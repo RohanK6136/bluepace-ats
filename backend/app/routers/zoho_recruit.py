@@ -196,18 +196,18 @@ async def automatic_sync_loop():
         interval = max(5, int(os.getenv("ZOHO_SYNC_INTERVAL_MINUTES", "15"))) * 60
         try:
             if os.getenv("ZOHO_SYNC_ENABLED", "").strip().lower() == "true":
-                if all(os.getenv(k, "").strip() for k in ("ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN")):
+                if all(os.getenv(k, "").strip() for k in ("ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN", "ZOHO_ORGANIZATION_ID")):
                     with SessionLocal() as db:
-                        for org in db.scalars(select(Organization)).all():
-                            actor = db.scalar(select(User).where(User.organization_id == org.id, User.is_active.is_(True), User.role == Role.admin).order_by(User.id.asc()))
-                            if actor is None:
-                                continue
-                            try:
-                                result = sync_zoho_for_organization(db, org, actor)
-                                print(f"[zoho-sync] organization_id={org.id} candidates={result['candidates_synced']} jobs={result['jobs_synced']}", flush=True)
-                            except Exception as exc:
-                                db.rollback()
-                                print(f"[zoho-sync] organization_id={org.id} failed={type(exc).__name__}", flush=True)
+                        try:
+                            org = db.get(Organization, int(os.environ["ZOHO_ORGANIZATION_ID"]))
+                            if org is not None:
+                                actor = db.scalar(select(User).where(User.organization_id == org.id, User.is_active.is_(True), User.role == Role.admin).order_by(User.id.asc()))
+                                if actor is not None:
+                                    result = sync_zoho_for_organization(db, org, actor)
+                                    print(f"[zoho-sync] organization_id={org.id} candidates={result['candidates_synced']} jobs={result['jobs_synced']}", flush=True)
+                        except Exception as exc:
+                            db.rollback()
+                            print(f"[zoho-sync] scheduled sync failed={type(exc).__name__}", flush=True)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
