@@ -636,9 +636,10 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       const rows = Array.isArray(response.data) ? response.data : [];
       setBulkJobs((current) => {
         const byId = new Map(rows.map((row) => [String(row.job_id), row]));
-        const byName = new Map(rows.map((row) => [row.filename, row]));
         return current.map((job) => {
-          const row = job.id ? (byId.get(String(job.id)) || byName.get(job.filename)) : byName.get(job.filename);
+          // Filenames are not unique within a batch. Never let another resume's
+          // row overwrite an upload failure or display the wrong extraction result.
+          const row = job.id ? byId.get(String(job.id)) : null;
           if (!row) return job;
           return {
             ...job,
