@@ -265,3 +265,16 @@ def test_ephemeral_assessment_does_not_persist_resume_or_model_content(monkeypat
     assert run.raw_model_output is None
     assert run.token_usage == {"total_tokens": 3}
     assert run.status == "success"
+
+
+
+def test_nested_profile_name_is_redacted_from_free_text():
+    from app.routers.ai_hiring_studio import _redact_resume_pii
+
+    redacted = _redact_resume_pii({
+        "profile": {"full_name": "Aisha Khan"},
+        "resume_text": "Aisha Khan led Python API deployments.",
+    })
+
+    assert "Aisha Khan" not in repr(redacted)
+    assert "Python API deployments" in repr(redacted)
