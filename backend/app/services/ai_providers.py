@@ -14,29 +14,30 @@ from fastapi import HTTPException
 PROVIDER_LABELS = {
     "openrouter": "OpenRouter", "openai": "OpenAI / ChatGPT",
     "claude": "Claude (Anthropic)", "deepseek": "DeepSeek",
-    "cloudflare": "Cloudflare Workers AI", "ollama": "Local Ollama",
+    "cloudflare": "Cloudflare Workers AI", "ollama": "Local Ollama", "gemini": "Google Gemini",
 }
 DEFAULT_MODELS = {
     "openrouter": "openrouter/free", "openai": "gpt-5.4",
     "claude": "claude-sonnet-4-6", "deepseek": "deepseek-flash",
-    "cloudflare": "@cf/qwen/qwen3.8-27b", "ollama": "qwen3.5:4b",
+    "cloudflare": "@cf/qwen/qwen3.8-27b", "ollama": "qwen3.5:4b", "gemini": "gemini-2.5-flash",
 }
 KEY_ENV = {
     "openrouter": ("OPENROUTER_API_KEY",), "openai": ("OPENAI_API_KEY",),
     "claude": ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY"),
     "deepseek": ("DEEPSEEK_API_KEY",),
-    "cloudflare": ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_KEY"), "ollama": (),
+    "cloudflare": ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_KEY"), "ollama": (), "gemini": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
 }
 MODEL_ENV = {
     "openrouter": ("OPENROUTER_MODEL",), "openai": ("OPENAI_MODEL",),
     "claude": ("ANTHROPIC_MODEL", "CLAUDE_MODEL"),
     "deepseek": ("DEEPSEEK_MODEL",), "cloudflare": ("CLOUDFLARE_MODEL",),
-    "ollama": ("OLLAMA_MODEL",),
+    "ollama": ("OLLAMA_MODEL",), "gemini": ("GEMINI_MODEL", "GOOGLE_GENAI_MODEL"),
 }
 ALIASES = {
     "chatgpt": "openai", "anthropic": "claude",
     "cloudflare_workers_ai": "cloudflare", "workers_ai": "cloudflare",
     "local": "ollama", "qwen": "ollama", "ollama_local": "ollama",
+    "google": "gemini", "google_genai": "gemini", "google-gemini": "gemini",
 }
 
 
@@ -177,7 +178,48 @@ def call_ai_provider(
         names = ", ".join(KEY_ENV[provider])
         raise HTTPException(400, f"Add a {provider_label(provider)} API key in settings or configure {names} on the backend.")
 
-    if provider == "claude":
+    if provider == "gemini":
+        # Use the official Google Gen AI SDK rather than a hand-built HTTP integration.
+        try:
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=key)
+            config_args = {
+                "system_instruction": system_prompt,
+                "temperature": 0.2,
+                "max_output_tokens": max_tokens,
+            }
+            if json_mode:
+                config_args["response_mime_type"] = "application/json"
+            response = client.models.generate_content(
+                model=model,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(**config_args),
+            )
+        except ImportError:
+            raise HTTPException(503, "Google Gen AI SDK is not installed on the backend. Redeploy the backend dependencies.") from None
+        except Exception as error:
+            message = str(error).lower()
+            if "api key" in message or "unauthorized" in message or "401" in message:
+                raise HTTPException(502, "Google Gemini rejected the API key. Check GOOGLE_API_KEY or GEMINI_API_KEY.") from None
+            if "429" in message or "rate limit" in message or "resource_exhausted" in message:
+                raise HTTPException(502, "Google Gemini rate limit reached. Wait briefly or select another model.") from None
+            if "not found" in message or "404" in message:
+                raise HTTPException(502, "Google Gemini could not find the requested model. Check the model identifier.") from None
+            raise HTTPException(502, "Google Gemini request failed. Check the model, API key, and provider status.") from None
+        content = _text(getattr(response, "text", None))
+        metadata = getattr(response, "usage_metadata", None)
+        prompt_tokens = getattr(metadata, "prompt_token_count", None) if metadata else None
+        completion_tokens = getattr(metadata, "candidates_token_count", None) if metadata else None
+        total_tokens = getattr(metadata, "total_token_count", None) if metadata else None
+        usage_out = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }
+        actual_model = model
+        count = 1
+    elif provider == "claude":
         url = "https://api.anthropic.com/v1/messages"
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
         payload = {
