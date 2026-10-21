@@ -1563,7 +1563,7 @@ export default function AtsWorkspace() {
                 </div>
                 <button type="button" className="bp-metric-card" onClick={() => setView("interviews-2")}>
                   <span className="bp-metric-label">Upcoming interviews</span>
-                  <strong>{dashboardData.upcoming_interviews?.length || 0}</strong>
+                  <strong>{dashboardData.metrics?.upcoming_interviews_count ?? dashboardData.upcoming_interviews?.length ?? 0}</strong>
                   <small>Scheduled candidate meetings</small>
                 </button>
               </section>
