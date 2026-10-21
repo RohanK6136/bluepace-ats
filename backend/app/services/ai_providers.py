@@ -45,7 +45,7 @@ def provider_name(value: str | None = None) -> str:
     candidate = (value or os.getenv("AI_PROVIDER") or "openrouter").strip().lower()
     candidate = ALIASES.get(candidate, candidate)
     if candidate not in PROVIDER_LABELS:
-        raise ValueError("Choose OpenRouter, OpenAI, Claude, DeepSeek, Cloudflare Workers AI, or Ollama.")
+        raise ValueError("Choose OpenRouter, OpenAI, Google Gemini, Claude, DeepSeek, Cloudflare Workers AI, or Ollama.")
     return candidate
 
 
