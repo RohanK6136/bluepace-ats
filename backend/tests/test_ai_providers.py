@@ -13,6 +13,7 @@ def test_provider_aliases_and_defaults(monkeypatch):
     assert ai_providers.provider_name("qwen") == "ollama"
     assert ai_providers.default_model("ollama") == "qwen3.5:4b"
     assert ai_providers.default_model("cloudflare") == "@cf/qwen/qwen3.8-27b"
+    assert ai_providers.default_model("deepseek") == "deepseek-flash"
 
 
 def test_unknown_provider_is_rejected():
