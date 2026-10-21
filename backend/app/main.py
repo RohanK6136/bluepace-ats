@@ -4101,8 +4101,19 @@ def dashboard_summary(
         ) or 0
     )
 
+    # Match the default candidate list semantics: organization-scoped, active profiles only.
+    total_candidates = int(
+        db.scalar(
+            select(func.count(Candidate.id)).where(
+                Candidate.organization_id == org_id,
+                Candidate.archived.is_(False),
+            )
+        ) or 0
+    )
+
     return {
         "metrics": {
+            "total_candidates": total_candidates,
             "open_jobs": sum(1 for job in jobs if job.status == "open"),
             "total_jobs": len(jobs),
             "total_applications": total_applications,
