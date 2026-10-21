@@ -263,6 +263,37 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     }
   }
 
+  function applyLocalJDFallback(chosenDetails) {
+    const fallback = buildLocalJDFallback(sourceText, chosenDetails, mode);
+    const details = fallback.details || {};
+    setJobDescription(String(fallback.job_description || ""));
+    setJobDetails({
+      job_title: String(details.job_title || chosenDetails.job_title || ""),
+      employment_type: String(details.employment_type || chosenDetails.employment_type || ""),
+      work_mode: String(details.work_mode || chosenDetails.work_mode || ""),
+      location: String(details.location || chosenDetails.location || ""),
+      minimum_experience_years: details.minimum_experience_years ?? chosenDetails.minimum_experience_years ?? "",
+      fresher_allowed: Boolean(details.fresher_allowed ?? chosenDetails.fresher_allowed),
+    });
+    setSuggestions([]);
+    setGenerationMeta({
+      model: "local-template-fallback",
+      latency_ms: 0,
+      token_usage: null,
+      model_call_count: 0,
+      generation_mode: "template_fallback",
+    });
+    setRubric(null);
+    setRubricTitle("");
+    setSavedRubricId("");
+    setResumeBatch((previous) => previous.map((item) => ({
+      ...item, analysis: null, meta: null,
+      status: item.resumeData ? "ready" : item.status, error: "",
+    })));
+    setError("");
+    setNotice("No AI provider key is configured. A local template draft was created from your notes; this is not AI-generated. Add a provider key in Settings to enable AI rewriting.");
+  }
+
   async function generateJD(overrides = null) {
     if (sourceText.trim().length < 5) {
       setError("Paste recruiter notes or import a job description before generating.");
@@ -273,6 +304,12 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     setBusy("generate");
     setError("");
     setNotice("");
+    // Avoid recording a failed AI run when we already know no server/browser key exists.
+    if (provider !== "ollama" && !apiKey.trim() && serverKeyConfigured === false) {
+      applyLocalJDFallback(chosenDetails);
+      setBusy("");
+      return;
+    }
     try {
       const cleanOverrides = {};
       Object.entries(chosenDetails).forEach(([key, value]) => {
@@ -307,35 +344,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       const missingProviderKey = /^Add an? .+ API key in settings\b/i.test(message)
         || /API key is not configured/i.test(message);
       if (missingProviderKey) {
-        const fallback = buildLocalJDFallback(sourceText, chosenDetails, mode);
-        const result = fallback;
-        const details = result.details || {};
-        setJobDescription(String(result.job_description || ""));
-        setJobDetails({
-          job_title: String(details.job_title || chosenDetails.job_title || ""),
-          employment_type: String(details.employment_type || chosenDetails.employment_type || ""),
-          work_mode: String(details.work_mode || chosenDetails.work_mode || ""),
-          location: String(details.location || chosenDetails.location || ""),
-          minimum_experience_years: details.minimum_experience_years ?? chosenDetails.minimum_experience_years ?? "",
-          fresher_allowed: Boolean(details.fresher_allowed ?? chosenDetails.fresher_allowed),
-        });
-        setSuggestions([]);
-        setGenerationMeta({
-          model: "local-template-fallback",
-          latency_ms: 0,
-          token_usage: null,
-          model_call_count: 0,
-          generation_mode: "template_fallback",
-        });
-        setRubric(null);
-        setRubricTitle("");
-        setSavedRubricId("");
-        setResumeBatch((previous) => previous.map((item) => ({
-          ...item, analysis: null, meta: null,
-          status: item.resumeData ? "ready" : item.status, error: "",
-        })));
-        setError("");
-        setNotice("No AI provider key is configured. A local template draft was created from your notes; this is not AI-generated. Add a provider key in Settings to enable AI rewriting.");
+        applyLocalJDFallback(chosenDetails);
       } else {
         setError(message);
       }
