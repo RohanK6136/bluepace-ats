@@ -149,3 +149,61 @@ def test_ai_configuration_status_never_returns_server_key(monkeypatch):
     assert status["server_key_configured"] is True
     assert status["key_source"] == "server environment"
     assert sentinel not in repr(status)
+
+
+
+def test_resume_assessment_removes_structured_identifiers_and_redacts_text():
+    import json
+
+    from app.routers.ai_hiring_studio import _privacy_safe_resume_data
+
+    resume = {
+        "name": "Jordan Sample",
+        "email": "jordan.sample@example.com",
+        "phone": "+1 (555) 123-4567",
+        "age": 29,
+        "gender": "female",
+        "nationality": "American",
+        "skills": ["Python", "PostgreSQL"],
+        "company_name": "Sample Analytics",
+        "summary": (
+            "Jordan Sample is 29 years old. Gender: female; nationality: American. "
+            "Contact jordan.sample@example.com or +1 (555) 123-4567."
+        ),
+    }
+
+    safe = _privacy_safe_resume_data(resume)
+    encoded = json.dumps(safe)
+
+    assert "name" not in safe
+    assert "email" not in safe
+    assert "phone" not in safe
+    assert "age" not in safe
+    assert "gender" not in safe
+    assert "nationality" not in safe
+    assert safe["skills"] == ["Python", "PostgreSQL"]
+    assert safe["company_name"] == "Sample Analytics"
+    assert "Jordan Sample" not in encoded
+    assert "jordan.sample@example.com" not in encoded
+    assert "555" not in encoded
+    assert "29 years old" not in encoded
+    assert "nationality: American" not in encoded.lower()
+
+
+def test_resume_assessment_redaction_keeps_job_related_experience_fields():
+    from app.routers.ai_hiring_studio import _privacy_safe_resume_data
+
+    safe = _privacy_safe_resume_data({
+        "experience": [
+            {"job_title": "Software Engineer", "company_name": "Example Ltd", "years": 3.5,
+             "description": "Built Python APIs and PostgreSQL services."}
+        ],
+        "education": [{"degree": "Bachelor of Engineering", "field": "Computer Science"}],
+        "contact_information": {"email": "candidate@example.com", "phone": "9876543210"},
+    })
+
+    assert safe["experience"][0]["job_title"] == "Software Engineer"
+    assert safe["experience"][0]["company_name"] == "Example Ltd"
+    assert safe["experience"][0]["years"] == 3.5
+    assert "contact_information" not in safe
+    assert safe["education"][0]["degree"] == "Bachelor of Engineering"
