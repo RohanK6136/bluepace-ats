@@ -47,6 +47,7 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
   const [equivalentExperience, setEquivalentExperience] = useState(true);
   const [rubric, setRubric] = useState(initialRubric);
   const [rubricMeta, setRubricMeta] = useState(null);
+  const [categoryWeightDrafts, setCategoryWeightDrafts] = useState({});
   const [candidates, setCandidates] = useState([]);
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState({ completed: 0, total: 0, message: "" });
@@ -66,6 +67,12 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
       weight: sum > 0 ? weight * 100 / sum : 0,
     }));
   }, [rubric]);
+  useEffect(() => {
+    const drafts = {};
+    categoryWeights.forEach((item) => { drafts[item.category] = String(Math.round(item.weight)); });
+    setCategoryWeightDrafts(drafts);
+  }, [categoryWeights]);
+
   const ranked = useMemo(() => [...candidates].filter((item) => item.analysis).sort((a, b) => Number(b.analysis.overall_score || 0) - Number(a.analysis.overall_score || 0)), [candidates]);
   const readyCount = candidates.filter((item) => item.resumeData && item.status !== "scored").length;
 
@@ -357,7 +364,7 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {categoryWeights.map((item) => <label key={item.category} className="flex items-center gap-3 rounded-md border border-slate-100 p-3 text-sm">
             <span className="min-w-0 flex-1 font-medium text-slate-700">{item.category}</span>
-            <input type="number" min="0" max="100" step="1" className="w-24 rounded-md border border-slate-200 px-2 py-2 text-right text-sm" value={Number(item.weight.toFixed(0))} onChange={(event) => setCategoryWeight(item.category, event.target.value)} aria-label={"Category weight for " + item.category} />
+            <input type="number" min="0" max="100" step="1" className="w-24 rounded-md border border-slate-200 px-2 py-2 text-right text-sm" value={categoryWeightDrafts[item.category] ?? String(Math.round(item.weight))} onChange={(event) => setCategoryWeightDrafts((old) => ({ ...old, [item.category]: event.target.value }))} onBlur={(event) => setCategoryWeight(item.category, event.target.value)} aria-label={"Category weight for " + item.category} />
             <span className="text-xs text-slate-500">%</span>
           </label>)}
         </div>
