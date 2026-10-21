@@ -3,7 +3,7 @@ import asyncio
 import os
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -221,12 +221,20 @@ async def zoho_webhook(request: Request, background_tasks: BackgroundTasks):
     secret = os.getenv("ZOHO_WEBHOOK_SECRET", "").strip()
     if not secret:
         raise HTTPException(503, "Zoho webhook receiver is not configured.")
-    try:
-        payload = await request.json()
-    except Exception as exc:
-        raise HTTPException(400, "Webhook body must be valid JSON.") from exc
+    raw_body = await request.body()
+    payload = {}
+    if raw_body:
+        try:
+            import json
+            payload = json.loads(raw_body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            try:
+                form_values = parse_qs(raw_body.decode("utf-8"), keep_blank_values=True)
+                payload = {key: values[-1] for key, values in form_values.items() if values}
+            except UnicodeDecodeError as exc:
+                raise HTTPException(400, "Webhook body must be JSON or URL-encoded parameters.") from exc
     if not isinstance(payload, dict):
-        raise HTTPException(400, "Webhook body must be a JSON object.")
+        raise HTTPException(400, "Webhook body must contain a JSON object or URL-encoded parameters.")
     supplied = str(payload.get("webhook_token") or request.query_params.get("webhook_token") or request.headers.get("x-zoho-webhook-token") or "")
     if not supplied or not hmac.compare_digest(supplied, secret):
         raise HTTPException(401, "Invalid webhook authentication.")
