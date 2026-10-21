@@ -13,6 +13,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.database import Base, get_db
@@ -634,7 +635,7 @@ def update_saved_rubric(rubric_id: str, request: SavedRubricRequest,
     db.add(item)
     try:
         db.commit()
-    except Exception:
+    except IntegrityError:
         db.rollback()
         raise HTTPException(409, "This rubric version was changed concurrently. Reload saved rubrics and retry.") from None
     db.refresh(item)
