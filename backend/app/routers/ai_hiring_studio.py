@@ -480,8 +480,10 @@ def _configuration_status(provider_value: str | None = None) -> dict[str, Any]:
         "provider": provider,
         "provider_label": _provider_label(provider),
         "server_key_configured": configured,
+        "requires_api_key": provider != "ollama",
+        "account_id_configured": bool(os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()) if provider == "cloudflare" else None,
         "default_model": _model_name(None, provider),
-        "key_source": "server environment" if configured else ("local endpoint" if provider == "ollama" else "not configured"),
+        "key_source": "local endpoint (no API key required)" if provider == "ollama" else ("server environment" if configured else "not configured"),
     }
 
 
