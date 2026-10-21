@@ -207,3 +207,27 @@ def test_resume_assessment_redaction_keeps_job_related_experience_fields():
     assert safe["experience"][0]["years"] == 3.5
     assert "contact_information" not in safe
     assert safe["education"][0]["degree"] == "Bachelor of Engineering"
+
+
+def test_saved_rubric_checksum_is_stable_and_changes_with_rubric_content():
+    from app.routers.ai_hiring_studio import _saved_rubric_checksum
+
+    rubric = {
+        "title": "Platform Engineer",
+        "criteria": [{"name": "Python", "weight": 70}, {"name": "APIs", "weight": 30}],
+        "total_weight": 100,
+    }
+    first = _saved_rubric_checksum("Platform", "Platform Engineer", "Build services.", rubric)
+    same = _saved_rubric_checksum("Platform", "Platform Engineer", "Build services.", {
+        "total_weight": 100,
+        "criteria": [{"weight": 70, "name": "Python"}, {"weight": 30, "name": "APIs"}],
+        "title": "Platform Engineer",
+    })
+    changed = _saved_rubric_checksum("Platform", "Platform Engineer", "Build services.", {
+        **rubric,
+        "criteria": [{"name": "Python", "weight": 60}, {"name": "APIs", "weight": 40}],
+    })
+
+    assert len(first) == 64
+    assert first == same
+    assert first != changed
