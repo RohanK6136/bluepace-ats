@@ -56,6 +56,10 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const usableJobs = useMemo(() => jobs.filter((item) => item.status !== "archived"), [jobs]);
+  const selectedSavedRubric = useMemo(
+    () => savedRubrics.find((item) => String(item.rubric_id) === String(selectedSavedRubricId)) || null,
+    [savedRubrics, selectedSavedRubricId],
+  );
   const categoryWeights = useMemo(() => {
     if (!rubric?.criteria?.length) return [];
     const totals = new Map();
@@ -295,7 +299,7 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
         }));
       } catch { /* The backend save succeeded, so browser storage is only a convenience. */ }
       setSourceMode("saved");
-      setNotice("Rubric saved to the organisation. It can be reopened from Saved rubric on another session.");
+      setNotice("Saved as immutable version v" + String(stored.version || 1) + ". This version is frozen; later edits create a new version.");
     } catch (requestError) {
       setError(errorText(requestError));
     } finally {
@@ -406,7 +410,7 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
     {(error || notice) && <div role={error ? "alert" : "status"} className={"rounded-lg border px-4 py-3 text-sm " + (error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>{error || notice}</div>}
 
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">01 · Job and rubric</p><h4 className="mt-1 text-lg font-semibold text-slate-900">Define assessment requirements</h4></div>{rubric && <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{rubric.criteria?.length || 0} criteria · {rubric.total_weight ?? 100}% total</span>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">01 · Job and rubric</p><h4 className="mt-1 text-lg font-semibold text-slate-900">Define assessment requirements</h4></div>{rubric && <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{rubric.criteria?.length || 0} criteria · {rubric.total_weight ?? 100}% total</span>{selectedSavedRubric ? <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">Frozen v{selectedSavedRubric.version} · SHA-256 {String(selectedSavedRubric.content_sha256 || "").slice(0, 12)}</span> : <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">Draft — review, then save</span>}</div>}</div>
       <div className="mt-4 flex flex-wrap gap-2 border-b border-slate-200 pb-4" role="tablist" aria-label="Job description source">
         <button type="button" role="tab" aria-selected={sourceMode === "standardizer"} className={sourceMode === "standardizer" ? primary : secondary} onClick={loadFromStandardizer}>From JD Standardizer</button>
         <button type="button" role="tab" aria-selected={sourceMode === "paste"} className={sourceMode === "paste" ? primary : secondary} onClick={() => { setSourceMode("paste"); setNotice("Paste or edit a job description below."); setError(""); }}>Paste a JD</button>
@@ -417,7 +421,7 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
         <label className="block text-sm font-semibold text-slate-700">Saved rubric
           <select className={field} value={selectedSavedRubricId} onChange={(event) => chooseSavedRubric(event.target.value)} disabled={!savedRubrics.length || Boolean(busy)}>
             <option value="">{savedRubrics.length ? "Choose a saved rubric" : "No organisation rubrics saved yet"}</option>
-            {savedRubrics.map((item) => <option key={item.rubric_id} value={String(item.rubric_id)}>{item.title} · {item.job_title}</option>)}
+            {savedRubrics.map((item) => <option key={item.rubric_id} value={String(item.rubric_id)}>{item.title} · v{item.version} · {item.job_title}</option>)}
           </select>
         </label>
         <p className="mt-2 text-xs text-slate-500">{busy === "saved-rubrics" ? "Loading saved rubrics…" : savedRubrics.length + " organisation-saved rubric(s) available. Saving again updates the selected rubric."}</p>
@@ -432,7 +436,7 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
         <label className="text-sm font-semibold text-slate-700">Education minimum<select className={field} value={education} onChange={(event) => setEducation(event.target.value)}><option>Not required</option><option>Secondary</option><option>Diploma</option><option>Bachelor's</option><option>Master's</option><option>Doctorate</option><option>Equivalent experience</option></select></label>
         <label className="sm:col-span-2 flex items-center gap-2 self-end rounded-lg border border-slate-200 px-3 py-3 text-sm font-medium text-slate-700"><input type="checkbox" className="h-4 w-4 accent-blue-700" checked={equivalentExperience} onChange={(event) => setEquivalentExperience(event.target.checked)} />Equivalent experience accepted</label>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2"><button className={primary} type="button" disabled={Boolean(busy)} onClick={() => void buildRubric()}>{busy === "rubric" ? "Building rubric…" : "Generate rubric from JD"}</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={() => void saveRubric()}>{busy === "save-rubric" ? "Saving rubric…" : selectedSavedRubricId ? "Update saved rubric" : "Save rubric"}</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={addCriterion}>Add requirement</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={() => { setRubric(null); setRubricMeta(null); setNotice("Build a new rubric from the job description."); }}>Reset rubric</button></div>
+      <div className="mt-4 flex flex-wrap gap-2"><button className={primary} type="button" disabled={Boolean(busy)} onClick={() => void buildRubric()}>{busy === "rubric" ? "Building rubric…" : "Generate rubric from JD"}</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={() => void saveRubric()}>{busy === "save-rubric" ? "Saving rubric…" : selectedSavedRubricId ? "Save new version" : "Save rubric"}</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={addCriterion}>Add requirement</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={() => { setRubric(null); setRubricMeta(null); setSelectedSavedRubricId(""); setNotice("Build a new rubric from the job description."); }}>Reset rubric</button></div>
       {rubricMeta && <p className="mt-3 text-xs text-slate-500">Generated by {rubricMeta.model || model} · {rubricMeta.latency_ms ?? "—"} ms. Review and edit every criterion before use.</p>}
       {rubric && categoryWeights.length > 0 && <details className="mt-4 rounded-lg border border-slate-200 px-4 py-3">
         <summary className="cursor-pointer text-sm font-semibold text-slate-800">Category weights</summary>
