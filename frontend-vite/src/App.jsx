@@ -607,7 +607,18 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       }
     } catch (error) {
       console.error(error);
-      setBulkError(apiErrorMessage(error, "Bulk resume intake failed."));
+      const failureMessage = apiErrorMessage(error, "Bulk resume intake failed.");
+      setBulkError(failureMessage);
+      // Avoid polling forever for rows that never reached the queue. Keep jobs
+      // already accepted by the backend running, and terminate every unqueued row.
+      setBulkJobs((current) => current.map((job) => {
+        if (job.id || ["completed", "failed"].includes(job.status)) return job;
+        return {
+          ...job,
+          status: "failed",
+          error: job.error || failureMessage,
+        };
+      }));
     } finally {
       setBulkUploading(false);
     }
