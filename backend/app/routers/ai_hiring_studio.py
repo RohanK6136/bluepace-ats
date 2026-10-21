@@ -283,13 +283,26 @@ def _normalize_rubric_result(result: dict[str, Any]) -> dict[str, Any]:
         if not (weight >= 0):
             weight = 0.0
         weight = max(0.0, min(100.0, weight))
+        try:
+            minimum_years = item.get("minimum_years")
+            minimum_years = None if minimum_years in (None, "") else float(minimum_years)
+            if minimum_years is not None and (minimum_years < 0 or minimum_years > 60):
+                minimum_years = None
+        except (TypeError, ValueError):
+            minimum_years = None
+        description = str(item.get("description") or "")[:3000]
+        scoring_guide = item.get("scoring_guide") if isinstance(item.get("scoring_guide"), dict) else {}
         clean.append({
             **item,
             "name": str(item.get("name") or f"Criterion {index + 1}")[:160],
+            "type": str(item.get("type") or "skill")[:60],
             "category": str(item.get("category") or "Skill")[:60],
             "required": bool(item.get("required", False)),
             "weight": round(weight, 2),
+            "minimum_years": minimum_years,
+            "description": description,
             "keywords": item.get("keywords") if isinstance(item.get("keywords"), list) else [],
+            "scoring_guide": scoring_guide,
         })
 
     if not clean:
