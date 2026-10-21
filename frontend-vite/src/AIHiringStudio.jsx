@@ -64,6 +64,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   const [rubricMeta, setRubricMeta] = useState(null);
   const [savedRubrics, setSavedRubrics] = useState([]);
   const [savedRubricId, setSavedRubricId] = useState("");
+  const [rubricVersionBaseId, setRubricVersionBaseId] = useState("");
   const [rubricTitle, setRubricTitle] = useState("");
   const [rubricListBusy, setRubricListBusy] = useState(false);
   const [resumeBatch, setResumeBatch] = useState([]);
@@ -74,6 +75,8 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  const selectedRubricSnapshot = savedRubrics.find((item) => item.rubric_id === savedRubricId) || null;
 
   const credentials = () => ({
     model: model.trim() || DEFAULT_MODEL,
@@ -263,6 +266,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setRubric(generatedRubric);
       setRubricTitle(String(generatedRubric?.title || jobDetails.job_title || "Assessment rubric"));
       setSavedRubricId("");
+      setRubricVersionBaseId("");
       setRubricMeta(response.data);
       setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
       setNotice("Rubric created. Edit the criteria, then save the version before assessing resumes.");
@@ -368,7 +372,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         updateResumeRow(item.id, { status: "analyzing", error: "" });
         try {
           const response = await apiRequest(token, "post", "/ai-hiring/analyze-resume", {
-            data: { ...credentials(), resume_data: item.resumeData, rubric },
+            data: { ...credentials(), resume_data: item.resumeData, rubric_id: savedRubricId, rubric },
             timeout: 90000,
           });
           updateResumeRow(item.id, { analysis: response.data?.analysis || null, meta: response.data, status: "complete", error: "" });
@@ -387,6 +391,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   async function loadSavedRubric(id) {
     if (!id) {
       setSavedRubricId("");
+      setRubricVersionBaseId("");
       return;
     }
     setBusy("load-rubric");
@@ -398,6 +403,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setRubric(saved?.rubric || null);
       setRubricTitle(String(saved?.title || "Assessment rubric"));
       setSavedRubricId(String(saved?.rubric_id || id));
+      setRubricVersionBaseId(String(saved?.rubric_id || id));
       setJobDetails((previous) => ({ ...previous, job_title: String(saved?.job_title || previous.job_title) }));
       setRubricMeta(null);
       setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
@@ -423,8 +429,8 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     setError("");
     setNotice("");
     try {
-      const route = savedRubricId ? "/ai-hiring/rubrics/" + encodeURIComponent(savedRubricId) : "/ai-hiring/rubrics";
-      const method = savedRubricId ? "put" : "post";
+      const route = rubricVersionBaseId ? "/ai-hiring/rubrics/" + encodeURIComponent(rubricVersionBaseId) : "/ai-hiring/rubrics";
+      const method = rubricVersionBaseId ? "put" : "post";
       const response = await apiRequest(token, method, route, {
         data: { title, job_title: String(jobDetails.job_title || ""), rubric },
       });
@@ -432,9 +438,10 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setRubric(saved?.rubric || rubric);
       setRubricTitle(String(saved?.title || title));
       setSavedRubricId(String(saved?.rubric_id || ""));
+      setRubricVersionBaseId(String(saved?.rubric_id || ""));
       setSavedRubrics((previous) => [saved, ...previous.filter((item) => item.rubric_id !== saved?.rubric_id)]);
       setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
-      setNotice("Rubric saved. All resume results were cleared because the assessment version changed.");
+      setNotice("Immutable rubric version saved. Previous versions remain available for audit and comparison; resume results were cleared.");
     } catch (requestError) {
       setError(explainError(requestError));
     } finally {
@@ -644,7 +651,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
               <label className="block text-sm font-semibold text-slate-700">Load a saved rubric
                 <select className={fieldClass + " mt-1.5"} value={savedRubricId} onChange={(event) => void loadSavedRubric(event.target.value)} disabled={Boolean(busy)}>
                   <option value="">Current unsaved rubric</option>
-                  {savedRubrics.map((item) => <option key={item.rubric_id} value={item.rubric_id}>{item.title}{item.job_title ? " · " + item.job_title : ""}</option>)}
+                  {savedRubrics.map((item) => <option key={item.rubric_id} value={item.rubric_id}>{item.title}{item.job_title ? " · " + item.job_title : ""}{" · v" + (item.version || 1)}{item.content_hash ? " · SHA256 " + item.content_hash.slice(0, 8) : ""}</option>)}
                 </select>
                 <span className="mt-1 block text-xs font-normal text-slate-500">{rubricListBusy ? "Refreshing saved rubrics…" : String(savedRubrics.length) + " saved rubric(s) available"}</span>
               </label>
@@ -682,7 +689,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
                 </div>
                 <div className="flex flex-wrap justify-between gap-2 border-t border-slate-200 bg-slate-50 p-4"><button type="button" className={btnSecondary} onClick={addRubricCriterion}>Add requirement</button><span className="text-xs leading-5 text-slate-500">{rubric.criteria.length} criteria · saved weights are normalized to 100% · recruiter approval required</span></div>
               </div>
-              {savedRubricId && <div className="flex flex-wrap items-center gap-2"><MetaPill tone="good">Saved rubric selected</MetaPill><MetaPill>{savedRubricId.slice(0, 8)}</MetaPill><button type="button" className={btnSecondary} onClick={() => setTab("resume")}>Assess resumes against this rubric</button></div>}
+              {savedRubricId && <div className="flex flex-wrap items-center gap-2"><MetaPill tone="good">Immutable version selected · v{selectedRubricSnapshot?.version || 1}</MetaPill><MetaPill>SHA-256 {String(selectedRubricSnapshot?.content_hash || "").slice(0, 12) || "pending"}</MetaPill><button type="button" className={btnSecondary} onClick={() => setTab("resume")}>Assess resumes against this version</button></div>}
             </div>}
             {!rubric && <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center"><p className="font-semibold text-slate-800">No rubric loaded yet</p><p className="mt-1 text-sm text-slate-500">Paste or generate a job description, then create a rubric or load a saved version.</p></div>}
           </div>}
@@ -690,7 +697,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           {tab === "resume" && <div className="space-y-5">
             <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Evidence-based review</p><h3 className="mt-1 text-lg font-semibold text-slate-900">Assess multiple resumes against one saved rubric</h3><p className="mt-1 text-sm text-slate-500">Upload up to 25 PDF/DOCX files per batch (5 MB each). Extraction runs with limited concurrency; assessments are scored against the same saved rubric version.</p></div>
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div>{savedRubricId && rubric ? <><p className="font-semibold text-slate-900">{rubricTitle || rubric.title || "Assessment rubric"}</p><p className="mt-1 text-xs text-slate-500">{rubric.criteria.length} criteria · saved and ready for review</p></> : <><p className="font-semibold text-slate-900">A saved rubric is required</p><p className="mt-1 text-xs text-slate-500">Create or load a rubric and save the version before scoring resumes.</p></>}</div>
+              <div>{savedRubricId && rubric ? <><p className="font-semibold text-slate-900">{rubricTitle || rubric.title || "Assessment rubric"}</p><p className="mt-1 text-xs text-slate-500">{rubric.criteria.length} criteria · version {selectedRubricSnapshot?.version || 1} · SHA-256 {String(selectedRubricSnapshot?.content_hash || "").slice(0, 12) || "pending"}</p></> : <><p className="font-semibold text-slate-900">A saved rubric is required</p><p className="mt-1 text-xs text-slate-500">Create or load a rubric and save the version before scoring resumes.</p></>}</div>
               <button type="button" className={btnSecondary} onClick={() => setTab("rubric")}>Manage rubrics</button>
             </div>
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5">
