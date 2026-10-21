@@ -5084,13 +5084,27 @@ def _validate_resume_batch_id(batch_id: str) -> str:
 
 
 def _validate_resume_manifest_file(filename: str, size_bytes: int) -> str:
-    suffix = Path(filename or "").suffix.lower()
+    safe_name = str(filename or "").strip()
+    if (
+        not safe_name
+        or len(safe_name) > 255
+        or safe_name in {".", ".."}
+        or "/" in safe_name
+        or "\\" in safe_name
+        or "\x00" in safe_name
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Resume filename must be a plain filename of at most 255 characters.",
+        )
+
+    suffix = Path(safe_name).suffix.lower()
     if suffix not in SUPPORTED_DOCUMENT_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"{filename}: only PDF and DOCX resumes are supported.")
+        raise HTTPException(status_code=400, detail=f"{safe_name}: only PDF and DOCX resumes are supported.")
     if size_bytes <= 0:
-        raise HTTPException(status_code=400, detail=f"{filename}: the uploaded resume is empty.")
+        raise HTTPException(status_code=400, detail=f"{safe_name}: the uploaded resume is empty.")
     if size_bytes > MAX_RESUME_SIZE_BYTES:
-        raise HTTPException(status_code=413, detail=f"{filename}: resume must be 5 MB or smaller.")
+        raise HTTPException(status_code=413, detail=f"{safe_name}: resume must be 5 MB or smaller.")
     return suffix
 
 
