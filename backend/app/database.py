@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 
 from dotenv import load_dotenv
@@ -73,6 +75,7 @@ def initialize_database():
     upgrade_phase9_columns(engine)
     upgrade_phase10_columns(engine)
     upgrade_phase11_job_experience_precision(engine)
+    upgrade_phase12_ai_hiring_rubric_versions(engine)
 
 
 def upgrade_phase1_columns(target_engine):
@@ -358,3 +361,52 @@ def upgrade_phase11_job_experience_precision(target_engine):
                 )
             )
 
+def upgrade_phase12_ai_hiring_rubric_versions(target_engine):
+    """Add immutable family/version/hash metadata to existing saved AI rubrics."""
+    with target_engine.begin() as connection:
+        if "ai_hiring_rubrics" not in set(inspect(connection).get_table_names()):
+            return
+        existing_columns = {
+            column["name"] for column in inspect(connection).get_columns("ai_hiring_rubrics")
+        }
+        additions = {
+            "family_id": "VARCHAR(36)",
+            "version": "INTEGER NOT NULL DEFAULT 1",
+            "content_hash": "VARCHAR(64)",
+        }
+        for column_name, definition in additions.items():
+            if column_name not in existing_columns:
+                connection.execute(text(
+                    f"ALTER TABLE ai_hiring_rubrics ADD COLUMN {column_name} {definition}"
+                ))
+                existing_columns.add(column_name)
+
+        rows = connection.execute(text(
+            "SELECT rubric_id, title, job_title, rubric_data, family_id, version, content_hash "
+            "FROM ai_hiring_rubrics"
+        )).mappings().all()
+        for row in rows:
+            rubric_data = row["rubric_data"]
+            if isinstance(rubric_data, str):
+                try:
+                    rubric_data = json.loads(rubric_data)
+                except (TypeError, ValueError):
+                    rubric_data = {}
+            if not isinstance(rubric_data, dict):
+                rubric_data = {}
+            title = str(row["title"] or "").strip()
+            job_title = str(row["job_title"] or "").strip()
+            family_id = row["family_id"] or row["rubric_id"]
+            version = int(row["version"] or 1)
+            content_hash = row["content_hash"] or hashlib.sha256(json.dumps(
+                {"title": title, "job_title": job_title, "rubric": rubric_data},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str,
+            ).encode("utf-8")).hexdigest()
+            if row["family_id"] != family_id or row["version"] != version or row["content_hash"] != content_hash:
+                connection.execute(text(
+                    "UPDATE ai_hiring_rubrics SET family_id = :family_id, version = :version, "
+                    "content_hash = :content_hash WHERE rubric_id = :rubric_id"
+                ), {
+                    "family_id": family_id, "version": version,
+                    "content_hash": content_hash, "rubric_id": row["rubric_id"],
+                })
