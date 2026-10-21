@@ -36,7 +36,7 @@ function explainError(error) {
 
 function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
   const source = String(sourceText || "").trim();
-  const lines = source.split(/\r?\n/).map((line) => line.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, "")).filter(Boolean);
+  const lines = source.split(/\r?\n/).map((line) => line.trim().replace(/^(?:#{1,6}\s+|[-*•]|\d+[.)])\s*/, "")).filter(Boolean);
   const titleMatch = source.match(/(?:job\s*title|position(?:\s*title)?|role)\s*[:\-]\s*([^\r\n]{3,100})/i);
   const genericHeading = /^(?:job description|job details|position details|role description|role overview|about the role|recruiter notes|hiring notes)$/i;
   const candidateLine = lines.find((line) => line.length <= 70 && !genericHeading.test(line) && !/[.!?]$/.test(line) && !/^(?:we|hiring|seeking|looking|need|responsible|must|should)\b/i.test(line));
@@ -73,7 +73,7 @@ function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
     "# " + title,
     "",
     "## Draft status",
-    "This is a local template draft assembled from the supplied notes because an AI provider key is not configured. It has not been AI-rewritten. Review and complete all details before saving or publishing.",
+    mode === "concise" ? "Local template draft from the supplied notes; AI provider key is not configured. Not AI-rewritten. Verify details before publishing." : "This is a local template draft assembled from the supplied notes because an AI provider key is not configured. It has not been AI-rewritten. Review and complete all details before saving or publishing.",
     "",
     "## Role details",
     ...detailRows,
@@ -304,7 +304,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
     } catch (requestError) {
       const message = explainError(requestError);
-      const missingProviderKey = /^Add an? .+ API key in settings\\b/i.test(message)
+      const missingProviderKey = /^Add an? .+ API key in settings\b/i.test(message)
         || /API key is not configured/i.test(message);
       if (missingProviderKey) {
         const fallback = buildLocalJDFallback(sourceText, chosenDetails, mode);
