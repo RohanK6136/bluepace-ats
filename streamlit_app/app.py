@@ -137,6 +137,64 @@ elif page == "Resume review":
         writer.writerows(results)
         st.download_button("Download review as CSV", csv_buffer.getvalue(), file_name="bluepace_resume_review.csv", mime="text/csv")
 
+elif page == "Zoho Recruit":
+    st.subheader("Zoho Recruit → BluePace")
+    st.caption("Read-only inbound sync for candidates and job openings. OAuth secrets stay on the backend.")
+    with st.form("zoho_admin_login"):
+        email = st.text_input("BluePace recruiter email")
+        password = st.text_input("BluePace password", type="password")
+        login = st.form_submit_button("Connect to BluePace")
+    if login:
+        try:
+            response = requests.post(f"{api_url}/auth/token", data={"username": email, "password": password}, timeout=(3, 15))
+            if response.ok and response.json().get("access_token"):
+                st.session_state["bp_zoho_access_token"] = response.json()["access_token"]
+                st.success("Connected to BluePace backend.")
+            else:
+                st.error("Login failed. Check your BluePace credentials and backend URL.")
+        except requests.RequestException:
+            st.error("Could not reach the BluePace backend.")
+    token = st.session_state.get("bp_zoho_access_token")
+    if token:
+        headers = {"Authorization": f"Bearer {token}"}
+        left, right = st.columns(2)
+        if left.button("Check Zoho integration status", type="primary"):
+            try:
+                response = requests.get(f"{api_url}/integrations/zoho/status", headers=headers, timeout=(3, 15))
+                if response.ok:
+                    st.session_state["bp_zoho_status"] = response.json()
+                else:
+                    st.error(f"Status check failed (HTTP {response.status_code}).")
+            except requests.RequestException:
+                st.error("Could not reach the BluePace backend.")
+        status_data = st.session_state.get("bp_zoho_status")
+        if status_data:
+            a, b, d = st.columns(3)
+            a.metric("OAuth configuration", "Configured" if status_data.get("configured") else "Missing")
+            b.metric("Automatic sync", "Enabled" if status_data.get("automatic_sync_enabled") else "Disabled")
+            d.metric("Polling interval", f"{status_data.get('interval_minutes', 15)} min")
+            st.caption("Direction: Zoho Recruit → BluePace ATS. Credential values are never returned.")
+        if right.button("Run sync now"):
+            try:
+                response = requests.post(f"{api_url}/integrations/zoho/sync", headers=headers, timeout=(5, 120))
+                if response.ok:
+                    st.success("Sync completed.")
+                    st.json(response.json())
+                elif response.status_code == 503:
+                    st.error("Zoho OAuth credentials are not configured on the backend yet.")
+                else:
+                    st.error(f"Sync failed (HTTP {response.status_code}). Check Railway logs and Zoho permissions.")
+            except requests.RequestException:
+                st.error("Sync request failed or timed out. Check backend logs before retrying.")
+        if st.button("Disconnect this workspace"):
+            st.session_state.pop("bp_zoho_access_token", None)
+            st.session_state.pop("bp_zoho_status", None)
+            st.rerun()
+    else:
+        st.caption("Sign in with a BluePace admin or recruiter account to inspect or trigger sync.")
+    st.markdown("**Backend environment variables**")
+    st.code("ZOHO_CLIENT_ID\nZOHO_CLIENT_SECRET\nZOHO_REFRESH_TOKEN\nZOHO_ACCOUNTS_DOMAIN=in\nZOHO_RECRUIT_API_BASE=https://recruit.zoho.in/recruit/v2\nZOHO_ORGANIZATION_ID=<BluePace organization ID>\nZOHO_SYNC_ENABLED=true\nZOHO_SYNC_INTERVAL_MINUTES=15", language="text")
+
 else:
     st.subheader("Integration guide")
     st.markdown("""
