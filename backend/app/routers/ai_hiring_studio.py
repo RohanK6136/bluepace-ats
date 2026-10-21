@@ -47,6 +47,21 @@ class AIHiringRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class AIHiringRubric(Base):
+    """An organisation-scoped, versionable rubric that recruiters can reuse."""
+    __tablename__ = "ai_hiring_rubrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rubric_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    job_title: Mapped[str] = mapped_column(String(200), default="")
+    rubric_data: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 class OpenRouterRequest(BaseModel):
     api_key: str | None = None
     model: str | None = None
@@ -60,6 +75,12 @@ class GenerateJDRequest(OpenRouterRequest):
 
 class BuildRubricRequest(OpenRouterRequest):
     job_description: str = Field(min_length=10, max_length=MAX_TEXT_CHARS)
+
+
+class SavedRubricRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    job_title: str = Field(default="", max_length=200)
+    rubric: dict[str, Any]
 
 
 class AnalyzeResumeRequest(OpenRouterRequest):
@@ -282,6 +303,33 @@ def _mark_run_failed(db: Session, run: AIHiringRun, message: str) -> None:
     raise HTTPException(502, message)
 
 
+def _saved_rubric_payload(row: AIHiringRubric) -> dict[str, Any]:
+    return {
+        "rubric_id": row.rubric_id,
+        "title": row.title,
+        "job_title": row.job_title,
+        "rubric": row.rubric_data,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "updated_by": row.user_id,
+    }
+
+
+def _prepare_saved_rubric(request: SavedRubricRequest) -> dict[str, Any]:
+    title = request.title.strip()
+    if not title:
+        raise HTTPException(422, "Enter a name for this assessment rubric.")
+    rubric = dict(request.rubric)
+    try:
+        rubric = _normalize_rubric_result(rubric)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+    if len(rubric["criteria"]) > 100:
+        raise HTTPException(422, "An assessment rubric cannot contain more than 100 criteria.")
+    rubric["title"] = title
+    return rubric
+
+
 def _configuration_status() -> dict[str, Any]:
     """Report safe AI configuration metadata without disclosing credentials."""
     configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
@@ -359,7 +407,8 @@ def generate_jd(request: GenerateJDRequest, user: User = Depends(require_roles(*
 def build_rubric(request: BuildRubricRequest, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
     jd = request.job_description.strip()
     system = (
-        "Design a transparent, job-related assessment rubric. Return JSON with title, rubric_summary, criteria, total_weight. "
+        "Design a transparent, job-related assessment rubric. Return JSON with title, rubric_summary, minimum_years_overall number or null, "
+        "education_minimum string or null, equivalent_experience_accepted boolean, criteria, and total_weight. "
         "Each criterion must have name, category, required boolean, weight number, minimum_years number or null, keywords array, description, "
         "and scoring_guide object with missing, partial, strong descriptions. Include role-relevant skills, responsibilities, certifications, "
         "languages only where job-related, must-have vs nice-to-have, and experience years. Support fractional years and freshers when allowed. "
@@ -403,6 +452,107 @@ def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_r
     result["decision_support_only"] = True
     return {"request_id": run.request_id, "model": run.model, "latency_ms": run.latency_ms,
             "token_usage": run.token_usage, "model_call_count": run.model_call_count, "analysis": result}
+
+
+@router.get("/rubrics")
+def list_saved_rubrics(
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """List saved rubrics for the signed-in organisation only."""
+    rows = db.scalars(
+        select(AIHiringRubric)
+        .where(AIHiringRubric.organization_id == user.organization_id)
+        .order_by(AIHiringRubric.updated_at.desc())
+        .limit(100)
+    ).all()
+    return {"rubrics": [_saved_rubric_payload(row) for row in rows]}
+
+
+@router.post("/rubrics")
+def create_saved_rubric(
+    request: SavedRubricRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    rubric = _prepare_saved_rubric(request)
+    now = datetime.now(timezone.utc)
+    row = AIHiringRubric(
+        rubric_id=str(uuid4()),
+        organization_id=user.organization_id,
+        user_id=user.id,
+        title=request.title.strip(),
+        job_title=request.job_title.strip()[:200],
+        rubric_data=rubric,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _saved_rubric_payload(row)
+
+
+@router.get("/rubrics/{rubric_id}")
+def get_saved_rubric(
+    rubric_id: str,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    row = db.scalar(
+        select(AIHiringRubric).where(
+            AIHiringRubric.rubric_id == rubric_id,
+            AIHiringRubric.organization_id == user.organization_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(404, "Saved assessment rubric not found.")
+    return _saved_rubric_payload(row)
+
+
+@router.put("/rubrics/{rubric_id}")
+def update_saved_rubric(
+    rubric_id: str,
+    request: SavedRubricRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    row = db.scalar(
+        select(AIHiringRubric).where(
+            AIHiringRubric.rubric_id == rubric_id,
+            AIHiringRubric.organization_id == user.organization_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(404, "Saved assessment rubric not found.")
+    rubric = _prepare_saved_rubric(request)
+    row.title = request.title.strip()
+    row.job_title = request.job_title.strip()[:200]
+    row.rubric_data = rubric
+    row.user_id = user.id
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(row)
+    return _saved_rubric_payload(row)
+
+
+@router.delete("/rubrics/{rubric_id}")
+def delete_saved_rubric(
+    rubric_id: str,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    row = db.scalar(
+        select(AIHiringRubric).where(
+            AIHiringRubric.rubric_id == rubric_id,
+            AIHiringRubric.organization_id == user.organization_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(404, "Saved assessment rubric not found.")
+    db.delete(row)
+    db.commit()
+    return {"deleted": True, "rubric_id": rubric_id}
 
 
 @router.get("/history")
