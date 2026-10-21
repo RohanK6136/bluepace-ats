@@ -39,7 +39,7 @@ function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
   const lines = source.split(/\r?\n/).map((line) => line.trim().replace(/^(?:#{1,6}\s+|[-*•]|\d+[.)])\s*/, "")).filter(Boolean);
   const titleMatch = source.match(/(?:job\s*title|position(?:\s*title)?|role)\s*[:\-]\s*([^\r\n]{3,100})/i);
   const genericHeading = /^(?:job description|job details|position details|role description|role overview|about the role|recruiter notes|hiring notes)$/i;
-  const candidateLine = lines.find((line) => line.length <= 70 && !genericHeading.test(line) && !/[.!?]$/.test(line) && !/^(?:we|hiring|seeking|looking|need|responsible|must|should)\b/i.test(line));
+  const candidateLine = lines.find((line) => line.length <= 70 && !genericHeading.test(line) && !/^(?:location|work\s*mode|employment(?:\s*type)?|experience|minimum\s*experience|salary|department|job\s*title|title)\s*[:\-]/i.test(line) && !/\b(?:years?\s+(?:of\s+)?experience|salary|compensation)\b/i.test(line) && !/[.!?]$/.test(line) && !/^(?:we|hiring|seeking|looking|need|responsible|must|should)\b/i.test(line));
   const explicitTitle = String(overrides.job_title || (titleMatch ? titleMatch[1] : "")).trim();
   const title = explicitTitle || candidateLine || "Role title to be confirmed";
   const labelValue = (labelPattern) => {
