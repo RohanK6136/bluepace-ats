@@ -221,8 +221,15 @@ def call_ai_provider(
         payload = {
             "model": model, "messages": [
                 {"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt},
-            ], "temperature": 0.2, "max_tokens": max_tokens,
+            ],
         }
+        if provider == "openai":
+            # New GPT models use max_completion_tokens; some do not permit a
+            # non-default temperature on the Chat Completions endpoint.
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["temperature"] = 0.2
+            payload["max_tokens"] = max_tokens
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
         data, count = {}, 0

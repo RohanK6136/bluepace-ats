@@ -77,6 +77,9 @@ def test_openai_adapter_sends_json_mode(monkeypatch):
     result = ai_providers.call_ai_provider("openai", "test-key", "gpt-5.4", "system", "user", 20)
     assert seen["url"] == "https://api.openai.com/v1/chat/completions"
     assert seen["payload"]["response_format"] == {"type": "json_object"}
+    assert seen["payload"]["max_completion_tokens"] == 20
+    assert "max_tokens" not in seen["payload"]
+    assert "temperature" not in seen["payload"]
     assert result["usage"]["total_tokens"] == 7
 
 
