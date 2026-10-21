@@ -1,4 +1,4 @@
-"""Protected AI Hiring Studio endpoints using OpenRouter."""
+"""Protected AI Hiring Studio endpoints with multiple AI providers."""
 import hashlib
 import json
 import os
@@ -18,6 +18,14 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from app.database import Base, get_db
 from app.models import Role, User
 from app.security import require_roles
+from app.services.ai_providers import (
+    call_ai_provider as _call_ai_provider,
+    model_name as _provider_model_name,
+    provider_has_server_key as _provider_has_server_key,
+    provider_label as _provider_label,
+    provider_name as _normalize_provider_name,
+    resolve_api_key as _resolve_provider_api_key,
+)
 
 router = APIRouter(prefix="/ai-hiring", tags=["AI Hiring Studio"])
 WRITE_ROLES = (Role.admin, Role.recruiter, Role.hiring_manager)
@@ -157,8 +165,11 @@ class AIHiringRubric(Base):
 
 
 class OpenRouterRequest(BaseModel):
-    api_key: str | None = None
-    model: str | None = None
+    provider: str = Field(default_factory=lambda: os.getenv("AI_PROVIDER", "openrouter"), max_length=40)
+    api_key: str | None = Field(default=None, max_length=500)
+    model: str | None = Field(default=None, max_length=200)
+    base_url: str | None = Field(default=None, max_length=512)
+    account_id: str | None = Field(default=None, max_length=128)
 
 
 class GenerateJDRequest(OpenRouterRequest):
@@ -184,15 +195,19 @@ class AnalyzeResumeRequest(OpenRouterRequest):
     rubric: dict[str, Any] = Field(default_factory=dict)
 
 
-def _model_name(value: str | None) -> str:
-    name = (value or os.getenv("OPENROUTER_MODEL") or DEFAULT_MODEL).strip()
-    if not name or len(name) > 200:
-        raise HTTPException(422, "Enter a valid OpenRouter model identifier.")
-    return name
+def _provider_name(value: str | None = None) -> str:
+    try:
+        return _normalize_provider_name(value)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
 
 
-def _api_key(value: str | None) -> str:
-    return (value or os.getenv("OPENROUTER_API_KEY") or "").strip()
+def _model_name(value: str | None, provider: str = "openrouter") -> str:
+    return _provider_model_name(value, _provider_name(provider))
+
+
+def _api_key(value: str | None, provider: str = "openrouter") -> str:
+    return _resolve_provider_api_key(value, _provider_name(provider))
 
 
 def _provider_error(body: str, code: int) -> str:
@@ -293,7 +308,8 @@ def _parse_json_output(raw: str) -> dict[str, Any]:
 def _run_model(request, user: User, db: Session, task_type: str, system_prompt: str, user_prompt: str,
                input_data: dict[str, Any], max_tokens: int = 1800, persist_prompt_content: bool = True,
                privacy_metadata: dict[str, Any] | None = None):
-    model = _model_name(request.model)
+    provider = _provider_name(getattr(request, "provider", "openrouter"))
+    model = _model_name(request.model, provider)
     # Resume assessment runs keep metrics/status only: candidate content, prompts,
     # and model-generated evidence are returned to the caller but not retained.
     stored_input_data = input_data if persist_prompt_content else {
@@ -314,7 +330,15 @@ def _run_model(request, user: User, db: Session, task_type: str, system_prompt: 
     usage = None
     calls = 0
     try:
-        reply = _call_openrouter(_api_key(request.api_key), model, system_prompt, user_prompt, max_tokens)
+        if provider == "openrouter":
+            reply = _call_openrouter(_api_key(request.api_key, provider), model, system_prompt, user_prompt, max_tokens)
+        else:
+            reply = _call_ai_provider(
+                provider=provider, api_key_value=_api_key(request.api_key, provider),
+                model=model, system_prompt=system_prompt, user_prompt=user_prompt,
+                max_tokens=max_tokens, base_url=getattr(request, "base_url", None),
+                account_id=getattr(request, "account_id", None), json_mode=True,
+            )
         raw, usage, calls = reply["content"], reply["usage"], reply["call_count"]
         result = _parse_json_output(raw)
         run.status = "success"
@@ -448,44 +472,66 @@ def _prepare_saved_rubric(request: SavedRubricRequest) -> dict[str, Any]:
     return rubric
 
 
-def _configuration_status() -> dict[str, Any]:
+def _configuration_status(provider_value: str | None = None) -> dict[str, Any]:
     """Report safe AI configuration metadata without disclosing credentials."""
-    configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+    provider = _provider_name(provider_value)
+    configured = _provider_has_server_key(provider)
     return {
+        "provider": provider,
+        "provider_label": _provider_label(provider),
         "server_key_configured": configured,
-        "default_model": _model_name(None),
-        "key_source": "server environment" if configured else "not configured",
+        "default_model": _model_name(None, provider),
+        "key_source": "server environment" if configured else ("local endpoint" if provider == "ollama" else "not configured"),
     }
 
 
 @router.get("/status")
-def get_ai_configuration_status(user: User = Depends(require_roles(*WRITE_ROLES))):
-    return _configuration_status()
+def get_ai_configuration_status(
+    provider: str | None = Query(default=None, max_length=40),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+):
+    return _configuration_status(provider)
 
 
 @router.post("/test")
-def test_openrouter(request: OpenRouterRequest, user: User = Depends(require_roles(*WRITE_ROLES))):
-    key = _api_key(request.api_key)
-    if not key:
-        raise HTTPException(400, "Add an OpenRouter API key in settings, or configure OPENROUTER_API_KEY on the backend.")
-    model = _model_name(request.model)
-    req = urllib.request.Request(MODELS_URL, headers={"Authorization": "Bearer " + key}, method="GET")
+def test_provider_connection(request: OpenRouterRequest, user: User = Depends(require_roles(*WRITE_ROLES))):
+    provider = _provider_name(request.provider)
+    model = _model_name(request.model, provider)
+    key = _api_key(request.api_key, provider)
     started = perf_counter()
-    try:
-        with urllib.request.urlopen(req, timeout=20) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        body = error.read(2048).decode("utf-8", errors="replace")
-        raise HTTPException(502, _provider_error(body, error.code)) from None
-    except (urllib.error.URLError, TimeoutError):
-        raise HTTPException(504, "OpenRouter connection timed out or is unreachable.") from None
-    models = data.get("data") or []
-    available = any(item.get("id") == model for item in models if isinstance(item, dict))
+    if provider == "openrouter":
+        if not key:
+            raise HTTPException(400, "Add an OpenRouter API key in settings, or configure OPENROUTER_API_KEY on the backend.")
+        req = urllib.request.Request(MODELS_URL, headers={"Authorization": "Bearer " + key}, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            body = error.read(2048).decode("utf-8", errors="replace")
+            raise HTTPException(502, _provider_error(body, error.code)) from None
+        except (urllib.error.URLError, TimeoutError):
+            raise HTTPException(504, "OpenRouter connection timed out or is unreachable.") from None
+        models = data.get("data") or []
+        available = any(item.get("id") == model for item in models if isinstance(item, dict))
+        return {
+            "status": "connected", "provider": provider, "provider_label": _provider_label(provider),
+            "model": model, "model_listed": available, "available_model_count": len(models),
+            "latency_ms": int((perf_counter() - started) * 1000),
+            "key_source": "browser" if request.api_key else "server environment",
+            "message": "OpenRouter API key accepted." + ("" if available else " Check the selected model identifier."),
+        }
+    _call_ai_provider(
+        provider=provider, api_key_value=key, model=model,
+        system_prompt="Answer briefly with the single word OK.",
+        user_prompt="Reply with OK.", max_tokens=8,
+        base_url=request.base_url, account_id=request.account_id, json_mode=False,
+    )
     return {
-        "status": "connected", "model": model, "model_listed": available,
-        "available_model_count": len(models), "latency_ms": int((perf_counter() - started) * 1000),
-        "key_source": "browser" if request.api_key else "server environment",
-        "message": "OpenRouter API key accepted." + ("" if available else " Check the selected model identifier."),
+        "status": "connected", "provider": provider, "provider_label": _provider_label(provider),
+        "model": model, "model_listed": True, "available_model_count": None,
+        "latency_ms": int((perf_counter() - started) * 1000),
+        "key_source": "browser" if request.api_key else ("server environment" if _provider_has_server_key(provider) else "local endpoint"),
+        "message": _provider_label(provider) + " responded successfully. Connection testing sends a short test prompt.",
     }
 
 

@@ -2,6 +2,22 @@ import { useEffect, useState } from "react";
 
 const DEFAULT_MODEL = "openrouter/free";
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const PROVIDER_OPTIONS = [
+  { id: "openrouter", label: "OpenRouter", defaultModel: "openrouter/free", keyPlaceholder: "sk-or-v1-…" },
+  { id: "openai", label: "OpenAI / ChatGPT API", defaultModel: "gpt-5.4", keyPlaceholder: "OpenAI API key" },
+  { id: "claude", label: "Claude (Anthropic)", defaultModel: "claude-sonnet-4-6", keyPlaceholder: "Anthropic API key" },
+  { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-v4-flash", keyPlaceholder: "DeepSeek API key" },
+  { id: "cloudflare", label: "Cloudflare Workers AI", defaultModel: "@cf/qwen/qwen3.8-27b", keyPlaceholder: "Cloudflare API token" },
+  { id: "ollama", label: "Local Ollama · Qwen 3.5", defaultModel: "qwen3.5:4b", keyPlaceholder: "", baseUrl: "http://localhost:11434/v1" },
+];
+const PROVIDER_BY_ID = Object.fromEntries(PROVIDER_OPTIONS.map((item) => [item.id, item]));
+function readSessionValue(key) {
+  try { return sessionStorage.getItem(key) || ""; } catch { return ""; }
+}
+function storedProvider() {
+  const saved = readSessionValue("bluepace_ai_provider");
+  return PROVIDER_BY_ID[saved] ? saved : "openrouter";
+}
 const tabs = [
   { id: "generate", label: "Generate JD" },
   { id: "rubric", label: "Assessment rubric" },
@@ -41,12 +57,20 @@ function Metric({ label, value }) {
 
 export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }) {
   const [tab, setTab] = useState("generate");
+  const [provider, setProvider] = useState(() => storedProvider());
   const [apiKey, setApiKey] = useState(() => {
-    try { return sessionStorage.getItem("bluepace_openrouter_key") || ""; } catch { return ""; }
+    const current = storedProvider();
+    return readSessionValue("bluepace_ai_" + current + "_key")
+      || (current === "openrouter" ? readSessionValue("bluepace_openrouter_key") : "");
   });
   const [model, setModel] = useState(() => {
-    try { const saved = sessionStorage.getItem("bluepace_openrouter_model"); return !saved || saved === "openai/gpt-4o-mini" ? DEFAULT_MODEL : saved; } catch { return DEFAULT_MODEL; }
+    const current = storedProvider();
+    const saved = readSessionValue("bluepace_ai_" + current + "_model")
+      || (current === "openrouter" ? readSessionValue("bluepace_openrouter_model") : "");
+    return !saved || saved === "openai/gpt-4o-mini" ? PROVIDER_BY_ID[current].defaultModel : saved;
   });
+  const [baseUrl, setBaseUrl] = useState(() => readSessionValue("bluepace_ai_ollama_base_url") || "http://localhost:11434/v1");
+  const [accountId, setAccountId] = useState(() => readSessionValue("bluepace_ai_cloudflare_account_id"));
   const [connection, setConnection] = useState(null);
   const [serverKeyConfigured, setServerKeyConfigured] = useState(null);
   const [sourceText, setSourceText] = useState("");
@@ -78,41 +102,64 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
 
   const selectedRubricSnapshot = savedRubrics.find((item) => item.rubric_id === savedRubricId) || null;
 
+  const selectedProvider = PROVIDER_BY_ID[provider] || PROVIDER_BY_ID.openrouter;
   const credentials = () => ({
-    model: model.trim() || DEFAULT_MODEL,
-    ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+    provider,
+    model: model.trim() || selectedProvider.defaultModel,
+    ...(provider !== "ollama" && apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+    ...(provider === "ollama" ? { base_url: baseUrl.trim() || selectedProvider.baseUrl } : {}),
+    ...(provider === "cloudflare" && accountId.trim() ? { account_id: accountId.trim() } : {}),
   });
 
-  function saveSettings() {
-    try {
+  function persistSettings() {
+    sessionStorage.setItem("bluepace_ai_provider", provider);
+    const keyName = "bluepace_ai_" + provider + "_key";
+    if (apiKey.trim()) sessionStorage.setItem(keyName, apiKey.trim());
+    else sessionStorage.removeItem(keyName);
+    sessionStorage.setItem("bluepace_ai_" + provider + "_model", model.trim() || selectedProvider.defaultModel);
+    if (provider === "ollama") sessionStorage.setItem("bluepace_ai_ollama_base_url", baseUrl.trim() || selectedProvider.baseUrl);
+    if (provider === "cloudflare") sessionStorage.setItem("bluepace_ai_cloudflare_account_id", accountId.trim());
+    if (provider === "openrouter") {
       if (apiKey.trim()) sessionStorage.setItem("bluepace_openrouter_key", apiKey.trim());
       else sessionStorage.removeItem("bluepace_openrouter_key");
       sessionStorage.setItem("bluepace_openrouter_model", model.trim() || DEFAULT_MODEL);
-      setNotice("Settings saved for this browser tab session. The API key is not written to AI run history.");
+    }
+  }
+
+  function changeProvider(nextProvider) {
+    const next = PROVIDER_BY_ID[nextProvider];
+    if (!next) return;
+    setProvider(nextProvider);
+    setApiKey(readSessionValue("bluepace_ai_" + nextProvider + "_key")
+      || (nextProvider === "openrouter" ? readSessionValue("bluepace_openrouter_key") : ""));
+    setModel(readSessionValue("bluepace_ai_" + nextProvider + "_model")
+      || (nextProvider === "openrouter" && readSessionValue("bluepace_openrouter_model")
+        ? readSessionValue("bluepace_openrouter_model") : next.defaultModel));
+    if (nextProvider === "ollama") setBaseUrl(readSessionValue("bluepace_ai_ollama_base_url") || next.baseUrl);
+    if (nextProvider === "cloudflare") setAccountId(readSessionValue("bluepace_ai_cloudflare_account_id"));
+    setConnection(null); setError(""); setNotice("");
+  }
+
+  function saveSettings() {
+    try {
+      persistSettings();
+      setNotice("Provider settings saved for this browser tab session. Keys are not written to AI run history.");
       setError("");
     } catch {
-      setError("Browser session storage is unavailable. The key will remain in memory until this page is closed.");
+      setError("Browser session storage is unavailable. Settings will remain in memory until this page is closed.");
     }
   }
 
   async function testConnection() {
-    setBusy("test");
-    setError("");
-    setNotice("");
-    setConnection(null);
+    setBusy("test"); setError(""); setNotice(""); setConnection(null);
     try {
-      const response = await apiRequest(token, "post", "/ai-hiring/test", { data: credentials(), timeout: 25000 });
+      const response = await apiRequest(token, "post", "/ai-hiring/test", { data: credentials(), timeout: 45000 });
       setConnection(response.data);
-      try {
-        if (apiKey.trim()) sessionStorage.setItem("bluepace_openrouter_key", apiKey.trim());
-        sessionStorage.setItem("bluepace_openrouter_model", model.trim() || DEFAULT_MODEL);
-      } catch {}
-      setNotice(response.data?.message || "OpenRouter connection checked.");
+      try { persistSettings(); } catch {}
+      setNotice(response.data?.message || (selectedProvider.label + " connection checked."));
     } catch (requestError) {
       setError(explainError(requestError));
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   }
 
   async function importJDFile(event) {
@@ -535,7 +582,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
 
   useEffect(() => {
     let active = true;
-    apiRequest(token, "get", "/ai-hiring/status")
+    apiRequest(token, "get", "/ai-hiring/status?provider=" + encodeURIComponent(provider))
       .then((response) => {
         if (active) setServerKeyConfigured(Boolean(response.data?.server_key_configured));
       })
@@ -543,7 +590,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         if (active) setServerKeyConfigured(null);
       });
     return () => { active = false; };
-  }, [token, apiRequest]);
+  }, [provider, token, apiRequest]);
 
   function updateJobDetail(field, value) {
     setJobDetails((previous) => ({ ...previous, [field]: value }));
@@ -572,14 +619,14 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-300">BluePace · AI-assisted recruitment</p>
           <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
             <div><h2 className="text-2xl font-semibold tracking-tight">AI Hiring Studio</h2><p className="mt-1 max-w-2xl text-sm text-slate-300">Turn job notes into editable job descriptions, build a transparent rubric, and inspect resume evidence.</p></div>
-            <MetaPill tone={connection?.status === "connected" && connection?.model_listed ? "good" : "neutral"}>{connection?.status === "connected" ? "OpenRouter checked" : "Human review required"}</MetaPill>
+            <MetaPill tone={connection?.status === "connected" && connection?.model_listed !== false ? "good" : "neutral"}>{connection?.status === "connected" ? (connection.provider_label || selectedProvider.label) + " checked" : "Human review required"}</MetaPill>
           </div>
         </div>
         <div className="flex gap-1 overflow-x-auto border-b border-slate-200 px-3 py-2 sm:px-5" role="tablist" aria-label="AI Hiring Studio sections">
           {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => { setTab(item.id); setError(""); }} className={"whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition " + (tab === item.id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100")}>{item.label}</button>)}
         </div>
         {(error || notice) && <div className="px-5 pt-4 sm:px-7">{error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div>}</div>}
-        {serverKeyConfigured === false && !apiKey.trim() && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong> No shared OpenRouter key is configured on the backend. Enter a key in Settings for this tab, or configure <code>OPENROUTER_API_KEY</code> in Railway backend variables.</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
+        {provider === "openrouter" && serverKeyConfigured === false && !apiKey.trim() && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong> No shared OpenRouter key is configured on the backend. Enter a key in Settings for this tab, or configure <code>OPENROUTER_API_KEY</code> in Railway backend variables.</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
 
         <div className="p-5 sm:p-7">
           {tab === "generate" && <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -631,12 +678,15 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           </div>}
 
           {tab === "settings" && <div className="mx-auto max-w-2xl space-y-5">
-            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Configuration</p><h3 className="mt-1 text-lg font-semibold text-slate-900">OpenRouter connection</h3><p className="mt-1 text-sm leading-6 text-slate-500">The API key is sent over HTTPS to the backend only when you run an AI task. It is excluded from AI run history. For a shared production key, set OPENROUTER_API_KEY in Railway backend variables.</p><div className="mt-3 flex flex-wrap items-center gap-2">{serverKeyConfigured === true ? <MetaPill tone="good">Server key configured</MetaPill> : serverKeyConfigured === false ? <MetaPill tone="warn">Server key missing</MetaPill> : <MetaPill>Configuration status unavailable</MetaPill>}<MetaPill>{model.trim() || DEFAULT_MODEL}</MetaPill></div></div>
-            <label className="block text-sm font-semibold text-slate-700">OpenRouter API key<input type="password" autoComplete="new-password" className={fieldClass + " mt-1.5 font-mono"} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnection(null); }} placeholder="sk-or-v1-…" /></label>
-            <label className="block text-sm font-semibold text-slate-700">Model identifier<input className={fieldClass + " mt-1.5 font-mono"} value={model} onChange={(event) => { setModel(event.target.value); setConnection(null); }} placeholder={DEFAULT_MODEL} /><span className="mt-1 block text-xs font-normal text-slate-500">Default: {DEFAULT_MODEL}. You can enter another OpenRouter model ID.</span></label>
-            <div className="flex flex-wrap gap-2"><button type="button" onClick={saveSettings} className={btnSecondary}>Save for this tab session</button><button type="button" onClick={() => void testConnection()} disabled={Boolean(busy)} className={btnPrimary}>{busy === "test" ? "Testing…" : "Test OpenRouter connection"}</button></div>
-            {connection && <div className={"rounded-xl border p-4 " + (connection.model_listed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")}><div className="flex flex-wrap items-center gap-2"><MetaPill tone={connection.model_listed ? "good" : "warn"}>{connection.model_listed ? "Connection successful" : "API key accepted"}</MetaPill><MetaPill>{connection.latency_ms} ms</MetaPill></div><p className="mt-2 text-sm text-slate-800">{connection.message}</p><p className="mt-1 text-xs text-slate-600">Selected model: {connection.model} · {connection.available_model_count} model IDs listed · Key source: {connection.key_source}</p></div>}
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><strong className="text-slate-800">Deployment note:</strong> OpenRouter calls run on the backend. Do not put API keys in Vite environment variables or commit them to GitHub. The default openrouter/free router chooses an available free model; capacity, quality, and rate limits can vary. Check provider data-use terms before sending candidate data. Paid models may incur charges.</div>
+            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Configuration</p><h3 className="mt-1 text-lg font-semibold text-slate-900">AI provider connection</h3><p className="mt-1 text-sm leading-6 text-slate-500">Choose a provider for JD generation, rubric building and resume assessment. Keys stay in this browser tab session and are sent to the backend over HTTPS; they are excluded from AI run history.</p><div className="mt-3 flex flex-wrap items-center gap-2">{serverKeyConfigured === true ? <MetaPill tone="good">Backend key configured</MetaPill> : serverKeyConfigured === false ? <MetaPill tone="warn">Backend key not configured</MetaPill> : <MetaPill>Configuration status unavailable</MetaPill>}<MetaPill>{selectedProvider.label}</MetaPill><MetaPill>{model.trim() || selectedProvider.defaultModel}</MetaPill></div></div>
+            <label className="block text-sm font-semibold text-slate-700">AI provider<select value={provider} onChange={(event) => changeProvider(event.target.value)} className={fieldClass + " mt-1.5"}>{PROVIDER_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+            {provider !== "ollama" && <label className="block text-sm font-semibold text-slate-700">{provider === "claude" ? "Anthropic API key" : provider === "cloudflare" ? "Cloudflare API token" : selectedProvider.label + " API key"}<input type="password" autoComplete="new-password" className={fieldClass + " mt-1.5 font-mono"} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnection(null); }} placeholder={selectedProvider.keyPlaceholder}/><span className="mt-1 block text-xs font-normal text-slate-500">Leave empty to use the matching backend environment variable.</span></label>}
+            {provider === "cloudflare" && <label className="block text-sm font-semibold text-slate-700">Cloudflare Account ID<input className={fieldClass + " mt-1.5 font-mono"} value={accountId} onChange={(event) => { setAccountId(event.target.value); setConnection(null); }} placeholder="Cloudflare account ID" autoComplete="off"/><span className="mt-1 block text-xs font-normal text-slate-500">Required for the Workers AI account endpoint.</span></label>}
+            {provider === "ollama" && <label className="block text-sm font-semibold text-slate-700">Local Ollama base URL<input className={fieldClass + " mt-1.5 font-mono"} value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setConnection(null); }} placeholder="http://localhost:11434/v1" autoComplete="url"/><span className="mt-1 block text-xs font-normal text-slate-500">Only loopback URLs are accepted; remote host URLs are rejected.</span></label>}
+            <label className="block text-sm font-semibold text-slate-700">Model identifier<input className={fieldClass + " mt-1.5 font-mono"} value={model} onChange={(event) => { setModel(event.target.value); setConnection(null); }} placeholder={selectedProvider.defaultModel}/><span className="mt-1 block text-xs font-normal text-slate-500">Default: {selectedProvider.defaultModel}. Enter another model ID if your provider supports it. Qwen is a model family, not a separate API provider.</span></label>
+            <div className="flex flex-wrap gap-2"><button type="button" onClick={saveSettings} className={btnSecondary}>Save for this tab session</button><button type="button" onClick={() => void testConnection()} disabled={Boolean(busy)} className={btnPrimary}>{busy === "test" ? "Testing…" : "Test " + selectedProvider.label + " connection"}</button></div>
+            {connection && <div className={"rounded-xl border p-4 " + (connection.status === "connected" && connection.model_listed !== false ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")}><div className="flex flex-wrap items-center gap-2"><MetaPill tone={connection.status === "connected" && connection.model_listed !== false ? "good" : "warn"}>{connection.status === "connected" && connection.model_listed !== false ? "Connection successful" : "Check the selected model"}</MetaPill><MetaPill>{connection.latency_ms} ms</MetaPill></div><p className="mt-2 text-sm text-slate-800">{connection.message}</p><p className="mt-1 text-xs text-slate-600">Selected model: {connection.model} · Provider: {connection.provider_label || selectedProvider.label} · Key source: {connection.key_source}</p></div>}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p><strong className="text-slate-800">Hosted providers:</strong> OpenAI/ChatGPT, Claude, DeepSeek, OpenRouter and Cloudflare send prompts to the selected provider. Confirm your organisation's data-use terms before processing candidate data. Requests may incur charges.</p><p className="mt-2"><strong className="text-slate-800">Local Ollama / Qwen 3.5:</strong> Install Ollama where the backend runs and execute <code>ollama pull qwen3.5:4b</code>. Keep the URL at <code>http://localhost:11434/v1</code>.</p><p className="mt-2"><strong className="text-slate-800">Hosted deployment limitation:</strong> On Railway, localhost means the Railway container, not your PC. The production ATS cannot reach Ollama on your computer using localhost. For local inference run the backend and Ollama on the same computer, or build a separately secured local bridge. Never put API keys in Vite environment variables or commit them to GitHub.</p><p className="mt-2">“Qwen 3.4.5” did not identify a model tag that I could verify; the model field defaults to the published Qwen 3.5 family and remains editable.</p></div>
           </div>}
 
           {tab === "rubric" && <div className="space-y-5">
