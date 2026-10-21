@@ -11,7 +11,7 @@ Set the provider's secrets in the backend's environment or enter its API key und
 | OpenRouter | `OPENROUTER_API_KEY` | `openrouter/free` |
 | OpenAI / ChatGPT API | `OPENAI_API_KEY` | `gpt-5.4` |
 | Claude / Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
-| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-v4-flash` |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-flash` |
 | Cloudflare Workers AI | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `@cf/qwen/qwen3.8-27b` |
 
 The model ID is editable because availability depends on provider account, plan and region. The Test connection action sends a short prompt for direct provider adapters and may create a small usage charge. OpenRouter test validates the key and checks the model list.
