@@ -25,6 +25,95 @@ MODELS_URL = "https://openrouter.ai/api/v1/models"
 DEFAULT_MODEL = "openrouter/free"
 MAX_TEXT_CHARS = 50000
 
+_SENSITIVE_RESUME_KEYS = frozenset({
+    "name", "fullname", "firstname", "middlename", "lastname", "givenname", "familyname",
+    "candidatename", "displayname", "email", "emailaddress", "personalemail", "phone",
+    "phonenumber", "mobile", "mobilenumber", "contactnumber", "address", "homeaddress",
+    "streetaddress", "postaladdress", "postcode", "zipcode", "postalcode", "dateofbirth",
+    "dob", "birthdate", "age", "ageyears", "gender", "sex", "nationality", "citizenship",
+    "nationalorigin", "race", "ethnicity", "religion", "disability", "maritalstatus",
+    "familystatus", "photograph", "photo", "profilepicture", "headshot", "personaldetails",
+    "contactdetails", "contactinformation", "personalinfo", "personalinformation",
+    "currentlocation", "homelocation",
+})
+_RESUME_NAME_KEYS = frozenset({
+    "name", "fullname", "firstname", "middlename", "lastname", "givenname", "familyname",
+    "candidatename", "displayname",
+})
+_RESUME_PRIVATE_CONTAINERS = frozenset({
+    "personaldetails", "personalinformation", "contactdetails", "contactinformation",
+    "personalinfo", "candidate", "candidateprofile", "profile", "person", "personal", "contact",
+})
+
+
+def _resume_key_token(key: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(key).casefold())
+
+
+def _redact_resume_pii(resume_data: dict[str, Any]) -> dict[str, Any]:
+    """Return a model-safe copy with common identifying resume fields redacted.
+
+    The original request object is not modified. Free-text contact lines and known
+    candidate-name values are removed as well as structured personal-data fields.
+    This is data minimisation, not a guarantee that arbitrary prose is anonymous.
+    """
+    if not isinstance(resume_data, dict):
+        raise HTTPException(422, "Resume data must be a structured object.")
+
+    candidate_names: list[str] = []
+
+    def collect_names(value: Any, depth: int = 0) -> None:
+        if not isinstance(value, dict) or depth > 4:
+            return
+        for key, item in value.items():
+            token = _resume_key_token(key)
+            if token in _RESUME_NAME_KEYS and isinstance(item, str):
+                cleaned_name = item.strip()
+                if len(cleaned_name) >= 2:
+                    candidate_names.append(cleaned_name)
+            elif token in _RESUME_PRIVATE_CONTAINERS:
+                collect_names(item, depth + 1)
+
+    collect_names(resume_data)
+
+    private_line = re.compile(
+        r"(?im)^\s*(?:full\s+name|candidate\s+name|name|email(?:\s+address)?|"
+        r"phone(?:\s+number)?|mobile|contact\s+number|address|date\s+of\s+birth|"
+        r"birthdate|dob|age|gender|sex|nationality|citizenship|national\s+origin|"
+        r"race|ethnicity|religion|marital\s+status|current\s+location)\s*[:\-]\s*.*$"
+    )
+    email_pattern = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+    phone_pattern = re.compile(r"(?<!\w)(?=(?:\D*\d){10,})\+?\d[\d\s().-]{7,}\d(?!\w)")
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: clean(item)
+                for key, item in value.items()
+                if _resume_key_token(key) not in _SENSITIVE_RESUME_KEYS
+            }
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        if isinstance(value, tuple):
+            return [clean(item) for item in value]
+        if not isinstance(value, str):
+            return value
+
+        text = email_pattern.sub("[REDACTED_EMAIL]", value)
+        text = phone_pattern.sub("[REDACTED_PHONE]", text)
+        text = private_line.sub("[REDACTED_PERSONAL_DETAIL]", text)
+        for name in sorted(set(candidate_names), key=len, reverse=True):
+            text = re.sub(
+                r"(?<!\w)" + re.escape(name) + r"(?!\w)",
+                "[REDACTED_NAME]",
+                text,
+                flags=re.IGNORECASE,
+            )
+        return text
+
+    return clean(resume_data)
+
+
 
 class AIHiringRun(Base):
     __tablename__ = "ai_hiring_runs"
@@ -195,12 +284,17 @@ def _parse_json_output(raw: str) -> dict[str, Any]:
 
 
 def _run_model(request, user: User, db: Session, task_type: str, system_prompt: str, user_prompt: str,
-               input_data: dict[str, Any], max_tokens: int = 1800):
+               input_data: dict[str, Any], max_tokens: int = 1800, persist_prompt_content: bool = True):
     model = _model_name(request.model)
+    # Resume assessment runs keep metrics/status only: candidate content, prompts,
+    # and model-generated evidence are returned to the caller but not retained.
+    stored_input_data = input_data if persist_prompt_content else {"privacy_mode": "ephemeral_assessment"}
+    stored_system_prompt = system_prompt if persist_prompt_content else "[not stored: ephemeral assessment]"
+    stored_user_prompt = user_prompt if persist_prompt_content else "[not stored: ephemeral assessment]"
     run = AIHiringRun(
         request_id=str(uuid4()), organization_id=user.organization_id, user_id=user.id,
-        task_type=task_type, status="running", model=model, input_data=input_data,
-        system_prompt=system_prompt, user_prompt=user_prompt, model_call_count=0,
+        task_type=task_type, status="running", model=model, input_data=stored_input_data,
+        system_prompt=stored_system_prompt, user_prompt=stored_user_prompt, model_call_count=0,
     )
     db.add(run)
     db.commit()
@@ -215,8 +309,8 @@ def _run_model(request, user: User, db: Session, task_type: str, system_prompt: 
         result = _parse_json_output(raw)
         run.status = "success"
         run.model = reply["actual_model"]
-        run.output_data = result
-        run.raw_model_output = raw[:100000]
+        run.output_data = result if persist_prompt_content else None
+        run.raw_model_output = raw[:100000] if persist_prompt_content else None
         run.token_usage = usage
         run.model_call_count = calls
         run.latency_ms = int((perf_counter() - started) * 1000)
@@ -225,7 +319,7 @@ def _run_model(request, user: User, db: Session, task_type: str, system_prompt: 
         return result, run
     except Exception as error:
         run.status = "failed"
-        run.raw_model_output = raw[:100000] or None
+        run.raw_model_output = (raw[:100000] or None) if persist_prompt_content else None
         run.token_usage = usage
         run.model_call_count = calls
         run.latency_ms = int((perf_counter() - started) * 1000)
@@ -428,25 +522,30 @@ def build_rubric(request: BuildRubricRequest, user: User = Depends(require_roles
 def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
     if not isinstance(request.rubric.get("criteria"), list) or not request.rubric.get("criteria"):
         raise HTTPException(422, "Build or select an assessment rubric first.")
+    safe_resume_data = _redact_resume_pii(request.resume_data)
     system = (
         "You are an evidence-based resume reviewer. Compare only job-related resume evidence to the supplied rubric. Return JSON with "
         "overall_score (0-100), recommendation, summary, strengths array, concerns array, missing_requirements array, and criteria array. "
         "Each criterion result must contain name, score (0-100), weight, weighted_score, assessment, evidence (array of short excerpts or labelled fields), and gap. "
         "Do not assume absent details mean the candidate lacks the skill: mark Not evidenced. Never fabricate quotations or qualifications. "
-        "Do not score age, sex, gender, race, religion, disability, nationality, family status, photograph, name, or other protected traits. "
+        "Personal identifiers have been filtered from the provided resume data. Do not infer or score protected traits including age, sex, gender, "
+        "race, religion, disability, nationality, family status, photograph, name, or other protected traits. "
         "This is decision support, not an automated hiring decision. Clearly identify when human review is needed."
     )
     prompt = json.dumps({
-        "task": "Assess this structured resume against every rubric criterion.",
-        "rubric": request.rubric, "resume_evidence": request.resume_data,
+        "task": "Assess this redacted structured resume against every rubric criterion.",
+        "rubric": request.rubric, "resume_evidence": safe_resume_data,
         "requirements": [
             "Score every criterion from 0 to 100.",
             "weighted_score = score * weight / 100; overall_score is the sum when rubric weights total 100.",
             "Use supplied resume evidence only; separate missing evidence from confirmed mismatch.",
         ],
     }, ensure_ascii=False, default=str)
-    result, run = _run_model(request, user, db, "analyze_resume", system, prompt,
-                             {"resume_data": request.resume_data, "rubric": request.rubric}, 2400)
+    result, run = _run_model(
+        request, user, db, "analyze_resume", system, prompt,
+        {"resume_data": safe_resume_data, "rubric": request.rubric},
+        2400, persist_prompt_content=False,
+    )
     if not isinstance(result.get("criteria"), list) or not result.get("criteria"):
         _mark_run_failed(db, run, "The model did not return criterion-level scores. Retry.")
     result["decision_support_only"] = True

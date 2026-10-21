@@ -184,3 +184,122 @@ def test_saved_rubric_preparation_rejects_blank_title():
             job_title="Engineer",
             rubric={"criteria": [{"name": "Python", "weight": 100}]},
         ))
+
+
+
+def test_resume_pii_is_removed_before_model_input():
+    from app.routers.ai_hiring_studio import _redact_resume_pii
+
+    resume = {
+        "name": "Aisha Khan",
+        "email": "aisha.khan@example.com",
+        "phone": "+91 98765 43210",
+        "age": 29,
+        "gender": "Female",
+        "nationality": "Indian",
+        "skills": ["Python", "FastAPI"],
+        "raw_text": (
+            "Aisha Khan\nEmail: aisha.khan@example.com\nPhone: +91 98765 43210\n"
+            "Age: 29\nGender: Female\nNationality: Indian\n"
+            "Built REST APIs with Python."
+        ),
+    }
+
+    redacted = _redact_resume_pii(resume)
+    rendered = repr(redacted)
+
+    assert "Aisha Khan" not in rendered
+    assert "aisha.khan@example.com" not in rendered
+    assert "98765 43210" not in rendered
+    assert "Female" not in rendered
+    assert "Indian" not in rendered
+    assert "Python" in rendered
+    assert "FastAPI" in rendered
+    assert "Built REST APIs with Python." in rendered
+    assert resume["name"] == "Aisha Khan"  # Redaction never mutates caller data.
+
+
+def test_ephemeral_assessment_does_not_persist_resume_or_model_content(monkeypatch):
+    from types import SimpleNamespace
+
+    import app.routers.ai_hiring_studio as studio
+
+    class FakeDatabase:
+        def add(self, item):
+            self.run = item
+
+        def commit(self):
+            pass
+
+        def refresh(self, item):
+            pass
+
+    monkeypatch.setattr(
+        studio,
+        "_call_openrouter",
+        lambda *args, **kwargs: {
+            "content": '{"overall_score": 80}',
+            "usage": {"total_tokens": 3},
+            "call_count": 1,
+            "actual_model": "test/model",
+        },
+    )
+    db = FakeDatabase()
+    result, run = studio._run_model(
+        SimpleNamespace(model="test/model", api_key="not-used-by-mock"),
+        SimpleNamespace(id=10, organization_id=20),
+        db,
+        "analyze_resume",
+        "private system prompt",
+        '{"resume_evidence": "private resume content"}',
+        {"resume_data": {"name": "Aisha Khan"}, "rubric": {"criteria": []}},
+        100,
+        persist_prompt_content=False,
+    )
+
+    assert result == {"overall_score": 80}
+    assert run.input_data == {"privacy_mode": "ephemeral_assessment"}
+    assert run.system_prompt == "[not stored: ephemeral assessment]"
+    assert run.user_prompt == "[not stored: ephemeral assessment]"
+    assert run.output_data is None
+    assert run.raw_model_output is None
+    assert run.token_usage == {"total_tokens": 3}
+    assert run.status == "success"
+
+
+
+def test_nested_profile_name_is_redacted_from_free_text():
+    from app.routers.ai_hiring_studio import _redact_resume_pii
+
+    redacted = _redact_resume_pii({
+        "profile": {"full_name": "Aisha Khan"},
+        "resume_text": "Aisha Khan led Python API deployments.",
+    })
+
+    assert "Aisha Khan" not in repr(redacted)
+    assert "Python API deployments" in repr(redacted)
+
+
+
+def test_resume_name_redaction_does_not_change_larger_words():
+    from app.routers.ai_hiring_studio import _redact_resume_pii
+
+    redacted = _redact_resume_pii({
+        "name": "Ann",
+        "summary": "Ann built annual reporting pipelines.",
+    })
+
+    assert "Ann" not in redacted["summary"]
+    assert "annual reporting pipelines" in redacted["summary"]
+
+
+
+def test_unlabelled_inline_email_and_phone_are_redacted():
+    from app.routers.ai_hiring_studio import _redact_resume_pii
+
+    redacted = _redact_resume_pii({
+        "summary": "Email aisha.khan@example.com or call +91 98765 43210 for details.",
+    })
+
+    assert "aisha.khan@example.com" not in repr(redacted)
+    assert "98765 43210" not in repr(redacted)
