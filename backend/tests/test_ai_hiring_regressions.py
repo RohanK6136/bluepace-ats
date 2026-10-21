@@ -187,7 +187,7 @@ def test_resume_assessment_removes_structured_identifiers_and_redacts_text():
     assert "jordan.sample@example.com" not in encoded
     assert "555" not in encoded
     assert "29 years old" not in encoded
-    assert "nationality: American" not in encoded.lower()
+    assert "nationality: american" not in encoded.lower()
 
 
 def test_resume_assessment_redaction_keeps_job_related_experience_fields():
