@@ -22,7 +22,7 @@ from app.database import (
     upgrade_phase2_columns,
     upgrade_phase3_columns,
 )
-from app.models import Candidate, Email
+from app.models import Candidate, Email, Interview, User
 from app.services.extractor import extractor_service
 
 
@@ -182,6 +182,50 @@ def test_dashboard_candidate_count_is_scoped_and_matches_default_candidate_list(
     other_dashboard = client.get("/dashboard", headers=other_headers)
     assert other_dashboard.status_code == 200
     assert other_dashboard.json()["metrics"]["total_candidates"] == 1
+
+
+def test_dashboard_upcoming_interview_count_exceeds_preview_limit(client):
+    headers = register_and_login(client)
+    job = client.post(
+        "/jobs",
+        json={"title": "Platform Engineer", "description": "Build and operate platforms", "status": "open"},
+        headers=headers,
+    )
+    assert job.status_code == 201
+    candidate = client.post(
+        "/candidates",
+        json={"first_name": "Jordan", "last_name": "Test", "email": "jordan.interviews@example.com"},
+        headers=headers,
+    )
+    assert candidate.status_code == 201
+    application = client.post(
+        "/applications",
+        json={"job_id": job.json()["id"], "candidate_id": candidate.json()["id"]},
+        headers=headers,
+    )
+    assert application.status_code == 201
+
+    with client.app.state.test_session() as db:
+        interviewer = db.query(User).filter_by(email="owner@example.com").one()
+        start = datetime.now(timezone.utc) + timedelta(days=1)
+        db.add_all([
+            Interview(
+                application_id=application.json()["id"],
+                interviewer_id=interviewer.id,
+                starts_at=start + timedelta(hours=index),
+                duration_minutes=30,
+                status="scheduled",
+                mode="online",
+            )
+            for index in range(13)
+        ])
+        db.commit()
+
+    dashboard = client.get("/dashboard", headers=headers)
+    assert dashboard.status_code == 200
+    body = dashboard.json()
+    assert len(body["upcoming_interviews"]) == 12
+    assert body["metrics"]["upcoming_interviews_count"] == 13
 
 def test_email_delivery_is_disabled_and_test_send_is_rejected(client):
     headers = register_and_login(client)
