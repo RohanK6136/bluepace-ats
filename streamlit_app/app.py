@@ -172,7 +172,10 @@ elif page == "Zoho Recruit":
             a, b, d = st.columns(3)
             a.metric("OAuth configuration", "Configured" if status_data.get("configured") else "Missing")
             b.metric("Automatic sync", "Enabled" if status_data.get("automatic_sync_enabled") else "Disabled")
-            d.metric("Polling interval", f"{status_data.get('interval_minutes', 15)} min")
+            d.metric("Reconciliation", f"{status_data.get('reconciliation_interval_minutes', 15)} min")
+            e, fcol = st.columns(2)
+            e.metric("Webhook receiver", "Configured" if status_data.get("webhook_configured") else "Secret missing")
+            fcol.code(f"{api_url}{status_data.get('webhook_url', '/integrations/zoho/webhook')}", language="text")
             st.caption("Direction: Zoho Recruit → BluePace ATS. Credential values are never returned.")
         if right.button("Run sync now"):
             try:
