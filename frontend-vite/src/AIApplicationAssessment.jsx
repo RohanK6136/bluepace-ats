@@ -37,10 +37,11 @@ function label(index) {
   return "Candidate " + String(index + 1).padStart(2, "0");
 }
 
-export default function AIApplicationAssessment({ token, apiRequest, jobs = [], model = DEFAULT_MODEL, apiKey = "", initialRubric = null, onRubricChange }) {
-  const [jobDescription, setJobDescription] = useState("");
+export default function AIApplicationAssessment({ token, apiRequest, jobs = [], model = DEFAULT_MODEL, apiKey = "", initialRubric = null, initialJobDescription = "", initialJobTitle = "", onRubricChange }) {
+  const [jobDescription, setJobDescription] = useState(String(initialJobDescription || ""));
   const [jobId, setJobId] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
+  const [sourceMode, setSourceMode] = useState(initialJobDescription ? "standardizer" : "paste");
+  const [jobTitle, setJobTitle] = useState(String(initialJobTitle || ""));
   const [requiredYears, setRequiredYears] = useState("");
   const [education, setEducation] = useState("Not required");
   const [equivalentExperience, setEquivalentExperience] = useState(true);
@@ -72,6 +73,41 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
 
   function credentials() {
     return { model: String(model || DEFAULT_MODEL).trim() || DEFAULT_MODEL, ...(String(apiKey || "").trim() ? { api_key: String(apiKey).trim() } : {}) };
+  }
+
+  function loadFromStandardizer() {
+    if (!String(initialJobDescription || "").trim()) {
+      setSourceMode("standardizer");
+      setNotice("Generate a job description in the JD Standardizer first, or choose Paste a JD.");
+      return;
+    }
+    setSourceMode("standardizer");
+    setJobDescription(String(initialJobDescription));
+    if (String(initialJobTitle || "").trim()) setJobTitle(String(initialJobTitle));
+    setNotice("Loaded the current job description from JD Standardizer. Review it before building the rubric.");
+    setError("");
+  }
+
+  function loadSavedRubric() {
+    setSourceMode("saved");
+    setError("");
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SAVE_KEY) || "null");
+      if (!saved?.rubric?.criteria?.length) {
+        setNotice("No saved rubric exists in this browser tab session yet. Generate and save one first.");
+        return;
+      }
+      setJobDescription(String(saved.jobDescription || ""));
+      setJobTitle(String(saved.jobTitle || ""));
+      setRequiredYears(saved.requiredYears == null ? "" : String(saved.requiredYears));
+      setEducation(saved.education || "Not required");
+      setEquivalentExperience(typeof saved.equivalentExperience === "boolean" ? saved.equivalentExperience : true);
+      setRubric(saved.rubric);
+      onRubricChange?.(saved.rubric);
+      setNotice("Saved rubric loaded from this browser tab session.");
+    } catch {
+      setNotice("Saved rubric could not be read. Generate a new rubric and save it again.");
+    }
   }
 
   function loadJob(value) {
@@ -236,6 +272,12 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
 
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">01 · Job and rubric</p><h4 className="mt-1 text-lg font-semibold text-slate-900">Define assessment requirements</h4></div>{rubric && <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{rubric.criteria?.length || 0} criteria · {rubric.total_weight ?? 100}% total</span>}</div>
+      <div className="mt-4 flex flex-wrap gap-2 border-b border-slate-200 pb-4" role="tablist" aria-label="Job description source">
+        <button type="button" role="tab" aria-selected={sourceMode === "standardizer"} className={sourceMode === "standardizer" ? primary : secondary} onClick={loadFromStandardizer}>From JD Standardizer</button>
+        <button type="button" role="tab" aria-selected={sourceMode === "paste"} className={sourceMode === "paste" ? primary : secondary} onClick={() => { setSourceMode("paste"); setNotice("Paste or edit a job description below."); setError(""); }}>Paste a JD</button>
+        <button type="button" role="tab" aria-selected={sourceMode === "saved"} className={sourceMode === "saved" ? primary : secondary} onClick={loadSavedRubric}>Saved rubric</button>
+      </div>
+      {sourceMode === "standardizer" && <p className="mt-3 text-xs leading-5 text-slate-500">{String(initialJobDescription || "").trim() ? "Using the current JD Standardizer output. You can edit the description below before generating the rubric." : "No generated JD is currently available from JD Standardizer. Generate one there, or switch to Paste a JD."}</p>}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <label className="text-sm font-semibold text-slate-700">Use an existing ATS job<select className={field} value={jobId} onChange={(event) => loadJob(event.target.value)}><option value="">Choose a role or paste a JD</option>{usableJobs.map((job) => <option key={job.id} value={String(job.id)}>{job.title}</option>)}</select></label>
         <label className="text-sm font-semibold text-slate-700">Job title<input className={field} value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} placeholder="Implementation Specialist" /></label>
