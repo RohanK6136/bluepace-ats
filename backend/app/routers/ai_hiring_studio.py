@@ -104,7 +104,7 @@ def _redact_resume_pii(resume_data: dict[str, Any]) -> dict[str, Any]:
         text = private_line.sub("[REDACTED_PERSONAL_DETAIL]", text)
         for name in sorted(set(candidate_names), key=len, reverse=True):
             text = re.sub(
-                r"(?<!\\w)" + re.escape(name) + r"(?!\\w)",
+                r"(?<!\w)" + re.escape(name) + r"(?!\w)",
                 "[REDACTED_NAME]",
                 text,
                 flags=re.IGNORECASE,
