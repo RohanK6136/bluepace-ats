@@ -1,4 +1,5 @@
 """Protected AI Hiring Studio endpoints using OpenRouter."""
+import hashlib
 import json
 import os
 import re
@@ -11,7 +12,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, select
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.database import Base, get_db
@@ -49,9 +50,15 @@ class AIHiringRun(Base):
 
 class SavedAssessmentRubric(Base):
     __tablename__ = "ai_assessment_rubrics"
+    __table_args__ = (
+        UniqueConstraint("family_id", "version", name="uq_assessment_rubric_family_version"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     rubric_id: Mapped[str] = mapped_column(String(36), unique=True, index=True, default=lambda: str(uuid4()))
+    family_id: Mapped[str] = mapped_column(String(36), index=True, default=lambda: str(uuid4()))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    content_sha256: Mapped[str] = mapped_column(String(64), index=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(200))
@@ -59,7 +66,7 @@ class SavedAssessmentRubric(Base):
     job_description: Mapped[str] = mapped_column(Text)
     rubric: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class OpenRouterRequest(BaseModel):
@@ -531,15 +538,27 @@ def _validated_saved_rubric(value: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(422, str(error)) from None
 
 
+def _saved_rubric_checksum(title: str, job_title: str, job_description: str, rubric: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        {"title": title, "job_title": job_title, "job_description": job_description, "rubric": rubric},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _saved_rubric_payload(item: SavedAssessmentRubric) -> dict[str, Any]:
     return {
         "rubric_id": item.rubric_id,
+        "family_id": item.family_id,
+        "version": item.version,
+        "content_sha256": item.content_sha256,
         "title": item.title,
         "job_title": item.job_title,
         "job_description": item.job_description,
         "rubric": item.rubric,
         "created_at": item.created_at.isoformat() if item.created_at else None,
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+        "frozen": True,
     }
 
 
@@ -557,13 +576,19 @@ def list_saved_rubrics(user: User = Depends(require_roles(*WRITE_ROLES)), db: Se
 @router.post("/rubrics")
 def create_saved_rubric(request: SavedRubricRequest, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
     normalized = _validated_saved_rubric(request.rubric)
+    title = request.title.strip() or "Assessment rubric"
+    job_title = request.job_title.strip() or "Assessment rubric"
+    job_description = request.job_description.strip()[:MAX_TEXT_CHARS]
     item = SavedAssessmentRubric(
         rubric_id=str(uuid4()),
+        family_id=str(uuid4()),
+        version=1,
+        content_sha256=_saved_rubric_checksum(title, job_title, job_description, normalized),
         organization_id=user.organization_id,
         user_id=user.id,
-        title=request.title.strip() or "Assessment rubric",
-        job_title=request.job_title.strip() or "Assessment rubric",
-        job_description=request.job_description.strip()[:MAX_TEXT_CHARS],
+        title=title,
+        job_title=job_title,
+        job_description=job_description,
         rubric=normalized,
     )
     db.add(item)
@@ -575,20 +600,43 @@ def create_saved_rubric(request: SavedRubricRequest, user: User = Depends(requir
 @router.put("/rubrics/{rubric_id}")
 def update_saved_rubric(rubric_id: str, request: SavedRubricRequest,
                          user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
-    item = db.scalar(
+    """Create a new immutable version; a previously saved rubric is never overwritten."""
+    previous = db.scalar(
         select(SavedAssessmentRubric).where(
             SavedAssessmentRubric.rubric_id == rubric_id,
             SavedAssessmentRubric.organization_id == user.organization_id,
         )
     )
-    if item is None:
+    if previous is None:
         raise HTTPException(404, "Saved rubric not found.")
-    item.title = request.title.strip() or "Assessment rubric"
-    item.job_title = request.job_title.strip() or "Assessment rubric"
-    item.job_description = request.job_description.strip()[:MAX_TEXT_CHARS]
-    item.rubric = _validated_saved_rubric(request.rubric)
-    item.updated_at = datetime.now(timezone.utc)
-    db.commit()
+    normalized = _validated_saved_rubric(request.rubric)
+    title = request.title.strip() or "Assessment rubric"
+    job_title = request.job_title.strip() or "Assessment rubric"
+    job_description = request.job_description.strip()[:MAX_TEXT_CHARS]
+    latest_version = db.scalar(
+        select(func.max(SavedAssessmentRubric.version)).where(
+            SavedAssessmentRubric.organization_id == user.organization_id,
+            SavedAssessmentRubric.family_id == previous.family_id,
+        )
+    ) or previous.version
+    item = SavedAssessmentRubric(
+        rubric_id=str(uuid4()),
+        family_id=previous.family_id,
+        version=int(latest_version) + 1,
+        content_sha256=_saved_rubric_checksum(title, job_title, job_description, normalized),
+        organization_id=user.organization_id,
+        user_id=user.id,
+        title=title,
+        job_title=job_title,
+        job_description=job_description,
+        rubric=normalized,
+    )
+    db.add(item)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(409, "This rubric version was changed concurrently. Reload saved rubrics and retry.") from None
     db.refresh(item)
     return _saved_rubric_payload(item)
 
@@ -605,7 +653,7 @@ def delete_saved_rubric(rubric_id: str, user: User = Depends(require_roles(*WRIT
         raise HTTPException(404, "Saved rubric not found.")
     db.delete(item)
     db.commit()
-    return {"deleted": True, "rubric_id": rubric_id}
+    return {"deleted": True, "rubric_id": rubric_id, "warning": "Deleting removes this immutable rubric version from future selection."}
 
 
 @router.get("/history")
