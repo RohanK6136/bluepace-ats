@@ -640,7 +640,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
                 <button type="button" className={btnPrimary} disabled={Boolean(busy) || !rubric?.criteria?.length} onClick={() => void saveRubric()}>{busy === "save-rubric" ? "Saving…" : savedRubricId ? "Save rubric changes" : "Save rubric version"}</button>
               </div>
             </div>
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
               <label className="block text-sm font-semibold text-slate-700">Load a saved rubric
                 <select className={fieldClass + " mt-1.5"} value={savedRubricId} onChange={(event) => void loadSavedRubric(event.target.value)} disabled={Boolean(busy)}>
                   <option value="">Current unsaved rubric</option>
@@ -648,7 +648,8 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
                 </select>
                 <span className="mt-1 block text-xs font-normal text-slate-500">{rubricListBusy ? "Refreshing saved rubrics…" : String(savedRubrics.length) + " saved rubric(s) available"}</span>
               </label>
-              <label className="block text-sm font-semibold text-slate-700">Rubric name<input className={fieldClass + " mt-1.5"} value={rubricTitle} onChange={(event) => { setRubricTitle(event.target.value); setSavedRubricId(""); }} placeholder="e.g. Senior Backend Engineer — v1" /></label>
+              <label className="block text-sm font-semibold text-slate-700">Job title<input className={fieldClass + " mt-1.5"} value={jobDetails.job_title} onChange={(event) => { updateJobDetail("job_title", event.target.value); setSavedRubricId(""); }} placeholder="e.g. Implementation Specialist" /></label>
+              <label className="block text-sm font-semibold text-slate-700">Rubric name<input className={fieldClass + " mt-1.5"} value={rubricTitle} onChange={(event) => { setRubricTitle(event.target.value); setSavedRubricId(""); }} placeholder="e.g. Implementation Specialist — v1" /></label>
             </div>
             <label className="block text-sm font-semibold text-slate-700">Job description used for scoring<textarea className={fieldClass + " mt-1.5 min-h-40 leading-6"} value={jobDescription} onChange={(event) => { setJobDescription(event.target.value); setSavedRubricId(""); }} placeholder="Generate a job description in the first tab or paste the approved job description here." /></label>
             {rubricMeta && <div className="flex flex-wrap gap-2"><MetaPill tone="good">Rubric generated</MetaPill><MetaPill>{rubricMeta.model}</MetaPill><MetaPill>{rubricMeta.latency_ms} ms</MetaPill></div>}
