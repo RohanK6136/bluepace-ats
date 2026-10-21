@@ -609,7 +609,20 @@ export default function AtsWorkspace() {
     let active = true;
     setDashboardLoading(true);
     apiRequest(token, "get", "/dashboard")
-      .then((response) => { if (active) setDashboardData(response.data); })
+      .then(async (response) => {
+        if (!active) return;
+        setDashboardData(response.data);
+        // Older backend deployments do not yet provide total_candidates. Fetch a
+        // bounded fallback so the dashboard does not incorrectly report zero.
+        if (response.data?.metrics?.total_candidates == null) {
+          try {
+            const candidateResponse = await apiRequest(token, "get", "/candidates", { params: { limit: 100 } });
+            if (active) setCandidates(candidateResponse.data || []);
+          } catch (candidateError) {
+            if (active) setError(errorText(candidateError));
+          }
+        }
+      })
       .catch((requestError) => { if (active) setError(errorText(requestError)); })
       .finally(() => { if (active) setDashboardLoading(false); });
     return () => { active = false; };
@@ -1553,7 +1566,7 @@ export default function AtsWorkspace() {
                 </button>
                 <button type="button" className="bp-metric-card" onClick={() => setView("candidates")}>
                   <span className="bp-metric-label">Candidate database</span>
-                  <strong>{dashboardData.metrics?.total_candidates ?? 0}</strong>
+                  <strong>{dashboardData.metrics?.total_candidates ?? (candidates.length >= 100 ? "100+" : candidates.length)}</strong>
                   <small>Profiles available to your team</small>
                 </button>
                 <div className="bp-metric-card">
@@ -1563,7 +1576,7 @@ export default function AtsWorkspace() {
                 </div>
                 <button type="button" className="bp-metric-card" onClick={() => setView("interviews-2")}>
                   <span className="bp-metric-label">Upcoming interviews</span>
-                  <strong>{dashboardData.metrics?.upcoming_interviews_count ?? dashboardData.upcoming_interviews?.length ?? 0}</strong>
+                  <strong>{dashboardData.metrics?.upcoming_interviews_count ?? ((dashboardData.upcoming_interviews?.length ?? 0) >= 12 ? "12+" : dashboardData.upcoming_interviews?.length ?? 0)}</strong>
                   <small>Scheduled candidate meetings</small>
                 </button>
               </section>
