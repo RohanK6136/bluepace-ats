@@ -303,3 +303,90 @@ def test_unlabelled_inline_email_and_phone_are_redacted():
 
     assert "aisha.khan@example.com" not in repr(redacted)
     assert "98765 43210" not in repr(redacted)
+
+
+
+def test_rubric_content_hash_is_stable_and_tracks_content():
+    from app.routers.ai_hiring_studio import _rubric_content_hash
+
+    rubric = {"title": "Platform Engineer", "criteria": [{"name": "Python", "weight": 100}]}
+    first = _rubric_content_hash("Platform Engineer", "Platform Engineer", rubric)
+    repeat = _rubric_content_hash("Platform Engineer", "Platform Engineer", rubric)
+    changed = _rubric_content_hash(
+        "Platform Engineer", "Platform Engineer",
+        {"title": "Platform Engineer", "criteria": [{"name": "Python", "weight": 90}]},
+    )
+    assert first == repeat
+    assert len(first) == 64
+    assert first != changed
+
+
+def test_saving_rubric_edit_creates_next_immutable_version():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from app.routers.ai_hiring_studio import (
+        AIHiringRubric, SavedRubricRequest, update_saved_rubric, _rubric_content_hash,
+    )
+
+    original_rubric = {
+        "title": "Platform Engineer",
+        "criteria": [{"name": "Python", "weight": 100, "required": True}],
+        "total_weight": 100,
+    }
+    now = datetime.now(timezone.utc)
+    original = AIHiringRubric(
+        id=1, rubric_id="rubric-version-one", organization_id=7, user_id=8,
+        title="Platform Engineer", job_title="Platform Engineer", rubric_data=original_rubric,
+        family_id="rubric-family-one", version=1,
+        content_hash=_rubric_content_hash("Platform Engineer", "Platform Engineer", original_rubric),
+        created_at=now, updated_at=now,
+    )
+
+    class FakeDatabase:
+        def __init__(self):
+            self.added, self.scalar_calls, self.commits = [], 0, 0
+
+        def scalar(self, _query):
+            self.scalar_calls += 1
+            return original if self.scalar_calls == 1 else 1
+
+        def add(self, value):
+            self.added.append(value)
+
+        def commit(self):
+            self.commits += 1
+
+        def refresh(self, _value):
+            pass
+
+    db = FakeDatabase()
+    user = SimpleNamespace(id=9, organization_id=7)
+    request = SavedRubricRequest(
+        title="Platform Engineer",
+        job_title="Platform Engineer",
+        rubric={
+            "title": "Platform Engineer",
+            "criteria": [
+                {"name": "Python", "weight": 70, "required": True},
+                {"name": "REST APIs", "weight": 30, "required": True},
+            ],
+        },
+    )
+    saved = update_saved_rubric("rubric-version-one", request, user, db)
+    assert len(db.added) == 1
+    newer = db.added[0]
+    assert newer.rubric_id != original.rubric_id
+    assert newer.family_id == original.family_id
+    assert newer.version == 2
+    assert newer.content_hash != original.content_hash
+    assert newer.rubric_data == saved["rubric"]
+    assert saved["rubric_id"] == newer.rubric_id
+    assert saved["version"] == 2
+    assert saved["family_id"] == "rubric-family-one"
+    assert original.version == 1
+    assert original.rubric_data == original_rubric
+    assert original.content_hash == _rubric_content_hash(
+        "Platform Engineer", "Platform Engineer", original_rubric
+    )
+    assert db.commits == 1
