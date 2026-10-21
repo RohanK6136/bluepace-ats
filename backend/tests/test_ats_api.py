@@ -547,6 +547,40 @@ def test_public_jobs_and_resume_application(client, monkeypatch):
     assert matches.json() == []
 
 
+def test_demo_jobs_are_never_public_or_accept_applications(client, monkeypatch):
+    monkeypatch.setenv("PUBLIC_ORGANIZATION_ID", "1")
+    headers = register_and_login(
+        client, email="demo-guard-owner@example.com", organization="Demo Guard ATS"
+    )
+    created = client.post(
+        "/jobs",
+        json={
+            "title": "[DEMO] Synthetic Platform Engineer",
+            "description": (
+                "DEMO DATA — A synthetic role for internal testing. "
+                "This synthetic job remains in draft and is not publicly advertised."
+            ),
+            # Simulate a legacy demo record that was incorrectly promoted to open.
+            "status": "open",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    job_id = created.json()["id"]
+
+    public_jobs = client.get("/public/jobs")
+    assert public_jobs.status_code == 200
+    assert all(job["id"] != job_id for job in public_jobs.json())
+
+    rejected = client.post(
+        f"/public/jobs/{job_id}/apply",
+        data={"full_name": "Sample Applicant", "email": "sample.applicant@example.com"},
+        files={"file": ("resume.pdf", b"not-read-for-a-private-demo-job", "application/pdf")},
+    )
+    assert rejected.status_code == 404
+    assert rejected.json()["detail"] == "Open job not found"
+
+
 def test_job_crud_requires_auth_and_round_trips(client):
     assert client.get("/jobs").status_code == 401
     headers = register_and_login(client)
