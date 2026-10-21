@@ -33,14 +33,16 @@ _SENSITIVE_RESUME_KEYS = frozenset({
     "dob", "birthdate", "age", "ageyears", "gender", "sex", "nationality", "citizenship",
     "nationalorigin", "race", "ethnicity", "religion", "disability", "maritalstatus",
     "familystatus", "photograph", "photo", "profilepicture", "headshot", "personaldetails",
-    "contactdetails", "contactinformation", "personalinfo", "currentlocation", "homelocation",
+    "contactdetails", "contactinformation", "personalinfo", "personalinformation",
+    "currentlocation", "homelocation",
 })
 _RESUME_NAME_KEYS = frozenset({
     "name", "fullname", "firstname", "middlename", "lastname", "givenname", "familyname",
     "candidatename", "displayname",
 })
 _RESUME_PRIVATE_CONTAINERS = frozenset({
-    "personaldetails", "contactdetails", "contactinformation", "personalinfo",
+    "personaldetails", "personalinformation", "contactdetails", "contactinformation",
+    "personalinfo", "candidate", "candidateprofile", "profile", "person", "personal", "contact",
 })
 
 
@@ -60,8 +62,8 @@ def _redact_resume_pii(resume_data: dict[str, Any]) -> dict[str, Any]:
 
     candidate_names: list[str] = []
 
-    def collect_names(value: Any, allow_personal_container: bool = True) -> None:
-        if not isinstance(value, dict):
+    def collect_names(value: Any, depth: int = 0) -> None:
+        if not isinstance(value, dict) or depth > 4:
             return
         for key, item in value.items():
             token = _resume_key_token(key)
@@ -69,8 +71,8 @@ def _redact_resume_pii(resume_data: dict[str, Any]) -> dict[str, Any]:
                 cleaned_name = item.strip()
                 if len(cleaned_name) >= 2:
                     candidate_names.append(cleaned_name)
-            elif allow_personal_container and token in _RESUME_PRIVATE_CONTAINERS:
-                collect_names(item, allow_personal_container=False)
+            elif token in _RESUME_PRIVATE_CONTAINERS:
+                collect_names(item, depth + 1)
 
     collect_names(resume_data)
 
