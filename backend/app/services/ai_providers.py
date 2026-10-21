@@ -18,7 +18,7 @@ PROVIDER_LABELS = {
 }
 DEFAULT_MODELS = {
     "openrouter": "openrouter/free", "openai": "gpt-5.4",
-    "claude": "claude-sonnet-4-6", "deepseek": "deepseek-chat",
+    "claude": "claude-sonnet-4-6", "deepseek": "deepseek-v4-flash",
     "cloudflare": "@cf/qwen/qwen3.8-27b", "ollama": "qwen3.5:4b",
 }
 KEY_ENV = {

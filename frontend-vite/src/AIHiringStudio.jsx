@@ -6,7 +6,7 @@ const PROVIDER_OPTIONS = [
   { id: "openrouter", label: "OpenRouter", defaultModel: "openrouter/free", keyPlaceholder: "sk-or-v1-…" },
   { id: "openai", label: "OpenAI / ChatGPT API", defaultModel: "gpt-5.4", keyPlaceholder: "OpenAI API key" },
   { id: "claude", label: "Claude (Anthropic)", defaultModel: "claude-sonnet-4-6", keyPlaceholder: "Anthropic API key" },
-  { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-chat", keyPlaceholder: "DeepSeek API key" },
+  { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-v4-flash", keyPlaceholder: "DeepSeek API key" },
   { id: "cloudflare", label: "Cloudflare Workers AI", defaultModel: "@cf/qwen/qwen3.8-27b", keyPlaceholder: "Cloudflare API token" },
   { id: "ollama", label: "Local Ollama · Qwen 3.5", defaultModel: "qwen3.5:4b", keyPlaceholder: "", baseUrl: "http://localhost:11434/v1" },
 ];
