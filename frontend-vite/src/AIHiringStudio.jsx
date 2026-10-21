@@ -787,9 +787,8 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     return bScore - aScore;
   });
   const readyResumeCount = resumeBatch.filter((item) => item.resumeData && !item.analysis && item.status !== "analyzing").length;
-  const providerKeyMissing = provider !== "ollama" && serverKeyConfigured === false && !apiKey.trim();
   const cloudflareAccountMissing = provider === "cloudflare" && serverAccountIdConfigured === false && !accountId.trim();
-  const providerSetupMissing = providerKeyMissing || cloudflareAccountMissing;
+  const providerSetupMissing = cloudflareAccountMissing;
 
   return (
     <div className="space-y-5 pb-10">
@@ -805,7 +804,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => { setTab(item.id); setError(""); }} className={"whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition " + (tab === item.id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100")}>{item.label}</button>)}
         </div>
         {(error || notice) && <div className="px-5 pt-4 sm:px-7">{error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : <div role="status" className={"rounded-lg border px-4 py-3 text-sm " + (notice.startsWith("No AI provider key is configured") ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>{notice}</div>}</div>}
-        {providerSetupMissing && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong>{" "}{providerKeyMissing && <>No shared {selectedProvider.label} API key is configured. Enter one in AI settings for this tab, or configure <code>{selectedProvider.keyEnvVar}</code> in Railway backend variables.</>}{cloudflareAccountMissing && <> Cloudflare Workers AI also requires an Account ID. Enter it in AI settings or configure <code>CLOUDFLARE_ACCOUNT_ID</code> on the backend.</>}</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
+        {providerSetupMissing && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong>{" "}{cloudflareAccountMissing && <>Cloudflare Workers AI requires an Account ID. Enter it in AI settings or configure <code>CLOUDFLARE_ACCOUNT_ID</code> on the backend.</>}</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
 
         <div className="p-5 sm:p-7">
           {tab === "generate" && <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
