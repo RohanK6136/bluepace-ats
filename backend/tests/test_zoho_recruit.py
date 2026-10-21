@@ -54,8 +54,9 @@ class FakeWebhookRequest:
         self.query_params = query or {}
         self.headers = headers or {}
 
-    async def json(self):
-        return self.payload
+    async def body(self):
+        import json
+        return json.dumps(self.payload).encode("utf-8")
 
 
 def test_webhook_rejects_when_secret_not_configured(monkeypatch):
