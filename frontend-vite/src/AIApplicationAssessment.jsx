@@ -408,7 +408,14 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
       setProgress({ completed: ordinal, total: indices.length, message: "Assessing " + label(item.index) + "…" });
       try {
         const response = await apiRequest(token, "post", "/ai-hiring/analyze-resume", {
-          data: { ...credentials(), resume_data: item.resumeData, rubric: final }, timeout: 90000,
+          data: {
+            ...credentials(),
+            resume_data: item.resumeData,
+            rubric: final,
+            saved_rubric_id: selectedSavedRubric.rubric_id,
+            saved_rubric_version: selectedSavedRubric.version,
+            saved_rubric_sha256: selectedSavedRubric.content_sha256,
+          }, timeout: 90000,
         });
         const result = response.data || {};
         queue[i] = { ...item, analysis: result.analysis || null, status: result.analysis ? "scored" : "score_error", error: result.analysis ? "" : "No assessment result returned.", latencyMs: result.latency_ms ?? null };
