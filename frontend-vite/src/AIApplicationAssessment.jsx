@@ -82,8 +82,8 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
     try {
       const saved = JSON.parse(sessionStorage.getItem(SAVE_KEY) || "null");
       if (saved) {
-        setJobDescription(String(saved.jobDescription || ""));
-        setJobTitle(String(saved.jobTitle || ""));
+        if (!String(initialJobDescription || "").trim()) setJobDescription(String(saved.jobDescription || ""));
+        if (!String(initialJobTitle || "").trim()) setJobTitle(String(saved.jobTitle || ""));
         setRequiredYears(saved.requiredYears == null ? "" : String(saved.requiredYears));
         setEducation(saved.education || "Not required");
         setEquivalentExperience(typeof saved.equivalentExperience === "boolean" ? saved.equivalentExperience : true);
