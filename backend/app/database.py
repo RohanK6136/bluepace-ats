@@ -1,0 +1,418 @@
+import hashlib
+import json
+import os
+
+from dotenv import load_dotenv
+from sqlalchemy import Integer, create_engine, event, inspect, text
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.schema import CreateColumn
+
+load_dotenv()
+
+APP_ENV = os.getenv("APP_ENV", "development")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bluepace_ats.db")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+ALLOW_PERSISTENT_SQLITE = os.getenv("ALLOW_PERSISTENT_SQLITE", "").strip().lower() == "true"
+if (
+    APP_ENV not in {"development", "test"}
+    and DATABASE_URL.startswith("sqlite")
+    and not ALLOW_PERSISTENT_SQLITE
+):
+    raise RuntimeError("DATABASE_URL must point to PostgreSQL outside development and test environments")
+
+if APP_ENV not in {"development", "test"} and DATABASE_URL.startswith("sqlite") and ALLOW_PERSISTENT_SQLITE:
+    print(
+        "WARNING: Persistent SQLite is explicitly enabled. Use a single replica and "
+        "a mounted persistent volume; PostgreSQL is recommended for multi-replica production.",
+        flush=True,
+    )
+
+engine_options = {"pool_pre_ping": True}
+if DATABASE_URL.startswith("sqlite"):
+    engine_options["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **engine_options)
+if DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def enable_sqlite_foreign_keys(connection, _record):
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def initialize_database():
+    from app import models
+
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    Base.metadata.create_all(bind=engine)
+    upgrade_phase1_columns(engine)
+    upgrade_phase2_columns(engine)
+    upgrade_phase3_columns(engine)
+    upgrade_phase4_columns(engine)
+    upgrade_phase5_columns(engine)
+    upgrade_phase6_columns(engine)
+    upgrade_phase7_columns(engine)
+    upgrade_phase8_columns(engine)
+    upgrade_phase9_columns(engine)
+    upgrade_phase10_columns(engine)
+    upgrade_phase11_job_experience_precision(engine)
+    upgrade_phase12_ai_hiring_rubric_versions(engine)
+
+
+def upgrade_phase1_columns(target_engine):
+    from app.models import Application, Candidate, Email
+
+    additions = {
+        "candidates": [Candidate.__table__.c.resume_data],
+        "applications": [Application.__table__.c.updated_at],
+        "emails": [Email.__table__.c.error_message],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+
+def upgrade_phase2_columns(target_engine):
+    from app.models import Candidate, Job
+
+    additions = {
+        "jobs": [Job.__table__.c.jd_analysis, Job.__table__.c.embedding],
+        "candidates": [Candidate.__table__.c.cv_summary],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+
+def upgrade_phase3_columns(target_engine):
+    from app.models import Job
+
+    additions = {
+        "jobs": [
+            Job.__table__.c.required_skills,
+            Job.__table__.c.minimum_experience_years,
+            Job.__table__.c.fresher_allowed,
+        ],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+def upgrade_phase4_columns(target_engine):
+    from app.models import Interview, Job
+
+    additions = {
+        "jobs": [Job.__table__.c.work_mode],
+        "interviews": [Interview.__table__.c.mode, Interview.__table__.c.location],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+def upgrade_phase5_columns(target_engine):
+    from app.models import Interview, Organization
+
+    additions = {
+        "organizations": [Organization.__table__.c.email_templates],
+        "interviews": [
+            Interview.__table__.c.reminder_24_sent,
+            Interview.__table__.c.reminder_1h_sent,
+        ],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+
+def upgrade_phase6_columns(target_engine):
+    from app.models import Interview
+
+    additions = {
+        "interviews": [
+            Interview.__table__.c.round_name,
+            Interview.__table__.c.round_type,
+            Interview.__table__.c.round_number,
+        ],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+def upgrade_phase7_columns(target_engine):
+    from app.models import Candidate
+
+    additions = {
+        "candidates": [
+            Candidate.__table__.c.tags,
+            Candidate.__table__.c.archived,
+            Candidate.__table__.c.merged_into_id,
+        ],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+        # Existing candidate rows predate ATS 2.1 fields. Normalize NULLs after
+        # adding the columns so response models receive stable values.
+        if "archived" in {column["name"] for column in inspect(connection).get_columns("candidates")}:
+            connection.execute(text("UPDATE candidates SET archived = FALSE WHERE archived IS NULL"))
+        if "tags" in {column["name"] for column in inspect(connection).get_columns("candidates")}:
+            connection.execute(text("UPDATE candidates SET tags = '[]' WHERE tags IS NULL"))
+
+
+def upgrade_phase8_columns(target_engine):
+    from app.models import Application as ApplicationModel, Candidate, CandidateDocument, Interview, Offer, AutomationRule, User
+
+    additions = {
+        "users": [User.__table__.c.failed_login_attempts, User.__table__.c.locked_until],
+        "applications": [ApplicationModel.__table__.c.assigned_interviewer_id],
+        "candidates": [
+            Candidate.__table__.c.owner_id,
+            Candidate.__table__.c.starred,
+            Candidate.__table__.c.needs_review,
+            Candidate.__table__.c.priority,
+        ],
+        "interviews": [
+            Interview.__table__.c.feedback_deadline,
+            Interview.__table__.c.cancellation_reason,
+        ],
+        "offers": [
+            Offer.__table__.c.ctc_breakdown,
+            Offer.__table__.c.benefits,
+            Offer.__table__.c.probation_period,
+            Offer.__table__.c.approved_by_id,
+            Offer.__table__.c.approved_at,
+            Offer.__table__.c.sent_at,
+            Offer.__table__.c.viewed_at,
+            Offer.__table__.c.responded_at,
+            Offer.__table__.c.expires_at,
+            Offer.__table__.c.revision,
+        ],
+        "automation_rules": [AutomationRule.__table__.c.action_value],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+
+
+def upgrade_phase10_columns(target_engine):
+    from app.models import ResumeProcessingJob
+
+    additions = {
+        "resume_processing_jobs": [
+            ResumeProcessingJob.__table__.c.candidate_id,
+            ResumeProcessingJob.__table__.c.application_id,
+        ],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+
+def upgrade_phase9_columns(target_engine):
+    from app.models import Email
+
+    additions = {
+        "emails": [
+            Email.__table__.c.attachment_filename,
+            Email.__table__.c.attachment_content,
+            Email.__table__.c.attachment_content_type,
+        ],
+    }
+    with target_engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+        for table_name, columns in additions.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
+            for column in columns:
+                if column.name in existing_columns:
+                    continue
+                definition = str(CreateColumn(column).compile(dialect=target_engine.dialect))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {definition}"))
+                existing_columns.add(column.name)
+
+
+def upgrade_phase11_job_experience_precision(target_engine):
+    """Upgrade existing PostgreSQL jobs to store fractional experience years."""
+    if target_engine.dialect.name != "postgresql":
+        # SQLite's INTEGER affinity can store non-integral REAL values; model
+        # reads and writes use SQLAlchemy Float after this application version.
+        return
+
+    with target_engine.begin() as connection:
+        inspector = inspect(connection)
+        if "jobs" not in set(inspector.get_table_names()):
+            return
+        experience_column = next(
+            (
+                column
+                for column in inspector.get_columns("jobs")
+                if column["name"] == "minimum_experience_years"
+            ),
+            None,
+        )
+        if experience_column is not None and isinstance(experience_column["type"], Integer):
+            connection.execute(
+                text(
+                    "ALTER TABLE jobs "
+                    "ALTER COLUMN minimum_experience_years TYPE DOUBLE PRECISION "
+                    "USING minimum_experience_years::double precision"
+                )
+            )
+
+def upgrade_phase12_ai_hiring_rubric_versions(target_engine):
+    """Add immutable family/version/hash metadata to existing saved AI rubrics."""
+    with target_engine.begin() as connection:
+        if "ai_hiring_rubrics" not in set(inspect(connection).get_table_names()):
+            return
+        existing_columns = {
+            column["name"] for column in inspect(connection).get_columns("ai_hiring_rubrics")
+        }
+        additions = {
+            "family_id": "VARCHAR(36)",
+            "version": "INTEGER NOT NULL DEFAULT 1",
+            "content_hash": "VARCHAR(64)",
+        }
+        for column_name, definition in additions.items():
+            if column_name not in existing_columns:
+                connection.execute(text(
+                    f"ALTER TABLE ai_hiring_rubrics ADD COLUMN {column_name} {definition}"
+                ))
+                existing_columns.add(column_name)
+
+        rows = connection.execute(text(
+            "SELECT rubric_id, title, job_title, rubric_data, family_id, version, content_hash "
+            "FROM ai_hiring_rubrics"
+        )).mappings().all()
+
+        for row in rows:
+            rubric_data = row["rubric_data"]
+            if isinstance(rubric_data, str):
+                try:
+                    rubric_data = json.loads(rubric_data)
+                except (TypeError, ValueError):
+                    rubric_data = {}
+            if not isinstance(rubric_data, dict):
+                rubric_data = {}
+            title = str(row["title"] or "").strip()
+            job_title = str(row["job_title"] or "").strip()
+            family_id = row["family_id"] or row["rubric_id"]
+            version = int(row["version"] or 1)
+            content_hash = row["content_hash"] or hashlib.sha256(json.dumps(
+                {"title": title, "job_title": job_title, "rubric": rubric_data},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str,
+            ).encode("utf-8")).hexdigest()
+            if row["family_id"] != family_id or row["version"] != version or row["content_hash"] != content_hash:
+                connection.execute(text(
+                    "UPDATE ai_hiring_rubrics SET family_id = :family_id, version = :version, "
+                    "content_hash = :content_hash WHERE rubric_id = :rubric_id"
+                ), {
+                    "family_id": family_id, "version": version,
+                    "content_hash": content_hash, "rubric_id": row["rubric_id"],
+                })
+
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_hiring_rubrics_family_version "
+            "ON ai_hiring_rubrics (family_id, version)"
+        ))

@@ -1,0 +1,74 @@
+name: Deploy frontend to Vercel
+
+# Ships the Vite frontend to Vercel on every push to main.
+#
+# This workflow stays quiet until it is configured: if the VERCEL_TOKEN secret
+# is not present, the deploy job is skipped and the run succeeds.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   VERCEL_TOKEN       - a Vercel personal access token
+#   VERCEL_ORG_ID      - from `vercel link` (or the project's .vercel/project.json)
+#   VERCEL_PROJECT_ID  - from `vercel link` (or the project's .vercel/project.json)
+#
+# Note: if the Vercel project is connected to this repo in the Vercel dashboard
+# instead (Settings -> Git), Vercel deploys on its own and this file is redundant.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend-vite/**"
+      - ".github/workflows/deploy-vercel.yml"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+    steps:
+      - id: gate
+        env:
+          TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "VERCEL_TOKEN is not configured - skipping Vercel deploy."
+          fi
+
+  deploy:
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend-vite/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend-vite
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+
+      - name: Pull Vercel project settings
+        working-directory: frontend-vite
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        working-directory: frontend-vite
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to production
+        working-directory: frontend-vite
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
