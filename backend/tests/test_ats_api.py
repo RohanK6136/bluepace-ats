@@ -143,6 +143,46 @@ def test_health_endpoint(client):
     assert response.json() == {"status": "ok"}
     assert float(response.headers["x-process-time-ms"]) >= 0
 
+
+def test_dashboard_candidate_count_is_scoped_and_matches_default_candidate_list(client):
+    primary_headers = register_and_login(
+        client, "primary-owner@example.com", "Primary Recruiting"
+    )
+    for first_name, email in [
+        ("Casey", "casey.dashboard@example.com"),
+        ("Morgan", "morgan.dashboard@example.com"),
+    ]:
+        created = client.post(
+            "/candidates",
+            json={"first_name": first_name, "last_name": "Candidate", "email": email},
+            headers=primary_headers,
+        )
+        assert created.status_code == 201
+
+    other_headers = register_and_login(
+        client, "other-owner@example.com", "Other Recruiting"
+    )
+    other_candidate = client.post(
+        "/candidates",
+        json={
+            "first_name": "Taylor",
+            "last_name": "OtherOrg",
+            "email": "taylor.otherorg@example.com",
+        },
+        headers=other_headers,
+    )
+    assert other_candidate.status_code == 201
+
+    visible_candidates = client.get("/candidates", headers=primary_headers)
+    assert visible_candidates.status_code == 200
+    dashboard = client.get("/dashboard", headers=primary_headers)
+    assert dashboard.status_code == 200
+    assert dashboard.json()["metrics"]["total_candidates"] == len(visible_candidates.json()) == 2
+
+    other_dashboard = client.get("/dashboard", headers=other_headers)
+    assert other_dashboard.status_code == 200
+    assert other_dashboard.json()["metrics"]["total_candidates"] == 1
+
 def test_email_delivery_is_disabled_and_test_send_is_rejected(client):
     headers = register_and_login(client)
 
