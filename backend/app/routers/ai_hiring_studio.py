@@ -524,6 +524,13 @@ def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_r
             "privacy_redaction_applied": True, "analysis": result}
 
 
+def _validated_saved_rubric(value: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return _normalize_rubric_result(dict(value))
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+
+
 def _saved_rubric_payload(item: SavedAssessmentRubric) -> dict[str, Any]:
     return {
         "rubric_id": item.rubric_id,
@@ -549,7 +556,7 @@ def list_saved_rubrics(user: User = Depends(require_roles(*WRITE_ROLES)), db: Se
 
 @router.post("/rubrics")
 def create_saved_rubric(request: SavedRubricRequest, user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
-    normalized = _normalize_rubric_result(dict(request.rubric))
+    normalized = _validated_saved_rubric(request.rubric)
     item = SavedAssessmentRubric(
         rubric_id=str(uuid4()),
         organization_id=user.organization_id,
@@ -579,7 +586,7 @@ def update_saved_rubric(rubric_id: str, request: SavedRubricRequest,
     item.title = request.title.strip() or "Assessment rubric"
     item.job_title = request.job_title.strip() or "Assessment rubric"
     item.job_description = request.job_description.strip()[:MAX_TEXT_CHARS]
-    item.rubric = _normalize_rubric_result(dict(request.rubric))
+    item.rubric = _validated_saved_rubric(request.rubric)
     item.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(item)
