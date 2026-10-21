@@ -41,8 +41,9 @@ function Metric({ label, value }) {
   return <div className="rounded-xl border border-slate-200 bg-white px-4 py-3"><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 text-xl font-semibold text-slate-900">{value}</p></div>;
 }
 
-export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }) {
-  const [tab, setTab] = useState("generate");
+export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved, initialTab = "generate" }) {
+  const availableTabs = ["generate", "rubric", "assessment", "resume", "history", "settings"];
+  const [tab, setTab] = useState(() => availableTabs.includes(initialTab) ? initialTab : "generate");
   const [apiKey, setApiKey] = useState(() => {
     try { return sessionStorage.getItem("bluepace_openrouter_key") || ""; } catch { return ""; }
   });
