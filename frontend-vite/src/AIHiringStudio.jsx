@@ -3,11 +3,11 @@ import { useEffect, useState } from "react";
 const DEFAULT_MODEL = "openrouter/free";
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const PROVIDER_OPTIONS = [
-  { id: "openrouter", label: "OpenRouter", defaultModel: "openrouter/free", keyPlaceholder: "sk-or-v1-…" },
-  { id: "openai", label: "OpenAI / ChatGPT API", defaultModel: "gpt-5.4", keyPlaceholder: "OpenAI API key" },
-  { id: "claude", label: "Claude (Anthropic)", defaultModel: "claude-sonnet-4-6", keyPlaceholder: "Anthropic API key" },
-  { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-flash", keyPlaceholder: "DeepSeek API key" },
-  { id: "cloudflare", label: "Cloudflare Workers AI", defaultModel: "@cf/qwen/qwen3.8-27b", keyPlaceholder: "Cloudflare API token" },
+  { id: "openrouter", label: "OpenRouter", defaultModel: "openrouter/free", keyPlaceholder: "sk-or-v1-…", keyEnvVar: "OPENROUTER_API_KEY" },
+  { id: "openai", label: "OpenAI / ChatGPT API", defaultModel: "gpt-5.4", keyPlaceholder: "OpenAI API key", keyEnvVar: "OPENAI_API_KEY" },
+  { id: "claude", label: "Claude (Anthropic)", defaultModel: "claude-sonnet-4-6", keyPlaceholder: "Anthropic API key", keyEnvVar: "ANTHROPIC_API_KEY (or CLAUDE_API_KEY)" },
+  { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-flash", keyPlaceholder: "DeepSeek API key", keyEnvVar: "DEEPSEEK_API_KEY" },
+  { id: "cloudflare", label: "Cloudflare Workers AI", defaultModel: "@cf/qwen/qwen3.8-27b", keyPlaceholder: "Cloudflare API token", keyEnvVar: "CLOUDFLARE_API_TOKEN" },
   { id: "ollama", label: "Local Ollama · Qwen 3.5", defaultModel: "qwen3.5:4b", keyPlaceholder: "", baseUrl: "http://localhost:11434/v1" },
 ];
 const PROVIDER_BY_ID = Object.fromEntries(PROVIDER_OPTIONS.map((item) => [item.id, item]));
@@ -73,6 +73,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   const [accountId, setAccountId] = useState(() => readSessionValue("bluepace_ai_cloudflare_account_id"));
   const [connection, setConnection] = useState(null);
   const [serverKeyConfigured, setServerKeyConfigured] = useState(null);
+  const [serverAccountIdConfigured, setServerAccountIdConfigured] = useState(null);
   const [sourceText, setSourceText] = useState("");
   const [selectedJobId, setSelectedJobId] = useState("");
   const [mode, setMode] = useState("detailed");
@@ -137,6 +138,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         ? readSessionValue("bluepace_openrouter_model") : next.defaultModel));
     if (nextProvider === "ollama") setBaseUrl(readSessionValue("bluepace_ai_ollama_base_url") || next.baseUrl);
     if (nextProvider === "cloudflare") setAccountId(readSessionValue("bluepace_ai_cloudflare_account_id"));
+    setServerKeyConfigured(null); setServerAccountIdConfigured(null);
     setConnection(null); setError(""); setNotice("");
   }
 
@@ -584,10 +586,17 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     let active = true;
     apiRequest(token, "get", "/ai-hiring/status?provider=" + encodeURIComponent(provider))
       .then((response) => {
-        if (active) setServerKeyConfigured(Boolean(response.data?.server_key_configured));
+        if (!active) return;
+        const keyStatus = response.data?.server_key_configured;
+        setServerKeyConfigured(typeof keyStatus === "boolean" ? keyStatus : null);
+        const accountStatus = response.data?.account_id_configured;
+        setServerAccountIdConfigured(typeof accountStatus === "boolean" ? accountStatus : null);
       })
       .catch(() => {
-        if (active) setServerKeyConfigured(null);
+        if (active) {
+          setServerKeyConfigured(null);
+          setServerAccountIdConfigured(null);
+        }
       });
     return () => { active = false; };
   }, [provider, token, apiRequest]);
@@ -611,6 +620,9 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     return bScore - aScore;
   });
   const readyResumeCount = resumeBatch.filter((item) => item.resumeData && !item.analysis && item.status !== "analyzing").length;
+  const providerKeyMissing = provider !== "ollama" && serverKeyConfigured === false && !apiKey.trim();
+  const cloudflareAccountMissing = provider === "cloudflare" && serverAccountIdConfigured === false && !accountId.trim();
+  const providerSetupMissing = providerKeyMissing || cloudflareAccountMissing;
 
   return (
     <div className="space-y-5 pb-10">
@@ -626,7 +638,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => { setTab(item.id); setError(""); }} className={"whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition " + (tab === item.id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100")}>{item.label}</button>)}
         </div>
         {(error || notice) && <div className="px-5 pt-4 sm:px-7">{error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div>}</div>}
-        {provider === "openrouter" && serverKeyConfigured === false && !apiKey.trim() && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong> No shared OpenRouter key is configured on the backend. Enter a key in Settings for this tab, or configure <code>OPENROUTER_API_KEY</code> in Railway backend variables.</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
+        {providerSetupMissing && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong>{" "}{providerKeyMissing && <>No shared {selectedProvider.label} API key is configured. Enter one in AI settings for this tab, or configure <code>{selectedProvider.keyEnvVar}</code> in Railway backend variables.</>}{cloudflareAccountMissing && <> Cloudflare Workers AI also requires an Account ID. Enter it in AI settings or configure <code>CLOUDFLARE_ACCOUNT_ID</code> on the backend.</>}</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
 
         <div className="p-5 sm:p-7">
           {tab === "generate" && <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -678,7 +690,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           </div>}
 
           {tab === "settings" && <div className="mx-auto max-w-2xl space-y-5">
-            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Configuration</p><h3 className="mt-1 text-lg font-semibold text-slate-900">AI provider connection</h3><p className="mt-1 text-sm leading-6 text-slate-500">Choose a provider for JD generation, rubric building and resume assessment. Keys stay in this browser tab session and are sent to the backend over HTTPS; they are excluded from AI run history.</p><div className="mt-3 flex flex-wrap items-center gap-2">{serverKeyConfigured === true ? <MetaPill tone="good">Backend key configured</MetaPill> : serverKeyConfigured === false ? <MetaPill tone="warn">Backend key not configured</MetaPill> : <MetaPill>Configuration status unavailable</MetaPill>}<MetaPill>{selectedProvider.label}</MetaPill><MetaPill>{model.trim() || selectedProvider.defaultModel}</MetaPill></div></div>
+            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Configuration</p><h3 className="mt-1 text-lg font-semibold text-slate-900">AI provider connection</h3><p className="mt-1 text-sm leading-6 text-slate-500">Choose a provider for JD generation, rubric building and resume assessment. Keys stay in this browser tab session and are sent to the backend over HTTPS; they are excluded from AI run history.</p><div className="mt-3 flex flex-wrap items-center gap-2">{provider === "ollama" ? <MetaPill tone="good">No API key required</MetaPill> : serverKeyConfigured === true ? <MetaPill tone="good">Backend key configured</MetaPill> : serverKeyConfigured === false ? <MetaPill tone="warn">Backend key not configured</MetaPill> : <MetaPill>Configuration status unavailable</MetaPill>}{provider === "cloudflare" && <MetaPill tone={accountId.trim() || serverAccountIdConfigured === true ? "good" : "warn"}>Account ID: {accountId.trim() ? "entered" : serverAccountIdConfigured === true ? "configured on backend" : "required"}</MetaPill>}<MetaPill>{selectedProvider.label}</MetaPill><MetaPill>{model.trim() || selectedProvider.defaultModel}</MetaPill></div></div>
             <label className="block text-sm font-semibold text-slate-700">AI provider<select value={provider} onChange={(event) => changeProvider(event.target.value)} className={fieldClass + " mt-1.5"}>{PROVIDER_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
             {provider !== "ollama" && <label className="block text-sm font-semibold text-slate-700">{provider === "claude" ? "Anthropic API key" : provider === "cloudflare" ? "Cloudflare API token" : selectedProvider.label + " API key"}<input type="password" autoComplete="new-password" className={fieldClass + " mt-1.5 font-mono"} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnection(null); }} placeholder={selectedProvider.keyPlaceholder}/><span className="mt-1 block text-xs font-normal text-slate-500">Leave empty to use the matching backend environment variable.</span></label>}
             {provider === "cloudflare" && <label className="block text-sm font-semibold text-slate-700">Cloudflare Account ID<input className={fieldClass + " mt-1.5 font-mono"} value={accountId} onChange={(event) => { setAccountId(event.target.value); setConnection(null); }} placeholder="Cloudflare account ID" autoComplete="off"/><span className="mt-1 block text-xs font-normal text-slate-500">Required for the Workers AI account endpoint.</span></label>}
