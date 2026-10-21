@@ -531,6 +531,11 @@ def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_r
             raise HTTPException(409, "The saved rubric version or checksum changed. Reload the frozen rubric and retry.")
         submitted = _validated_saved_rubric(request.rubric)
         stored = _validated_saved_rubric(saved_rubric.rubric)
+        expected_checksum = _saved_rubric_checksum(
+            saved_rubric.title, saved_rubric.job_title, saved_rubric.job_description, saved_rubric.rubric
+        )
+        if not hmac.compare_digest(expected_checksum, saved_rubric.content_sha256):
+            raise HTTPException(409, "The stored rubric checksum is invalid. Do not score against this snapshot; contact an administrator.")
         canonical = lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
         if canonical(submitted) != canonical(stored):
             raise HTTPException(409, "The submitted rubric differs from its frozen version. Save a new version before scoring.")
