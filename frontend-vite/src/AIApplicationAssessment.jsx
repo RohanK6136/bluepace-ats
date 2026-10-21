@@ -47,6 +47,8 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
   const [equivalentExperience, setEquivalentExperience] = useState(true);
   const [rubric, setRubric] = useState(initialRubric);
   const [rubricMeta, setRubricMeta] = useState(null);
+  const [savedRubrics, setSavedRubrics] = useState([]);
+  const [selectedSavedRubricId, setSelectedSavedRubricId] = useState("");
   const [categoryWeightDrafts, setCategoryWeightDrafts] = useState({});
   const [candidates, setCandidates] = useState([]);
   const [busy, setBusy] = useState("");
@@ -108,26 +110,66 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
     setError("");
   }
 
-  function loadSavedRubric() {
-    setSourceMode("saved");
+  function applySavedRubric(saved) {
+    if (!saved?.rubric?.criteria?.length) return false;
+    setSelectedSavedRubricId(String(saved.rubric_id || ""));
+    setJobDescription(String(saved.job_description || saved.jobDescription || ""));
+    setJobTitle(String(saved.job_title || saved.jobTitle || ""));
+    const profile = saved.rubric?.role_profile || {};
+    setRequiredYears(
+      profile.required_years_overall != null
+        ? String(profile.required_years_overall)
+        : (saved.requiredYears == null ? "" : String(saved.requiredYears))
+    );
+    setEducation(String(profile.education_minimum || saved.education || "Not required"));
+    setEquivalentExperience(
+      typeof profile.equivalent_experience_accepted === "boolean"
+        ? profile.equivalent_experience_accepted
+        : (typeof saved.equivalentExperience === "boolean" ? saved.equivalentExperience : true)
+    );
+    setRubric(saved.rubric);
+    setRubricMeta(null);
+    onRubricChange?.(saved.rubric);
+    setNotice("Saved rubric loaded. Review the requirements before assessing a batch.");
     setError("");
+    return true;
+  }
+
+  async function loadSavedRubric() {
+    setSourceMode("saved");
+    setBusy("saved-rubrics");
+    setError("");
+    setNotice("");
     try {
-      const saved = JSON.parse(sessionStorage.getItem(SAVE_KEY) || "null");
-      if (!saved?.rubric?.criteria?.length) {
-        setNotice("No saved rubric exists in this browser tab session yet. Generate and save one first.");
-        return;
+      const response = await apiRequest(token, "get", "/ai-hiring/rubrics");
+      const items = Array.isArray(response.data?.rubrics) ? response.data.rubrics : [];
+      setSavedRubrics(items);
+      if (items.length) {
+        applySavedRubric(items[0]);
+      } else {
+        const local = JSON.parse(sessionStorage.getItem(SAVE_KEY) || "null");
+        if (local?.rubric?.criteria?.length) {
+          applySavedRubric(local);
+          setNotice("Loaded the browser-session draft. No organisation-saved rubrics exist yet; save this one to make it available to your team.");
+        } else {
+          setNotice("No saved rubrics yet. Build a rubric and choose Save rubric to create the first one.");
+        }
       }
-      setJobDescription(String(saved.jobDescription || ""));
-      setJobTitle(String(saved.jobTitle || ""));
-      setRequiredYears(saved.requiredYears == null ? "" : String(saved.requiredYears));
-      setEducation(saved.education || "Not required");
-      setEquivalentExperience(typeof saved.equivalentExperience === "boolean" ? saved.equivalentExperience : true);
-      setRubric(saved.rubric);
-      onRubricChange?.(saved.rubric);
-      setNotice("Saved rubric loaded from this browser tab session.");
-    } catch {
-      setNotice("Saved rubric could not be read. Generate a new rubric and save it again.");
+    } catch (requestError) {
+      setError(errorText(requestError));
+      try {
+        const local = JSON.parse(sessionStorage.getItem(SAVE_KEY) || "null");
+        if (local?.rubric?.criteria?.length) applySavedRubric(local);
+      } catch { /* Ignore stale session data. */ }
+    } finally {
+      setBusy("");
     }
+  }
+
+  function chooseSavedRubric(value) {
+    setSelectedSavedRubricId(value);
+    const saved = savedRubrics.find((item) => String(item.rubric_id) === String(value));
+    if (saved) applySavedRubric(saved);
   }
 
   function loadJob(value) {
@@ -216,10 +258,11 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
     });
   }
 
-  function saveRubric() {
+  async function saveRubric() {
     const saved = normalize(rubric);
     if (!saved) { setError("Enter positive criterion weights before saving the rubric."); return; }
     if (saved.criteria.some((item) => !item.name.trim())) { setError("Every criterion needs a requirement name."); return; }
+    if (jobDescription.trim().length < 10) { setError("A job description is required to save a reusable rubric."); return; }
     if (requiredYears !== "" && (!Number.isFinite(Number(requiredYears)) || Number(requiredYears) < 0 || Number(requiredYears) > 60)) {
       setError("Required experience must be between 0 and 60 years."); return;
     }
@@ -229,11 +272,35 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
       education_minimum: education,
       equivalent_experience_accepted: equivalentExperience,
     } };
-    setRubric(finalRubric); onRubricChange?.(finalRubric);
+    const body = {
+      title: jobTitle.trim() || finalRubric.title || "Assessment rubric",
+      job_title: jobTitle.trim() || finalRubric.title || "Assessment rubric",
+      job_description: jobDescription.trim(),
+      rubric: finalRubric,
+    };
+    setBusy("save-rubric");
+    setError("");
     try {
-      sessionStorage.setItem(SAVE_KEY, JSON.stringify({ jobDescription, jobTitle, requiredYears, education, equivalentExperience, rubric: finalRubric }));
-      setError(""); setNotice("Rubric saved for this browser tab session. Criterion weights were normalized to 100%.");
-    } catch { setError("Browser session storage is unavailable. The rubric remains in this page but could not be saved."); }
+      const response = selectedSavedRubricId
+        ? await apiRequest(token, "put", "/ai-hiring/rubrics/" + encodeURIComponent(selectedSavedRubricId), { data: body })
+        : await apiRequest(token, "post", "/ai-hiring/rubrics", { data: body });
+      const stored = response.data;
+      setSelectedSavedRubricId(String(stored.rubric_id));
+      setSavedRubrics((old) => [stored, ...old.filter((item) => String(item.rubric_id) !== String(stored.rubric_id))]);
+      setRubric(stored.rubric || finalRubric);
+      onRubricChange?.(stored.rubric || finalRubric);
+      try {
+        sessionStorage.setItem(SAVE_KEY, JSON.stringify({
+          jobDescription, jobTitle, requiredYears, education, equivalentExperience, rubric: stored.rubric || finalRubric,
+        }));
+      } catch { /* The backend save succeeded, so browser storage is only a convenience. */ }
+      setSourceMode("saved");
+      setNotice("Rubric saved to the organisation. It can be reopened from Saved rubric on another session.");
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setBusy("");
+    }
   }
 
   function addCriterion() {
@@ -346,6 +413,15 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
         <button type="button" role="tab" aria-selected={sourceMode === "saved"} className={sourceMode === "saved" ? primary : secondary} onClick={loadSavedRubric}>Saved rubric</button>
       </div>
       {sourceMode === "standardizer" && <p className="mt-3 text-xs leading-5 text-slate-500">{String(initialJobDescription || "").trim() ? "Using the current JD Standardizer output. You can edit the description below before generating the rubric." : "No generated JD is currently available from JD Standardizer. Generate one there, or switch to Paste a JD."}</p>}
+      {sourceMode === "saved" && <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <label className="block text-sm font-semibold text-slate-700">Saved rubric
+          <select className={field} value={selectedSavedRubricId} onChange={(event) => chooseSavedRubric(event.target.value)} disabled={!savedRubrics.length || Boolean(busy)}>
+            <option value="">{savedRubrics.length ? "Choose a saved rubric" : "No organisation rubrics saved yet"}</option>
+            {savedRubrics.map((item) => <option key={item.rubric_id} value={String(item.rubric_id)}>{item.title} · {item.job_title}</option>)}
+          </select>
+        </label>
+        <p className="mt-2 text-xs text-slate-500">{busy === "saved-rubrics" ? "Loading saved rubrics…" : savedRubrics.length + " organisation-saved rubric(s) available. Saving again updates the selected rubric."}</p>
+      </div>}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <label className="text-sm font-semibold text-slate-700">Use an existing ATS job<select className={field} value={jobId} onChange={(event) => loadJob(event.target.value)}><option value="">Choose a role or paste a JD</option>{usableJobs.map((job) => <option key={job.id} value={String(job.id)}>{job.title}</option>)}</select></label>
         <label className="text-sm font-semibold text-slate-700">Job title<input className={field} value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} placeholder="Implementation Specialist" /></label>
@@ -356,7 +432,7 @@ export default function AIApplicationAssessment({ token, apiRequest, jobs = [], 
         <label className="text-sm font-semibold text-slate-700">Education minimum<select className={field} value={education} onChange={(event) => setEducation(event.target.value)}><option>Not required</option><option>Secondary</option><option>Diploma</option><option>Bachelor's</option><option>Master's</option><option>Doctorate</option><option>Equivalent experience</option></select></label>
         <label className="sm:col-span-2 flex items-center gap-2 self-end rounded-lg border border-slate-200 px-3 py-3 text-sm font-medium text-slate-700"><input type="checkbox" className="h-4 w-4 accent-blue-700" checked={equivalentExperience} onChange={(event) => setEquivalentExperience(event.target.checked)} />Equivalent experience accepted</label>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2"><button className={primary} type="button" disabled={Boolean(busy)} onClick={() => void buildRubric()}>{busy === "rubric" ? "Building rubric…" : "Generate rubric from JD"}</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={saveRubric}>Save rubric for this session</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={addCriterion}>Add requirement</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={() => { setRubric(null); setRubricMeta(null); setNotice("Build a new rubric from the job description."); }}>Reset rubric</button></div>
+      <div className="mt-4 flex flex-wrap gap-2"><button className={primary} type="button" disabled={Boolean(busy)} onClick={() => void buildRubric()}>{busy === "rubric" ? "Building rubric…" : "Generate rubric from JD"}</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={() => void saveRubric()}>{busy === "save-rubric" ? "Saving rubric…" : selectedSavedRubricId ? "Update saved rubric" : "Save rubric"}</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={addCriterion}>Add requirement</button><button className={secondary} type="button" disabled={Boolean(busy) || !rubric} onClick={() => { setRubric(null); setRubricMeta(null); setNotice("Build a new rubric from the job description."); }}>Reset rubric</button></div>
       {rubricMeta && <p className="mt-3 text-xs text-slate-500">Generated by {rubricMeta.model || model} · {rubricMeta.latency_ms ?? "—"} ms. Review and edit every criterion before use.</p>}
       {rubric && categoryWeights.length > 0 && <details className="mt-4 rounded-lg border border-slate-200 px-4 py-3">
         <summary className="cursor-pointer text-sm font-semibold text-slate-800">Category weights</summary>
