@@ -77,8 +77,9 @@ def resolve_api_key(value: str | None, provider: str) -> str:
 
 
 def provider_has_server_key(provider: str) -> bool:
+    """Return whether a provider API key exists in the backend environment."""
     provider = provider_name(provider)
-    return provider == "ollama" or any(os.getenv(name, "").strip() for name in KEY_ENV[provider])
+    return any(os.getenv(name, "").strip() for name in KEY_ENV[provider])
 
 
 def local_chat_completions_url(value: str | None = None) -> str:
