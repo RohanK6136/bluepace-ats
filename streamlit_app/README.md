@@ -41,9 +41,19 @@ The companion now has a **Zoho Recruit** workspace. Sign in with a BluePace admi
 - `ZOHO_ACCOUNTS_DOMAIN`: Zoho Accounts data centre suffix, e.g. `in`, `com`, or `eu`
 - `ZOHO_RECRUIT_API_BASE`: API base for your data centre, e.g. `https://recruit.zoho.in/recruit/v2`
 - `ZOHO_SYNC_ENABLED`: set to `true` to enable automatic polling
-- `ZOHO_SYNC_INTERVAL_MINUTES`: polling interval, minimum 5 minutes (default 15)
+- `ZOHO_SYNC_INTERVAL_MINUTES`: scheduled reconciliation interval, minimum 5 minutes (default 15)
+- `ZOHO_WEBHOOK_SECRET`: long random secret shared with the Zoho webhook custom parameter
 - `ZOHO_ORGANIZATION_ID`: numeric BluePace organization ID that owns this Zoho tenant; required for scheduled sync to prevent cross-organization data mixing
 
 Create a Zoho OAuth client and authorize it with the narrowest read scopes available for Candidates and Job Openings. Generate an offline refresh token. Do not commit these values or paste them into chat. Set them in Railway → backend service → Variables, then redeploy. Set `ZOHO_ORGANIZATION_ID` to the intended BluePace organization ID. Automatic sync only targets that organization to prevent cross-tenant data mixing. Use one backend replica while the in-process scheduler is enabled; multiple replicas would each poll. Zoho Recruit API quotas apply.
 
 Current inbound fields include candidate name/email/phone/LinkedIn and job title/description/department/location/status/employment type. Sync uses a local mapping table for idempotency and only writes into the authenticated user's organization. It does not upload resume files, delete local records, or write changes back to Zoho. Verify field API names and scopes against the tenant's Zoho Recruit API version before enabling production sync.
+
+
+### Real-time webhook + reconciliation
+
+The backend exposes `POST /integrations/zoho/webhook`. Set `ZOHO_WEBHOOK_SECRET` to a long random value in Railway. In Zoho Recruit, open **Setup → Automation → Actions → Webhooks**, create a POST webhook targeting the backend URL plus `/integrations/zoho/webhook`, and add a custom parameter named `webhook_token` containing the same secret. Associate the webhook with workflow rules for candidate and job-opening create/update events. Test with a non-production record.
+
+The receiver accepts JSON or URL-encoded webhook parameters, compares the shared secret in constant time, and rejects requests when the secret is missing or incorrect. It does not trust incoming candidate/job fields: a valid event triggers a background reconciliation that re-reads records from Zoho using OAuth. The existing scheduler performs periodic reconciliation to recover missed webhook events. Configure `ZOHO_SYNC_ENABLED=true`, `ZOHO_ORGANIZATION_ID`, and the interval variable to enable this behaviour.
+
+**Operational note:** this first version uses FastAPI background tasks and an in-process scheduler, so use one backend replica while enabled. A durable queue (e.g. Redis/Celery) is the next reliability step if webhook volume or uptime requirements grow. Webhook notifications can be retried by Zoho; reconciliation must remain idempotent. Do not include the secret in query strings if your Zoho setup allows a POST custom parameter body; URLs can be retained in access logs.
