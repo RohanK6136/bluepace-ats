@@ -193,6 +193,9 @@ elif page == "Zoho Recruit":
     else:
         st.caption("Sign in with a BluePace admin or recruiter account to inspect or trigger sync.")
     st.markdown("**Backend environment variables**")
+    st.markdown("**Zoho webhook setup**")
+    st.markdown("In Zoho Recruit, open **Setup → Automation → Actions → Webhooks**, create a POST webhook pointing at the endpoint above, and add a custom parameter named `webhook_token` with the same value as `ZOHO_WEBHOOK_SECRET`. Associate it with workflow rules for Candidates and Job Openings create/update events, then test using a non-production record. The endpoint treats webhook data only as a wake-up signal and reloads canonical records through the OAuth API.")
+    st.caption("Zoho workflow webhooks require Manage Workflow permission. Keep the webhook secret private; do not put it in public documentation or screenshots.")
     st.code("ZOHO_CLIENT_ID\nZOHO_CLIENT_SECRET\nZOHO_REFRESH_TOKEN\nZOHO_ACCOUNTS_DOMAIN=in\nZOHO_RECRUIT_API_BASE=https://recruit.zoho.in/recruit/v2\nZOHO_ORGANIZATION_ID=<BluePace organization ID>\nZOHO_SYNC_ENABLED=true\nZOHO_SYNC_INTERVAL_MINUTES=15", language="text")
 
 else:
