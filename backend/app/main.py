@@ -4029,6 +4029,18 @@ def dashboard_summary(
         email_counts[status_value if status_value in email_counts else "other"] = int(count)
 
     now = datetime.now(timezone.utc)
+    total_upcoming_interviews = int(
+        db.scalar(
+            select(func.count(Interview.id))
+            .select_from(Interview)
+            .join(Application, Application.id == Interview.application_id)
+            .where(
+                Application.organization_id == org_id,
+                Interview.starts_at >= now,
+                Interview.status == "scheduled",
+            )
+        ) or 0
+    )
     upcoming_rows = db.execute(
         select(
             Interview.id,
@@ -4114,6 +4126,7 @@ def dashboard_summary(
     return {
         "metrics": {
             "total_candidates": total_candidates,
+            "upcoming_interviews_count": total_upcoming_interviews,
             "open_jobs": sum(1 for job in jobs if job.status == "open"),
             "total_jobs": len(jobs),
             "total_applications": total_applications,
