@@ -122,6 +122,7 @@ from app.routers.merge_center import router as merge_center_router
 from app.routers.demo_data import router as demo_data_router, populate_demo_data
 from app.routers.offer_management import router as offer_management_router
 from app.routers.ai_hiring_studio import router as ai_hiring_studio_router
+from app.routers.zoho_recruit import router as zoho_recruit_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
 from app.services.workflow import (
     PIPELINE_STAGES,
@@ -397,6 +398,7 @@ app.include_router(demo_data_router)
 app.include_router(offer_management_router)
 app.include_router(next_features_router)
 app.include_router(ai_hiring_studio_router)
+app.include_router(zoho_recruit_router)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
