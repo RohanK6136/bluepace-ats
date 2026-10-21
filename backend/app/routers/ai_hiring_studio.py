@@ -489,7 +489,7 @@ def analyze_resume(request: AnalyzeResumeRequest, user: User = Depends(require_r
         ],
     }, ensure_ascii=False, default=str)
     result, run = _run_model(request, user, db, "analyze_resume", system, prompt,
-                             {"resume_data": request.resume_data, "rubric": request.rubric}, 2400)
+                             {"resume_data": safe_resume_data, "rubric": request.rubric}, 2400)
     if not isinstance(result.get("criteria"), list) or not result.get("criteria"):
         _mark_run_failed(db, run, "The model did not return criterion-level scores. Retry.")
     result["decision_support_only"] = True
