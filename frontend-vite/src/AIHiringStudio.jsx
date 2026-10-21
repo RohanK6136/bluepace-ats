@@ -177,6 +177,37 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     ...(provider === "cloudflare" && accountId.trim() ? { account_id: accountId.trim() } : {}),
   });
 
+  async function ensureProviderConfigured() {
+    if (provider === "ollama" || apiKey.trim()) return true;
+
+    let keyConfigured = serverKeyConfigured;
+    if (keyConfigured === null) {
+      try {
+        const statusResponse = await apiRequest(
+          token,
+          "get",
+          "/ai-hiring/status?provider=" + encodeURIComponent(provider)
+        );
+        const value = statusResponse.data?.server_key_configured;
+        keyConfigured = typeof value === "boolean" ? value : null;
+        setServerKeyConfigured(keyConfigured);
+      } catch {
+        setError("Could not check the AI provider configuration. No AI request was sent. Check the connection and try again.");
+        setNotice("");
+        return false;
+      }
+    }
+
+    if (keyConfigured !== true) {
+      setError(keyConfigured === false
+        ? selectedProvider.label + " is not configured. Add its API key in Settings to use AI rubric generation and resume assessment."
+        : "The AI provider configuration is unavailable. No AI request was sent; check the connection and try again.");
+      setNotice("No AI request was sent, so this attempt will not create a failed AI run-history record.");
+      return false;
+    }
+    return true;
+  }
+
   function persistSettings() {
     sessionStorage.setItem("bluepace_ai_provider", provider);
     const keyName = "bluepace_ai_" + provider + "_key";
@@ -427,6 +458,11 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     }
     setBusy("rubric");
     setError("");
+    setNotice("");
+    if (!(await ensureProviderConfigured())) {
+      setBusy("");
+      return;
+    }
     try {
       const response = await apiRequest(token, "post", "/ai-hiring/rubric", {
         data: { ...credentials(), job_description: jobDescription.trim() },
@@ -537,6 +573,10 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     setBusy("batch-analysis");
     setError("");
     setNotice("");
+    if (!(await ensureProviderConfigured())) {
+      setBusy("");
+      return;
+    }
     let nextIndex = 0;
     let successes = 0;
     let failures = 0;
