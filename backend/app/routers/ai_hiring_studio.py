@@ -704,9 +704,7 @@ def delete_saved_rubric(rubric_id: str, user: User = Depends(require_roles(*WRIT
     )
     if item is None:
         raise HTTPException(404, "Saved rubric not found.")
-    db.delete(item)
-    db.commit()
-    return {"deleted": True, "rubric_id": rubric_id, "warning": "Deleting removes this immutable rubric version from future selection."}
+    raise HTTPException(409, "Saved rubric versions are immutable to preserve historical assessment auditability. Save a new version instead.")
 
 
 @router.get("/history")
