@@ -1,5 +1,6 @@
 """Protected AI Hiring Studio endpoints using OpenRouter."""
 import hashlib
+import hmac
 import json
 import os
 import re
