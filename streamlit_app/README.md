@@ -42,7 +42,8 @@ The companion now has a **Zoho Recruit** workspace. Sign in with a BluePace admi
 - `ZOHO_RECRUIT_API_BASE`: API base for your data centre, e.g. `https://recruit.zoho.in/recruit/v2`
 - `ZOHO_SYNC_ENABLED`: set to `true` to enable automatic polling
 - `ZOHO_SYNC_INTERVAL_MINUTES`: polling interval, minimum 5 minutes (default 15)
+- `ZOHO_ORGANIZATION_ID`: numeric BluePace organization ID that owns this Zoho tenant; required for scheduled sync to prevent cross-organization data mixing
 
-Create a Zoho OAuth client and authorize it with the narrowest read scopes available for Candidates and Job Openings. Generate an offline refresh token. Do not commit these values or paste them into chat. Set them in Railway → backend service → Variables, then redeploy. Use one backend replica while the in-process scheduler is enabled; multiple replicas would each poll. Zoho Recruit API quotas apply.
+Create a Zoho OAuth client and authorize it with the narrowest read scopes available for Candidates and Job Openings. Generate an offline refresh token. Do not commit these values or paste them into chat. Set them in Railway → backend service → Variables, then redeploy. Set `ZOHO_ORGANIZATION_ID` to the intended BluePace organization ID. Automatic sync only targets that organization to prevent cross-tenant data mixing. Use one backend replica while the in-process scheduler is enabled; multiple replicas would each poll. Zoho Recruit API quotas apply.
 
 Current inbound fields include candidate name/email/phone/LinkedIn and job title/description/department/location/status/employment type. Sync uses a local mapping table for idempotency and only writes into the authenticated user's organization. It does not upload resume files, delete local records, or write changes back to Zoho. Verify field API names and scopes against the tenant's Zoho Recruit API version before enabling production sync.
