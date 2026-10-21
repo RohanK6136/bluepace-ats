@@ -462,7 +462,9 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       method: "PUT",
       headers: {
         "Content-Type": upload.content_type || file.type || "application/octet-stream",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        // B2 presigned URLs authenticate from their signed query parameters.
+        // The ATS bearer token is required only by BluePace's local upload endpoint.
+        ...(upload.storage_mode !== "b2" && authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
       body: file,
     });
