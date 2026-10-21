@@ -34,6 +34,71 @@ function explainError(error) {
   return "The request failed. Review the configuration and try again.";
 }
 
+function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
+  const source = String(sourceText || "").trim();
+  const lines = source.split(/\r?\n/).map((line) => line.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, "")).filter(Boolean);
+  const titleMatch = source.match(/(?:job\s*title|position(?:\s*title)?|role)\s*[:\-]\s*([^\r\n]{3,100})/i);
+  const genericHeading = /^(?:job description|job details|position details|role description|role overview|about the role|recruiter notes|hiring notes)$/i;
+  const candidateLine = lines.find((line) => line.length <= 70 && !genericHeading.test(line) && !/[.!?]$/.test(line) && !/^(?:we|hiring|seeking|looking|need|responsible|must|should)\b/i.test(line));
+  const explicitTitle = String(overrides.job_title || (titleMatch ? titleMatch[1] : "")).trim();
+  const title = explicitTitle || candidateLine || "Role title to be confirmed";
+  const labelValue = (labelPattern) => {
+    const match = source.match(labelPattern);
+    return match ? String(match[1] || "").trim().replace(/[.;,]+$/, "") : "";
+  };
+  const employmentMatch = source.match(/\b(full[- ]time|part[- ]time|contract(?:or)?|permanent|temporary|internship|freelance)\b/i);
+  const workModeMatch = source.match(/\b(remote|hybrid|on[- ]site|onsite)\b/i);
+  const experienceMatch = source.match(/(\d+(?:\.\d+)?)\s*(?:-|to)\s*\d+(?:\.\d+)?\s*(?:years?|yrs?)|(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)\s+(?:of\s+)?experience/i);
+  const inferredExperience = experienceMatch ? Number(experienceMatch[1] || experienceMatch[2]) : null;
+  const hasExplicitExperience = overrides.minimum_experience_years !== undefined && overrides.minimum_experience_years !== null && overrides.minimum_experience_years !== "";
+  const minExperience = hasExplicitExperience ? Number(overrides.minimum_experience_years) : inferredExperience;
+  const locationFromLabel = labelValue(/(?:work\s*location|job\s*location|location)\s*[:\-]\s*([^\r\n]+)/i);
+  const location = String(overrides.location || locationFromLabel).trim();
+  const employmentType = String(overrides.employment_type || (employmentMatch ? employmentMatch[1].replace(/\s+/g, "-").toLowerCase() : "")).trim();
+  const rawWorkMode = String(overrides.work_mode || (workModeMatch ? workModeMatch[1] : "")).trim().toLowerCase();
+  const workMode = rawWorkMode.includes("remote") ? "Remote" : rawWorkMode.includes("hybrid") ? "Hybrid" : rawWorkMode ? "On-site" : "";
+  const fresherAllowed = Boolean(overrides.fresher_allowed || /\b(freshers?|entry[- ]level|graduates?\s+welcome|no experience required)\b/i.test(source));
+  const detailRows = [
+    "- Employment type: " + (employmentType || "Not specified in the supplied notes"),
+    "- Work mode: " + (workMode || "Not specified in the supplied notes"),
+    "- Location: " + (location || "Not specified in the supplied notes"),
+    "- Minimum experience: " + (Number.isFinite(minExperience) && minExperience !== null ? String(minExperience) + (minExperience === 1 ? " year" : " years") : "Not specified in the supplied notes"),
+  ];
+  const reviewItems = [
+    "- Confirm the role title and reporting line.",
+    "- Confirm the essential responsibilities and required versus preferred qualifications.",
+    "- Confirm compensation, benefits, employment terms, and application instructions before publication.",
+  ];
+  const jobDescription = [
+    "# " + title,
+    "",
+    "## Draft status",
+    "This is a local template draft assembled from the supplied notes because an AI provider key is not configured. It has not been AI-rewritten. Review and complete all details before saving or publishing.",
+    "",
+    "## Role details",
+    ...detailRows,
+    "",
+    "## Recruiter-provided brief",
+    source,
+    "",
+    "## Before publishing",
+    ...reviewItems,
+  ].join("\n");
+  return {
+    job_description: jobDescription,
+    details: {
+      job_title: explicitTitle || candidateLine || "",
+      employment_type: employmentType,
+      work_mode: workMode,
+      location,
+      minimum_experience_years: Number.isFinite(minExperience) ? minExperience : null,
+      fresher_allowed: fresherAllowed,
+    },
+    missing_fields: [],
+    notes: ["Local template fallback used; no AI provider was called."],
+  };
+}
+
 function displayDate(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -204,11 +269,11 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setTab("generate");
       return;
     }
+    const chosenDetails = overrides || jobDetails;
     setBusy("generate");
     setError("");
     setNotice("");
     try {
-      const chosenDetails = overrides || jobDetails;
       const cleanOverrides = {};
       Object.entries(chosenDetails).forEach(([key, value]) => {
         if (value !== "" && value !== null && value !== undefined) {
@@ -238,7 +303,42 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setSavedRubricId("");
       setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
     } catch (requestError) {
-      setError(explainError(requestError));
+      const message = explainError(requestError);
+      const missingProviderKey = /^Add an? .+ API key in settings\\b/i.test(message)
+        || /API key is not configured/i.test(message);
+      if (missingProviderKey) {
+        const fallback = buildLocalJDFallback(sourceText, chosenDetails, mode);
+        const result = fallback;
+        const details = result.details || {};
+        setJobDescription(String(result.job_description || ""));
+        setJobDetails({
+          job_title: String(details.job_title || chosenDetails.job_title || ""),
+          employment_type: String(details.employment_type || chosenDetails.employment_type || ""),
+          work_mode: String(details.work_mode || chosenDetails.work_mode || ""),
+          location: String(details.location || chosenDetails.location || ""),
+          minimum_experience_years: details.minimum_experience_years ?? chosenDetails.minimum_experience_years ?? "",
+          fresher_allowed: Boolean(details.fresher_allowed ?? chosenDetails.fresher_allowed),
+        });
+        setSuggestions([]);
+        setGenerationMeta({
+          model: "local-template-fallback",
+          latency_ms: 0,
+          token_usage: null,
+          model_call_count: 0,
+          generation_mode: "template_fallback",
+        });
+        setRubric(null);
+        setRubricTitle("");
+        setSavedRubricId("");
+        setResumeBatch((previous) => previous.map((item) => ({
+          ...item, analysis: null, meta: null,
+          status: item.resumeData ? "ready" : item.status, error: "",
+        })));
+        setError("");
+        setNotice("No AI provider key is configured. A local template draft was created from your notes; this is not AI-generated. Add a provider key in Settings to enable AI rewriting.");
+      } else {
+        setError(message);
+      }
     } finally {
       setBusy("");
     }
@@ -637,7 +737,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         <div className="flex gap-1 overflow-x-auto border-b border-slate-200 px-3 py-2 sm:px-5" role="tablist" aria-label="AI Hiring Studio sections">
           {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => { setTab(item.id); setError(""); }} className={"whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition " + (tab === item.id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100")}>{item.label}</button>)}
         </div>
-        {(error || notice) && <div className="px-5 pt-4 sm:px-7">{error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div>}</div>}
+        {(error || notice) && <div className="px-5 pt-4 sm:px-7">{error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : <div role="status" className={"rounded-lg border px-4 py-3 text-sm " + (notice.startsWith("No AI provider key is configured") ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>{notice}</div>}</div>}
         {providerSetupMissing && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong>{" "}{providerKeyMissing && <>No shared {selectedProvider.label} API key is configured. Enter one in AI settings for this tab, or configure <code>{selectedProvider.keyEnvVar}</code> in Railway backend variables.</>}{cloudflareAccountMissing && <> Cloudflare Workers AI also requires an Account ID. Enter it in AI settings or configure <code>CLOUDFLARE_ACCOUNT_ID</code> on the backend.</>}</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
 
         <div className="p-5 sm:p-7">
@@ -667,7 +767,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
 
             <div className="space-y-4">
               <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">02 · Review</p><h3 className="mt-1 text-lg font-semibold text-slate-900">Editable job description</h3><p className="mt-1 text-sm text-slate-500">Review the generated text and correct the role details before saving a draft.</p></div>
-              {generationMeta && <div className="flex flex-wrap gap-2"><MetaPill tone="good">Generated</MetaPill><MetaPill>{generationMeta.model}</MetaPill><MetaPill>{generationMeta.latency_ms ?? "—"} ms</MetaPill><MetaPill>{generationMeta.token_usage?.total_tokens ?? "Tokens n/a"} tokens</MetaPill></div>}
+              {generationMeta && <div className="flex flex-wrap gap-2"><MetaPill tone={generationMeta.generation_mode === "template_fallback" ? "warn" : "good"}>{generationMeta.generation_mode === "template_fallback" ? "Template draft" : "Generated"}</MetaPill><MetaPill>{generationMeta.model}</MetaPill><MetaPill>{generationMeta.latency_ms ?? "—"} ms</MetaPill><MetaPill>{generationMeta.token_usage?.total_tokens ?? "Tokens n/a"} tokens</MetaPill></div>}
               <label className="block text-sm font-semibold text-slate-700">Job description
                 <textarea className={fieldClass + " mt-1.5 min-h-64 resize-y leading-6"} placeholder="Your generated job description will appear here." value={jobDescription} onChange={(event) => setJobDescription(event.target.value)} />
               </label>
