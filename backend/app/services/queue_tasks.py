@@ -6,7 +6,7 @@ from app.database import SessionLocal
 from app.models import ResumeProcessingJob
 
 from celery_app import celery_app
-from app.services.extractor import extractor_service
+from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.llm_validator import llm_validator
 from app.services.slm_service import slm_service
 from app.services.private_storage import private_storage
@@ -66,8 +66,8 @@ def enrich_resume_slm_task(resume_json: dict):
 
 
 
-@celery_app.task(name="ats.process_resume_ingest_job", bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 3})
-def process_resume_ingest_job(self, job_id: int):
+@celery_app.task(name="ats.process_resume_ingest_job", bind=True, autoretry_for=(Exception,), dont_autoretry_for=(DocumentExtractionError,), retry_backoff=True, retry_kwargs={"max_retries": 3})
+def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None = None):
     with SessionLocal() as db:
         job = db.get(ResumeProcessingJob, job_id)
         if job is None:
@@ -213,9 +213,25 @@ def process_resume_ingest_job(self, job_id: int):
 
             return {"status": "completed", "job_id": job.id}
         except Exception as error:
-            job.status = "failed"
-            job.error_message = str(error)[:4000]
-            job.completed_at = datetime.now(timezone.utc)
+            # Celery's autoretry wrapper only runs for broker-submitted tasks.
+            # The in-process dispatcher calls .run() directly, so it passes a
+            # dispatcher_attempt value and relies on this persisted retry state.
+            retry_count = (
+                int(dispatcher_attempt)
+                if dispatcher_attempt is not None
+                else int(getattr(getattr(self, "request", None), "retries", 0) or 0)
+            )
+            max_retries = 3
+            will_retry = (
+                not isinstance(error, DocumentExtractionError)
+                and retry_count < max_retries
+            )
+            job.status = "queued" if will_retry else "failed"
+            job.error_message = (
+                f"Processing attempt {retry_count + 1} failed; retry scheduled ({type(error).__name__})."
+                if will_retry else str(error)[:4000]
+            )
+            job.completed_at = None if will_retry else datetime.now(timezone.utc)
             db.commit()
             raise
 
