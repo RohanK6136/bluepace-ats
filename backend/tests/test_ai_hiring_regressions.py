@@ -291,3 +291,15 @@ def test_resume_name_redaction_does_not_change_larger_words():
 
     assert "Ann" not in redacted["summary"]
     assert "annual reporting pipelines" in redacted["summary"]
+
+
+
+def test_unlabelled_inline_email_and_phone_are_redacted():
+    from app.routers.ai_hiring_studio import _redact_resume_pii
+
+    redacted = _redact_resume_pii({
+        "summary": "Email aisha.khan@example.com or call +91 98765 43210 for details.",
+    })
+
+    assert "aisha.khan@example.com" not in repr(redacted)
+    assert "98765 43210" not in repr(redacted)
