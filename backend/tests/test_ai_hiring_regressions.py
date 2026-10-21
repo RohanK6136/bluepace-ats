@@ -390,3 +390,77 @@ def test_saving_rubric_edit_creates_next_immutable_version():
         "Platform Engineer", "Platform Engineer", original_rubric
     )
     assert db.commits == 1
+
+
+
+def test_resume_assessment_uses_server_saved_rubric_snapshot(monkeypatch):
+    import json
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    import app.routers.ai_hiring_studio as studio
+
+    saved_rubric = {
+        "title": "Platform Engineer",
+        "criteria": [{"name": "Python", "weight": 100, "required": True}],
+        "total_weight": 100,
+    }
+    now = datetime.now(timezone.utc)
+    row = studio.AIHiringRubric(
+        id=1,
+        rubric_id="rubric-version-one",
+        organization_id=7,
+        user_id=8,
+        title="Platform Engineer",
+        job_title="Platform Engineer",
+        rubric_data=saved_rubric,
+        family_id="rubric-family-one",
+        version=3,
+        content_hash=studio._rubric_content_hash("Platform Engineer", "Platform Engineer", saved_rubric),
+        created_at=now,
+        updated_at=now,
+    )
+
+    class FakeDatabase:
+        def scalar(self, _query):
+            return row
+
+    captured = {}
+
+    def fake_run_model(*args, **kwargs):
+        captured["prompt"] = args[5]
+        captured["input_data"] = args[6]
+        captured["privacy_metadata"] = kwargs["privacy_metadata"]
+        return (
+            {"criteria": [{"name": "Python", "score": 80}], "overall_score": 80},
+            SimpleNamespace(
+                request_id="request-test",
+                model="test/model",
+                latency_ms=2,
+                token_usage={"total_tokens": 5},
+                model_call_count=1,
+            ),
+        )
+
+    monkeypatch.setattr(studio, "_run_model", fake_run_model)
+    request = studio.AnalyzeResumeRequest(
+        rubric_id="rubric-version-one",
+        resume_data={"skills": ["Python"]},
+        # A browser could send stale or edited criteria; the server must ignore this.
+        rubric={"title": "Tampered", "criteria": [{"name": "Attacker criterion", "weight": 100}]},
+    )
+    response = studio.analyze_resume(
+        request,
+        SimpleNamespace(id=8, organization_id=7),
+        FakeDatabase(),
+    )
+
+    prompt = json.loads(captured["prompt"])
+    assert prompt["rubric"] == saved_rubric
+    assert "Attacker criterion" not in captured["prompt"]
+    assert response["rubric_id"] == "rubric-version-one"
+    assert response["rubric_family_id"] == "rubric-family-one"
+    assert response["rubric_version"] == 3
+    assert response["rubric_hash"] == row.content_hash
+    assert captured["privacy_metadata"]["rubric_hash"] == row.content_hash
+    assert "resume_data" in captured["input_data"]
