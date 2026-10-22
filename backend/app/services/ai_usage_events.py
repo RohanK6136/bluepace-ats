@@ -4,6 +4,7 @@ Only operational metadata and provider-reported token counts are stored here.
 Prompts, resume content, raw model output, and credentials are intentionally excluded.
 """
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -37,4 +38,4 @@ class AIUsageEvent(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # Provider-reported cost is available for some providers (for example OpenRouter).
     # NULL means the provider did not report a cost; it does not mean the call was free.
-    provider_cost_usd: Mapped[float | None] = mapped_column(Numeric(12, 8), nullable=True)
+    provider_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 8), nullable=True)
