@@ -165,6 +165,29 @@ def _text(value: Any) -> str:
     return ""
 
 
+def _cached_token_count(usage: dict[str, Any] | None, metadata: Any = None) -> int:
+    """Normalize provider-specific prompt-cache counters without guessing unknown usage."""
+    usage = usage if isinstance(usage, dict) else {}
+    prompt_details = usage.get("prompt_tokens_details")
+    input_details = usage.get("input_tokens_details")
+    candidates = [
+        usage.get("cached_tokens"),
+        usage.get("cache_read_input_tokens"),
+        usage.get("cached_content_token_count"),
+        prompt_details.get("cached_tokens") if isinstance(prompt_details, dict) else None,
+        input_details.get("cached_tokens") if isinstance(input_details, dict) else None,
+        getattr(metadata, "cached_content_token_count", None) if metadata is not None else None,
+    ]
+    for value in candidates:
+        if value is None:
+            continue
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return 0
+
+
 def call_ai_provider(
     provider: str, api_key_value: str | None, model: str,
     system_prompt: str, user_prompt: str, max_tokens: int = 1800,
@@ -216,6 +239,7 @@ def call_ai_provider(
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
+            "cached_tokens": _cached_token_count({}, metadata),
         }
         actual_model = model
         count = 1
@@ -234,6 +258,7 @@ def call_ai_provider(
             "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
             "total_tokens": ((prompt_tokens or 0) + (completion_tokens or 0))
             if prompt_tokens is not None or completion_tokens is not None else None,
+            "cached_tokens": _cached_token_count(usage),
         }
         actual_model, count = str(data.get("model") or model), 1
     else:
@@ -297,7 +322,10 @@ def call_ai_provider(
         if not content and provider == "cloudflare" and isinstance(data.get("result"), dict):
             content = _text(data["result"].get("response"))
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
-        usage_out = {key: usage.get(key) for key in ("prompt_tokens", "completion_tokens", "total_tokens")}
+        usage_out = {
+            key: usage.get(key) for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        }
+        usage_out["cached_tokens"] = _cached_token_count(usage)
         actual_model = str(data.get("model") or model)
         count = max(count, 1)
 
