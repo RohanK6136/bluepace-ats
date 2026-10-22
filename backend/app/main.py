@@ -419,7 +419,9 @@ async def cookie_csrf_middleware(request: Request, call_next):
     """Reject cross-site state changes made with a browser session cookie."""
     if request.method not in {"GET", "HEAD", "OPTIONS", "TRACE"} and request.cookies.get("bluepace_access"):
         origin = request.headers.get("origin", "").rstrip("/")
-        allowed = set(get_allowed_origins())
+        allowed = {origin.rstrip("/") for origin in DEPLOYED_FRONTEND_ORIGINS}
+        if APP_ENV in {"development", "test"}:
+            allowed.update(origin.rstrip("/") for origin in LOCAL_FRONTEND_ORIGINS)
         allowed.update(
             value.strip().rstrip("/")
             for value in os.getenv("ALLOWED_ORIGINS", "").split(",")
