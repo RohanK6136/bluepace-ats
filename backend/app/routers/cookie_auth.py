@@ -26,7 +26,9 @@ from app.security import (
 
 router = APIRouter(prefix="/auth/session", tags=["browser-auth"])
 APP_ENV = os.getenv("APP_ENV", "development").lower()
-COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "true" if APP_ENV not in {"development", "test"} else "false").lower() == "true"
+RAILWAY_ENV = os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip().lower()
+IS_PRODUCTION = APP_ENV not in {"development", "test"} or RAILWAY_ENV == "production"
+COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "true" if IS_PRODUCTION else "false").lower() == "true"
 COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "none" if COOKIE_SECURE else "lax").lower()
 if COOKIE_SAMESITE not in {"lax", "strict", "none"}:
     COOKIE_SAMESITE = "none" if COOKIE_SECURE else "lax"
