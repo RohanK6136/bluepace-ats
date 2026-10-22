@@ -40,13 +40,15 @@ ACCESS_COOKIE = "bluepace_access"
 CSRF_COOKIE = "bluepace_csrf"
 
 
-def _set_session_cookies(response: Response, access_token: str) -> None:
+def _set_session_cookies(response: Response, access_token: str) -> str:
     max_age = TOKEN_LIFETIME_MINUTES * 60
     common = {"max_age": max_age, "path": "/", "secure": COOKIE_SECURE, "samesite": COOKIE_SAMESITE}
     response.set_cookie(ACCESS_COOKIE, access_token, httponly=True, **common)
-    response.set_cookie(CSRF_COOKIE, secrets.token_urlsafe(32), httponly=False, **common)
+    csrf_token = secrets.token_urlsafe(32)
+    response.set_cookie(CSRF_COOKIE, csrf_token, httponly=False, **common)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
+    return csrf_token
 
 
 def _clear_session_cookies(response: Response) -> None:
@@ -84,8 +86,16 @@ def browser_login(
     user.failed_login_attempts = 0
     user.locked_until = None
     access_token = create_access_token(user, db=db)
-    _set_session_cookies(response, access_token)
-    return {"user": UserRead.model_validate(user), "auth_mode": "httpOnly-cookie"}
+    csrf_token = _set_session_cookies(response, access_token)
+    return {"user": UserRead.model_validate(user), "auth_mode": "httpOnly-cookie", "csrf_token": csrf_token}
+
+
+@router.get("/csrf")
+def browser_csrf(request: Request, response: Response):
+    """Expose the CSRF nonce to the allowed frontend origin without exposing the access token."""
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return {"csrf_token": request.cookies.get(CSRF_COOKIE, "")}
 
 
 @router.post("/refresh")
@@ -95,8 +105,8 @@ def browser_refresh(request: Request, response: Response, db: Session = Depends(
     if not token:
         raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
     rotated = refresh_access_token(token, db)
-    _set_session_cookies(response, rotated)
-    return {"status": "refreshed", "auth_mode": "httpOnly-cookie"}
+    csrf_token = _set_session_cookies(response, rotated)
+    return {"status": "refreshed", "auth_mode": "httpOnly-cookie", "csrf_token": csrf_token}
 
 
 @router.post("/logout")
