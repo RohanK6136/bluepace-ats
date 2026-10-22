@@ -88,6 +88,7 @@ function shouldRetry(error) {
 let tokenRefreshInFlight = null;
 let apiReadyInFlight = null;
 let csrfTokenInMemory = "";
+let hasCookieSession = false;
 
 function ensureApiReady() {
   if (apiReadyInFlight) return apiReadyInFlight;
@@ -124,6 +125,7 @@ async function ensureCsrfToken() {
     headers: { "Cache-Control": "no-store" },
   });
   csrfTokenInMemory = response.data?.csrf_token || "";
+  hasCookieSession = Boolean(response.data?.has_session);
   return csrfTokenInMemory;
 }
 
@@ -141,6 +143,7 @@ async function refreshAccessToken() {
         },
       );
       csrfTokenInMemory = response.data?.csrf_token || csrfTokenInMemory;
+      hasCookieSession = true;
       return "cookie-session";
     })().finally(() => {
       tokenRefreshInFlight = null;
@@ -177,6 +180,8 @@ async function apiRequest(_token, method, path, options = {}) {
         && !path.startsWith("/auth/session/logout");
       if (canRefresh) {
         try {
+          await ensureCsrfToken();
+          if (!hasCookieSession) throw error;
           await refreshAccessToken();
           refreshed = true;
           continue;
@@ -572,6 +577,7 @@ export default function AtsWorkspace() {
       }
 
       csrfTokenInMemory = response.data?.csrf_token || csrfTokenInMemory;
+      hasCookieSession = true;
       if (response.data.user) {
         setUser(response.data.user);
       }
@@ -599,7 +605,7 @@ export default function AtsWorkspace() {
     if (currentToken) {
       void apiRequest(null, "post", "/auth/session/logout", { timeout: 5_000 })
         .catch(() => {})
-        .finally(() => { csrfTokenInMemory = ""; });
+        .finally(() => { csrfTokenInMemory = ""; hasCookieSession = false; });
     }
   }
 
