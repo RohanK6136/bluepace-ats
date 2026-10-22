@@ -82,12 +82,12 @@ def _as_utc(value: datetime | None) -> datetime | None:
 
 
 def get_current_user(
-    request: Request,
+    request: Request = None,
     token: str | None = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     # Bearer tokens remain supported for API clients; browsers use HttpOnly cookies.
-    token = token or request.cookies.get("bluepace_access")
+    token = token or (request.cookies.get("bluepace_access") if request is not None else None)
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired access token",
