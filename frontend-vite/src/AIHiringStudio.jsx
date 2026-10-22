@@ -14,6 +14,18 @@ const PROVIDER_BY_ID = Object.fromEntries(PROVIDER_OPTIONS.map((item) => [item.i
 function readSessionValue(key) {
   try { return sessionStorage.getItem(key) || ""; } catch { return ""; }
 }
+function clearStoredProviderKeys() {
+  // Remove credentials written by older builds. Browser storage is readable by
+  // any script running in this origin, so provider secrets must remain in memory.
+  try {
+    for (const item of PROVIDER_OPTIONS) {
+      sessionStorage.removeItem("bluepace_ai_" + item.id + "_key");
+    }
+    sessionStorage.removeItem("bluepace_openrouter_key");
+  } catch {
+    // Storage can be disabled by privacy settings; this must not block the UI.
+  }
+}
 function storedProvider() {
   const saved = readSessionValue("bluepace_ai_provider");
   return PROVIDER_BY_ID[saved] ? saved : "openrouter";
@@ -130,12 +142,13 @@ function Metric({ label, value }) {
 
 export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }) {
   const [tab, setTab] = useState("generate");
-  const [provider, setProvider] = useState(() => storedProvider());
-  const [apiKey, setApiKey] = useState(() => {
-    const current = storedProvider();
-    return readSessionValue("bluepace_ai_" + current + "_key")
-      || (current === "openrouter" ? readSessionValue("bluepace_openrouter_key") : "");
+  const [provider, setProvider] = useState(() => {
+    clearStoredProviderKeys();
+    return storedProvider();
   });
+  // API keys are intentionally memory-only. Do not hydrate secrets from
+  // localStorage/sessionStorage; a same-origin script could exfiltrate them.
+  const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(() => {
     const current = storedProvider();
     const saved = readSessionValue("bluepace_ai_" + current + "_model")
@@ -217,16 +230,13 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   }
 
   function persistSettings() {
+    // Keep non-secret preferences for convenience, but never persist API keys.
+    clearStoredProviderKeys();
     sessionStorage.setItem("bluepace_ai_provider", provider);
-    const keyName = "bluepace_ai_" + provider + "_key";
-    if (apiKey.trim()) sessionStorage.setItem(keyName, apiKey.trim());
-    else sessionStorage.removeItem(keyName);
     sessionStorage.setItem("bluepace_ai_" + provider + "_model", model.trim() || selectedProvider.defaultModel);
     if (provider === "ollama") sessionStorage.setItem("bluepace_ai_ollama_base_url", baseUrl.trim() || selectedProvider.baseUrl);
     if (provider === "cloudflare") sessionStorage.setItem("bluepace_ai_cloudflare_account_id", accountId.trim());
     if (provider === "openrouter") {
-      if (apiKey.trim()) sessionStorage.setItem("bluepace_openrouter_key", apiKey.trim());
-      else sessionStorage.removeItem("bluepace_openrouter_key");
       sessionStorage.setItem("bluepace_openrouter_model", model.trim() || DEFAULT_MODEL);
     }
   }
@@ -235,8 +245,8 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     const next = PROVIDER_BY_ID[nextProvider];
     if (!next) return;
     setProvider(nextProvider);
-    setApiKey(readSessionValue("bluepace_ai_" + nextProvider + "_key")
-      || (nextProvider === "openrouter" ? readSessionValue("bluepace_openrouter_key") : ""));
+    // Never carry a secret between provider contexts; re-enter it when switching back.
+    setApiKey("");
     setModel(readSessionValue("bluepace_ai_" + nextProvider + "_model")
       || (nextProvider === "openrouter" && readSessionValue("bluepace_openrouter_model")
         ? readSessionValue("bluepace_openrouter_model") : next.defaultModel));
@@ -249,7 +259,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   function saveSettings() {
     try {
       persistSettings();
-      setNotice("Provider settings saved for this browser tab session. Keys are not written to AI run history.");
+      setNotice("Provider preferences saved for this tab. API keys stay in page memory only and must be re-entered after refresh.");
       setError("");
     } catch {
       setError("Browser session storage is unavailable. Settings will remain in memory until this page is closed.");
