@@ -49,7 +49,7 @@ def test_claude_adapter_uses_native_messages_schema(monkeypatch):
             return json.dumps({
                 "model": "claude-sonnet-4-6",
                 "content": [{"type": "text", "text": "{\"ok\": true}"}],
-                "usage": {"input_tokens": 12, "output_tokens": 7},
+                "usage": {"input_tokens": 12, "output_tokens": 7, "cache_read_input_tokens": 2},
             }).encode()
     def fake_urlopen(request, timeout=45):
         seen["url"] = request.full_url
@@ -61,6 +61,7 @@ def test_claude_adapter_uses_native_messages_schema(monkeypatch):
     assert seen["payload"]["system"] == "system"
     assert result["content"] == '{"ok": true}'
     assert result["usage"]["total_tokens"] == 19
+    assert result["usage"]["cached_tokens"] == 2
     assert result["actual_model"] == "claude/claude-sonnet-4-6"
 
 
@@ -72,7 +73,10 @@ def test_openai_adapter_sends_json_mode(monkeypatch):
         def read(self):
             return json.dumps({
                 "model": "gpt-5.4", "choices": [{"message": {"content": "{\"ok\": true}"}}],
-                "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7},
+                "usage": {
+                    "prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7,
+                    "prompt_tokens_details": {"cached_tokens": 1},
+                },
             }).encode()
     def fake_urlopen(request, timeout=45):
         seen["url"] = request.full_url
@@ -86,6 +90,7 @@ def test_openai_adapter_sends_json_mode(monkeypatch):
     assert "max_tokens" not in seen["payload"]
     assert "temperature" not in seen["payload"]
     assert result["usage"]["total_tokens"] == 7
+    assert result["usage"]["cached_tokens"] == 1
 
 
 def test_cloudflare_requires_account_id():
@@ -129,6 +134,7 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
         prompt_token_count = 11
         candidates_token_count = 9
         total_token_count = 20
+        cached_content_token_count = 3
     class FakeResponse:
         text = '{"ok": true}'
         usage_metadata = FakeUsage()
@@ -164,6 +170,7 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
     assert captured["config"]["response_mime_type"] == "application/json"
     assert result["content"] == '{"ok": true}'
     assert result["usage"]["total_tokens"] == 20
+    assert result["usage"]["cached_tokens"] == 3
     assert result["actual_model"] == "gemini/gemini-2.5-flash"
 
 
