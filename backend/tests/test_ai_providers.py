@@ -148,7 +148,7 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
             self.models = FakeModels()
     class FakeConfig:
         def __init__(self, **kwargs):
-            captured["config"] = kwargs
+            self.__dict__.update(kwargs)
     fake_genai = types.ModuleType("google.genai")
     fake_genai.Client = FakeClient
     fake_types = types.ModuleType("google.genai.types")
@@ -166,8 +166,8 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
     assert captured["api_key"] == "test-key"
     assert captured["model"] == "gemini-2.5-flash"
     assert captured["contents"] == "write JSON"
-    assert captured["config"]["system_instruction"] == "system instructions"
-    assert captured["config"]["response_mime_type"] == "application/json"
+    assert captured["config"].system_instruction == "system instructions"
+    assert captured["config"].response_mime_type == "application/json"
     assert result["content"] == '{"ok": true}'
     assert result["usage"]["total_tokens"] == 20
     assert result["usage"]["cached_tokens"] == 3
