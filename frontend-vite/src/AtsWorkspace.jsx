@@ -112,7 +112,7 @@ function ensureApiReady() {
 }
 
 function readCsrfToken() {
-  const match = document.cookie.match(/(?:^|;\\s*)bluepace_csrf=([^;]+)/);
+  const match = document.cookie.match(/(?:^|;\s*)bluepace_csrf=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : "";
 }
 
@@ -137,7 +137,7 @@ async function refreshAccessToken() {
 
 async function apiRequest(_token, method, path, options = {}) {
   let refreshed = false;
-  const isAuthRequest = /^\\/auth\\/(token|session\\/login|register|logout|session\\/logout)$/.test(path);
+  const isAuthRequest = /^\/auth\/(token|session\/login|register|logout|session\/logout)$/.test(path);
   const requestTimeout = options.timeout ?? (isAuthRequest ? AUTH_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   for (let attempt = 0; ; attempt += 1) {
     try {
