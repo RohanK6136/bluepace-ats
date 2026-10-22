@@ -213,6 +213,7 @@ def test_ai_usage_event_persists_provider_tokens_without_prompt_fields():
     assert event.tenant_id == "12"
     assert "system_prompt" not in AIUsageEvent.__table__.columns
     assert "user_prompt" not in AIUsageEvent.__table__.columns
+    assert "api_key" not in AIUsageEvent.__table__.columns
 
 
 def test_ai_usage_event_handles_missing_or_invalid_token_metadata():
