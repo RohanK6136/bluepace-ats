@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
 from sqlalchemy import select
@@ -32,7 +32,7 @@ JWT_ALGORITHM = "HS256"
 TOKEN_LIFETIME_MINUTES = 7 * 24 * 60
 TOKEN_REFRESH_GRACE_MINUTES = 60
 password_hash = PasswordHash.recommended()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
 
 def create_access_token(user: User, db: Session | None = None, ip_address: str | None = None, user_agent: str | None = None) -> str:
