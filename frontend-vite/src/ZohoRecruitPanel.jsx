@@ -22,7 +22,6 @@ export default function ZohoRecruitPanel({ token, apiRequest, onNotice, onError 
     try {
       const response = await apiRequest(token, "get", "/integrations/zoho/status");
       setStatus(response.data);
-      onError?.(null);
     } catch (error) {
       setStatus(null);
       onError?.(error);
@@ -39,7 +38,6 @@ export default function ZohoRecruitPanel({ token, apiRequest, onNotice, onError 
       const response = await apiRequest(token, "post", "/integrations/zoho/sync", { data: {} });
       setLastSync(response.data);
       onNotice?.(`Zoho reconciliation completed: ${response.data?.candidates_synced ?? 0} candidates and ${response.data?.jobs_synced ?? 0} jobs processed.`);
-      onError?.(null);
       await loadStatus();
     } catch (error) {
       onError?.(error);
