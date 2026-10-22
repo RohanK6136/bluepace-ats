@@ -195,7 +195,7 @@ def test_ai_usage_event_persists_provider_tokens_without_prompt_fields():
     with Session(engine) as db:
         _record_usage_event(
             db, run, user, "openai", "gpt-5.4",
-            {"prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165, "cached_tokens": 5},
+            {"prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165, "cached_tokens": 5, "cost": "0.01234567"},
             812, "success",
         )
         db.commit()
@@ -207,6 +207,7 @@ def test_ai_usage_event_persists_provider_tokens_without_prompt_fields():
     assert event.input_tokens == 120
     assert event.output_tokens == 45
     assert event.cached_input_tokens == 5
+    assert str(event.provider_cost_usd) == "0.01234567"
     assert event.latency_ms == 812
     assert event.status == "success"
     assert event.tenant_id == "12"
