@@ -25,6 +25,15 @@ ACCOUNTS = {
 DEFAULT_API = "https://recruit.zoho.in/recruit/v2"
 
 
+def _sync_interval_minutes() -> int:
+    """Return a bounded, safe reconciliation interval for deployment config."""
+    try:
+        configured = int(os.getenv("ZOHO_SYNC_INTERVAL_MINUTES", "15").strip())
+    except (TypeError, ValueError):
+        configured = 15
+    return min(1440, max(5, configured))
+
+
 class ZohoSyncRecord(Base):
     __tablename__ = "zoho_sync_records"
     __table_args__ = (UniqueConstraint("organization_id", "module", "zoho_id", name="uq_zoho_sync_external"),)
@@ -181,7 +190,7 @@ def zoho_status(user: User = Depends(_authorized_user)):
         "configured": all(os.getenv(k, "").strip() for k in ("ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN")),
         "webhook_configured": bool(os.getenv("ZOHO_WEBHOOK_SECRET", "").strip()),
         "webhook_url": "/integrations/zoho/webhook",
-        "reconciliation_interval_minutes": max(5, int(os.getenv("ZOHO_SYNC_INTERVAL_MINUTES", "15"))),
+        "reconciliation_interval_minutes": _sync_interval_minutes(),
         "credential_values_returned": False,
     }
 
@@ -260,7 +269,7 @@ def trigger_sync(db: Session = Depends(get_db), user: User = Depends(_authorized
 
 async def automatic_sync_loop():
     while True:
-        interval = max(5, int(os.getenv("ZOHO_SYNC_INTERVAL_MINUTES", "15"))) * 60
+        interval = _sync_interval_minutes() * 60
         try:
             if os.getenv("ZOHO_SYNC_ENABLED", "").strip().lower() == "true":
                 if all(os.getenv(k, "").strip() for k in ("ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN", "ZOHO_ORGANIZATION_ID")):
