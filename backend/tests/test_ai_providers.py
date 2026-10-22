@@ -233,11 +233,12 @@ def test_ai_usage_event_handles_missing_or_invalid_token_metadata():
     user = SimpleNamespace(organization_id=1, id=2)
 
     with Session(engine) as db:
-        _record_usage_event(db, run, user, "openrouter", run.model, {"prompt_tokens": "bad"}, 0, "error")
+        _record_usage_event(db, run, user, "openrouter", run.model, {"prompt_tokens": "bad", "cost": "-1"}, 0, "error")
         db.commit()
         event = db.scalar(select(AIUsageEvent))
 
     assert event.input_tokens == 0
     assert event.output_tokens == 0
     assert event.latency_ms == 0
+    assert event.provider_cost_usd is None
     assert event.status == "error"
