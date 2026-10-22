@@ -28,7 +28,7 @@ export default function ZohoRecruitPanel({ token, apiRequest, onNotice, onError 
     } finally {
       setLoading(false);
     }
-  }, [token, apiRequest, onError]);
+  }, [token, apiRequest]);
 
   useEffect(() => { void loadStatus(); }, [loadStatus]);
 
