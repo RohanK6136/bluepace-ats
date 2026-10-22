@@ -6,6 +6,7 @@ import re
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -317,6 +318,17 @@ def _record_usage_event(db: Session, run: AIHiringRun, user: User, provider: str
         except (TypeError, ValueError):
             return 0
 
+    raw_cost = usage.get("cost")
+    provider_cost = None
+    if raw_cost is not None:
+        try:
+            parsed_cost = Decimal(str(raw_cost))
+            if parsed_cost.is_finite() and parsed_cost >= 0 and parsed_cost <= Decimal("9999.99999999"):
+                provider_cost = parsed_cost
+        except (InvalidOperation, TypeError, ValueError):
+            # Invalid or unreported cost remains unknown; never fabricate zero cost.
+            provider_cost = None
+
     db.add(AIUsageEvent(
         request_id=run.request_id,
         tenant_id=str(user.organization_id),
@@ -330,6 +342,7 @@ def _record_usage_event(db: Session, run: AIHiringRun, user: User, provider: str
         latency_ms=max(0, int(latency_ms)),
         status=status_value,
         retry_count=max(0, int((usage.get("attempts") or 1) - 1)) if str(usage.get("attempts") or "1").isdigit() else 0,
+        provider_cost_usd=provider_cost,
     ))
 
 
