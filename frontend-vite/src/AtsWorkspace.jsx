@@ -111,23 +111,23 @@ function ensureApiReady() {
   return apiReadyInFlight;
 }
 
-async function refreshAccessToken(currentToken) {
-  if (!currentToken) throw new Error("No access token available.");
+function readCsrfToken() {
+  const match = document.cookie.match(/(?:^|;\\s*)bluepace_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+async function refreshAccessToken() {
   if (!tokenRefreshInFlight) {
     tokenRefreshInFlight = axios.post(
-      `${API_URL}/auth/refresh`,
+      `${API_URL}/auth/session/refresh`,
       null,
       {
         timeout: 15_000,
-        headers: { Authorization: `Bearer ${currentToken}` },
+        withCredentials: true,
+        headers: { "X-CSRF-Token": readCsrfToken() },
       },
     )
-      .then((response) => {
-        const refreshedToken = response.data?.access_token;
-        if (!refreshedToken) throw new Error("The ATS API did not return a refreshed access token.");
-        sessionStorage.setItem("bluepace_token", refreshedToken);
-        return refreshedToken;
-      })
+      .then(() => "cookie-session")
       .finally(() => {
         tokenRefreshInFlight = null;
       });
@@ -135,40 +135,39 @@ async function refreshAccessToken(currentToken) {
   return tokenRefreshInFlight;
 }
 
-async function apiRequest(token, method, path, options = {}) {
-  let requestToken = token || sessionStorage.getItem("bluepace_token") || "";
+async function apiRequest(_token, method, path, options = {}) {
   let refreshed = false;
-  const isAuthRequest = /^\/auth\/(token|register|logout)$/.test(path);
+  const isAuthRequest = /^\\/auth\\/(token|session\\/login|register|logout|session\\/logout)$/.test(path);
   const requestTimeout = options.timeout ?? (isAuthRequest ? AUTH_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   for (let attempt = 0; ; attempt += 1) {
     try {
+      const csrf = !["get", "head", "options"].includes(String(method).toLowerCase())
+        ? readCsrfToken()
+        : "";
       return await axios.request({
         baseURL: API_URL,
         method,
         url: path,
         timeout: requestTimeout,
+        withCredentials: true,
         ...options,
         headers: {
-          ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}),
+          ...(csrf ? { "X-CSRF-Token": csrf } : {}),
           ...options.headers,
         },
       });
     } catch (error) {
       if (isAuthRequest) throw error;
-      const canRefresh = Boolean(requestToken)
-        && !refreshed
+      const canRefresh = !refreshed
         && error.response?.status === 401
-        && !path.startsWith("/auth/token")
-        && !path.startsWith("/auth/refresh")
-        && !path.startsWith("/auth/logout")
-        && Boolean(sessionStorage.getItem("bluepace_token"));
+        && !path.startsWith("/auth/session/refresh")
+        && !path.startsWith("/auth/session/logout");
       if (canRefresh) {
         try {
-          requestToken = await refreshAccessToken(requestToken);
+          await refreshAccessToken();
           refreshed = true;
           continue;
         } catch (refreshError) {
-          sessionStorage.removeItem("bluepace_token");
           throw refreshError;
         }
       }
@@ -254,15 +253,8 @@ function EmptyState({ title, detail }) {
 }
 
 export default function AtsWorkspace() {
-  const [token, setToken] = useState(() => sessionStorage.getItem("bluepace_token"));
-  const [user, setUser] = useState(() => {
-    try {
-      const saved = sessionStorage.getItem("bluepace_user");
-      return saved ? JSON.parse(saved) : null;
-    } catch (_) {
-      return null;
-    }
-  });
+  const [token, setToken] = useState("cookie-session");
+  const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("bluepace_theme") || "light");
   const [accessMode, setAccessMode] = useState(() => (
@@ -413,13 +405,12 @@ export default function AtsWorkspace() {
         if (!active) return;
         const resolvedUser = userResponse.data;
         setUser(resolvedUser);
-        sessionStorage.setItem("bluepace_user", JSON.stringify(resolvedUser));
+
         setJobs(jobsResponse.data);
         setMatchJobId((current) => current || String(jobsResponse.data.find((job) => job.status === "open")?.id || jobsResponse.data[0]?.id || ""));
         setError("");
       } catch (loadError) {
         if (!active) return;
-        sessionStorage.removeItem("bluepace_token");
         setToken(null);
         setError(errorText(loadError));
       } finally {
@@ -545,7 +536,7 @@ export default function AtsWorkspace() {
 
       let response;
       try {
-        response = await apiRequest(null, "post", "/auth/token", {
+        response = await apiRequest(null, "post", "/auth/session/login", {
           data: credentials,
           timeout: AUTH_TIMEOUT_MS,
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -560,19 +551,17 @@ export default function AtsWorkspace() {
           || firstError.name === "AbortError";
         if (!transientAuthFailure || authMode === "register") throw firstError;
         await ensureApiReady();
-        response = await apiRequest(null, "post", "/auth/token", {
+        response = await apiRequest(null, "post", "/auth/session/login", {
           data: credentials,
           timeout: AUTH_TIMEOUT_MS,
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
         });
       }
 
-      sessionStorage.setItem("bluepace_token", response.data.access_token);
       if (response.data.user) {
-        sessionStorage.setItem("bluepace_user", JSON.stringify(response.data.user));
         setUser(response.data.user);
       }
-      setToken(response.data.access_token);
+      setToken("cookie-session");
     } catch (authRequestError) {
       setAuthError(errorText(authRequestError));
     } finally {
@@ -584,8 +573,7 @@ export default function AtsWorkspace() {
     const currentToken = token;
     // Clear local auth state first. Revocation is best-effort and must never hold
     // the user on the workspace while a sleeping/slow API is responding.
-    sessionStorage.removeItem("bluepace_token");
-    sessionStorage.removeItem("bluepace_user");
+
     setToken(null);
     setUser(null);
     setJobs([]);
@@ -595,11 +583,7 @@ export default function AtsWorkspace() {
     setError("");
 
     if (currentToken) {
-      void fetch(`${API_URL}/auth/logout`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${currentToken}` },
-        keepalive: true,
-      }).catch(() => {});
+      void apiRequest(null, "post", "/auth/session/logout", { timeout: 5_000 }).catch(() => {});
     }
   }
 
