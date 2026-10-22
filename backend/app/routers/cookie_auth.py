@@ -95,7 +95,7 @@ def browser_csrf(request: Request, response: Response):
     """Expose the CSRF nonce to the allowed frontend origin without exposing the access token."""
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
-    return {"csrf_token": request.cookies.get(CSRF_COOKIE, "")}
+    return {"csrf_token": request.cookies.get(CSRF_COOKIE, ""), "has_session": bool(request.cookies.get(ACCESS_COOKIE))}
 
 
 @router.post("/refresh")
