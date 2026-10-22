@@ -165,3 +165,70 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
     assert result["content"] == '{"ok": true}'
     assert result["usage"]["total_tokens"] == 20
     assert result["actual_model"] == "gemini/gemini-2.5-flash"
+
+
+
+def test_ai_usage_event_persists_provider_tokens_without_prompt_fields():
+    from types import SimpleNamespace
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    from app.database import Base
+    from app.services.ai_usage_events import AIUsageEvent
+    from app.routers.ai_hiring_studio import _record_usage_event
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine, tables=[AIUsageEvent.__table__])
+    run = SimpleNamespace(
+        request_id="b7a8b3c8-76c7-4e53-81d6-6d93007bdb12",
+        task_type="generate_jd",
+        model="gpt-5.4",
+    )
+    user = SimpleNamespace(organization_id=12, id=34)
+
+    with Session(engine) as db:
+        _record_usage_event(
+            db, run, user, "openai", "gpt-5.4",
+            {"prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165},
+            812, "success",
+        )
+        db.commit()
+        event = db.scalar(select(AIUsageEvent))
+
+    assert event is not None
+    assert event.provider == "openai"
+    assert event.model == "gpt-5.4"
+    assert event.input_tokens == 120
+    assert event.output_tokens == 45
+    assert event.latency_ms == 812
+    assert event.status == "success"
+    assert event.tenant_id == "12"
+    assert "system_prompt" not in AIUsageEvent.__table__.columns
+    assert "user_prompt" not in AIUsageEvent.__table__.columns
+
+
+def test_ai_usage_event_handles_missing_or_invalid_token_metadata():
+    from types import SimpleNamespace
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    from app.database import Base
+    from app.services.ai_usage_events import AIUsageEvent
+    from app.routers.ai_hiring_studio import _record_usage_event
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine, tables=[AIUsageEvent.__table__])
+    run = SimpleNamespace(
+        request_id="4a8a1a1b-35c1-47e5-9a3a-9d96f5cc0043",
+        task_type="analyze_resume",
+        model="openrouter/free",
+    )
+    user = SimpleNamespace(organization_id=1, id=2)
+
+    with Session(engine) as db:
+        _record_usage_event(db, run, user, "openrouter", run.model, {"prompt_tokens": "bad"}, 0, "error")
+        db.commit()
+        event = db.scalar(select(AIUsageEvent))
+
+    assert event.input_tokens == 0
+    assert event.output_tokens == 0
+    assert event.latency_ms == 0
+    assert event.status == "error"
