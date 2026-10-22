@@ -87,6 +87,7 @@ function shouldRetry(error) {
 
 let tokenRefreshInFlight = null;
 let apiReadyInFlight = null;
+let csrfTokenInMemory = "";
 
 function ensureApiReady() {
   if (apiReadyInFlight) return apiReadyInFlight;
@@ -112,25 +113,38 @@ function ensureApiReady() {
 }
 
 function readCsrfToken() {
-  const match = document.cookie.match(/(?:^|;\s*)bluepace_csrf=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
+  return csrfTokenInMemory;
+}
+
+async function ensureCsrfToken() {
+  if (csrfTokenInMemory) return csrfTokenInMemory;
+  const response = await axios.get(`${API_URL}/auth/session/csrf`, {
+    timeout: 15_000,
+    withCredentials: true,
+    headers: { "Cache-Control": "no-store" },
+  });
+  csrfTokenInMemory = response.data?.csrf_token || "";
+  return csrfTokenInMemory;
 }
 
 async function refreshAccessToken() {
   if (!tokenRefreshInFlight) {
-    tokenRefreshInFlight = axios.post(
-      `${API_URL}/auth/session/refresh`,
-      null,
-      {
-        timeout: 15_000,
-        withCredentials: true,
-        headers: { "X-CSRF-Token": readCsrfToken() },
-      },
-    )
-      .then(() => "cookie-session")
-      .finally(() => {
-        tokenRefreshInFlight = null;
-      });
+    tokenRefreshInFlight = (async () => {
+      const csrf = await ensureCsrfToken();
+      const response = await axios.post(
+        `${API_URL}/auth/session/refresh`,
+        null,
+        {
+          timeout: 15_000,
+          withCredentials: true,
+          headers: { "X-CSRF-Token": csrf },
+        },
+      );
+      csrfTokenInMemory = response.data?.csrf_token || csrfTokenInMemory;
+      return "cookie-session";
+    })().finally(() => {
+      tokenRefreshInFlight = null;
+    });
   }
   return tokenRefreshInFlight;
 }
@@ -141,9 +155,8 @@ async function apiRequest(_token, method, path, options = {}) {
   const requestTimeout = options.timeout ?? (isAuthRequest ? AUTH_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const csrf = !["get", "head", "options"].includes(String(method).toLowerCase())
-        ? readCsrfToken()
-        : "";
+      const unsafeMethod = !["get", "head", "options"].includes(String(method).toLowerCase());
+      const csrf = unsafeMethod ? await ensureCsrfToken() : "";
       return await axios.request({
         baseURL: API_URL,
         method,
@@ -558,6 +571,7 @@ export default function AtsWorkspace() {
         });
       }
 
+      csrfTokenInMemory = response.data?.csrf_token || csrfTokenInMemory;
       if (response.data.user) {
         setUser(response.data.user);
       }
@@ -583,7 +597,9 @@ export default function AtsWorkspace() {
     setError("");
 
     if (currentToken) {
-      void apiRequest(null, "post", "/auth/session/logout", { timeout: 5_000 }).catch(() => {});
+      void apiRequest(null, "post", "/auth/session/logout", { timeout: 5_000 })
+        .catch(() => {})
+        .finally(() => { csrfTokenInMemory = ""; });
     }
   }
 
