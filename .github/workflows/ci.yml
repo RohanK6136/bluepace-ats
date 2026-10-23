@@ -43,6 +43,34 @@ jobs:
           cache-dependency-path: frontend-vite/package-lock.json
       - working-directory: frontend-vite
         run: npm ci --no-audit --no-fund
+      - name: Audit frontend dependencies
+        working-directory: frontend-vite
+        shell: bash
+        run: |
+          audit_status=0
+          npm audit --audit-level=moderate --json > "$RUNNER_TEMP/npm-audit-report.json" || audit_status=$?
+          node - "$RUNNER_TEMP/npm-audit-report.json" <<'NODE'
+          const fs = require("node:fs");
+          const reportPath = process.argv[2];
+          const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+          const totals = report.metadata?.vulnerabilities || {};
+          console.log("npm audit totals:", JSON.stringify(totals));
+          for (const [name, vuln] of Object.entries(report.vulnerabilities || {}).sort((a, b) => a[0].localeCompare(b[0]))) {
+            const advisories = (vuln.via || [])
+              .filter((item) => item && typeof item === "object")
+              .map((item) => item.title + (item.url ? " (" + item.url + ")" : ""));
+            console.log(JSON.stringify({
+              package: name,
+              severity: vuln.severity,
+              direct: vuln.isDirect,
+              range: vuln.range,
+              fixAvailable: vuln.fixAvailable,
+              via: advisories,
+              effects: vuln.effects,
+            }));
+          }
+          NODE
+          exit "$audit_status"
       - working-directory: frontend-vite
         run: npm run build
       - working-directory: frontend-vite
