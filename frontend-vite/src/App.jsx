@@ -478,7 +478,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       try {
         const payload = await response.json();
         detail = payload?.detail ? ` ${payload.detail}` : "";
-      } catch (_) {
+      } catch {
         // Keep a concise fallback for non-JSON upstream errors.
       }
       throw new Error(`Storage upload returned HTTP ${response.status}.${detail}`);
