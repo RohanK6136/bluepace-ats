@@ -39,14 +39,14 @@ const MATCH_WEIGHTS = {
 };
 const buttonPrimary = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2 text-sm font-semibold text-[#10131c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const buttonSecondary = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
-const inputStyle = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
+const inputStyle = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-hidden transition placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
 
 function ThemeToggle({ theme, onToggle }) {
   return (
     <button
       type="button"
       onClick={onToggle}
-      className="inline-flex h-10 items-center gap-2 rounded-md border border-ink-100 bg-white px-3 text-sm font-semibold text-ink-700 shadow-sm hover:bg-ink-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+      className="inline-flex h-10 items-center gap-2 rounded-md border border-ink-100 bg-white px-3 text-sm font-semibold text-ink-700 shadow-xs hover:bg-ink-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
       aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
     >
@@ -1466,7 +1466,7 @@ export default function AtsWorkspace() {
       </aside>
 
       <div className="ats-page-shell lg:pl-60">
-        <header className="ats-workspace-header sticky top-0 z-20 min-h-[72px] border-b border-ink-100 bg-white/95 backdrop-blur">
+        <header className="ats-workspace-header sticky top-0 z-20 min-h-[72px] border-b border-ink-100 bg-white/95 backdrop-blur-sm">
           <div className="ats-workspace-header-inner">
             <div>
               <p className="text-xs font-medium text-ink-500">{user?.email}</p>
@@ -1698,7 +1698,7 @@ export default function AtsWorkspace() {
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Extract & create job" : "Import & create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
             </form>}
             <div className="mb-5"><p className="text-sm text-ink-500">{jobs.length} total jobs</p><h2 className="mt-1 text-xl font-semibold">Job openings</h2></div>
-            <div className="ats-jobs-table overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-sm"><div className="min-w-[980px]">
+            <div className="ats-jobs-table overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-xs"><div className="min-w-[980px]">
               <div className="ats-jobs-grid grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-100 bg-[#fafaf8] px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-500"><span>Role</span><span>Location</span><span>Created</span><span>Status</span></div>
               {jobs.map((job) => <div key={job.id} className="ats-jobs-grid grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-50 px-5 py-5 last:border-0">
                 <div>{job.jd_analysis?.source_url ? <a className="font-semibold underline decoration-ink-200 underline-offset-4 hover:decoration-ink-700" href={job.jd_analysis.source_url} target="_blank" rel="noreferrer">{job.title}</a> : <button className="font-semibold hover:underline" onClick={() => resetJobForm(job)}>{job.title}</button>}<p className="mt-0.5 text-xs text-ink-500">{job.department || "Unassigned department"} · {job.employment_type || "Employment type not set"} · {workModeLabel(job.work_mode)}</p><p className="mt-1 text-xs text-ink-500">{job.minimum_experience_years === null ? "Experience unspecified" : `${job.minimum_experience_years}+ years`}{job.fresher_allowed ? " · Freshers welcome" : ""}{job.required_skills?.length ? ` · ${job.required_skills.join(", ")}` : ""}</p>
@@ -1714,7 +1714,7 @@ export default function AtsWorkspace() {
                   {job.jd_analysis.interview_topics?.length > 0 && <div className="mt-2"><b>Interview topics:</b> {job.jd_analysis.interview_topics.join(", ")}</div>}
                 </div></details>}
                 {job.jd_analysis?.source_url && <p className="mt-1 text-[11px] text-ink-400">Imported from job link</p>}</div>
-                <div className="self-start break-words pt-0.5 text-sm text-ink-600">{job.location || "Remote / unspecified"}</div>
+                <div className="self-start wrap-break-word pt-0.5 text-sm text-ink-600">{job.location || "Remote / unspecified"}</div>
                 <span className="self-start whitespace-nowrap pt-0.5 text-xs text-ink-500">{new Date(job.created_at).toLocaleDateString()}</span>
                 <div className="flex min-w-0 flex-col items-start gap-2 self-start"><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${job.status === "open" ? "bg-emerald-50 text-emerald-800" : job.status === "archived" ? "bg-ink-100 text-ink-500" : "bg-gold-50 text-ink-700"}`}>{job.status}</span><div className="flex flex-wrap items-center gap-x-4 gap-y-2"><button className="text-xs font-medium text-blue-700 underline underline-offset-2" onClick={() => analyzeJob(job)}>Refresh JD intelligence</button>{canWrite && job.status !== "archived" && <button className="text-xs font-medium text-ink-500 underline underline-offset-2" onClick={() => archiveJob(job)}>Archive</button>}</div></div>
               </div>)}
@@ -2018,7 +2018,7 @@ export default function AtsWorkspace() {
                       ["LinkedIn", profile.linkedin || "Not found"],
                       ["GitHub", profile.github || "Not found"],
                       ["Highest education", profile.highest_education || "Not found"],
-                    ].map(([label, value]) => <div key={label} className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">{label}</p><p className="mt-1 break-words text-sm">{value}</p></div>)}
+                    ].map(([label, value]) => <div key={label} className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">{label}</p><p className="mt-1 wrap-break-word text-sm">{value}</p></div>)}
                   </div>
                   <div className="mt-4 grid gap-4 lg:grid-cols-3">
                     <div className="rounded-lg border border-ink-100 bg-white p-3"><p className="text-[11px] font-semibold uppercase text-ink-500">Companies</p><p className="mt-2 text-sm">{(profile.companies || []).join(", ") || "Not found"}</p></div>
@@ -2099,7 +2099,7 @@ export default function AtsWorkspace() {
                   </div>
                   {fitAnalysis && (
                     <>
-                      <div className="mt-5 rounded-xl border border-ink-100 bg-white p-4 shadow-sm">
+                      <div className="mt-5 rounded-xl border border-ink-100 bg-white p-4 shadow-xs">
                         <div className="flex flex-wrap items-start justify-between gap-4">
                           <div className="min-w-0 flex-1">
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Candidate fit summary</p>

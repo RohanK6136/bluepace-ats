@@ -141,7 +141,7 @@ export default function PublicHelpCenter({ portal = false }) {
       <button
         type="button"
         onClick={openSection}
-        className="bp-help-launcher fixed bottom-5 right-5 z-[70] inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-ink-950 px-3.5 py-2.5 text-sm font-semibold text-white shadow-[0_16px_40px_rgba(7,27,46,0.20)] transition hover:-translate-y-0.5 hover:bg-ink-900 focus:outline-none focus:ring-4 focus:ring-blue-100"
+        className="bp-help-launcher fixed bottom-5 right-5 z-70 inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-ink-950 px-3.5 py-2.5 text-sm font-semibold text-white shadow-[0_16px_40px_rgba(7,27,46,0.20)] transition hover:-translate-y-0.5 hover:bg-ink-900 focus:outline-hidden focus:ring-4 focus:ring-blue-100"
         aria-label="Open BluePace Help Center"
         title="Help Center"
       >
@@ -157,9 +157,9 @@ export default function PublicHelpCenter({ portal = false }) {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[80] bg-black/35" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-80 bg-black/35" onClick={() => setOpen(false)}>
           <aside
-            className="absolute bottom-5 right-5 flex h-[min(720px,calc(100dvh-2.5rem))] w-[min(440px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl max-sm:inset-x-0 max-sm:bottom-0 max-sm:right-0 max-sm:h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:rounded-none"
+            className="absolute bottom-5 right-5 flex h-[min(720px,calc(100dvh-2.5rem))] w-[min(440px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl max-sm:inset-x-0 max-sm:bottom-0 max-sm:right-0 max-sm:h-dvh max-sm:w-full max-sm:max-w-none max-sm:rounded-none"
             aria-label="BluePace Help Center"
             onClick={(event) => event.stopPropagation()}
           >
@@ -237,7 +237,7 @@ export default function PublicHelpCenter({ portal = false }) {
                     <input
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
-                      className="min-w-0 flex-1 rounded-xl border border-ink-100 bg-[#fafaf8] px-3 py-2.5 text-sm outline-none focus:border-gold-500 focus:ring-2 focus:ring-gold-100"
+                      className="min-w-0 flex-1 rounded-xl border border-ink-100 bg-[#fafaf8] px-3 py-2.5 text-sm outline-hidden focus:border-gold-500 focus:ring-2 focus:ring-gold-100"
                       placeholder="Ask how the portal works…"
                       aria-label="Ask the BluePace Help Center"
                     />
@@ -254,7 +254,7 @@ export default function PublicHelpCenter({ portal = false }) {
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    className="rounded-xl border border-ink-100 bg-[#fafaf8] px-3 py-2.5 text-sm outline-none focus:border-gold-500 focus:ring-2 focus:ring-gold-100"
+                    className="rounded-xl border border-ink-100 bg-[#fafaf8] px-3 py-2.5 text-sm outline-hidden focus:border-gold-500 focus:ring-2 focus:ring-gold-100"
                     placeholder="Search applications, interviews, offers…"
                   />
                 </label>

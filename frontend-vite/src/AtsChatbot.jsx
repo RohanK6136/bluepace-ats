@@ -85,7 +85,7 @@ export default function AtsChatbot({ token, apiRequest, onError }) {
                   className={
                     item.role === "user"
                       ? "max-w-[88%] rounded-2xl rounded-br-md bg-[#1769d3] px-3.5 py-2.5 text-sm leading-5 text-white"
-                      : "max-w-[92%] rounded-2xl rounded-bl-md border border-ink-100 bg-white px-3.5 py-2.5 text-sm leading-5 text-ink-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                      : "max-w-[92%] rounded-2xl rounded-bl-md border border-ink-100 bg-white px-3.5 py-2.5 text-sm leading-5 text-ink-700 shadow-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                   }
                 >
                   <p className="whitespace-pre-wrap">{item.text}</p>
@@ -95,7 +95,7 @@ export default function AtsChatbot({ token, apiRequest, onError }) {
 
             {loading && (
               <div className="flex justify-start">
-                <div className="rounded-2xl rounded-bl-md border border-ink-100 bg-white px-3.5 py-2.5 text-sm text-ink-500 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div className="rounded-2xl rounded-bl-md border border-ink-100 bg-white px-3.5 py-2.5 text-sm text-ink-500 shadow-xs dark:border-slate-700 dark:bg-slate-900">
                   Thinking…
                 </div>
               </div>
@@ -123,7 +123,7 @@ export default function AtsChatbot({ token, apiRequest, onError }) {
                 onChange={(event) => setMessage(event.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask about the ATS…"
-                className="min-h-11 flex-1 resize-none rounded-xl border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                className="min-h-11 flex-1 resize-none rounded-xl border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                 disabled={loading}
               />
               <button

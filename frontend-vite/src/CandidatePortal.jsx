@@ -135,7 +135,7 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
   }
 
   if (loading) return <main className="grid min-h-screen place-items-center bg-[#f5f8fb] text-ink-900"><p className="text-sm text-ink-500">Loading application portal…</p></main>;
-  if (error && !data) return <main className="grid min-h-screen place-items-center bg-[#f5f8fb] px-5 text-ink-900"><section className="w-full max-w-xl rounded-2xl border border-ink-100 bg-white p-8 text-center shadow-sm"><h1 className="text-xl font-semibold">Application portal</h1><p className="mt-3 text-sm text-rose-700">{error}</p></section></main>;
+  if (error && !data) return <main className="grid min-h-screen place-items-center bg-[#f5f8fb] px-5 text-ink-900"><section className="w-full max-w-xl rounded-2xl border border-ink-100 bg-white p-8 text-center shadow-xs"><h1 className="text-xl font-semibold">Application portal</h1><p className="mt-3 text-sm text-rose-700">{error}</p></section></main>;
   if (!data) return null;
 
   return (
@@ -151,7 +151,7 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
           <button
             type="button"
             onClick={onToggleTheme}
-            className="inline-flex h-10 items-center gap-2 rounded-md border border-ink-100 bg-white px-3 text-sm font-semibold text-ink-700 shadow-sm hover:bg-ink-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-ink-100 bg-white px-3 text-sm font-semibold text-ink-700 shadow-xs hover:bg-ink-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
@@ -164,7 +164,7 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
         {message && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{message}</div>}
         {error && <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{error}</div>}
 
-        <section className="rounded-2xl border border-ink-100 bg-white p-6 shadow-sm sm:p-8">
+        <section className="rounded-2xl border border-ink-100 bg-white p-6 shadow-xs sm:p-8">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Application #{data.application_id}</p><h1 className="mt-2 text-2xl font-semibold">{data.job_title}</h1><p className="mt-1 text-sm text-ink-500">{data.candidate_name}</p></div>
             <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-800">{data.stage_name}</span>
@@ -336,4 +336,4 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
   );
 }
 
-const inputStyle = "w-full rounded-md border border-amber-200 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100";
+const inputStyle = "w-full rounded-md border border-amber-200 bg-white px-3 py-2.5 text-sm text-ink-900 outline-hidden focus:border-amber-400 focus:ring-2 focus:ring-amber-100";
