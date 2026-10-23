@@ -56,9 +56,9 @@ function formatProviderMessageForDisplay(message) {
 function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
   const source = String(sourceText || "").trim();
   const lines = source.split(/\r?\n/).map((line) => line.trim().replace(/^(?:#{1,6}\s+|[-*•]|\d+[.)])\s*/, "")).filter(Boolean);
-  const titleMatch = source.match(/(?:job\s*title|position(?:\s*title)?|role)\s*[:\-]\s*([^\r\n]{3,100})/i);
+  const titleMatch = source.match(/(?:job\s*title|position(?:\s*title)?|role)\s*[:-]\s*([^\r\n]{3,100})/i);
   const genericHeading = /^(?:job description|job details|position details|role description|role overview|about the role|recruiter notes|hiring notes)$/i;
-  const candidateLine = lines.find((line) => line.length <= 70 && !genericHeading.test(line) && !/^(?:location|work\s*mode|employment(?:\s*type)?|experience|minimum\s*experience|salary|department|job\s*title|title)\s*[:\-]/i.test(line) && !/\b(?:years?\s+(?:of\s+)?experience|salary|compensation)\b/i.test(line) && !/[.!?]$/.test(line) && !/^(?:we|hiring|seeking|looking|need|responsible|must|should)\b/i.test(line));
+  const candidateLine = lines.find((line) => line.length <= 70 && !genericHeading.test(line) && !/^(?:location|work\s*mode|employment(?:\s*type)?|experience|minimum\s*experience|salary|department|job\s*title|title)\s*[:-]/i.test(line) && !/\b(?:years?\s+(?:of\s+)?experience|salary|compensation)\b/i.test(line) && !/[.!?]$/.test(line) && !/^(?:we|hiring|seeking|looking|need|responsible|must|should)\b/i.test(line));
   const explicitTitle = String(overrides.job_title || (titleMatch ? titleMatch[1] : "")).trim();
   const title = explicitTitle || candidateLine || "Role title to be confirmed";
   const labelValue = (labelPattern) => {
@@ -71,7 +71,7 @@ function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
   const inferredExperience = experienceMatch ? Number(experienceMatch[1] || experienceMatch[2]) : null;
   const hasExplicitExperience = overrides.minimum_experience_years !== undefined && overrides.minimum_experience_years !== null && overrides.minimum_experience_years !== "";
   const minExperience = hasExplicitExperience ? Number(overrides.minimum_experience_years) : inferredExperience;
-  const locationFromLabel = labelValue(/(?:work\s*location|job\s*location|location)\s*[:\-]\s*([^\r\n]+)/i);
+  const locationFromLabel = labelValue(/(?:work\s*location|job\s*location|location)\s*[:-]\s*([^\r\n]+)/i);
   const location = String(overrides.location || locationFromLabel).trim();
   const employmentType = String(overrides.employment_type || (employmentMatch ? employmentMatch[1].replace(/\s+/g, "-").toLowerCase() : "")).trim();
   const rawWorkMode = String(overrides.work_mode || (workModeMatch ? workModeMatch[1] : "")).trim().toLowerCase();
@@ -133,10 +133,6 @@ function MetaPill({ children, tone = "neutral" }) {
     blue: "bg-blue-50 text-blue-700",
   };
   return <span className={"inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold " + (styles[tone] || styles.neutral)}>{children}</span>;
-}
-
-function Metric({ label, value }) {
-  return <div className="rounded-xl border border-slate-200 bg-white px-4 py-3"><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 text-xl font-semibold text-slate-900">{value}</p></div>;
 }
 
 export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }) {
@@ -279,7 +275,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     try {
       const response = await apiRequest(token, "post", "/ai-hiring/test", { data: credentials(), timeout: 45000 });
       setConnection(response.data);
-      try { persistSettings(); } catch {}
+      try { persistSettings(); } catch { /* Browser storage is optional; the current UI state remains usable. */ }
       setNotice(response.data?.message || (selectedProvider.label + " connection checked."));
     } catch (requestError) {
       setError(explainError(requestError));
@@ -428,7 +424,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     }
   }
 
-  function useSuggestion(suggestion) {
+  function applySuggestion(suggestion) {
     const aliases = {
       title: "job_title", job_title: "job_title", employment: "employment_type",
       employment_type: "employment_type", work_mode: "work_mode", location: "location",
@@ -845,7 +841,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         try {
           sessionStorage.setItem("bluepace_ai_provider", nextProvider);
           sessionStorage.setItem("bluepace_ai_" + nextProvider + "_model", nextModel);
-        } catch {}
+        } catch { /* Session storage may be unavailable in private browsing. */ }
       })
       .finally(() => {
         if (active) setProviderDiscoveryComplete(true);
@@ -953,7 +949,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
                 <label className="text-sm font-semibold text-slate-700">Minimum experience (years)<input type="number" min="0" max="60" step="0.5" className={fieldClass + " mt-1.5"} value={jobDetails.minimum_experience_years} onChange={(event) => updateJobDetail("minimum_experience_years", event.target.value)} placeholder="e.g. 1.5" /></label>
                 <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700"><input type="checkbox" checked={jobDetails.fresher_allowed} onChange={(event) => updateJobDetail("fresher_allowed", event.target.checked)} className="h-4 w-4 accent-amber-600" />Freshers are eligible</label>
               </div>
-              {suggestions.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4"><h4 className="text-sm font-semibold text-slate-900">Suggested missing details</h4><p className="mt-1 text-xs text-slate-600">Suggestions are not facts. Apply only the values that the hiring team confirms.</p><div className="mt-3 grid gap-2">{suggestions.map((item, index) => <div key={String(item.field || index) + "-" + index} className="rounded-lg border border-amber-100 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-slate-800">{String(item.field || "Missing field").replaceAll("_", " ")}</p><button type="button" onClick={() => useSuggestion(item)} className="text-xs font-semibold text-amber-800 underline underline-offset-2">Use suggestion</button></div><p className="mt-1 text-sm text-slate-700">{String(item.suggested_value ?? "No suggestion")}</p><p className="mt-1 text-xs leading-5 text-slate-500">{String(item.reason || "Review with the hiring team.")}</p></div>)}</div><button type="button" onClick={() => void generateJD(jobDetails)} disabled={Boolean(busy)} className={btnSecondary + " mt-3"}>Regenerate using edited fields</button></div>}
+              {suggestions.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4"><h4 className="text-sm font-semibold text-slate-900">Suggested missing details</h4><p className="mt-1 text-xs text-slate-600">Suggestions are not facts. Apply only the values that the hiring team confirms.</p><div className="mt-3 grid gap-2">{suggestions.map((item, index) => <div key={String(item.field || index) + "-" + index} className="rounded-lg border border-amber-100 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-slate-800">{String(item.field || "Missing field").replaceAll("_", " ")}</p><button type="button" onClick={() => applySuggestion(item)} className="text-xs font-semibold text-amber-800 underline underline-offset-2">Use suggestion</button></div><p className="mt-1 text-sm text-slate-700">{String(item.suggested_value ?? "No suggestion")}</p><p className="mt-1 text-xs leading-5 text-slate-500">{String(item.reason || "Review with the hiring team.")}</p></div>)}</div><button type="button" onClick={() => void generateJD(jobDetails)} disabled={Boolean(busy)} className={btnSecondary + " mt-3"}>Regenerate using edited fields</button></div>}
               <div className="flex flex-wrap gap-2"><button type="button" className={btnSecondary} onClick={() => { setSourceText(jobDescription); setTab("rubric"); }}>Use this JD for rubric</button><button type="button" className={btnPrimary} disabled={Boolean(busy) || !jobDescription.trim()} onClick={() => void saveDraftJob()}>{busy === "save-job" ? "Saving…" : "Save as ATS draft"}</button></div>
               <p className="text-xs leading-5 text-slate-500">Saving creates a draft only. It does not publish the role. Fractional experience values are supported and saved to the ATS job record.</p>
             </div>

@@ -74,7 +74,7 @@ export default function ScorecardPanel({ token, applicationId, candidateName, ap
           </select>
         </label>
       </div>
-      <button className="mt-4 inline-flex items-center rounded-md bg-[#1769d3] px-4 py-2 text-sm font-semibold text-white" disabled={saving}>{saving ? "Saving…" : "Save feedback"}</button>
+      <button type="button" onClick={save} className="mt-4 inline-flex items-center rounded-md bg-[#1769d3] px-4 py-2 text-sm font-semibold text-white" disabled={saving}>{saving ? "Saving…" : "Save feedback"}</button>
       {history.length > 1 && <p className="mt-3 text-xs text-ink-500">{history.length} scorecard submission(s) recorded.</p>}
     </section>
   );

@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2 text-sm font-semibold text-[#10131c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
-const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
 const inputStyle = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-hidden transition placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
 
 function uniqueJobs(applications) {
@@ -65,8 +64,6 @@ export default function CandidateComparisonPanel({ token, apiRequest, applicatio
       setLoading(false);
     }
   }
-
-  const selectedApplications = visibleApplications.filter((application) => selected.includes(application.id));
 
   return (
     <section className="grid gap-5">

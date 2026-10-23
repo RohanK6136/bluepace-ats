@@ -219,30 +219,6 @@ function interviewModeLabel(mode) {
   return mode === "offline" ? "Offline / On-site" : "Online";
 }
 
-function normalizeSkill(value) {
-  return String(value || "").toLowerCase().replace(/[.\-_+#]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function applicationMatchSignal(application, jobs) {
-  const job = jobs.find((item) => Number(item.id) === Number(application.job_id));
-  const required = Array.isArray(job?.required_skills)
-    ? job.required_skills
-    : String(job?.required_skills || "").split(",").map((item) => item.trim()).filter(Boolean);
-  const candidateSkills = application.candidate?.resume_data?.skills || [];
-  if (!required.length || !candidateSkills.length) return { value: null, label: "Not assessed", detail: "No structured skill match yet" };
-  const candidateSet = new Set(candidateSkills.map(normalizeSkill));
-  const covered = required.filter((skill) => {
-    const normalized = normalizeSkill(skill);
-    return candidateSet.has(normalized) || [...candidateSet].some((item) => item.includes(normalized) || normalized.includes(item));
-  }).length;
-  const value = Math.round((covered / required.length) * 100);
-  return {
-    value,
-    label: value >= 80 ? "Strong" : value >= 50 ? "Partial" : "Gap",
-    detail: required.length ? `${covered}/${required.length} required skills evidenced` : "No required skills configured",
-  };
-}
-
 function EmptyState({ title, detail }) {
   return (
     <div className="border-t border-ink-100 py-16 text-center">
@@ -258,7 +234,7 @@ export default function AtsWorkspace() {
     try {
       const saved = sessionStorage.getItem("bluepace_user");
       return saved ? JSON.parse(saved) : null;
-    } catch (_) {
+    } catch {
       return null;
     }
   });
@@ -277,8 +253,7 @@ export default function AtsWorkspace() {
   const [publicError, setPublicError] = useState("");
   const [publicSuccess, setPublicSuccess] = useState("");
   const [publicFilters, setPublicFilters] = useState({ search: "", department: "", location: "", work_mode: "" });
-  const [authMode, setAuthMode] = useState("login");
-  const [authForm, setAuthForm] = useState({ organization_name: "", full_name: "", email: "", password: "" });
+    const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [authError, setAuthError] = useState("");
   const [view, setView] = useState("dashboard");
   const [moreOpen, setMoreOpen] = useState(false);
@@ -530,13 +505,7 @@ export default function AtsWorkspace() {
       // has already warmed the API, this resolves immediately. If Render has
       // spun down the Free instance, this makes the wake-up happen once instead
       // of racing the credential request against the cold start.
-      if (authMode === "login") {
-        await ensureApiReady();
-      }
-
-      if (authMode === "register") {
-        await apiRequest(null, "post", "/auth/register", { data: authForm });
-      }
+      await ensureApiReady();
 
       const credentials = new URLSearchParams();
       credentials.set("username", authForm.email);
@@ -557,7 +526,7 @@ export default function AtsWorkspace() {
           || [502, 503, 504].includes(firstError.response.status)
           || ["ECONNABORTED", "ETIMEDOUT"].includes(firstError.code)
           || firstError.name === "AbortError";
-        if (!transientAuthFailure || authMode === "register") throw firstError;
+        if (!transientAuthFailure) throw firstError;
         await ensureApiReady();
         response = await apiRequest(null, "post", "/auth/token", {
           data: credentials,
@@ -921,23 +890,6 @@ export default function AtsWorkspace() {
       await refreshWorkspace();
     } catch (requestError) {
       setError(errorText(requestError));
-    }
-  }
-
-  async function changeStage(applicationId, stageName) {
-    const application = applications.find((item) => item.id === applicationId);
-    const enrichedApplication = application ? { ...application, job_work_mode: jobs.find((job) => job.id === application.job_id)?.work_mode || "onsite" } : null;
-    if (stageName === "Interview" && enrichedApplication) {
-      openInterviewDialog(enrichedApplication);
-      return;
-    }
-    try {
-      await apiRequest(token, "post", `/applications/${applicationId}/stage`, { data: { stage_name: stageName } });
-      setNotice(`Application moved to ${stageName}`);
-      await refreshWorkspace();
-    } catch (requestError) {
-      setError(errorText(requestError));
-      await refreshWorkspace();
     }
   }
 
