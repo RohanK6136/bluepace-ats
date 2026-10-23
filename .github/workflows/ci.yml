@@ -6,14 +6,17 @@ on:
       - "backend/**"
       - "frontend-vite/**"
       - "streamlit_app/**"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/**"
   pull_request:
     paths:
       - "backend/**"
       - "frontend-vite/**"
       - "streamlit_app/**"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   backend:
@@ -70,7 +73,12 @@ jobs:
       - name: Fail on vulnerable production dependencies
         working-directory: frontend-vite
         run: npm audit --omit=dev --audit-level=moderate
-      - working-directory: frontend-vite
+      - name: Lint frontend
+        working-directory: frontend-vite
+        run: npm run lint
+      - name: Build frontend
+        working-directory: frontend-vite
         run: npm run build
-      - working-directory: frontend-vite
+      - name: Test frontend static server and local AI fallbacks
+        working-directory: frontend-vite
         run: npm run test:server
