@@ -134,6 +134,9 @@ def _error_text(body: str, status: int, provider: str) -> str:
     return message[:350] if message else f"{label} request failed with HTTP {status}."
 
 
+MAX_PROVIDER_RESPONSE_BYTES = 2 * 1024 * 1024
+
+
 def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], provider: str) -> dict[str, Any]:
     request = urllib.request.Request(
         url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -141,7 +144,15 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], provi
     )
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
-            data = json.loads(response.read().decode("utf-8"))
+            # Model output limits are useful, but cap the actual wire response too:
+            # a faulty proxy/provider must not make the backend read an unbounded body.
+            body = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+            if len(body) > MAX_PROVIDER_RESPONSE_BYTES:
+                raise HTTPException(502, "The AI provider response exceeded the maximum allowed size.")
+            try:
+                data = json.loads(body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise HTTPException(502, "The AI provider returned an invalid JSON response.") from None
     except urllib.error.HTTPError as error:
         body = error.read(2048).decode("utf-8", errors="replace")
         raise HTTPException(502, _error_text(body, error.code, provider)) from None
