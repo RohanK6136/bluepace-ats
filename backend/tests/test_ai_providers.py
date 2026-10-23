@@ -45,7 +45,7 @@ def test_claude_adapter_uses_native_messages_schema(monkeypatch):
     class FakeResponse:
         def __enter__(self): return self
         def __exit__(self, *_args): return False
-        def read(self):
+        def read(self, size=-1):
             return json.dumps({
                 "model": "claude-sonnet-4-6",
                 "content": [{"type": "text", "text": "{\"ok\": true}"}],
@@ -70,7 +70,7 @@ def test_openai_adapter_sends_json_mode(monkeypatch):
     class FakeResponse:
         def __enter__(self): return self
         def __exit__(self, *_args): return False
-        def read(self):
+        def read(self, size=-1):
             return json.dumps({
                 "model": "gpt-5.4", "choices": [{"message": {"content": "{\"ok\": true}"}}],
                 "usage": {
@@ -243,3 +243,32 @@ def test_ai_usage_event_handles_missing_or_invalid_token_metadata():
     assert event.latency_ms == 0
     assert event.provider_cost_usd is None
     assert event.status == "error"
+
+
+
+def test_provider_invalid_json_returns_safe_502(monkeypatch):
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self, size=-1): return b"not-json"
+
+    monkeypatch.setattr(ai_providers.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    with pytest.raises(HTTPException) as error:
+        ai_providers._post_json("https://provider.example/api", {}, {}, "openai")
+    assert error.value.status_code == 502
+    assert error.value.detail == "The AI provider returned an invalid JSON response."
+
+
+def test_provider_response_body_is_bounded(monkeypatch):
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self, size=-1):
+            assert size == ai_providers.MAX_PROVIDER_RESPONSE_BYTES + 1
+            return b"x" * size
+
+    monkeypatch.setattr(ai_providers.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    with pytest.raises(HTTPException) as error:
+        ai_providers._post_json("https://provider.example/api", {}, {}, "openai")
+    assert error.value.status_code == 502
+    assert error.value.detail == "The AI provider response exceeded the maximum allowed size."
