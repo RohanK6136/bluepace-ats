@@ -476,11 +476,11 @@ DEPLOYED_FRONTEND_ORIGINS = (
 # Allow deployments to override this when their canonical public URL changes.
 DEPLOYED_FRONTEND_ORIGIN = os.getenv(
     "FRONTEND_PUBLIC_ORIGIN",
-    "https://bluepace-frontend-production.up.railway.app",
+    "https://bluepace-ats-frontend.vercel.app",
 ).rstrip("/")
 DEPLOYED_BACKEND_ORIGIN = os.getenv(
     "BACKEND_PUBLIC_ORIGIN",
-    "https://bluepace-ats-production.up.railway.app",
+    "https://bluepace-ats-11.onrender.com",
 ).rstrip("/")
 MAX_RESUME_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES
 
