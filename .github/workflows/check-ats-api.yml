@@ -13,32 +13,55 @@ jobs:
   api-health:
     runs-on: ubuntu-latest
     steps:
-      - name: Check the configured Render API endpoint
+      - name: Probe existing Render API services without changing them
         shell: bash
         run: |
-          set -euo pipefail
-          endpoint="https://bluepace-ats-11.onrender.com/health"
-          for attempt in $(seq 1 12); do
-            body_file="$(mktemp)"
-            status_code="$(curl --silent --show-error --location --max-time 12 --output "$body_file" --write-out '%{http_code}' "$endpoint" || true)"
-            if [[ "$status_code" == "200" ]] && python - "$body_file" <<'PY'
+          python - <<'PY'
+          import concurrent.futures
           import json
-          import sys
-          try:
-              with open(sys.argv[1], encoding="utf-8") as stream:
-                  value = json.load(stream)
-              raise SystemExit(0 if isinstance(value, dict) and value.get("status") == "ok" else 1)
-          except (OSError, ValueError):
-              raise SystemExit(1)
+          import urllib.error
+          import urllib.request
+
+          HOSTS = [
+              "bluepace-ats-11.onrender.com",
+              "bluepace-ats-9.onrender.com",
+              "bluepace-ats-7.onrender.com",
+              "bluepace-ats-5.onrender.com",
+              "bluepace-ats-4.onrender.com",
+              "bluepace-ats-3.onrender.com",
+              "bluepace-ats-2.onrender.com",
+              "bluepace-ats-1.onrender.com",
+              "bluepace-ats-new.onrender.com",
+              "bluepace-ats.onrender.com",
+          ]
+
+          def probe(host):
+              url = f"https://{host}/readyz"
+              try:
+                  request = urllib.request.Request(url, headers={"User-Agent": "BluePace-API-preflight/1.0"})
+                  with urllib.request.urlopen(request, timeout=8) as response:
+                      payload = json.loads(response.read(4096).decode("utf-8"))
+                      ready = response.status == 200 and isinstance(payload, dict) and payload.get("status") == "ready"
+                      return host, response.status, "ready" if ready else f"unexpected response payload/status: {payload.get('status') if isinstance(payload, dict) else 'non-object'}", ready
+              except urllib.error.HTTPError as error:
+                  return host, error.code, "HTTP error", False
+              except Exception as error:
+                  reason = "timeout" if isinstance(error, TimeoutError) or "timed out" in str(error).lower() else type(error).__name__
+                  return host, 0, reason, False
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=len(HOSTS)) as executor:
+              results = list(executor.map(probe, HOSTS))
+
+          for host, status, detail, ready in results:
+              print(f"{'READY' if ready else 'NOT_READY'} {host} HTTP={status} {detail}")
+
+          configured = next((row for row in results if row[0] == "bluepace-ats-11.onrender.com"), None)
+          if configured and configured[3]:
+              print("Configured API host passed the database readiness check.")
+              raise SystemExit(0)
+          ready_alternatives = [row[0] for row in results if row[3]]
+          if ready_alternatives:
+              print("A different Render host responded as ready: " + ", ".join(ready_alternatives))
+          print("No verified readiness for the configured API host. Do not merge or promote this API URL yet.")
+          raise SystemExit(1)
           PY
-            then
-              rm -f "$body_file"
-              echo "API health check passed: $endpoint returned HTTP 200 and status=ok."
-              exit 0
-            fi
-            echo "API not ready (attempt $attempt/12, HTTP ${status_code:-unknown}); retrying."
-            rm -f "$body_file"
-            sleep 5
-          done
-          echo "::error title=BluePace API is not reachable::The selected Render API endpoint did not pass its health check; do not promote this API URL to production."
-          exit 1
