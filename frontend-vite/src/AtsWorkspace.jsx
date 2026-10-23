@@ -2077,6 +2077,7 @@ export default function AtsWorkspace() {
                   )}
                 </div>
                 <ScorecardPanel
+                  key={`${candidate.id}:${applications.find((item) => item.candidate_id === candidate.id && (fitJobId ? item.job_id === Number(fitJobId) : item.stage_name === "Interview"))?.id || applications.find((item) => item.candidate_id === candidate.id)?.id || "none"}`}
                   token={token}
                   applicationId={applications.find((item) => item.candidate_id === candidate.id && (fitJobId ? item.job_id === Number(fitJobId) : item.stage_name === "Interview"))?.id || applications.find((item) => item.candidate_id === candidate.id)?.id}
                   candidateName={candidate.first_name + " " + candidate.last_name}
