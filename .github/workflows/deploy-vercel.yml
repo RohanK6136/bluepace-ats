@@ -8,6 +8,11 @@ name: Deploy frontend to Vercel
 #
 # The non-secret org/project identifiers are pinned here to the existing
 # BluePace Vercel project so the workflow does not silently use another scope.
+#
+# IMPORTANT: Run Vercel CLI commands from the repository root. The existing
+# Vercel project uses frontend-vite as its root directory. Running the CLI
+# inside frontend-vite as well can apply rootDirectory twice and fail during
+# the local Vercel build (for example, "Error: [ENOENT] spawn sh ENOENT").
 
 on:
   push:
@@ -42,21 +47,21 @@ jobs:
           cache: npm
           cache-dependency-path: frontend-vite/package-lock.json
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         working-directory: frontend-vite
         run: npm ci
 
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
+      # Pull into repository-root .vercel so the project rootDirectory is
+      # resolved relative to the checkout root instead of being appended to
+      # frontend-vite a second time.
       - name: Pull Vercel project settings
-        working-directory: frontend-vite
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Build production artifacts
-        working-directory: frontend-vite
         run: vercel build --prod --token="$VERCEL_TOKEN"
 
       - name: Deploy to production
-        working-directory: frontend-vite
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
