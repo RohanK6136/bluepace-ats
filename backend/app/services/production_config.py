@@ -8,7 +8,6 @@ The checker never prints the values of secrets or connection strings.
 from __future__ import annotations
 
 import os
-import sys
 from collections.abc import Mapping
 from urllib.parse import urlsplit
 
@@ -40,10 +39,13 @@ def validate_production_config(
     if not database_url:
         errors.append("DATABASE_URL is missing.")
     else:
-        scheme = urlsplit(database_url).scheme.lower()
-        if scheme.startswith("postgresql"):
+        try:
+            scheme = urlsplit(database_url).scheme.lower()
+        except ValueError:
+            scheme = ""
+        if scheme == "postgresql" or scheme.startswith("postgresql+"):
             pass
-        elif scheme.startswith("sqlite"):
+        elif scheme == "sqlite" or scheme.startswith("sqlite+"):
             persistent_sqlite = values.get("ALLOW_PERSISTENT_SQLITE", "").strip().lower() == "true"
             if persistent_sqlite:
                 warnings.append(
@@ -54,7 +56,7 @@ def validate_production_config(
                     "DATABASE_URL uses SQLite; configure PostgreSQL or explicitly set ALLOW_PERSISTENT_SQLITE=true for a single-instance durable-volume deployment."
                 )
         else:
-            errors.append("DATABASE_URL must use a PostgreSQL URL (or explicitly permitted SQLite).")
+            errors.append("DATABASE_URL must be a valid PostgreSQL URL (or explicitly permitted SQLite).")
 
     jwt_secret = values.get("JWT_SECRET", "").strip()
     if not jwt_secret:
@@ -75,12 +77,17 @@ def validate_production_config(
             if origin == "*" or "*" in origin:
                 errors.append("ALLOWED_ORIGINS must not contain a wildcard.")
                 continue
-            parsed = urlsplit(origin)
+            try:
+                parsed = urlsplit(origin)
+                hostname = parsed.hostname
+                has_user_info = parsed.username is not None or parsed.password is not None
+            except ValueError:
+                errors.append("ALLOWED_ORIGINS entries must be valid bare HTTP(S) origins.")
+                continue
             if (
                 parsed.scheme not in {"https", "http"}
-                or not parsed.hostname
-                or parsed.username is not None
-                or parsed.password is not None
+                or not hostname
+                or has_user_info
                 or parsed.path not in {"", "/"}
                 or parsed.query
                 or parsed.fragment
