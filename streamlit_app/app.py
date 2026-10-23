@@ -163,6 +163,16 @@ elif page == "Zoho Recruit":
                 response = requests.get(f"{api_url}/integrations/zoho/status", headers=headers, timeout=(3, 15))
                 if response.ok:
                     st.session_state["bp_zoho_status"] = response.json()
+                    history_response = requests.get(
+                        f"{api_url}/integrations/zoho/history?limit=10",
+                        headers=headers,
+                        timeout=(3, 15),
+                    )
+                    st.session_state["bp_zoho_sync_history"] = (
+                        history_response.json().get("runs", [])
+                        if history_response.ok and isinstance(history_response.json().get("runs", []), list)
+                        else []
+                    )
                 else:
                     st.error(f"Status check failed (HTTP {response.status_code}).")
             except requests.RequestException:
@@ -177,21 +187,57 @@ elif page == "Zoho Recruit":
             e.metric("Webhook receiver", "Configured" if status_data.get("webhook_configured") else "Secret missing")
             fcol.code(f"{api_url}{status_data.get('webhook_url', '/integrations/zoho/webhook')}", language="text")
             st.caption("Direction: Zoho Recruit → BluePace ATS. Credential values are never returned.")
+            last_sync = status_data.get("last_sync")
+            if last_sync:
+                finished = last_sync.get("completed_at") or last_sync.get("started_at") or "time unavailable"
+                st.info(
+                    f"Last reconciliation: {last_sync.get('status', 'unknown')} · "
+                    f"{last_sync.get('trigger', 'unknown')} · {finished} · "
+                    f"{last_sync.get('candidates_synced', 0)} candidates / "
+                    f"{last_sync.get('jobs_synced', 0)} jobs"
+                )
+                if last_sync.get("error_type"):
+                    st.caption(f"Last error type: {last_sync['error_type']} (private error details are not stored in sync history).")
         if right.button("Run sync now"):
             try:
                 response = requests.post(f"{api_url}/integrations/zoho/sync", headers=headers, timeout=(5, 120))
                 if response.ok:
                     st.success("Sync completed.")
                     st.json(response.json())
+                    status_response = requests.get(f"{api_url}/integrations/zoho/status", headers=headers, timeout=(3, 15))
+                    if status_response.ok:
+                        st.session_state["bp_zoho_status"] = status_response.json()
+                    history_response = requests.get(f"{api_url}/integrations/zoho/history?limit=10", headers=headers, timeout=(3, 15))
+                    if history_response.ok:
+                        st.session_state["bp_zoho_sync_history"] = history_response.json().get("runs", [])
                 elif response.status_code == 503:
                     st.error("Zoho OAuth credentials are not configured on the backend yet.")
                 else:
                     st.error(f"Sync failed (HTTP {response.status_code}). Check Railway logs and Zoho permissions.")
             except requests.RequestException:
                 st.error("Sync request failed or timed out. Check backend logs before retrying.")
+        history_data = st.session_state.get("bp_zoho_sync_history", [])
+        if history_data:
+            st.subheader("Recent sync history")
+            st.dataframe(
+                [
+                    {
+                        "Started": run.get("started_at") or "",
+                        "Trigger": run.get("trigger") or "",
+                        "Outcome": run.get("status") or "unknown",
+                        "Candidates": run.get("candidates_synced", 0),
+                        "Jobs": run.get("jobs_synced", 0),
+                        "Error type": run.get("error_type") or "",
+                    }
+                    for run in history_data[:10]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
         if st.button("Disconnect this workspace"):
             st.session_state.pop("bp_zoho_access_token", None)
             st.session_state.pop("bp_zoho_status", None)
+            st.session_state.pop("bp_zoho_sync_history", None)
             st.rerun()
     else:
         st.caption("Sign in with a BluePace admin or recruiter account to inspect or trigger sync.")

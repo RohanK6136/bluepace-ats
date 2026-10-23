@@ -140,9 +140,9 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
         def __init__(self, api_key):
             captured["api_key"] = api_key
             self.models = FakeModels()
-    class FakeConfig:
+    class FakeConfig(dict):
         def __init__(self, **kwargs):
-            captured["config"] = kwargs
+            super().__init__(**kwargs)
     fake_genai = types.ModuleType("google.genai")
     fake_genai.Client = FakeClient
     fake_types = types.ModuleType("google.genai.types")

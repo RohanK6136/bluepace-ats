@@ -190,6 +190,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [resumeLabJobId, setResumeLabJobId] = useState("");
   const [resumeLabSyncStatus, setResumeLabSyncStatus] = useState("");
   const [zohoStatus, setZohoStatus] = useState(null);
+  const [zohoSyncHistory, setZohoSyncHistory] = useState([]);
   const [zohoStatusError, setZohoStatusError] = useState("");
   const [zohoSyncResult, setZohoSyncResult] = useState(null);
   const [zohoSyncing, setZohoSyncing] = useState(false);
@@ -750,6 +751,16 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
         headers: { Authorization: `Bearer ${currentToken}` },
       });
       setZohoStatus(response.data);
+      try {
+        const historyResponse = await axios.get(`${API_URL}/integrations/zoho/history?limit=8`, {
+          timeout: 15000,
+          headers: { Authorization: `Bearer ${currentToken}` },
+        });
+        setZohoSyncHistory(Array.isArray(historyResponse.data?.runs) ? historyResponse.data.runs : []);
+      } catch {
+        // Status stays useful if an older backend has not exposed history yet.
+        setZohoSyncHistory([]);
+      }
     } catch (error) {
       setZohoStatusError(apiErrorMessage(error, "Could not load Zoho integration status."));
     }
@@ -821,6 +832,32 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               </div>
             )}
             {zohoSyncResult && <p role="status" className="mt-3 text-xs text-emerald-700">Last sync: {zohoSyncResult.candidates_synced} candidates and {zohoSyncResult.jobs_synced} job openings processed.</p>}
+            {zohoSyncHistory.length > 0 && (
+              <div className="mt-4 border-t border-ink-100 pt-3">
+                <h3 className="text-xs font-semibold text-ink-700">Recent sync history</h3>
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full min-w-[520px] text-left text-xs">
+                    <thead className="text-[10px] uppercase tracking-wide text-ink-500">
+                      <tr><th className="py-2 pr-3">Started</th><th className="py-2 pr-3">Trigger</th><th className="py-2 pr-3">Outcome</th><th className="py-2 pr-3">Candidates</th><th className="py-2 pr-3">Jobs</th></tr>
+                    </thead>
+                    <tbody>
+                      {zohoSyncHistory.slice(0, 8).map((run) => (
+                        <tr key={run.id} className="border-t border-ink-50">
+                          <td className="py-2 pr-3 whitespace-nowrap">{run.started_at ? new Date(run.started_at).toLocaleString() : "—"}</td>
+                          <td className="py-2 pr-3 capitalize">{run.trigger || "—"}</td>
+                          <td className="py-2 pr-3">
+                            <span className={run.status === "success" ? "font-semibold text-emerald-700" : run.status === "failed" ? "font-semibold text-rose-700" : "font-semibold text-ink-600"}>{run.status || "unknown"}</span>
+                            {run.error_type && <span className="ml-1 text-ink-500">({run.error_type})</span>}
+                          </td>
+                          <td className="py-2 pr-3">{run.candidates_synced ?? 0}</td>
+                          <td className="py-2 pr-3">{run.jobs_synced ?? 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
             {zohoStatusError && <p role="alert" className="mt-3 text-xs text-rose-700">{zohoStatusError}</p>}
             <p className="mt-3 text-[11px] leading-5 text-ink-500">Configure OAuth credentials, webhook secret, organization ID and sync schedule on the backend. Never put Zoho secrets in this frontend.</p>
           </section>
