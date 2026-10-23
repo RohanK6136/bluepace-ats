@@ -215,10 +215,6 @@ function workModeLabel(mode) {
   return mode === "remote" ? "Remote" : mode === "hybrid" ? "Hybrid" : "On-site";
 }
 
-function interviewModeLabel(mode) {
-  return mode === "offline" ? "Offline / On-site" : "Online";
-}
-
 function EmptyState({ title, detail }) {
   return (
     <div className="border-t border-ink-100 py-16 text-center">
@@ -317,8 +313,6 @@ export default function AtsWorkspace() {
   const [assistantQuestion, setAssistantQuestion] = useState("Summarize this candidate against the JD.");
   const [assistantResult, setAssistantResult] = useState(null);
   const [assistantLoading, setAssistantLoading] = useState(false);
-  const [interviewDialogApplication, setInterviewDialogApplication] = useState(null);
-  const [interviewForm, setInterviewForm] = useState({ starts_at: "", duration_minutes: "60", mode: "online", location: "", meeting_url: "" });
 
   const canWrite = user && ["admin", "recruiter"].includes(user.role);
 
@@ -856,42 +850,6 @@ export default function AtsWorkspace() {
     }
   }
 
-
-  function openInterviewDialog(application) {
-    const start = new Date(Date.now() + 60 * 60 * 1000);
-    const local = new Date(start.getTime() - start.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    setInterviewDialogApplication(application);
-    const defaultMode = application.job_work_mode === "onsite" ? "offline" : "online";
-    setInterviewForm({ starts_at: local, duration_minutes: "60", mode: defaultMode, location: "", meeting_url: "" });
-    setError("");
-  }
-
-  async function scheduleInterviewAndChangeStage(event) {
-    event.preventDefault();
-    if (!interviewDialogApplication || !interviewForm.starts_at) return;
-    try {
-      const startsAt = new Date(interviewForm.starts_at);
-      if (Number.isNaN(startsAt.getTime())) {
-        setError("Enter a valid interview date and time.");
-        return;
-      }
-      await apiRequest(token, "post", `/applications/${interviewDialogApplication.id}/stage`, {
-        data: {
-          stage_name: "Interview",
-          interview_starts_at: startsAt.toISOString(),
-          interview_duration_minutes: Number(interviewForm.duration_minutes || 60),
-          interview_mode: interviewForm.mode,
-          interview_location: interviewForm.mode === "offline" ? interviewForm.location.trim() : null,
-          interview_meeting_url: interviewForm.mode === "online" ? interviewForm.meeting_url.trim() : null,
-        },
-      });
-      setInterviewDialogApplication(null);
-      setNotice("Interview scheduled and saved in the ATS.");
-      await refreshWorkspace();
-    } catch (requestError) {
-      setError(errorText(requestError));
-    }
-  }
 
   async function loadFitAnalysis() {
     if (!selectedCandidate || !fitJobId) return;
@@ -2220,32 +2178,6 @@ export default function AtsWorkspace() {
           </main>
         </Suspense>
       </div>
-
-      {interviewDialogApplication && <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setInterviewDialogApplication(null); }}>
-        <form onSubmit={scheduleInterviewAndChangeStage} className="w-full max-w-lg bg-white p-5 shadow-xl">
-          <div className="mb-5 flex items-start justify-between gap-3">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Interview scheduling</p><h2 className="mt-1 text-lg font-semibold">{interviewDialogApplication.candidate.first_name} {interviewDialogApplication.candidate.last_name}</h2><p className="text-sm text-ink-500">{interviewDialogApplication.job_title} · {interviewDialogApplication.candidate.email}</p></div>
-            <button type="button" aria-label="Close dialog" onClick={() => setInterviewDialogApplication(null)}>×</button>
-          </div>
-          <div className="grid gap-4">
-            <Field label="Interview date & time" type="datetime-local" required value={interviewForm.starts_at} onChange={(event) => setInterviewForm({ ...interviewForm, starts_at: event.target.value })} />
-            <SelectField label="Interview mode" value={interviewForm.mode} onChange={(event) => setInterviewForm({ ...interviewForm, mode: event.target.value, location: "", meeting_url: "" })}>
-              <option value="online">Online</option>
-              <option value="offline">Offline / On-site</option>
-            </SelectField>
-            <Field label="Duration (minutes)" type="number" min="15" max="480" value={interviewForm.duration_minutes} onChange={(event) => setInterviewForm({ ...interviewForm, duration_minutes: event.target.value })} />
-            {interviewForm.mode === "online" ? (
-              <Field label="Meeting link" required placeholder="https://teams.microsoft.com/..." value={interviewForm.meeting_url} onChange={(event) => setInterviewForm({ ...interviewForm, meeting_url: event.target.value })} />
-            ) : (
-              <Field label="Interview location / address" required placeholder="Blupace Tech office, Hyderabad..." value={interviewForm.location} onChange={(event) => setInterviewForm({ ...interviewForm, location: event.target.value })} />
-            )}
-            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-              The application will move to <strong>Interview</strong>. The date, time, duration and {interviewModeLabel(interviewForm.mode).toLowerCase()} details will be saved in the ATS.
-            </div>
-          </div>
-          <div className="mt-6 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => setInterviewDialogApplication(null)}>Cancel</button><button type="submit" className={buttonPrimary}>Schedule interview</button></div>
-        </form>
-      </div>}
 
       {token && (
         <AtsChatbot
