@@ -65,3 +65,22 @@ jobs:
 
       - name: Deploy to production
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+      - name: Smoke-test production alias
+        shell: bash
+        run: |
+          production_url="https://bluepace-ats-frontend.vercel.app/"
+          for attempt in $(seq 1 12); do
+            response_file="$(mktemp)"
+            status_code="$(curl --silent --show-error --location --max-time 15 --output "$response_file" --write-out '%{http_code}' "$production_url" || true)"
+            if [[ "$status_code" == "200" ]] && grep -qi '<title>BluePace ATS' "$response_file" && grep -qi 'id="root"' "$response_file"; then
+              rm -f "$response_file"
+              echo "Production smoke test passed: HTTP 200 and expected BluePace ATS HTML markers found."
+              exit 0
+            fi
+            rm -f "$response_file"
+            echo "Production alias not ready or unexpected HTML (attempt $attempt/12, HTTP ${status_code:-unknown})."
+            sleep 5
+          done
+          echo "::error title=Production smoke test failed::Vercel reported a deployment, but the production alias did not serve the expected BluePace ATS HTML."
+          exit 1
