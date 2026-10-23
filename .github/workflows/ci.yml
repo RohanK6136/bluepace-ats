@@ -43,6 +43,33 @@ jobs:
           cache-dependency-path: frontend-vite/package-lock.json
       - working-directory: frontend-vite
         run: npm ci --no-audit --no-fund
+      - name: Report all frontend dependency advisories
+        working-directory: frontend-vite
+        shell: bash
+        run: |
+          npm audit --json > "$RUNNER_TEMP/npm-audit-report.json" || true
+          node - "$RUNNER_TEMP/npm-audit-report.json" <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("Full npm audit totals:", JSON.stringify(report.metadata?.vulnerabilities || {}));
+          for (const [name, vuln] of Object.entries(report.vulnerabilities || {}).sort((a, b) => a[0].localeCompare(b[0]))) {
+            const advisories = (vuln.via || [])
+              .filter((item) => item && typeof item === "object")
+              .map((item) => item.title + (item.url ? " (" + item.url + ")" : ""));
+            console.log(JSON.stringify({
+              package: name,
+              severity: vuln.severity,
+              direct: vuln.isDirect,
+              range: vuln.range,
+              fixAvailable: vuln.fixAvailable,
+              via: advisories,
+              effects: vuln.effects,
+            }));
+          }
+          NODE
+      - name: Fail on vulnerable production dependencies
+        working-directory: frontend-vite
+        run: npm audit --omit=dev --audit-level=moderate
       - working-directory: frontend-vite
         run: npm run build
       - working-directory: frontend-vite
