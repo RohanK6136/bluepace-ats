@@ -106,7 +106,6 @@ def test_render_frontend_origin_is_allowed_by_cors(client):
     "origin",
     [
         "https://bluepace-ats-frontend.vercel.app",
-        "https://bluepace-frontend-production.up.railway.app",
     ],
 )
 def test_current_production_frontend_origins_are_allowed_by_cors(client, origin):
@@ -130,7 +129,6 @@ def test_cors_keeps_configured_deployment_origins():
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "https://bluepace-ats-frontend.vercel.app",
-        "https://bluepace-frontend-production.up.railway.app",
         "https://bluepace-ats-frontend.onrender.com",
         "https://bluepace.example.com",
         "https://preview.example.com",

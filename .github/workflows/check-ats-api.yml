@@ -1,0 +1,82 @@
+name: Verify BluePace ATS API host
+
+on:
+  pull_request:
+    paths:
+      - "frontend-vite/.env.production"
+      - "frontend-vite/src/App.jsx"
+      - "backend/app/main.py"
+      - ".github/workflows/check-ats-api.yml"
+  workflow_dispatch:
+
+jobs:
+  api-health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify readiness and the expected backend API surface
+        shell: bash
+        run: |
+          python - <<'PY'
+          import concurrent.futures
+          import json
+          import urllib.error
+          import urllib.request
+
+          HOSTS = [
+              "bluepace-ats-11.onrender.com",
+              "bluepace-ats-9.onrender.com",
+              "bluepace-ats-7.onrender.com",
+              "bluepace-ats-5.onrender.com",
+              "bluepace-ats-4.onrender.com",
+              "bluepace-ats-3.onrender.com",
+              "bluepace-ats-2.onrender.com",
+              "bluepace-ats-1.onrender.com",
+              "bluepace-ats-new.onrender.com",
+              "bluepace-ats.onrender.com",
+          ]
+          REQUIRED = {
+              "/integrations/zoho/status",
+              "/integrations/zoho/history",
+              "/integrations/zoho/webhook",
+              "/integrations/zoho/sync",
+              "/ai-hiring/status",
+          }
+
+          def get_json(url):
+              request = urllib.request.Request(url, headers={"User-Agent": "BluePace-API-preflight/1.0"})
+              with urllib.request.urlopen(request, timeout=8) as response:
+                  return response.status, json.loads(response.read().decode("utf-8"))
+
+          def probe(host):
+              base = f"https://{host}"
+              try:
+                  health_code, health = get_json(base + "/readyz")
+                  if health_code != 200 or not isinstance(health, dict) or health.get("status") != "ready":
+                      return host, False, "readiness failed", []
+                  schema_code, schema = get_json(base + "/openapi.json")
+                  paths = set(schema.get("paths", {})) if schema_code == 200 and isinstance(schema, dict) else set()
+                  missing = sorted(REQUIRED - paths)
+                  detail = "API ready; required route set present" if not missing else "API ready, but missing routes: " + ", ".join(missing)
+                  return host, not missing, detail, sorted(paths.intersection(REQUIRED))
+              except urllib.error.HTTPError as error:
+                  return host, False, f"HTTP {error.code}", []
+              except Exception as error:
+                  reason = "timeout" if isinstance(error, TimeoutError) or "timed out" in str(error).lower() else type(error).__name__
+                  return host, False, reason, []
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=len(HOSTS)) as executor:
+              results = list(executor.map(probe, HOSTS))
+
+          for host, passed, detail, routes in results:
+              print(f"{'PASS' if passed else 'FAIL'} {host}: {detail}")
+
+          configured = next((row for row in results if row[0] == "bluepace-ats-9.onrender.com"), None)
+          if configured and configured[1]:
+              print("Configured API passed database readiness and required route checks.")
+              raise SystemExit(0)
+          ready_alternatives = [row for row in results if row[1]]
+          if ready_alternatives:
+              print("Another host has the expected API routes: " + ", ".join(row[0] for row in ready_alternatives))
+          print("Do not merge or promote until the selected backend is reachable and exposes the expected API routes.")
+          raise SystemExit(1)
+          PY
