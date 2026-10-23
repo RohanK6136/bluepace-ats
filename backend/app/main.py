@@ -480,7 +480,7 @@ DEPLOYED_FRONTEND_ORIGIN = os.getenv(
 ).rstrip("/")
 DEPLOYED_BACKEND_ORIGIN = os.getenv(
     "BACKEND_PUBLIC_ORIGIN",
-    "https://bluepace-ats-11.onrender.com",
+    "https://bluepace-ats-9.onrender.com",
 ).rstrip("/")
 MAX_RESUME_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES
 
