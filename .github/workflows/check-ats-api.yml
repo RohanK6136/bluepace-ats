@@ -1,0 +1,44 @@
+name: Verify BluePace ATS API host
+
+on:
+  pull_request:
+    paths:
+      - "frontend-vite/.env.production"
+      - "frontend-vite/src/App.jsx"
+      - "backend/app/main.py"
+      - ".github/workflows/check-ats-api.yml"
+  workflow_dispatch:
+
+jobs:
+  api-health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the configured Render API endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://bluepace-ats-11.onrender.com/health"
+          for attempt in $(seq 1 12); do
+            body_file="$(mktemp)"
+            status_code="$(curl --silent --show-error --location --max-time 12 --output "$body_file" --write-out '%{http_code}' "$endpoint" || true)"
+            if [[ "$status_code" == "200" ]] && python - "$body_file" <<'PY'
+          import json
+          import sys
+          try:
+              with open(sys.argv[1], encoding="utf-8") as stream:
+                  value = json.load(stream)
+              raise SystemExit(0 if isinstance(value, dict) and value.get("status") == "ok" else 1)
+          except (OSError, ValueError):
+              raise SystemExit(1)
+          PY
+            then
+              rm -f "$body_file"
+              echo "API health check passed: $endpoint returned HTTP 200 and status=ok."
+              exit 0
+            fi
+            echo "API not ready (attempt $attempt/12, HTTP ${status_code:-unknown}); retrying."
+            rm -f "$body_file"
+            sleep 5
+          done
+          echo "::error title=BluePace API is not reachable::The selected Render API endpoint did not pass its health check; do not promote this API URL to production."
+          exit 1
