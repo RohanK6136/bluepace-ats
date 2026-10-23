@@ -36,8 +36,11 @@ def test_development_fallback_and_short_jwt_secret_are_rejected():
     env["JWT_SECRET"] = "local-development-only-change-me"
 
     errors, _warnings = validate_production_config(env)
-
     assert any("development fallback" in item for item in errors)
+
+    env["JWT_SECRET"] = "too-short"
+    errors, _warnings = validate_production_config(env)
+    assert any("at least 32 characters" in item for item in errors)
 
 
 def test_production_http_origin_and_wildcard_are_rejected():
@@ -48,6 +51,17 @@ def test_production_http_origin_and_wildcard_are_rejected():
 
     assert any("must use HTTPS" in item for item in errors)
     assert any("wildcard" in item for item in errors)
+
+
+def test_malformed_urls_return_validation_errors_not_tracebacks():
+    env = good_environment()
+    env["DATABASE_URL"] = "postgresql://[not-a-valid-ipv6-host"
+    env["ALLOWED_ORIGINS"] = "https://[invalid"
+
+    errors, _warnings = validate_production_config(env)
+
+    assert any("DATABASE_URL" in item for item in errors)
+    assert any("ALLOWED_ORIGINS" in item for item in errors)
 
 
 def test_sqlite_requires_explicit_opt_in_and_reports_durability_warning():
