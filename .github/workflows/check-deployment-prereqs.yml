@@ -1,0 +1,50 @@
+name: Check existing deployment prerequisites
+
+on:
+  push:
+    branches: [fix/frontend-api-host]
+
+permissions:
+  contents: read
+
+jobs:
+  presence-only:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_API_TOKEN: ${{ secrets.RENDER_API_TOKEN }}
+      RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+      NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      REDIS_URL: ${{ secrets.REDIS_URL }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+      ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+      ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+      ZOHO_WEBHOOK_SECRET: ${{ secrets.ZOHO_WEBHOOK_SECRET }}
+      ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
+    steps:
+      - name: Report only configured/missing status
+        shell: bash
+        run: |
+          set -euo pipefail
+          names=(
+            VERCEL_TOKEN RENDER_API_KEY RENDER_API_TOKEN RENDER_DEPLOY_HOOK
+            DATABASE_URL PROD_DATABASE_URL PRODUCTION_DATABASE_URL POSTGRES_URL
+            NEON_DATABASE_URL JWT_SECRET SECRET_KEY REDIS_URL OPENROUTER_API_KEY
+            ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET ZOHO_REFRESH_TOKEN
+            ZOHO_WEBHOOK_SECRET ZOHO_ORGANIZATION_ID
+          )
+          for name in "${names[@]}"; do
+            if [[ -n "${!name:-}" ]]; then
+              printf '%s: configured\n' "$name"
+            else
+              printf '%s: missing\n' "$name"
+            fi
+          done
