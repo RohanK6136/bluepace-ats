@@ -6,7 +6,7 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -167,7 +167,25 @@ def refresh_access_token(token: str, db: Session) -> str:
     if _as_utc(session.revoked_at) is not None or session_expires_at is None or session_expires_at + timedelta(minutes=TOKEN_REFRESH_GRACE_MINUTES) <= now:
         raise unauthorized
 
-    session.revoked_at = now
+    # Rotate atomically. With concurrent refreshes, two workers may both
+    # have read this session before either writes; a conditional UPDATE ensures
+    # only the first worker can revoke the still-active row.
+    rotation = db.execute(
+        update(AuthSession)
+        .where(
+            AuthSession.id == session.id,
+            AuthSession.user_id == user_id,
+            AuthSession.jti == jti,
+            AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > now - timedelta(minutes=TOKEN_REFRESH_GRACE_MINUTES),
+        )
+        .values(revoked_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    if rotation.rowcount != 1:
+        db.rollback()
+        raise unauthorized
+
     db.commit()
     return create_access_token(user, db=db)
 
