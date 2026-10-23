@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { assessResumeLocally, buildLocalRubric } from "./aiLocalFallbacks.mjs";
 
 const DEFAULT_MODEL = "openrouter/free";
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const PROVIDER_OPTIONS = [
   { id: "openrouter", label: "OpenRouter", defaultModel: "openrouter/free", keyPlaceholder: "sk-or-v1-…", keyEnvVar: "OPENROUTER_API_KEY" },
+  { id: "gemini", label: "Google Gemini", defaultModel: "gemini-2.5-flash", keyPlaceholder: "Google AI API key", keyEnvVar: "GOOGLE_API_KEY (or GEMINI_API_KEY)" },
   { id: "openai", label: "OpenAI / ChatGPT API", defaultModel: "gpt-5.4", keyPlaceholder: "OpenAI API key", keyEnvVar: "OPENAI_API_KEY" },
   { id: "claude", label: "Claude (Anthropic)", defaultModel: "claude-sonnet-4-6", keyPlaceholder: "Anthropic API key", keyEnvVar: "ANTHROPIC_API_KEY (or CLAUDE_API_KEY)" },
   { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-flash", keyPlaceholder: "DeepSeek API key", keyEnvVar: "DEEPSEEK_API_KEY" },
@@ -16,7 +18,16 @@ function readSessionValue(key) {
 }
 function storedProvider() {
   const saved = readSessionValue("bluepace_ai_provider");
+  const savedKeyProvider = PROVIDER_OPTIONS.find((option) => option.id !== "ollama" && readSessionValue("bluepace_ai_" + option.id + "_key"));
+  if (saved === "ollama") return "ollama";
+  if (PROVIDER_BY_ID[saved] && (readSessionValue("bluepace_ai_" + saved + "_key") || (saved === "openrouter" && readSessionValue("bluepace_openrouter_key")))) return saved;
+  if (savedKeyProvider) return savedKeyProvider.id;
   return PROVIDER_BY_ID[saved] ? saved : "openrouter";
+}
+function hasSavedProviderPreference() {
+  const current = storedProvider();
+  return current === "ollama"
+    || Boolean(readSessionValue("bluepace_ai_" + current + "_key") || (current === "openrouter" && readSessionValue("bluepace_openrouter_key")));
 }
 const tabs = [
   { id: "generate", label: "Generate JD" },
@@ -173,6 +184,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [providerDiscoveryComplete, setProviderDiscoveryComplete] = useState(() => hasSavedProviderPreference());
 
   const selectedRubricSnapshot = savedRubrics.find((item) => item.rubric_id === savedRubricId) || null;
 
@@ -185,7 +197,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     ...(provider === "cloudflare" && accountId.trim() ? { account_id: accountId.trim() } : {}),
   });
 
-  async function ensureProviderConfigured() {
+  async function ensureProviderConfigured({ quiet = false } = {}) {
     if (provider === "ollama" || apiKey.trim()) return true;
 
     let keyConfigured = serverKeyConfigured;
@@ -200,17 +212,21 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         keyConfigured = typeof value === "boolean" ? value : null;
         setServerKeyConfigured(keyConfigured);
       } catch {
-        setError("Could not check the AI provider configuration. No AI request was sent. Check the connection and try again.");
-        setNotice("");
+        if (!quiet) {
+          setError("Could not check the AI provider configuration. No AI request was sent. Check the connection and try again.");
+          setNotice("");
+        }
         return false;
       }
     }
 
     if (keyConfigured !== true) {
-      setError(keyConfigured === false
-        ? selectedProvider.label + " is not configured. Add its API key in Settings to use AI rubric generation and resume assessment."
-        : "The AI provider configuration is unavailable. No AI request was sent; check the connection and try again.");
-      setNotice("No AI request was sent, so this attempt will not create a failed AI run-history record.");
+      if (!quiet) {
+        setError(keyConfigured === false
+          ? selectedProvider.label + " is not configured. Add its API key in Settings to use AI rubric generation and resume assessment."
+          : "The AI provider configuration is unavailable. No AI request was sent; check the connection and try again.");
+        setNotice("No AI request was sent, so this attempt will not create a failed AI run-history record.");
+      }
       return false;
     }
     return true;
@@ -234,6 +250,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   function changeProvider(nextProvider) {
     const next = PROVIDER_BY_ID[nextProvider];
     if (!next) return;
+    setProviderDiscoveryComplete(true);
     setProvider(nextProvider);
     setApiKey(readSessionValue("bluepace_ai_" + nextProvider + "_key")
       || (nextProvider === "openrouter" ? readSessionValue("bluepace_openrouter_key") : ""));
@@ -249,6 +266,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   function saveSettings() {
     try {
       persistSettings();
+      setProviderDiscoveryComplete(true);
       setNotice("Provider settings saved for this browser tab session. Keys are not written to AI run history.");
       setError("");
     } catch {
@@ -467,7 +485,16 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     setBusy("rubric");
     setError("");
     setNotice("");
-    if (!(await ensureProviderConfigured())) {
+    if (!(await ensureProviderConfigured({ quiet: true }))) {
+      const localRubric = buildLocalRubric(jobDescription.trim(), jobDetails.job_title || rubricTitle);
+      setRubric(localRubric);
+      setRubricTitle(String(localRubric.title || jobDetails.job_title || "Assessment rubric"));
+      setSavedRubricId("");
+      setRubricVersionBaseId("");
+      setRubricMeta({ model: "local-rule-based-template (not AI)", latency_ms: 0, generation_mode: "local_rule_based_fallback" });
+      setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
+      setError("");
+      setNotice("No AI provider key is available. A local rule-based rubric draft was created, not AI-generated. Review the criteria and save the rubric version before assessing resumes.");
       setBusy("");
       return;
     }
@@ -581,8 +608,37 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     setBusy("batch-analysis");
     setError("");
     setNotice("");
-    if (!(await ensureProviderConfigured())) {
+    if (!(await ensureProviderConfigured({ quiet: true }))) {
+      const outcomes = new Map();
+      for (const item of pending) {
+        try {
+          outcomes.set(item.id, {
+            analysis: assessResumeLocally(item.resumeData, rubric),
+            meta: {
+              model: "local-keyword-match (not AI)",
+              latency_ms: 0,
+              token_usage: null,
+              model_call_count: 0,
+              analysis_mode: "local_keyword_fallback",
+              rubric_id: savedRubricId,
+              rubric_version: selectedRubricSnapshot?.version || 1,
+              rubric_hash: selectedRubricSnapshot?.content_hash || "",
+            },
+            status: "complete",
+            error: "",
+          });
+        } catch (localError) {
+          outcomes.set(item.id, { analysis: null, meta: null, status: "failed", error: explainError(localError) });
+        }
+      }
+      setResumeBatch((previous) => previous.map((item) => outcomes.has(item.id)
+        ? { ...item, ...outcomes.get(item.id) }
+        : item));
+      const succeeded = [...outcomes.values()].filter((item) => item.status === "complete").length;
+      const failed = outcomes.size - succeeded;
       setBusy("");
+      setError("");
+      setNotice("No AI provider key is available. Completed " + succeeded + " local keyword-evidence review(s)" + (failed ? "; " + failed + " failed" : "") + ". These are not AI assessments or hiring decisions; review original resumes and equivalent wording manually.");
       return;
     }
     let nextIndex = 0;
@@ -758,6 +814,46 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   }, [tab, token, apiRequest]);
 
   useEffect(() => {
+    if (providerDiscoveryComplete) return undefined;
+    let active = true;
+    const keyBasedProviders = PROVIDER_OPTIONS.filter((option) => option.id !== "ollama");
+    Promise.all(keyBasedProviders.map(async (option) => {
+      try {
+        const response = await apiRequest(
+          token,
+          "get",
+          "/ai-hiring/status?provider=" + encodeURIComponent(option.id)
+        );
+        return { option, configured: response.data?.server_key_configured === true };
+      } catch {
+        return { option, configured: false };
+      }
+    }))
+      .then((statuses) => {
+        if (!active) return;
+        // Prefer the first provider that is actually configured on the backend,
+        // rather than silently assuming OpenRouter is always the active provider.
+        const available = statuses.find((item) => item.configured);
+        if (!available) return;
+        const nextProvider = available.option.id;
+        const nextModel = readSessionValue("bluepace_ai_" + nextProvider + "_model")
+          || available.option.defaultModel;
+        setProvider(nextProvider);
+        setApiKey("");
+        setModel(nextModel);
+        setServerKeyConfigured(true);
+        try {
+          sessionStorage.setItem("bluepace_ai_provider", nextProvider);
+          sessionStorage.setItem("bluepace_ai_" + nextProvider + "_model", nextModel);
+        } catch {}
+      })
+      .finally(() => {
+        if (active) setProviderDiscoveryComplete(true);
+      });
+    return () => { active = false; };
+  }, [providerDiscoveryComplete, token, apiRequest]);
+
+  useEffect(() => {
     let active = true;
     apiRequest(token, "get", "/ai-hiring/status?provider=" + encodeURIComponent(provider))
       .then((response) => {
@@ -872,7 +968,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
             <label className="block text-sm font-semibold text-slate-700">Model identifier<input className={fieldClass + " mt-1.5 font-mono"} value={model} onChange={(event) => { setModel(event.target.value); setConnection(null); }} placeholder={selectedProvider.defaultModel}/><span className="mt-1 block text-xs font-normal text-slate-500">Default: {selectedProvider.defaultModel}. Enter another model ID if your provider supports it. Qwen is a model family, not a separate API provider.</span></label>
             <div className="flex flex-wrap gap-2"><button type="button" onClick={saveSettings} className={btnSecondary}>Save for this tab session</button><button type="button" onClick={() => void testConnection()} disabled={Boolean(busy)} className={btnPrimary}>{busy === "test" ? "Testing…" : "Test " + selectedProvider.label + " connection"}</button></div>
             {connection && <div className={"rounded-xl border p-4 " + (connection.status === "connected" && connection.model_listed !== false ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")}><div className="flex flex-wrap items-center gap-2"><MetaPill tone={connection.status === "connected" && connection.model_listed !== false ? "good" : "warn"}>{connection.status === "connected" && connection.model_listed !== false ? "Connection successful" : "Check the selected model"}</MetaPill><MetaPill>{connection.latency_ms} ms</MetaPill></div><p className="mt-2 text-sm text-slate-800">{formatProviderMessageForDisplay(connection.message)}</p><p className="mt-1 text-xs text-slate-600">Selected model: {connection.model} · Provider: {connection.provider_label || selectedProvider.label} · Key source: {connection.key_source}</p></div>}
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p><strong className="text-slate-800">Hosted providers:</strong> OpenAI/ChatGPT, Claude, DeepSeek, OpenRouter and Cloudflare send prompts to the selected provider. Confirm your organisation's data-use terms before processing candidate data. Requests may incur charges.</p><p className="mt-2"><strong className="text-slate-800">Local Ollama / Qwen 3.5:</strong> Install Ollama where the backend runs and execute <code>ollama pull qwen3.5:4b</code>. Keep the URL at <code>http://localhost:11434/v1</code>.</p><p className="mt-2"><strong className="text-slate-800">Hosted deployment limitation:</strong> On Railway, localhost means the Railway container, not your PC. The production ATS cannot reach Ollama on your computer using localhost. For local inference run the backend and Ollama on the same computer, or build a separately secured local bridge. Never put API keys in Vite environment variables or commit them to GitHub.</p><p className="mt-2">“Qwen 3.4.5” did not identify a model tag that I could verify; the model field defaults to the published Qwen 3.5 family and remains editable.</p></div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p><strong className="text-slate-800">Hosted providers:</strong> OpenAI/ChatGPT, Google Gemini, Claude, DeepSeek, OpenRouter and Cloudflare send prompts to the selected provider. Confirm your organisation's data-use terms before processing candidate data. Requests may incur charges.</p><p className="mt-2"><strong className="text-slate-800">Local Ollama / Qwen 3.5:</strong> Install Ollama where the backend runs and execute <code>ollama pull qwen3.5:4b</code>. Keep the URL at <code>http://localhost:11434/v1</code>.</p><p className="mt-2"><strong className="text-slate-800">Hosted deployment limitation:</strong> On Railway, localhost means the Railway container, not your PC. The production ATS cannot reach Ollama on your computer using localhost. For local inference run the backend and Ollama on the same computer, or build a separately secured local bridge. Never put API keys in Vite environment variables or commit them to GitHub.</p><p className="mt-2">“Qwen 3.4.5” did not identify a model tag that I could verify; the model field defaults to the published Qwen 3.5 family and remains editable.</p></div>
           </div>}
 
           {tab === "rubric" && <div className="space-y-5">
@@ -895,7 +991,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
               <label className="block text-sm font-semibold text-slate-700">Rubric name<input className={fieldClass + " mt-1.5"} value={rubricTitle} onChange={(event) => { setRubricTitle(event.target.value); setSavedRubricId(""); }} placeholder="e.g. Implementation Specialist — v1" /></label>
             </div>
             <label className="block text-sm font-semibold text-slate-700">Job description used for scoring<textarea className={fieldClass + " mt-1.5 min-h-40 leading-6"} value={jobDescription} onChange={(event) => { setJobDescription(event.target.value); setSavedRubricId(""); }} placeholder="Generate a job description in the first tab or paste the approved job description here." /></label>
-            {rubricMeta && <div className="flex flex-wrap gap-2"><MetaPill tone="good">Rubric generated</MetaPill><MetaPill>{rubricMeta.model}</MetaPill><MetaPill>{rubricMeta.latency_ms} ms</MetaPill></div>}
+            {rubricMeta && <div className="flex flex-wrap gap-2"><MetaPill tone={rubricMeta.generation_mode === "local_rule_based_fallback" ? "warn" : "good"}>{rubricMeta.generation_mode === "local_rule_based_fallback" ? "Local draft · not AI-generated" : "Rubric generated"}</MetaPill><MetaPill>{rubricMeta.model}</MetaPill><MetaPill>{rubricMeta.latency_ms} ms</MetaPill></div>}
             {rubric && <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div><p className="font-semibold text-slate-900">{rubric.title || rubricTitle || "Assessment rubric"}</p><p className="mt-1 text-sm text-slate-600">{rubric.rubric_summary || "A transparent set of job-related criteria."}</p></div>
@@ -954,7 +1050,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
                 const expanded = expandedResumeId === item.id;
                 return <article key={item.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                   <div className="flex flex-wrap items-center justify-between gap-3 p-4">
-                    <div className="min-w-0"><h5 className="break-words font-semibold text-slate-900">{resumeName}</h5><p className="mt-1 break-all text-xs text-slate-500">{item.file.name} · {(item.file.size / 1024).toFixed(0)} KB</p><div className="mt-2 flex flex-wrap items-center gap-2"><MetaPill tone={item.status === "complete" ? "good" : item.status === "failed" ? "bad" : item.status === "analyzing" || item.status === "extracting" ? "warn" : "neutral"}>{item.status}</MetaPill>{item.analysis && <MetaPill tone="blue">{score}% match</MetaPill>}{item.analysis?.recommendation && <MetaPill>{item.analysis.recommendation}</MetaPill>}</div></div>
+                    <div className="min-w-0"><h5 className="break-words font-semibold text-slate-900">{resumeName}</h5><p className="mt-1 break-all text-xs text-slate-500">{item.file.name} · {(item.file.size / 1024).toFixed(0)} KB</p><div className="mt-2 flex flex-wrap items-center gap-2"><MetaPill tone={item.status === "complete" ? "good" : item.status === "failed" ? "bad" : item.status === "analyzing" || item.status === "extracting" ? "warn" : "neutral"}>{item.status}</MetaPill>{item.analysis && <MetaPill tone="blue">{score}% match</MetaPill>}{item.meta?.analysis_mode === "local_keyword_fallback" && <MetaPill tone="warn">Local keyword match · not AI</MetaPill>}{item.analysis?.recommendation && <MetaPill>{item.analysis.recommendation}</MetaPill>}</div></div>
                     {item.analysis && <div className="text-right"><p className="text-2xl font-semibold text-slate-900">{score}%</p><p className="text-xs text-slate-500">Evidence alignment</p></div>}
                     {item.resumeData && <button type="button" className={btnSecondary} onClick={() => setExpandedResumeId(expanded ? "" : item.id)}>{expanded ? "Hide evidence" : "View evidence"}</button>}
                   </div>
