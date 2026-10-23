@@ -70,7 +70,7 @@ jobs:
           for host, passed, detail, routes in results:
               print(f"{'PASS' if passed else 'FAIL'} {host}: {detail}")
 
-          configured = next((row for row in results if row[0] == "bluepace-ats-11.onrender.com"), None)
+          configured = next((row for row in results if row[0] == "bluepace-ats-9.onrender.com"), None)
           if configured and configured[1]:
               print("Configured API passed database readiness and required route checks.")
               raise SystemExit(0)
