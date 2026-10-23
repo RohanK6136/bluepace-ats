@@ -1,0 +1,72 @@
+name: Tailwind CSS v4 migration (isolated validation)
+
+on:
+  push:
+    branches:
+      - security/tailwind-v4-migration
+    paths:
+      - "frontend-vite/**"
+      - ".github/workflows/tailwind-v4-migration.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/tailwind-v4-migration
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend-vite/package-lock.json
+      - name: Install current locked dependencies
+        working-directory: frontend-vite
+        run: npm ci --no-audit --no-fund
+      - name: Run official Tailwind v3-to-v4 upgrade tool
+        working-directory: frontend-vite
+        env:
+          CI: "1"
+        run: npx --yes @tailwindcss/upgrade
+      - name: Reinstall migrated locked dependencies
+        working-directory: frontend-vite
+        run: npm ci --no-audit --no-fund
+      - name: Build production frontend
+        working-directory: frontend-vite
+        run: npm run build
+      - name: Run frontend regression tests
+        working-directory: frontend-vite
+        run: npm run test:server
+      - name: Gate production dependency audit
+        working-directory: frontend-vite
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Report remaining development dependency advisories
+        working-directory: frontend-vite
+        shell: bash
+        run: |
+          npm audit --json > "$RUNNER_TEMP/tailwind-v4-audit.json" || true
+          node - "$RUNNER_TEMP/tailwind-v4-audit.json" <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("Full npm audit totals after Tailwind v4 migration:", JSON.stringify(report.metadata?.vulnerabilities || {}));
+          for (const [name, issue] of Object.entries(report.vulnerabilities || {})) {
+            console.log(JSON.stringify({ package: name, severity: issue.severity, direct: issue.isDirect, fixAvailable: issue.fixAvailable }));
+          }
+          NODE
+      - name: Commit migration only after build and tests pass
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend-vite
+          if git diff --cached --quiet; then
+            echo "The upgrade tool made no changes; nothing to commit."
+            exit 1
+          fi
+          git diff --cached --stat
+          git commit -m "feat: migrate frontend to Tailwind CSS v4"
+          git push origin HEAD:security/tailwind-v4-migration
