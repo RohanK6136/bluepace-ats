@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+const DEFAULT_RATINGS = { technical: 3, problem_solving: 3, communication: 3, role_knowledge: 3 };
+
 const CRITERIA = [
   ["technical", "Technical skills"],
   ["problem_solving", "Problem solving"],
@@ -8,7 +10,7 @@ const CRITERIA = [
 ];
 
 export default function ScorecardPanel({ token, applicationId, candidateName, apiRequest, onNotice, onError }) {
-  const [ratings, setRatings] = useState({ technical: 3, problem_solving: 3, communication: 3, role_knowledge: 3 });
+  const [ratings, setRatings] = useState({ ...DEFAULT_RATINGS });
   const [recommendation, setRecommendation] = useState("");
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState([]);
@@ -16,17 +18,28 @@ export default function ScorecardPanel({ token, applicationId, candidateName, ap
   useEffect(() => {
     if (!applicationId) {
       setHistory([]);
+      setRatings({ ...DEFAULT_RATINGS });
+      setRecommendation("");
       return undefined;
     }
     let active = true;
     apiRequest(token, "get", "/applications/" + applicationId + "/scorecard")
       .then((response) => {
         if (!active) return;
-        const rows = response.data || [];
+        const rows = Array.isArray(response.data) ? response.data : [];
         setHistory(rows);
         if (rows[0]) {
-          setRatings({ technical: rows[0].ratings?.technical ?? 3, problem_solving: rows[0].ratings?.problem_solving ?? 3, communication: rows[0].ratings?.communication ?? 3, role_knowledge: rows[0].ratings?.role_knowledge ?? 3 });
+          setRatings({
+            technical: rows[0].ratings?.technical ?? 3,
+            problem_solving: rows[0].ratings?.problem_solving ?? 3,
+            communication: rows[0].ratings?.communication ?? 3,
+            role_knowledge: rows[0].ratings?.role_knowledge ?? 3,
+          });
           setRecommendation(rows[0].recommendation || "");
+        } else {
+          // Do not leak the previous application's ratings into a new scorecard.
+          setRatings({ ...DEFAULT_RATINGS });
+          setRecommendation("");
         }
       })
       .catch((error) => { if (active) onError(error); });
