@@ -1,6 +1,10 @@
 name: Production availability check
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/production-availability.yml"
   workflow_dispatch:
   schedule:
     - cron: "*/30 * * * *"
@@ -18,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Check production HTML and security headers
+      - name: Check production HTML and final-response security headers
         shell: bash
         run: |
           set -euo pipefail
@@ -27,28 +31,61 @@ jobs:
           headers="$(mktemp)"
           trap 'rm -f "$body" "$headers"' EXIT
 
-          status="$(curl --silent --show-error --location --max-time 20 \
-            --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url")"
+          if ! status="$(curl --silent --show-error --location --max-time 20 \
+            --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url")"; then
+            echo "::error title=Frontend request failed::Could not retrieve the Vercel production alias."
+            exit 1
+          fi
 
           if [[ "$status" != "200" ]]; then
             echo "::error title=Frontend unavailable::Expected HTTP 200, received $status"
             exit 1
           fi
 
-          if ! grep -qi '<title>BluePace ATS' "$body"; then
-            echo "::error title=Unexpected frontend content::Production response does not contain the expected BluePace ATS title."
-            exit 1
-          fi
+          python3 - "$headers" "$body" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
 
-          for rule in \
-            '^strict-transport-security:[[:space:]]*max-age=31536000' \
-            '^x-content-type-options:[[:space:]]*nosniff' \
-            '^x-frame-options:[[:space:]]*DENY' \
-            '^referrer-policy:[[:space:]]*strict-origin-when-cross-origin'; do
-            if ! grep -Eiq "$rule" "$headers"; then
-              echo "::error title=Missing security header::Expected response header matching $rule"
-              exit 1
-            fi
-          done
+          header_path, body_path = map(Path, sys.argv[1:])
+          raw_headers = header_path.read_bytes().decode("iso-8859-1")
+          blocks = [
+              block for block in re.split(r"\r?\n\r?\n", raw_headers)
+              if re.search(r"^HTTP/\S+\s+\d{3}", block, re.IGNORECASE | re.MULTILINE)
+          ]
+          if not blocks:
+              raise SystemExit("::error title=Invalid HTTP response::No HTTP response headers were captured.")
 
-          echo "Production frontend is responding with HTTP 200, expected app title, and baseline security headers."
+          # curl writes one header block per redirect. Validate only the final
+          # response so a redirect cannot mask missing headers on the page.
+          final_headers = {}
+          for line in blocks[-1].splitlines()[1:]:
+              if ":" not in line:
+                  continue
+              name, value = line.split(":", 1)
+              final_headers[name.strip().lower()] = value.strip()
+
+          html = body_path.read_text(encoding="utf-8", errors="replace")
+          if not re.search(r"<title>\s*BluePace ATS", html, re.IGNORECASE):
+              raise SystemExit("::error title=Unexpected frontend content::Expected BluePace ATS page title was not found.")
+          if not re.search(r'id=["\']root["\']', html, re.IGNORECASE):
+              raise SystemExit("::error title=Unexpected frontend content::React root element was not found.")
+
+          required = {
+              "strict-transport-security": r"(?:^|;\s*)max-age=31536000(?:;|$)",
+              "x-content-type-options": r"^nosniff$",
+              "x-frame-options": r"^DENY$",
+              "referrer-policy": r"^strict-origin-when-cross-origin$",
+          }
+          for name, pattern in required.items():
+              value = final_headers.get(name, "")
+              if not re.search(pattern, value, re.IGNORECASE):
+                  raise SystemExit(f"::error title=Missing security header::{name} missing or invalid on final response.")
+
+          policy = final_headers.get("permissions-policy", "")
+          for feature in ("camera", "microphone", "geolocation"):
+              if not re.search(rf"(?:^|,)\s*{feature}=\(\)", policy, re.IGNORECASE):
+                  raise SystemExit(f"::error title=Invalid permissions policy::{feature} must be disabled.")
+
+          print("Production check passed: HTTP 200, expected page title and React root, and all required security headers on the final response.")
+          PY
