@@ -5,11 +5,13 @@ on:
     paths:
       - "backend/**"
       - "frontend-vite/**"
+      - "streamlit_app/**"
       - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "backend/**"
       - "frontend-vite/**"
+      - "streamlit_app/**"
       - ".github/workflows/ci.yml"
   workflow_dispatch:
 
@@ -27,6 +29,8 @@ jobs:
             backend/requirements-dev.txt
       - run: python -m pip install -r backend/requirements-dev.txt
       - run: APP_ENV=test python -m pytest backend
+      - name: Check Streamlit companion syntax
+        run: python -m py_compile streamlit_app/app.py
 
   frontend:
     runs-on: ubuntu-latest
