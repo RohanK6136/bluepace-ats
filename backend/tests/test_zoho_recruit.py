@@ -103,3 +103,84 @@ def test_webhook_rejects_when_automatic_sync_disabled(monkeypatch):
     with pytest.raises(HTTPException) as error:
         asyncio.run(zoho_recruit.zoho_webhook(FakeWebhookRequest({"webhook_token": "expected-secret"}), BackgroundTasks()))
     assert error.value.status_code == 503
+
+
+def test_sync_interval_is_bounded_and_handles_invalid_environment(monkeypatch):
+    monkeypatch.setenv("ZOHO_SYNC_INTERVAL_MINUTES", "not-a-number")
+    assert zoho_recruit._sync_interval_minutes() == 15
+    monkeypatch.setenv("ZOHO_SYNC_INTERVAL_MINUTES", "2")
+    assert zoho_recruit._sync_interval_minutes() == 5
+    monkeypatch.setenv("ZOHO_SYNC_INTERVAL_MINUTES", "5000")
+    assert zoho_recruit._sync_interval_minutes() == 1440
+
+
+def test_sync_run_history_table_is_payload_free():
+    columns = set(zoho_recruit.ZohoSyncRun.__table__.columns.keys())
+    assert {
+        "id", "organization_id", "trigger", "status", "started_at",
+        "completed_at", "candidates_synced", "jobs_synced", "error_type",
+    }.issubset(columns)
+    assert not {"payload", "candidate_email", "access_token", "refresh_token"}.intersection(columns)
+
+
+class FakeSyncRunSession:
+    def __init__(self):
+        self.rows = {}
+        self.next_id = 1
+
+    def add(self, row):
+        if isinstance(row, zoho_recruit.ZohoSyncRun):
+            row.id = self.next_id
+            self.rows[row.id] = row
+            self.next_id += 1
+
+    def commit(self):
+        pass
+
+    def refresh(self, row):
+        pass
+
+    def get(self, model, row_id):
+        if model is zoho_recruit.ZohoSyncRun:
+            return self.rows.get(row_id)
+        return None
+
+    def rollback(self):
+        pass
+
+
+def test_execute_sync_persists_successful_run(monkeypatch):
+    db = FakeSyncRunSession()
+    org = type("Org", (), {"id": 42})()
+    actor = object()
+    monkeypatch.setattr(
+        zoho_recruit,
+        "sync_zoho_for_organization",
+        lambda *_: {"candidates_synced": 3, "jobs_synced": 2, "completed_at": "now"},
+    )
+    result = zoho_recruit._execute_sync(db, org, actor, "manual")
+    run = db.rows[result["run_id"]]
+    assert result["status"] == "success"
+    assert result["trigger"] == "manual"
+    assert run.status == "success"
+    assert run.candidates_synced == 3
+    assert run.jobs_synced == 2
+    assert run.completed_at is not None
+    assert run.error_type is None
+
+
+def test_execute_sync_persists_sanitized_failure(monkeypatch):
+    db = FakeSyncRunSession()
+    org = type("Org", (), {"id": 42})()
+    monkeypatch.setattr(
+        zoho_recruit,
+        "sync_zoho_for_organization",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("contains private candidate data")),
+    )
+    with pytest.raises(RuntimeError):
+        zoho_recruit._execute_sync(db, org, object(), "webhook")
+    run = db.rows[1]
+    assert run.status == "failed"
+    assert run.error_type == "RuntimeError"
+    assert run.completed_at is not None
+    assert not hasattr(run, "error_message")
