@@ -1,0 +1,82 @@
+name: Scorecard production smoke check
+
+on:
+  push:
+    branches: [fix/scorecard-instance-isolation]
+    paths:
+      - ".github/workflows/scorecard-production-smoke.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/scorecard-production-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Verify public Vercel production frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check production HTML and security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://bluepace-ats-frontend.vercel.app/"
+          body="$(mktemp)"
+          headers="$(mktemp)"
+          trap 'rm -f "$body" "$headers"' EXIT
+
+          status="$(curl --silent --show-error --location --max-time 20 \
+            --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url" || true)"
+          if [[ "$status" != "200" ]]; then
+            echo "::error title=Frontend unavailable::Expected HTTP 200 from the production Vercel alias, received ${status:-unknown}."
+            exit 1
+          fi
+
+          python3 - "$headers" "$body" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          header_path, body_path = map(Path, sys.argv[1:])
+          raw_headers = header_path.read_bytes().decode("iso-8859-1")
+          blocks = [
+              block for block in re.split(r"\r?\n\r?\n", raw_headers)
+              if re.search(r"^HTTP/\S+\s+\d{3}", block, re.IGNORECASE | re.MULTILINE)
+          ]
+          if not blocks:
+              raise SystemExit("::error title=Invalid HTTP response::No response headers captured.")
+
+          # Validate headers on the final response after redirects.
+          headers = {}
+          for line in blocks[-1].splitlines()[1:]:
+              if ":" in line:
+                  name, value = line.split(":", 1)
+                  headers[name.strip().lower()] = value.strip()
+
+          html = body_path.read_text(encoding="utf-8", errors="replace")
+          if not re.search(r"<title>\s*BluePace ATS", html, re.IGNORECASE):
+              raise SystemExit("::error title=Unexpected frontend content::BluePace ATS title missing.")
+          if not re.search(r'id=["\']root["\']', html, re.IGNORECASE):
+              raise SystemExit("::error title=Unexpected frontend content::React root element missing.")
+
+          required = {
+              "strict-transport-security": r"(?:^|;\s*)max-age=31536000(?:;|$)",
+              "x-content-type-options": r"^nosniff$",
+              "x-frame-options": r"^DENY$",
+              "referrer-policy": r"^strict-origin-when-cross-origin$",
+          }
+          for name, pattern in required.items():
+              if not re.search(pattern, headers.get(name, ""), re.IGNORECASE):
+                  raise SystemExit(f"::error title=Missing security header::{name} missing or invalid.")
+
+          policy = headers.get("permissions-policy", "")
+          for feature in ("camera", "microphone", "geolocation"):
+              if not re.search(rf"(?:^|,)\s*{feature}=\(\)", policy, re.IGNORECASE):
+                  raise SystemExit(f"::error title=Invalid permissions policy::{feature} must be disabled.")
+
+          print("Passed: production Vercel alias returned HTTP 200, expected BluePace ATS HTML, and required security headers.")
+          PY
