@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -89,4 +89,29 @@ test("fails healthfully when the production build entry point is missing", async
       emptyServer.close((error) => error ? reject(error) : resolve());
     });
   }
+});
+
+
+test("Vercel config sets security headers and safe cache policies", async () => {
+  const configText = await readFile(new URL("./vercel.json", import.meta.url), "utf8");
+  const config = JSON.parse(configText);
+  assert.ok(Array.isArray(config.headers));
+
+  const headerValue = (source, name) => {
+    const rule = config.headers.find((item) => item.source === source);
+    assert.ok(rule, `missing Vercel header rule for ${source}`);
+    const header = rule.headers.find((item) => item.key.toLowerCase() === name.toLowerCase());
+    assert.ok(header, `missing ${name} header for ${source}`);
+    return header.value;
+  };
+
+  assert.match(headerValue("/(.*)", "Strict-Transport-Security"), /max-age=31536000/);
+  assert.equal(headerValue("/(.*)", "X-Content-Type-Options"), "nosniff");
+  assert.equal(headerValue("/(.*)", "X-Frame-Options"), "DENY");
+  assert.equal(headerValue("/(.*)", "Referrer-Policy"), "strict-origin-when-cross-origin");
+  assert.match(headerValue("/(.*)", "Permissions-Policy"), /camera=\(\)/);
+  assert.match(headerValue("/(.*)", "Permissions-Policy"), /microphone=\(\)/);
+  assert.match(headerValue("/(.*)", "Permissions-Policy"), /geolocation=\(\)/);
+  assert.match(headerValue("/", "Cache-Control"), /max-age=0.*must-revalidate/);
+  assert.match(headerValue("/assets/(.*)", "Cache-Control"), /max-age=31536000.*immutable/);
 });
