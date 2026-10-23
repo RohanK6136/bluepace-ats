@@ -6,7 +6,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import DateTime, Integer, String, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 import hmac
@@ -34,6 +34,80 @@ class ZohoSyncRecord(Base):
     zoho_id: Mapped[str] = mapped_column(String(100))
     local_id: Mapped[int] = mapped_column(Integer)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class ZohoSyncRun(Base):
+    """Durable, payload-free history for manual, webhook and scheduled reconciliations."""
+    __tablename__ = "zoho_sync_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(Integer, index=True)
+    trigger: Mapped[str] = mapped_column(String(20), default="manual")
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    candidates_synced: Mapped[int] = mapped_column(Integer, default=0)
+    jobs_synced: Mapped[int] = mapped_column(Integer, default=0)
+    error_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+
+def _sync_interval_minutes() -> int:
+    try:
+        configured = int(os.getenv("ZOHO_SYNC_INTERVAL_MINUTES", "15"))
+    except (TypeError, ValueError):
+        configured = 15
+    return min(1440, max(5, configured))
+
+
+def _sync_run_payload(run: ZohoSyncRun | None) -> dict | None:
+    if run is None:
+        return None
+    return {
+        "id": run.id,
+        "trigger": run.trigger,
+        "status": run.status,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "candidates_synced": run.candidates_synced or 0,
+        "jobs_synced": run.jobs_synced or 0,
+        # Store only a class name, never exception messages, tokens or record data.
+        "error_type": run.error_type,
+    }
+
+
+def _execute_sync(db: Session, org: Organization, actor: User, trigger: str) -> dict:
+    """Run reconciliation and persist an audit outcome without personal payload data."""
+    run = ZohoSyncRun(
+        organization_id=org.id,
+        trigger=trigger,
+        status="running",
+        started_at=datetime.now(timezone.utc),
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    run_id = run.id
+
+    try:
+        result = sync_zoho_for_organization(db, org, actor)
+        stored_run = db.get(ZohoSyncRun, run_id)
+        if stored_run is not None:
+            stored_run.status = "success"
+            stored_run.candidates_synced = int(result.get("candidates_synced", 0))
+            stored_run.jobs_synced = int(result.get("jobs_synced", 0))
+            stored_run.completed_at = datetime.now(timezone.utc)
+            stored_run.error_type = None
+            db.commit()
+        return {**result, "run_id": run_id, "trigger": trigger, "status": "success"}
+    except Exception as exc:
+        db.rollback()
+        stored_run = db.get(ZohoSyncRun, run_id)
+        if stored_run is not None:
+            stored_run.status = "failed"
+            stored_run.completed_at = datetime.now(timezone.utc)
+            stored_run.error_type = type(exc).__name__[:100]
+            db.commit()
+        raise
 
 
 def _settings():
@@ -174,16 +248,39 @@ def _authorized_user(user=Depends(get_current_user)):
 
 
 @router.get("/status")
-def zoho_status(user: User = Depends(_authorized_user)):
+def zoho_status(db: Session = Depends(get_db), user: User = Depends(_authorized_user)):
+    latest = db.scalar(
+        select(ZohoSyncRun)
+        .where(ZohoSyncRun.organization_id == user.organization_id)
+        .order_by(ZohoSyncRun.started_at.desc(), ZohoSyncRun.id.desc())
+        .limit(1)
+    )
     return {
         "provider": "Zoho Recruit", "direction": "Zoho Recruit -> BluePace ATS",
         "automatic_sync_enabled": os.getenv("ZOHO_SYNC_ENABLED", "").strip().lower() == "true",
         "configured": all(os.getenv(k, "").strip() for k in ("ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN")),
         "webhook_configured": bool(os.getenv("ZOHO_WEBHOOK_SECRET", "").strip()),
         "webhook_url": "/integrations/zoho/webhook",
-        "reconciliation_interval_minutes": max(5, int(os.getenv("ZOHO_SYNC_INTERVAL_MINUTES", "15"))),
+        "reconciliation_interval_minutes": _sync_interval_minutes(),
+        "last_sync": _sync_run_payload(latest),
         "credential_values_returned": False,
     }
+
+
+@router.get("/history")
+def zoho_sync_history(
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+    user: User = Depends(_authorized_user),
+):
+    """List recent sync outcomes for the signed-in user's organization only."""
+    runs = db.scalars(
+        select(ZohoSyncRun)
+        .where(ZohoSyncRun.organization_id == user.organization_id)
+        .order_by(ZohoSyncRun.started_at.desc(), ZohoSyncRun.id.desc())
+        .limit(limit)
+    ).all()
+    return {"runs": [_sync_run_payload(run) for run in runs], "count": len(runs)}
 
 
 def _run_background_sync(organization_id: int) -> None:
@@ -200,9 +297,10 @@ def _run_background_sync(organization_id: int) -> None:
         if actor is None:
             return
         try:
-            result = sync_zoho_for_organization(db, org, actor)
+            result = _execute_sync(db, org, actor, "webhook")
             print(
                 f"[zoho-webhook-sync] organization_id={org.id} "
+                f"run_id={result['run_id']} status={result['status']} "
                 f"candidates={result['candidates_synced']} jobs={result['jobs_synced']}",
                 flush=True,
             )
@@ -255,12 +353,12 @@ def trigger_sync(db: Session = Depends(get_db), user: User = Depends(_authorized
     org = db.get(Organization, user.organization_id)
     if org is None:
         raise HTTPException(400, "User organization was not found.")
-    return sync_zoho_for_organization(db, org, user)
+    return _execute_sync(db, org, user, "manual")
 
 
 async def automatic_sync_loop():
     while True:
-        interval = max(5, int(os.getenv("ZOHO_SYNC_INTERVAL_MINUTES", "15"))) * 60
+        interval = _sync_interval_minutes() * 60
         try:
             if os.getenv("ZOHO_SYNC_ENABLED", "").strip().lower() == "true":
                 if all(os.getenv(k, "").strip() for k in ("ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN", "ZOHO_ORGANIZATION_ID")):
@@ -270,8 +368,8 @@ async def automatic_sync_loop():
                             if org is not None:
                                 actor = db.scalar(select(User).where(User.organization_id == org.id, User.is_active.is_(True), User.role == Role.admin).order_by(User.id.asc()))
                                 if actor is not None:
-                                    result = sync_zoho_for_organization(db, org, actor)
-                                    print(f"[zoho-sync] organization_id={org.id} candidates={result['candidates_synced']} jobs={result['jobs_synced']}", flush=True)
+                                    result = _execute_sync(db, org, actor, "scheduled")
+                                    print(f"[zoho-sync] organization_id={org.id} run_id={result['run_id']} candidates={result['candidates_synced']} jobs={result['jobs_synced']}", flush=True)
                         except Exception as exc:
                             db.rollback()
                             print(f"[zoho-sync] scheduled sync failed={type(exc).__name__}", flush=True)
