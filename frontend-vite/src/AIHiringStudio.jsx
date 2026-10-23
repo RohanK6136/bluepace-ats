@@ -16,19 +16,18 @@ const PROVIDER_BY_ID = Object.fromEntries(PROVIDER_OPTIONS.map((item) => [item.i
 function readSessionValue(key) {
   try { return sessionStorage.getItem(key) || ""; } catch { return ""; }
 }
-function hasSavedProviderPreference() {
-  return Boolean(
-    readSessionValue("bluepace_ai_provider")
-    || readSessionValue("bluepace_openrouter_key")
-    || PROVIDER_OPTIONS.some((option) => option.id !== "ollama" && readSessionValue("bluepace_ai_" + option.id + "_key"))
-  );
-}
 function storedProvider() {
   const saved = readSessionValue("bluepace_ai_provider");
-  if (PROVIDER_BY_ID[saved]) return saved;
   const savedKeyProvider = PROVIDER_OPTIONS.find((option) => option.id !== "ollama" && readSessionValue("bluepace_ai_" + option.id + "_key"));
+  if (saved === "ollama") return "ollama";
+  if (PROVIDER_BY_ID[saved] && (readSessionValue("bluepace_ai_" + saved + "_key") || (saved === "openrouter" && readSessionValue("bluepace_openrouter_key")))) return saved;
   if (savedKeyProvider) return savedKeyProvider.id;
-  return readSessionValue("bluepace_openrouter_key") ? "openrouter" : "openrouter";
+  return PROVIDER_BY_ID[saved] ? saved : "openrouter";
+}
+function hasSavedProviderPreference() {
+  const current = storedProvider();
+  return current === "ollama"
+    || Boolean(readSessionValue("bluepace_ai_" + current + "_key") || (current === "openrouter" && readSessionValue("bluepace_openrouter_key")));
 }
 const tabs = [
   { id: "generate", label: "Generate JD" },
