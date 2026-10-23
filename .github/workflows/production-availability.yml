@@ -1,0 +1,54 @@
+name: Production availability check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-availability-check
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Verify Vercel production frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check production HTML and security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://bluepace-ats-frontend.vercel.app/"
+          body="$(mktemp)"
+          headers="$(mktemp)"
+          trap 'rm -f "$body" "$headers"' EXIT
+
+          status="$(curl --silent --show-error --location --max-time 20 \
+            --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url")"
+
+          if [[ "$status" != "200" ]]; then
+            echo "::error title=Frontend unavailable::Expected HTTP 200, received $status"
+            exit 1
+          fi
+
+          if ! grep -qi '<title>BluePace ATS' "$body"; then
+            echo "::error title=Unexpected frontend content::Production response does not contain the expected BluePace ATS title."
+            exit 1
+          fi
+
+          for rule in \
+            '^strict-transport-security:[[:space:]]*max-age=31536000' \
+            '^x-content-type-options:[[:space:]]*nosniff' \
+            '^x-frame-options:[[:space:]]*DENY' \
+            '^referrer-policy:[[:space:]]*strict-origin-when-cross-origin'; do
+            if ! grep -Eiq "$rule" "$headers"; then
+              echo "::error title=Missing security header::Expected response header matching $rule"
+              exit 1
+            fi
+          done
+
+          echo "Production frontend is responding with HTTP 200, expected app title, and baseline security headers."
