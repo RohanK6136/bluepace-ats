@@ -13,7 +13,7 @@ jobs:
   api-health:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe existing Render API services without changing them
+      - name: Verify readiness and the expected backend API surface
         shell: bash
         run: |
           python - <<'PY'
@@ -34,34 +34,49 @@ jobs:
               "bluepace-ats-new.onrender.com",
               "bluepace-ats.onrender.com",
           ]
+          REQUIRED = {
+              "/integrations/zoho/status",
+              "/integrations/zoho/history",
+              "/integrations/zoho/webhook",
+              "/integrations/zoho/sync",
+              "/ai-hiring/status",
+          }
+
+          def get_json(url):
+              request = urllib.request.Request(url, headers={"User-Agent": "BluePace-API-preflight/1.0"})
+              with urllib.request.urlopen(request, timeout=8) as response:
+                  return response.status, json.loads(response.read().decode("utf-8"))
 
           def probe(host):
-              url = f"https://{host}/readyz"
+              base = f"https://{host}"
               try:
-                  request = urllib.request.Request(url, headers={"User-Agent": "BluePace-API-preflight/1.0"})
-                  with urllib.request.urlopen(request, timeout=8) as response:
-                      payload = json.loads(response.read(4096).decode("utf-8"))
-                      ready = response.status == 200 and isinstance(payload, dict) and payload.get("status") == "ready"
-                      return host, response.status, "ready" if ready else f"unexpected response payload/status: {payload.get('status') if isinstance(payload, dict) else 'non-object'}", ready
+                  health_code, health = get_json(base + "/readyz")
+                  if health_code != 200 or not isinstance(health, dict) or health.get("status") != "ready":
+                      return host, False, "readiness failed", []
+                  schema_code, schema = get_json(base + "/openapi.json")
+                  paths = set(schema.get("paths", {})) if schema_code == 200 and isinstance(schema, dict) else set()
+                  missing = sorted(REQUIRED - paths)
+                  detail = "API ready; required route set present" if not missing else "API ready, but missing routes: " + ", ".join(missing)
+                  return host, not missing, detail, sorted(paths.intersection(REQUIRED))
               except urllib.error.HTTPError as error:
-                  return host, error.code, "HTTP error", False
+                  return host, False, f"HTTP {error.code}", []
               except Exception as error:
                   reason = "timeout" if isinstance(error, TimeoutError) or "timed out" in str(error).lower() else type(error).__name__
-                  return host, 0, reason, False
+                  return host, False, reason, []
 
           with concurrent.futures.ThreadPoolExecutor(max_workers=len(HOSTS)) as executor:
               results = list(executor.map(probe, HOSTS))
 
-          for host, status, detail, ready in results:
-              print(f"{'READY' if ready else 'NOT_READY'} {host} HTTP={status} {detail}")
+          for host, passed, detail, routes in results:
+              print(f"{'PASS' if passed else 'FAIL'} {host}: {detail}")
 
           configured = next((row for row in results if row[0] == "bluepace-ats-11.onrender.com"), None)
-          if configured and configured[3]:
-              print("Configured API host passed the database readiness check.")
+          if configured and configured[1]:
+              print("Configured API passed database readiness and required route checks.")
               raise SystemExit(0)
-          ready_alternatives = [row[0] for row in results if row[3]]
+          ready_alternatives = [row for row in results if row[1]]
           if ready_alternatives:
-              print("A different Render host responded as ready: " + ", ".join(ready_alternatives))
-          print("No verified readiness for the configured API host. Do not merge or promote this API URL yet.")
+              print("Another host has the expected API routes: " + ", ".join(row[0] for row in ready_alternatives))
+          print("Do not merge or promote until the selected backend is reachable and exposes the expected API routes.")
           raise SystemExit(1)
           PY
