@@ -17,13 +17,13 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
-    {
-      files: ['src/**/*.{js,jsx}'],
-      rules: {
-        // Existing data-loading effects intentionally set loading/response state;
-        // keep this advisory visible without treating that established pattern as a CI failure.
-        'react-hooks/set-state-in-effect': 'warn',
-      },
+  },
+  {
+    files: ['src/**/*.{js,jsx}'],
+    rules: {
+      // Existing data-loading effects intentionally update loading/response state.
+      // Keep the optimization advisory visible without making that pattern a CI failure.
+      'react-hooks/set-state-in-effect': 'warn',
     },
   },
 ])
