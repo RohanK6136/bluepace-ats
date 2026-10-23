@@ -6,9 +6,26 @@ import requests
 import streamlit as st
 
 APP_TITLE = "BluePace ATS | Streamlit Workspace"
-DEFAULT_API_URL = "https://bluepace-ats-production.up.railway.app"
+DEFAULT_API_URL = ""
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 ALLOWED_EXTENSIONS = {"pdf", "docx", "txt"}
+def default_api_url_from_environment() -> str:
+    """Read an explicit API URL, rejecting retired backend hosts."""
+    candidate = os.getenv("ATS_API_URL", "").strip().rstrip("/")
+    if not candidate:
+        return ""
+    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit(candidate)
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return ""
+    if parsed.scheme not in {"http", "https"} or not host:
+        return ""
+    if host == "railway.app" or host.endswith(".railway.app") or host.endswith(".railway.internal"):
+        return ""
+    return candidate
+
 
 st.set_page_config(page_title=APP_TITLE, page_icon="🧭", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>
@@ -25,7 +42,13 @@ st.markdown('<p class="bp-muted">A lightweight companion for service checks and 
 
 with st.sidebar:
     st.subheader("Connection")
-    api_url = st.text_input("Backend API URL", value=os.getenv("ATS_API_URL", DEFAULT_API_URL)).strip().rstrip("/")
+    api_url = st.text_input(
+        "Backend API URL",
+        value=default_api_url_from_environment() or DEFAULT_API_URL,
+        placeholder="https://your-active-backend.example.com",
+    ).strip().rstrip("/")
+    if not api_url:
+        st.info("Enter the active ATS backend URL to enable health checks and Zoho integration tools.")
     st.caption("Keep API keys and passwords in Streamlit Secrets or service environment variables. Never paste secrets into the app.")
     st.divider()
     page = st.radio("Workspace", ["Overview", "Resume review", "Zoho Recruit", "Integration guide"])
@@ -74,15 +97,16 @@ def tokens(text: str) -> set[str]:
 if page == "Overview":
     st.subheader("Service health")
     st.write("Checks public liveness and database readiness endpoints. No credentials are sent.")
-    if st.button("Run health checks", type="primary"):
+    if st.button("Run health checks", type="primary", disabled=not api_url):
         with st.spinner("Checking backend…"):
             st.session_state["bp_health"] = {
                 "live": check_endpoint(api_url, "/healthz"),
                 "ready": check_endpoint(api_url, "/readyz"),
                 "checked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "api_url": api_url,
             }
     health = st.session_state.get("bp_health")
-    if health:
+    if health and health.get("api_url") == api_url:
         left, middle, right = st.columns(3)
         live, ready = health["live"], health["ready"]
         left.metric("API liveness", "Healthy" if live[0] else "Unavailable", f"{live[2]:.0f} ms")
@@ -91,7 +115,7 @@ if page == "Overview":
         if live[0] and ready[0]:
             st.success("Backend and database readiness endpoints responded successfully.")
         else:
-            st.error("One or more checks failed. Inspect Railway logs and the endpoint result below.")
+            st.error("One or more checks failed. Verify the configured API URL and inspect that backend service logs.")
         with st.expander("Technical details"):
             st.write({"healthz": live[1], "readyz": ready[1]})
     else:
@@ -100,8 +124,11 @@ if page == "Overview":
     st.subheader("Quick links")
     a, b, c = st.columns(3)
     a.markdown('<div class="bp-card"><strong>Main ATS</strong><p class="bp-muted">Recruiting application</p><a href="https://bluepace-ats-frontend.vercel.app/?mode=admin" target="_blank">Open ATS ↗</a></div>', unsafe_allow_html=True)
-    b.markdown(f'<div class="bp-card"><strong>API documentation</strong><p class="bp-muted">Explore backend routes</p><a href="{api_url}/docs" target="_blank">Open API docs ↗</a></div>', unsafe_allow_html=True)
-    c.markdown(f'<div class="bp-card"><strong>Readiness endpoint</strong><p class="bp-muted">Database dependency check</p><a href="{api_url}/readyz" target="_blank">Open readiness ↗</a></div>', unsafe_allow_html=True)
+    if api_url:
+        b.markdown(f'<div class="bp-card"><strong>API documentation</strong><p class="bp-muted">Explore backend routes</p><a href="{api_url}/docs" target="_blank">Open API docs ↗</a></div>', unsafe_allow_html=True)
+        c.markdown(f'<div class="bp-card"><strong>Readiness endpoint</strong><p class="bp-muted">Database dependency check</p><a href="{api_url}/readyz" target="_blank">Open readiness ↗</a></div>', unsafe_allow_html=True)
+    else:
+        st.info("Configure the active backend URL in the sidebar to see API documentation and readiness links.")
 
 elif page == "Resume review":
     st.subheader("First-pass resume review")
@@ -143,7 +170,7 @@ elif page == "Zoho Recruit":
     with st.form("zoho_admin_login"):
         email = st.text_input("BluePace recruiter email")
         password = st.text_input("BluePace password", type="password")
-        login = st.form_submit_button("Connect to BluePace")
+        login = st.form_submit_button("Connect to BluePace", disabled=not api_url)
     if login:
         try:
             response = requests.post(f"{api_url}/auth/token", data={"username": email, "password": password}, timeout=(3, 15))
@@ -158,7 +185,7 @@ elif page == "Zoho Recruit":
     if token:
         headers = {"Authorization": f"Bearer {token}"}
         left, right = st.columns(2)
-        if left.button("Check Zoho integration status", type="primary"):
+        if left.button("Check Zoho integration status", type="primary", disabled=not api_url):
             try:
                 response = requests.get(f"{api_url}/integrations/zoho/status", headers=headers, timeout=(3, 15))
                 if response.ok:
@@ -198,7 +225,7 @@ elif page == "Zoho Recruit":
                 )
                 if last_sync.get("error_type"):
                     st.caption(f"Last error type: {last_sync['error_type']} (private error details are not stored in sync history).")
-        if right.button("Run sync now"):
+        if right.button("Run sync now", disabled=not api_url):
             try:
                 response = requests.post(f"{api_url}/integrations/zoho/sync", headers=headers, timeout=(5, 120))
                 if response.ok:
@@ -213,7 +240,7 @@ elif page == "Zoho Recruit":
                 elif response.status_code == 503:
                     st.error("Zoho OAuth credentials are not configured on the backend yet.")
                 else:
-                    st.error(f"Sync failed (HTTP {response.status_code}). Check Railway logs and Zoho permissions.")
+                    st.error(f"Sync failed (HTTP {response.status_code}). Check the backend service logs and Zoho permissions.")
             except requests.RequestException:
                 st.error("Sync request failed or timed out. Check backend logs before retrying.")
         history_data = st.session_state.get("bp_zoho_sync_history", [])
@@ -250,13 +277,14 @@ elif page == "Zoho Recruit":
 else:
     st.subheader("Integration guide")
     st.markdown("""
-**Deploy as a separate Streamlit app** so it does not interfere with the Vercel frontend or Railway API.
+**Deploy as a separate Streamlit app** so it stays independent of the Vercel frontend and core ATS backend.
 
 1. Select this repository in Streamlit Community Cloud.
 2. Set the app file path to streamlit_app/app.py.
 3. Use Python 3.11 or a compatible runtime.
-4. Deploy, then use the sidebar to point at the Railway backend.
-5. No API keys are required for the included features.
+4. Configure `ATS_API_URL` in Streamlit Secrets, or enter the active backend URL in the sidebar.
+5. Before using Zoho tools, verify that the backend exposes `/auth/token`, `/integrations/zoho/status`, `/integrations/zoho/history`, and `/integrations/zoho/sync`.
+6. Zoho OAuth credentials and webhook secrets belong only in the backend environment, not Streamlit or frontend variables.
 
 **Current scope**
 - Backend liveness and readiness checks
