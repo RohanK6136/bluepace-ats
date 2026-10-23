@@ -161,12 +161,12 @@ export default function HiringPipelineKanban({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Candidate, email, role or source"
-              className="w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm font-normal text-ink-900 outline-none placeholder:text-ink-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm font-normal text-ink-900 outline-hidden placeholder:text-ink-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
             />
           </label>
           <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
             Job
-            <select value={jobFilter} onChange={(event) => setJobFilter(event.target.value)} className="w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm font-normal text-ink-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100">
+            <select value={jobFilter} onChange={(event) => setJobFilter(event.target.value)} className="w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm font-normal text-ink-900 outline-hidden focus:border-blue-300 focus:ring-2 focus:ring-blue-100">
               <option value="">All jobs</option>
               {jobs.filter((job) => job.status !== "archived").map((job) => (
                 <option key={job.id} value={job.id}>{job.title}</option>
@@ -223,7 +223,7 @@ export default function HiringPipelineKanban({
                       setDraggedApplicationId(application.id);
                     }}
                     onDragEnd={() => setDraggedApplicationId(null)}
-                    className={`rounded-lg border bg-white p-3 shadow-sm transition hover:shadow-md ${draggedApplicationId === application.id ? "opacity-50" : "border-ink-100"}`}
+                    className={`rounded-lg border bg-white p-3 shadow-xs transition hover:shadow-md ${draggedApplicationId === application.id ? "opacity-50" : "border-ink-100"}`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <button type="button" className="min-w-0 text-left" onClick={() => onOpenCandidate?.(application.candidate_id)}>

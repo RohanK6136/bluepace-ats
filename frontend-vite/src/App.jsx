@@ -142,7 +142,7 @@ function JobDescriptionPreview({ source, description, details }) {
           {rows.map(([label, value]) => (
             <div key={label} className="min-w-0">
               <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">{label}</dt>
-              <dd className="mt-0.5 break-words text-xs leading-5 text-ink-700">{String(value)}</dd>
+              <dd className="mt-0.5 wrap-break-word text-xs leading-5 text-ink-700">{String(value)}</dd>
             </div>
           ))}
         </dl>
@@ -790,7 +790,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
 
   return (
     <div className="min-h-screen bg-[#f3f4f1] text-ink-900">
-      <header className="sticky top-0 z-20 border-b border-ink-100 bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-ink-100 bg-white/95 backdrop-blur-sm">
         <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-4 py-4 sm:px-7">
           <div>
             <p className="text-xs font-medium text-ink-500">Candidate intelligence</p>
@@ -878,7 +878,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             <div className="mt-5 grid gap-3">
               <label className="grid gap-1.5 text-xs font-semibold text-ink-700">
                 Job description for matching
-                <select value={resumeLabJobId} onChange={(event) => handleResumeLabJobChange(event.target.value)} className="w-full rounded-md border border-ink-100 bg-white p-3 text-sm outline-none focus:border-gold-500">
+                <select value={resumeLabJobId} onChange={(event) => handleResumeLabJobChange(event.target.value)} className="w-full rounded-md border border-ink-100 bg-white p-3 text-sm outline-hidden focus:border-gold-500">
                   <option value="">No ATS job — Resume Lab only</option>
                   {resumeLabJobs.map((job) => <option key={job.id} value={job.id}>Sync to: {job.title}</option>)}
                 </select>
@@ -892,7 +892,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                 </div>
                 <div className="rounded-md border border-ink-100 bg-[#fafaf8] p-3">
                   <p className="text-xs font-semibold text-ink-700">Import from public job URL</p>
-                  <input value={jobDescriptionUrl} onChange={(event) => { setJobDescriptionUrl(event.target.value); setJdError(""); }} placeholder="https://careers.example.com/jobs/123" className="mt-2 w-full rounded-md border border-ink-100 bg-white px-3 py-2 text-xs outline-none focus:border-gold-500" />
+                  <input value={jobDescriptionUrl} onChange={(event) => { setJobDescriptionUrl(event.target.value); setJdError(""); }} placeholder="https://careers.example.com/jobs/123" className="mt-2 w-full rounded-md border border-ink-100 bg-white px-3 py-2 text-xs outline-hidden focus:border-gold-500" />
                   <button type="button" onClick={loadJobDescriptionFromUrl} disabled={!jobDescriptionUrl.trim() || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Importing…" : "Import URL and extract"}</button>
                 </div>
               </div>
@@ -943,7 +943,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                       </div>
                       {job.error && <p className="mt-1 text-rose-700">{job.error}</p>}
                       {job.result?.job_fit && (
-                        <div className="mt-2 rounded border border-ink-100 bg-[#fafaf8] p-3">
+                        <div className="mt-2 rounded-sm border border-ink-100 bg-[#fafaf8] p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-xs font-semibold">{job.result.job_fit.fit}</span>
                             <span className="text-sm font-semibold">{job.result.job_fit.match_score}% match</span>
@@ -954,7 +954,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                         </div>
                       )}
                       {expandedBulkJobId === job.id && job.result && (
-                        <pre className="mt-2 max-h-72 overflow-auto rounded border border-ink-100 bg-[#fafaf8] p-3 text-[11px] leading-5 text-ink-700">{JSON.stringify(job.result, null, 2)}</pre>
+                        <pre className="mt-2 max-h-72 overflow-auto rounded-sm border border-ink-100 bg-[#fafaf8] p-3 text-[11px] leading-5 text-ink-700">{JSON.stringify(job.result, null, 2)}</pre>
                       )}
                     </div>
                   ))}
@@ -976,7 +976,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
             </div>
             <label className="mt-5 grid gap-1.5 text-xs font-semibold text-ink-700">
               Target ATS job (optional)
-              <select value={resumeLabJobId} onChange={(event) => handleResumeLabJobChange(event.target.value)} className="w-full border border-ink-100 bg-white p-3 text-sm outline-none focus:border-gold-500">
+              <select value={resumeLabJobId} onChange={(event) => handleResumeLabJobChange(event.target.value)} className="w-full border border-ink-100 bg-white p-3 text-sm outline-hidden focus:border-gold-500">
                 <option value="">Resume Lab only</option>
                 {resumeLabJobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
               </select>
@@ -994,7 +994,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               </div>
               <div className="border border-ink-100 bg-[#fafaf8] p-3">
                 <p className="text-xs font-semibold text-ink-700">Upload link</p>
-                <input value={jobDescriptionUrl} onChange={(event) => { setJobDescriptionUrl(event.target.value); setJdError(""); }} placeholder="https://..." className="mt-2 w-full border border-ink-100 bg-white px-3 py-2 text-xs outline-none focus:border-gold-500" />
+                <input value={jobDescriptionUrl} onChange={(event) => { setJobDescriptionUrl(event.target.value); setJdError(""); }} placeholder="https://..." className="mt-2 w-full border border-ink-100 bg-white px-3 py-2 text-xs outline-hidden focus:border-gold-500" />
                 <button type="button" onClick={loadJobDescriptionFromUrl} disabled={!jobDescriptionUrl.trim() || jdLoading} className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{jdLoading ? "Loading…" : "Use JD link"}</button>
               </div>
             </div>

@@ -11,7 +11,7 @@ const STAGE_NAMES = [
   "Interview Reminder 1h",
 ];
 
-const inputStyle = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+const inputStyle = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-hidden transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 const buttonPrimary = "inline-flex items-center justify-center gap-2 rounded-md bg-[#1769d3] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0b4ea2] disabled:cursor-not-allowed disabled:opacity-50";
 const buttonSecondary = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -136,7 +136,7 @@ export default function EmailTemplatesPanel({ token, apiRequest, onNotice, onErr
                 </label>
                 <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-xs leading-5 text-blue-900">
                   <p className="font-semibold">Supported placeholders</p>
-                  <p className="mt-1 font-mono break-words">{'{{candidate_name}}'}, {'{{job_title}}'}, {'{{interview_date}}'}, {'{{interview_time}}'}, {'{{interview_duration}}'}, {'{{interview_mode}}'}, {'{{meeting_link}}'}, {'{{interview_location}}'}, {'{{interview_calendar_url}}'}, {'{{candidate_portal_url}}'}, {'{{company_name}}'}</p>
+                  <p className="mt-1 font-mono wrap-break-word">{'{{candidate_name}}'}, {'{{job_title}}'}, {'{{interview_date}}'}, {'{{interview_time}}'}, {'{{interview_duration}}'}, {'{{interview_mode}}'}, {'{{meeting_link}}'}, {'{{interview_location}}'}, {'{{interview_calendar_url}}'}, {'{{candidate_portal_url}}'}, {'{{company_name}}'}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" className={buttonPrimary} disabled={saving || !draft.subject?.trim() || !draft.body?.trim()} onClick={save}>{saving ? "Saving…" : "Save template"}</button>

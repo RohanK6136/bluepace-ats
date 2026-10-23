@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const input = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
+const input = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-hidden focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
 const primary = "inline-flex items-center justify-center rounded-md bg-[#c49a4a] px-4 py-2 text-sm font-semibold text-[#10131c] disabled:opacity-50";
 const secondary = "inline-flex items-center justify-center rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800 disabled:opacity-50";
 const STAGES = ["", "Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
@@ -123,7 +123,7 @@ export default function AutomationPanel({ token, apiRequest, onNotice, onError }
           }}>Create starter workflow</button>
           </div>
         </div>
-      </section>      <div className="grid gap-5 lg:grid-cols-[430px,1fr]">
+      </section>      <div className="grid gap-5 lg:grid-cols-[430px_1fr]">
         <form onSubmit={save} className="rounded-xl border border-ink-100 bg-white p-5">
           <div className="flex items-center justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">{editingId ? "Edit rule" : "New rule"}</p><h3 className="mt-1 font-semibold">Automation builder</h3></div>{editingId && <button type="button" className={secondary} onClick={reset}>New</button>}</div>
           <div className="mt-4 grid gap-3">

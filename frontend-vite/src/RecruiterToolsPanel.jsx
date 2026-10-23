@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const input = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
+const input = "w-full rounded-md border border-ink-100 bg-white px-3 py-2.5 text-sm text-ink-900 outline-hidden focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
 const primary = "inline-flex items-center justify-center rounded-md bg-[#1769d3] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50";
 const secondary = "inline-flex items-center justify-center rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800 disabled:cursor-not-allowed disabled:opacity-50";
 
