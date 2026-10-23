@@ -4,7 +4,7 @@ AI Hiring Studio now offers a provider selector for OpenRouter, OpenAI/ChatGPT A
 
 ## Configure hosted providers
 
-Set the provider's secrets in the backend's environment or enter its API key under AI Hiring Studio → Settings. Keys are only held in browser session storage when entered in the UI; never place credentials in frontend Vite environment variables or commit real secrets.
+Set the provider's secrets in the backend's environment or enter its API key under AI Hiring Studio → Settings. Keys entered in AI Hiring Studio are held in page memory only and are not written to localStorage, sessionStorage, cookies, or AI run history. They are sent to the backend over HTTPS with the authenticated request. Refreshing the page clears the entered key; use backend environment variables for shared deployment credentials. Never place credentials in frontend Vite environment variables or commit real secrets.
 
 | Provider | Backend environment variables | Default model |
 |---|---|---|

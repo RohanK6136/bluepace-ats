@@ -134,6 +134,9 @@ def _error_text(body: str, status: int, provider: str) -> str:
     return message[:350] if message else f"{label} request failed with HTTP {status}."
 
 
+MAX_PROVIDER_RESPONSE_BYTES = 2 * 1024 * 1024
+
+
 def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], provider: str) -> dict[str, Any]:
     request = urllib.request.Request(
         url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -141,7 +144,15 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], provi
     )
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
-            data = json.loads(response.read().decode("utf-8"))
+            # Model output limits are useful, but cap the actual wire response too:
+            # a faulty proxy/provider must not make the backend read an unbounded body.
+            body = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+            if len(body) > MAX_PROVIDER_RESPONSE_BYTES:
+                raise HTTPException(502, "The AI provider response exceeded the maximum allowed size.")
+            try:
+                data = json.loads(body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise HTTPException(502, "The AI provider returned an invalid JSON response.") from None
     except urllib.error.HTTPError as error:
         body = error.read(2048).decode("utf-8", errors="replace")
         raise HTTPException(502, _error_text(body, error.code, provider)) from None
@@ -163,6 +174,29 @@ def _text(value: Any) -> str:
             if isinstance(item, dict) and isinstance(item.get("text"), str)
         ).strip()
     return ""
+
+
+def _cached_token_count(usage: dict[str, Any] | None, metadata: Any = None) -> int:
+    """Normalize provider-specific prompt-cache counters without guessing unknown usage."""
+    usage = usage if isinstance(usage, dict) else {}
+    prompt_details = usage.get("prompt_tokens_details")
+    input_details = usage.get("input_tokens_details")
+    candidates = [
+        usage.get("cached_tokens"),
+        usage.get("cache_read_input_tokens"),
+        usage.get("cached_content_token_count"),
+        prompt_details.get("cached_tokens") if isinstance(prompt_details, dict) else None,
+        input_details.get("cached_tokens") if isinstance(input_details, dict) else None,
+        getattr(metadata, "cached_content_token_count", None) if metadata is not None else None,
+    ]
+    for value in candidates:
+        if value is None:
+            continue
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return 0
 
 
 def call_ai_provider(
@@ -216,6 +250,7 @@ def call_ai_provider(
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
+            "cached_tokens": _cached_token_count({}, metadata),
         }
         actual_model = model
         count = 1
@@ -234,6 +269,7 @@ def call_ai_provider(
             "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
             "total_tokens": ((prompt_tokens or 0) + (completion_tokens or 0))
             if prompt_tokens is not None or completion_tokens is not None else None,
+            "cached_tokens": _cached_token_count(usage),
         }
         actual_model, count = str(data.get("model") or model), 1
     else:
@@ -297,7 +333,10 @@ def call_ai_provider(
         if not content and provider == "cloudflare" and isinstance(data.get("result"), dict):
             content = _text(data["result"].get("response"))
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
-        usage_out = {key: usage.get(key) for key in ("prompt_tokens", "completion_tokens", "total_tokens")}
+        usage_out = {
+            key: usage.get(key) for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        }
+        usage_out["cached_tokens"] = _cached_token_count(usage)
         actual_model = str(data.get("model") or model)
         count = max(count, 1)
 

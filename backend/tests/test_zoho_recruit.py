@@ -4,6 +4,17 @@ from fastapi import HTTPException
 from app.routers import zoho_recruit
 
 
+def test_zoho_sync_interval_defaults_and_bounds_malformed_config(monkeypatch):
+    monkeypatch.delenv("ZOHO_SYNC_INTERVAL_MINUTES", raising=False)
+    assert zoho_recruit._sync_interval_minutes() == 15
+    monkeypatch.setenv("ZOHO_SYNC_INTERVAL_MINUTES", "not-a-number")
+    assert zoho_recruit._sync_interval_minutes() == 15
+    monkeypatch.setenv("ZOHO_SYNC_INTERVAL_MINUTES", "1")
+    assert zoho_recruit._sync_interval_minutes() == 5
+    monkeypatch.setenv("ZOHO_SYNC_INTERVAL_MINUTES", "99999")
+    assert zoho_recruit._sync_interval_minutes() == 1440
+
+
 def test_zoho_text_normalizes_lookup_fields():
     assert zoho_recruit._text({"name": "Engineering"}) == "Engineering"
     assert zoho_recruit._text({"display_value": "Remote"}) == "Remote"

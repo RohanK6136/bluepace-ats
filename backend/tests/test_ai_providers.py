@@ -45,11 +45,11 @@ def test_claude_adapter_uses_native_messages_schema(monkeypatch):
     class FakeResponse:
         def __enter__(self): return self
         def __exit__(self, *_args): return False
-        def read(self):
+        def read(self, size=-1):
             return json.dumps({
                 "model": "claude-sonnet-4-6",
                 "content": [{"type": "text", "text": "{\"ok\": true}"}],
-                "usage": {"input_tokens": 12, "output_tokens": 7},
+                "usage": {"input_tokens": 12, "output_tokens": 7, "cache_read_input_tokens": 2},
             }).encode()
     def fake_urlopen(request, timeout=45):
         seen["url"] = request.full_url
@@ -61,6 +61,7 @@ def test_claude_adapter_uses_native_messages_schema(monkeypatch):
     assert seen["payload"]["system"] == "system"
     assert result["content"] == '{"ok": true}'
     assert result["usage"]["total_tokens"] == 19
+    assert result["usage"]["cached_tokens"] == 2
     assert result["actual_model"] == "claude/claude-sonnet-4-6"
 
 
@@ -69,10 +70,13 @@ def test_openai_adapter_sends_json_mode(monkeypatch):
     class FakeResponse:
         def __enter__(self): return self
         def __exit__(self, *_args): return False
-        def read(self):
+        def read(self, size=-1):
             return json.dumps({
                 "model": "gpt-5.4", "choices": [{"message": {"content": "{\"ok\": true}"}}],
-                "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7},
+                "usage": {
+                    "prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7,
+                    "prompt_tokens_details": {"cached_tokens": 1},
+                },
             }).encode()
     def fake_urlopen(request, timeout=45):
         seen["url"] = request.full_url
@@ -86,6 +90,7 @@ def test_openai_adapter_sends_json_mode(monkeypatch):
     assert "max_tokens" not in seen["payload"]
     assert "temperature" not in seen["payload"]
     assert result["usage"]["total_tokens"] == 7
+    assert result["usage"]["cached_tokens"] == 1
 
 
 def test_cloudflare_requires_account_id():
@@ -129,6 +134,7 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
         prompt_token_count = 11
         candidates_token_count = 9
         total_token_count = 20
+        cached_content_token_count = 3
     class FakeResponse:
         text = '{"ok": true}'
         usage_metadata = FakeUsage()
@@ -142,7 +148,7 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
             self.models = FakeModels()
     class FakeConfig:
         def __init__(self, **kwargs):
-            captured["config"] = kwargs
+            self.__dict__.update(kwargs)
     fake_genai = types.ModuleType("google.genai")
     fake_genai.Client = FakeClient
     fake_types = types.ModuleType("google.genai.types")
@@ -160,8 +166,109 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
     assert captured["api_key"] == "test-key"
     assert captured["model"] == "gemini-2.5-flash"
     assert captured["contents"] == "write JSON"
-    assert captured["config"]["system_instruction"] == "system instructions"
-    assert captured["config"]["response_mime_type"] == "application/json"
+    assert captured["config"].system_instruction == "system instructions"
+    assert captured["config"].response_mime_type == "application/json"
     assert result["content"] == '{"ok": true}'
     assert result["usage"]["total_tokens"] == 20
+    assert result["usage"]["cached_tokens"] == 3
     assert result["actual_model"] == "gemini/gemini-2.5-flash"
+
+
+
+def test_ai_usage_event_persists_provider_tokens_without_prompt_fields():
+    from types import SimpleNamespace
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    from app.database import Base
+    from app.services.ai_usage_events import AIUsageEvent
+    from app.routers.ai_hiring_studio import _record_usage_event
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine, tables=[AIUsageEvent.__table__])
+    run = SimpleNamespace(
+        request_id="b7a8b3c8-76c7-4e53-81d6-6d93007bdb12",
+        task_type="generate_jd",
+        model="gpt-5.4",
+    )
+    user = SimpleNamespace(organization_id=12, id=34)
+
+    with Session(engine) as db:
+        _record_usage_event(
+            db, run, user, "openai", "gpt-5.4",
+            {"prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165, "cached_tokens": 5, "cost": "0.01234567"},
+            812, "success",
+        )
+        db.commit()
+        event = db.scalar(select(AIUsageEvent))
+
+    assert event is not None
+    assert event.provider == "openai"
+    assert event.model == "gpt-5.4"
+    assert event.input_tokens == 120
+    assert event.output_tokens == 45
+    assert event.cached_input_tokens == 5
+    assert str(event.provider_cost_usd) == "0.01234567"
+    assert event.latency_ms == 812
+    assert event.status == "success"
+    assert event.tenant_id == "12"
+    assert "system_prompt" not in AIUsageEvent.__table__.columns
+    assert "user_prompt" not in AIUsageEvent.__table__.columns
+    assert "api_key" not in AIUsageEvent.__table__.columns
+
+
+def test_ai_usage_event_handles_missing_or_invalid_token_metadata():
+    from types import SimpleNamespace
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    from app.database import Base
+    from app.services.ai_usage_events import AIUsageEvent
+    from app.routers.ai_hiring_studio import _record_usage_event
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine, tables=[AIUsageEvent.__table__])
+    run = SimpleNamespace(
+        request_id="4a8a1a1b-35c1-47e5-9a3a-9d96f5cc0043",
+        task_type="analyze_resume",
+        model="openrouter/free",
+    )
+    user = SimpleNamespace(organization_id=1, id=2)
+
+    with Session(engine) as db:
+        _record_usage_event(db, run, user, "openrouter", run.model, {"prompt_tokens": "bad", "cost": "-1"}, 0, "error")
+        db.commit()
+        event = db.scalar(select(AIUsageEvent))
+
+    assert event.input_tokens == 0
+    assert event.output_tokens == 0
+    assert event.latency_ms == 0
+    assert event.provider_cost_usd is None
+    assert event.status == "error"
+
+
+
+def test_provider_invalid_json_returns_safe_502(monkeypatch):
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self, size=-1): return b"not-json"
+
+    monkeypatch.setattr(ai_providers.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    with pytest.raises(HTTPException) as error:
+        ai_providers._post_json("https://provider.example/api", {}, {}, "openai")
+    assert error.value.status_code == 502
+    assert error.value.detail == "The AI provider returned an invalid JSON response."
+
+
+def test_provider_response_body_is_bounded(monkeypatch):
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self, size=-1):
+            assert size == ai_providers.MAX_PROVIDER_RESPONSE_BYTES + 1
+            return b"x" * size
+
+    monkeypatch.setattr(ai_providers.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    with pytest.raises(HTTPException) as error:
+        ai_providers._post_json("https://provider.example/api", {}, {}, "openai")
+    assert error.value.status_code == 502
+    assert error.value.detail == "The AI provider response exceeded the maximum allowed size."

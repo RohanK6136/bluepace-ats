@@ -6,6 +6,7 @@ import re
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -16,6 +17,7 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text,
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.database import Base, get_db
+from app.services.ai_usage_events import AIUsageEvent
 from app.models import Role, User
 from app.security import require_roles
 from app.services.ai_providers import (
@@ -305,6 +307,45 @@ def _parse_json_output(raw: str) -> dict[str, Any]:
     return result
 
 
+def _record_usage_event(db: Session, run: AIHiringRun, user: User, provider: str,
+                        model: str, usage: dict[str, Any] | None, latency_ms: int,
+                        status_value: str) -> None:
+    """Persist provider/token/latency metadata without storing prompts or outputs."""
+    usage = usage if isinstance(usage, dict) else {}
+    def token_count(key: str) -> int:
+        try:
+            return max(0, int(usage.get(key) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    raw_cost = usage.get("cost")
+    provider_cost = None
+    if raw_cost is not None:
+        try:
+            parsed_cost = Decimal(str(raw_cost))
+            if parsed_cost.is_finite() and parsed_cost >= 0 and parsed_cost <= Decimal("9999.99999999"):
+                provider_cost = parsed_cost
+        except (InvalidOperation, TypeError, ValueError):
+            # Invalid or unreported cost remains unknown; never fabricate zero cost.
+            provider_cost = None
+
+    db.add(AIUsageEvent(
+        request_id=run.request_id,
+        tenant_id=str(user.organization_id),
+        actor_id=str(user.id),
+        task=run.task_type,
+        provider=provider,
+        model=(model or run.model)[:200],
+        input_tokens=token_count("prompt_tokens"),
+        output_tokens=token_count("completion_tokens"),
+        cached_input_tokens=token_count("cached_tokens"),
+        latency_ms=max(0, int(latency_ms)),
+        status=status_value,
+        retry_count=max(0, int((usage.get("attempts") or 1) - 1)) if str(usage.get("attempts") or "1").isdigit() else 0,
+        provider_cost_usd=provider_cost,
+    ))
+
+
 def _run_model(request, user: User, db: Session, task_type: str, system_prompt: str, user_prompt: str,
                input_data: dict[str, Any], max_tokens: int = 1800, persist_prompt_content: bool = True,
                privacy_metadata: dict[str, Any] | None = None):
@@ -348,6 +389,7 @@ def _run_model(request, user: User, db: Session, task_type: str, system_prompt: 
         run.token_usage = usage
         run.model_call_count = calls
         run.latency_ms = int((perf_counter() - started) * 1000)
+        _record_usage_event(db, run, user, provider, run.model, usage, run.latency_ms, "success")
         db.commit()
         db.refresh(run)
         return result, run
@@ -358,6 +400,8 @@ def _run_model(request, user: User, db: Session, task_type: str, system_prompt: 
         run.model_call_count = calls
         run.latency_ms = int((perf_counter() - started) * 1000)
         run.error_message = (error.detail if isinstance(error, HTTPException) else str(error))[:1000]
+        failure_status = "timeout" if isinstance(error, HTTPException) and error.status_code == 504 else "error"
+        _record_usage_event(db, run, user, provider, run.model, usage, run.latency_ms, failure_status)
         db.commit()
         if isinstance(error, HTTPException):
             raise

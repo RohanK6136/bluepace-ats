@@ -14,6 +14,18 @@ const PROVIDER_BY_ID = Object.fromEntries(PROVIDER_OPTIONS.map((item) => [item.i
 function readSessionValue(key) {
   try { return sessionStorage.getItem(key) || ""; } catch { return ""; }
 }
+function clearStoredProviderKeys() {
+  // Remove credentials written by older builds. Browser storage is readable by
+  // any script running in this origin, so provider secrets must remain in memory.
+  try {
+    for (const item of PROVIDER_OPTIONS) {
+      sessionStorage.removeItem("bluepace_ai_" + item.id + "_key");
+    }
+    sessionStorage.removeItem("bluepace_openrouter_key");
+  } catch {
+    // Storage can be disabled by privacy settings; this must not block the UI.
+  }
+}
 function storedProvider() {
   const saved = readSessionValue("bluepace_ai_provider");
   return PROVIDER_BY_ID[saved] ? saved : "openrouter";
@@ -130,12 +142,13 @@ function Metric({ label, value }) {
 
 export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }) {
   const [tab, setTab] = useState("generate");
-  const [provider, setProvider] = useState(() => storedProvider());
-  const [apiKey, setApiKey] = useState(() => {
-    const current = storedProvider();
-    return readSessionValue("bluepace_ai_" + current + "_key")
-      || (current === "openrouter" ? readSessionValue("bluepace_openrouter_key") : "");
+  const [provider, setProvider] = useState(() => {
+    clearStoredProviderKeys();
+    return storedProvider();
   });
+  // API keys are intentionally memory-only. Do not hydrate secrets from
+  // localStorage/sessionStorage; a same-origin script could exfiltrate them.
+  const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(() => {
     const current = storedProvider();
     const saved = readSessionValue("bluepace_ai_" + current + "_model")
@@ -217,16 +230,13 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   }
 
   function persistSettings() {
+    // Keep non-secret preferences for convenience, but never persist API keys.
+    clearStoredProviderKeys();
     sessionStorage.setItem("bluepace_ai_provider", provider);
-    const keyName = "bluepace_ai_" + provider + "_key";
-    if (apiKey.trim()) sessionStorage.setItem(keyName, apiKey.trim());
-    else sessionStorage.removeItem(keyName);
     sessionStorage.setItem("bluepace_ai_" + provider + "_model", model.trim() || selectedProvider.defaultModel);
     if (provider === "ollama") sessionStorage.setItem("bluepace_ai_ollama_base_url", baseUrl.trim() || selectedProvider.baseUrl);
     if (provider === "cloudflare") sessionStorage.setItem("bluepace_ai_cloudflare_account_id", accountId.trim());
     if (provider === "openrouter") {
-      if (apiKey.trim()) sessionStorage.setItem("bluepace_openrouter_key", apiKey.trim());
-      else sessionStorage.removeItem("bluepace_openrouter_key");
       sessionStorage.setItem("bluepace_openrouter_model", model.trim() || DEFAULT_MODEL);
     }
   }
@@ -235,8 +245,8 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     const next = PROVIDER_BY_ID[nextProvider];
     if (!next) return;
     setProvider(nextProvider);
-    setApiKey(readSessionValue("bluepace_ai_" + nextProvider + "_key")
-      || (nextProvider === "openrouter" ? readSessionValue("bluepace_openrouter_key") : ""));
+    // Never carry a secret between provider contexts; re-enter it when switching back.
+    setApiKey("");
     setModel(readSessionValue("bluepace_ai_" + nextProvider + "_model")
       || (nextProvider === "openrouter" && readSessionValue("bluepace_openrouter_model")
         ? readSessionValue("bluepace_openrouter_model") : next.defaultModel));
@@ -249,7 +259,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   function saveSettings() {
     try {
       persistSettings();
-      setNotice("Provider settings saved for this browser tab session. Keys are not written to AI run history.");
+      setNotice("Provider preferences saved for this tab. API keys stay in page memory only and must be re-entered after refresh.");
       setError("");
     } catch {
       setError("Browser session storage is unavailable. Settings will remain in memory until this page is closed.");
@@ -864,13 +874,13 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           </div>}
 
           {tab === "settings" && <div className="mx-auto max-w-2xl space-y-5">
-            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Configuration</p><h3 className="mt-1 text-lg font-semibold text-slate-900">AI provider connection</h3><p className="mt-1 text-sm leading-6 text-slate-500">Choose a provider for JD generation, rubric building and resume assessment. Keys stay in this browser tab session and are sent to the backend over HTTPS; they are excluded from AI run history.</p><div className="mt-3 flex flex-wrap items-center gap-2">{null}{provider === "cloudflare" && <MetaPill tone={accountId.trim() || serverAccountIdConfigured === true ? "good" : "warn"}>Account ID: {accountId.trim() ? "entered" : serverAccountIdConfigured === true ? "configured on backend" : "required"}</MetaPill>}<MetaPill>{selectedProvider.label}</MetaPill><MetaPill>{model.trim() || selectedProvider.defaultModel}</MetaPill></div></div>
+            <div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Configuration</p><h3 className="mt-1 text-lg font-semibold text-slate-900">AI provider connection</h3><p className="mt-1 text-sm leading-6 text-slate-500">Choose a provider for JD generation, rubric building and resume assessment. API keys stay in page memory only and are sent to the backend over HTTPS; they are excluded from browser storage and AI run history.</p><div className="mt-3 flex flex-wrap items-center gap-2">{null}{provider === "cloudflare" && <MetaPill tone={accountId.trim() || serverAccountIdConfigured === true ? "good" : "warn"}>Account ID: {accountId.trim() ? "entered" : serverAccountIdConfigured === true ? "configured on backend" : "required"}</MetaPill>}<MetaPill>{selectedProvider.label}</MetaPill><MetaPill>{model.trim() || selectedProvider.defaultModel}</MetaPill></div></div>
             <label className="block text-sm font-semibold text-slate-700">AI provider<select value={provider} onChange={(event) => changeProvider(event.target.value)} className={fieldClass + " mt-1.5"}>{PROVIDER_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
             {provider !== "ollama" && <label className="block text-sm font-semibold text-slate-700">{provider === "claude" ? "Anthropic API key" : provider === "cloudflare" ? "Cloudflare API token" : selectedProvider.label + " API key"}<input type="password" autoComplete="new-password" className={fieldClass + " mt-1.5 font-mono"} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnection(null); }} placeholder={selectedProvider.keyPlaceholder}/><span className="mt-1 block text-xs font-normal text-slate-500">Leave empty to use the matching backend environment variable.</span></label>}
             {provider === "cloudflare" && <label className="block text-sm font-semibold text-slate-700">Cloudflare Account ID<input className={fieldClass + " mt-1.5 font-mono"} value={accountId} onChange={(event) => { setAccountId(event.target.value); setConnection(null); }} placeholder="Cloudflare account ID" autoComplete="off"/><span className="mt-1 block text-xs font-normal text-slate-500">Required for the Workers AI account endpoint.</span></label>}
             {provider === "ollama" && <label className="block text-sm font-semibold text-slate-700">Local Ollama base URL<input className={fieldClass + " mt-1.5 font-mono"} value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setConnection(null); }} placeholder="http://localhost:11434/v1" autoComplete="url"/><span className="mt-1 block text-xs font-normal text-slate-500">Only loopback URLs are accepted; remote host URLs are rejected.</span></label>}
             <label className="block text-sm font-semibold text-slate-700">Model identifier<input className={fieldClass + " mt-1.5 font-mono"} value={model} onChange={(event) => { setModel(event.target.value); setConnection(null); }} placeholder={selectedProvider.defaultModel}/><span className="mt-1 block text-xs font-normal text-slate-500">Default: {selectedProvider.defaultModel}. Enter another model ID if your provider supports it. Qwen is a model family, not a separate API provider.</span></label>
-            <div className="flex flex-wrap gap-2"><button type="button" onClick={saveSettings} className={btnSecondary}>Save for this tab session</button><button type="button" onClick={() => void testConnection()} disabled={Boolean(busy)} className={btnPrimary}>{busy === "test" ? "Testing…" : "Test " + selectedProvider.label + " connection"}</button></div>
+            <div className="flex flex-wrap gap-2"><button type="button" onClick={saveSettings} className={btnSecondary}>Save preferences</button><button type="button" onClick={() => void testConnection()} disabled={Boolean(busy)} className={btnPrimary}>{busy === "test" ? "Testing…" : "Test " + selectedProvider.label + " connection"}</button></div>
             {connection && <div className={"rounded-xl border p-4 " + (connection.status === "connected" && connection.model_listed !== false ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")}><div className="flex flex-wrap items-center gap-2"><MetaPill tone={connection.status === "connected" && connection.model_listed !== false ? "good" : "warn"}>{connection.status === "connected" && connection.model_listed !== false ? "Connection successful" : "Check the selected model"}</MetaPill><MetaPill>{connection.latency_ms} ms</MetaPill></div><p className="mt-2 text-sm text-slate-800">{formatProviderMessageForDisplay(connection.message)}</p><p className="mt-1 text-xs text-slate-600">Selected model: {connection.model} · Provider: {connection.provider_label || selectedProvider.label} · Key source: {connection.key_source}</p></div>}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p><strong className="text-slate-800">Hosted providers:</strong> OpenAI/ChatGPT, Claude, DeepSeek, OpenRouter and Cloudflare send prompts to the selected provider. Confirm your organisation's data-use terms before processing candidate data. Requests may incur charges.</p><p className="mt-2"><strong className="text-slate-800">Local Ollama / Qwen 3.5:</strong> Install Ollama where the backend runs and execute <code>ollama pull qwen3.5:4b</code>. Keep the URL at <code>http://localhost:11434/v1</code>.</p><p className="mt-2"><strong className="text-slate-800">Hosted deployment limitation:</strong> On Railway, localhost means the Railway container, not your PC. The production ATS cannot reach Ollama on your computer using localhost. For local inference run the backend and Ollama on the same computer, or build a separately secured local bridge. Never put API keys in Vite environment variables or commit them to GitHub.</p><p className="mt-2">“Qwen 3.4.5” did not identify a model tag that I could verify; the model field defaults to the published Qwen 3.5 family and remains editable.</p></div>
           </div>}

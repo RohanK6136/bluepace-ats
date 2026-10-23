@@ -123,6 +123,7 @@ from app.routers.demo_data import router as demo_data_router, populate_demo_data
 from app.routers.offer_management import router as offer_management_router
 from app.routers.ai_hiring_studio import router as ai_hiring_studio_router
 from app.routers.zoho_recruit import router as zoho_recruit_router
+from app.routers.cookie_auth import router as cookie_auth_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
 from app.services.workflow import (
     PIPELINE_STAGES,
@@ -399,6 +400,7 @@ app.include_router(offer_management_router)
 app.include_router(next_features_router)
 app.include_router(ai_hiring_studio_router)
 app.include_router(zoho_recruit_router)
+app.include_router(cookie_auth_router)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
@@ -410,6 +412,26 @@ def healthz():
 def readyz(db: Session = Depends(get_db)):
     db.execute(select(1))
     return {"status": "ready"}
+
+
+@app.middleware("http")
+async def cookie_csrf_middleware(request: Request, call_next):
+    """Reject cross-site state changes made with a browser session cookie."""
+    if request.method not in {"GET", "HEAD", "OPTIONS", "TRACE"} and request.cookies.get("bluepace_access"):
+        origin = request.headers.get("origin", "").rstrip("/")
+        allowed = {origin.rstrip("/") for origin in DEPLOYED_FRONTEND_ORIGINS}
+        if APP_ENV in {"development", "test"}:
+            allowed.update(origin.rstrip("/") for origin in LOCAL_FRONTEND_ORIGINS)
+        allowed.update(
+            value.strip().rstrip("/")
+            for value in os.getenv("ALLOWED_ORIGINS", "").split(",")
+            if value.strip()
+        )
+        csrf_cookie = request.cookies.get("bluepace_csrf", "")
+        csrf_header = request.headers.get("x-csrf-token", "")
+        if origin not in allowed or not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+            return JSONResponse(status_code=403, content={"detail": "CSRF validation failed"})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -1185,7 +1207,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_origin_regex=r"^https://[a-z0-9-]+\.onrender\.com$",
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Process-Time-ms"],

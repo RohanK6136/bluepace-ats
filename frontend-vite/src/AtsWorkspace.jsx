@@ -13,6 +13,7 @@ const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
 const AutomationPanel = lazy(() => import("./AutomationPanel.jsx"));
 const AIHiringStudio = lazy(() => import("./AIHiringStudio.jsx"));
+const ZohoRecruitPanel = lazy(() => import("./ZohoRecruitPanel.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
@@ -86,6 +87,8 @@ function shouldRetry(error) {
 
 let tokenRefreshInFlight = null;
 let apiReadyInFlight = null;
+let csrfTokenInMemory = "";
+let hasCookieSession = false;
 
 function ensureApiReady() {
   if (apiReadyInFlight) return apiReadyInFlight;
@@ -110,64 +113,79 @@ function ensureApiReady() {
   return apiReadyInFlight;
 }
 
-async function refreshAccessToken(currentToken) {
-  if (!currentToken) throw new Error("No access token available.");
+function readCsrfToken() {
+  return csrfTokenInMemory;
+}
+
+async function ensureCsrfToken() {
+  if (csrfTokenInMemory) return csrfTokenInMemory;
+  const response = await axios.get(`${API_URL}/auth/session/csrf`, {
+    timeout: 15_000,
+    withCredentials: true,
+    headers: { "Cache-Control": "no-store" },
+  });
+  csrfTokenInMemory = response.data?.csrf_token || "";
+  hasCookieSession = Boolean(response.data?.has_session);
+  return csrfTokenInMemory;
+}
+
+async function refreshAccessToken() {
   if (!tokenRefreshInFlight) {
-    tokenRefreshInFlight = axios.post(
-      `${API_URL}/auth/refresh`,
-      null,
-      {
-        timeout: 15_000,
-        headers: { Authorization: `Bearer ${currentToken}` },
-      },
-    )
-      .then((response) => {
-        const refreshedToken = response.data?.access_token;
-        if (!refreshedToken) throw new Error("The ATS API did not return a refreshed access token.");
-        sessionStorage.setItem("bluepace_token", refreshedToken);
-        return refreshedToken;
-      })
-      .finally(() => {
-        tokenRefreshInFlight = null;
-      });
+    tokenRefreshInFlight = (async () => {
+      const csrf = await ensureCsrfToken();
+      const response = await axios.post(
+        `${API_URL}/auth/session/refresh`,
+        null,
+        {
+          timeout: 15_000,
+          withCredentials: true,
+          headers: { "X-CSRF-Token": csrf },
+        },
+      );
+      csrfTokenInMemory = response.data?.csrf_token || csrfTokenInMemory;
+      hasCookieSession = true;
+      return "cookie-session";
+    })().finally(() => {
+      tokenRefreshInFlight = null;
+    });
   }
   return tokenRefreshInFlight;
 }
 
-async function apiRequest(token, method, path, options = {}) {
-  let requestToken = token || sessionStorage.getItem("bluepace_token") || "";
+async function apiRequest(_token, method, path, options = {}) {
   let refreshed = false;
-  const isAuthRequest = /^\/auth\/(token|register|logout)$/.test(path);
+  const isAuthRequest = /^\/auth\/(token|session\/login|register|logout|session\/logout)$/.test(path);
   const requestTimeout = options.timeout ?? (isAuthRequest ? AUTH_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   for (let attempt = 0; ; attempt += 1) {
     try {
+      const unsafeMethod = !["get", "head", "options"].includes(String(method).toLowerCase());
+      const csrf = unsafeMethod ? await ensureCsrfToken() : "";
       return await axios.request({
         baseURL: API_URL,
         method,
         url: path,
         timeout: requestTimeout,
+        withCredentials: true,
         ...options,
         headers: {
-          ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}),
+          ...(csrf ? { "X-CSRF-Token": csrf } : {}),
           ...options.headers,
         },
       });
     } catch (error) {
       if (isAuthRequest) throw error;
-      const canRefresh = Boolean(requestToken)
-        && !refreshed
+      const canRefresh = !refreshed
         && error.response?.status === 401
-        && !path.startsWith("/auth/token")
-        && !path.startsWith("/auth/refresh")
-        && !path.startsWith("/auth/logout")
-        && Boolean(sessionStorage.getItem("bluepace_token"));
+        && !path.startsWith("/auth/session/refresh")
+        && !path.startsWith("/auth/session/logout");
       if (canRefresh) {
         try {
-          requestToken = await refreshAccessToken(requestToken);
+          await ensureCsrfToken();
+          if (!hasCookieSession) throw error;
+          await refreshAccessToken();
           refreshed = true;
           continue;
         } catch (refreshError) {
-          sessionStorage.removeItem("bluepace_token");
           throw refreshError;
         }
       }
@@ -253,15 +271,8 @@ function EmptyState({ title, detail }) {
 }
 
 export default function AtsWorkspace() {
-  const [token, setToken] = useState(() => sessionStorage.getItem("bluepace_token"));
-  const [user, setUser] = useState(() => {
-    try {
-      const saved = sessionStorage.getItem("bluepace_user");
-      return saved ? JSON.parse(saved) : null;
-    } catch (_) {
-      return null;
-    }
-  });
+  const [token, setToken] = useState("cookie-session");
+  const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("bluepace_theme") || "light");
   const [accessMode, setAccessMode] = useState(() => (
@@ -412,13 +423,12 @@ export default function AtsWorkspace() {
         if (!active) return;
         const resolvedUser = userResponse.data;
         setUser(resolvedUser);
-        sessionStorage.setItem("bluepace_user", JSON.stringify(resolvedUser));
+
         setJobs(jobsResponse.data);
         setMatchJobId((current) => current || String(jobsResponse.data.find((job) => job.status === "open")?.id || jobsResponse.data[0]?.id || ""));
         setError("");
       } catch (loadError) {
         if (!active) return;
-        sessionStorage.removeItem("bluepace_token");
         setToken(null);
         setError(errorText(loadError));
       } finally {
@@ -544,7 +554,7 @@ export default function AtsWorkspace() {
 
       let response;
       try {
-        response = await apiRequest(null, "post", "/auth/token", {
+        response = await apiRequest(null, "post", "/auth/session/login", {
           data: credentials,
           timeout: AUTH_TIMEOUT_MS,
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -559,19 +569,19 @@ export default function AtsWorkspace() {
           || firstError.name === "AbortError";
         if (!transientAuthFailure || authMode === "register") throw firstError;
         await ensureApiReady();
-        response = await apiRequest(null, "post", "/auth/token", {
+        response = await apiRequest(null, "post", "/auth/session/login", {
           data: credentials,
           timeout: AUTH_TIMEOUT_MS,
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
         });
       }
 
-      sessionStorage.setItem("bluepace_token", response.data.access_token);
+      csrfTokenInMemory = response.data?.csrf_token || csrfTokenInMemory;
+      hasCookieSession = true;
       if (response.data.user) {
-        sessionStorage.setItem("bluepace_user", JSON.stringify(response.data.user));
         setUser(response.data.user);
       }
-      setToken(response.data.access_token);
+      setToken("cookie-session");
     } catch (authRequestError) {
       setAuthError(errorText(authRequestError));
     } finally {
@@ -583,8 +593,7 @@ export default function AtsWorkspace() {
     const currentToken = token;
     // Clear local auth state first. Revocation is best-effort and must never hold
     // the user on the workspace while a sleeping/slow API is responding.
-    sessionStorage.removeItem("bluepace_token");
-    sessionStorage.removeItem("bluepace_user");
+
     setToken(null);
     setUser(null);
     setJobs([]);
@@ -594,11 +603,9 @@ export default function AtsWorkspace() {
     setError("");
 
     if (currentToken) {
-      void fetch(`${API_URL}/auth/logout`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${currentToken}` },
-        keepalive: true,
-      }).catch(() => {});
+      void apiRequest(null, "post", "/auth/session/logout", { timeout: 5_000 })
+        .catch(() => {})
+        .finally(() => { csrfTokenInMemory = ""; hasCookieSession = false; });
     }
   }
 
@@ -1416,6 +1423,7 @@ export default function AtsWorkspace() {
     { id: "candidates", label: "Candidates", count: candidates.length },
     { id: "interviews-2", label: "Interviews" },
     { id: "ai-studio", label: "AI Hiring Studio" },
+    { id: "zoho", label: "Zoho Recruit" },
   ];
   const secondaryNavItems = [
     { id: "compare", label: "Compare candidates" },
@@ -2264,6 +2272,7 @@ export default function AtsWorkspace() {
           </section>}
           {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
           {view === "ai-studio" && <AIHiringStudio token={token} apiRequest={apiRequest} jobs={jobs} onSaved={refreshWorkspace} />}
+          {view === "zoho" && <ZohoRecruitPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
           {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab theme={theme} onToggleTheme={toggleTheme} token={token} /></section>}
           </main>
         </Suspense>

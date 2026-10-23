@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
 from sqlalchemy import select
@@ -32,7 +32,7 @@ JWT_ALGORITHM = "HS256"
 TOKEN_LIFETIME_MINUTES = 7 * 24 * 60
 TOKEN_REFRESH_GRACE_MINUTES = 60
 password_hash = PasswordHash.recommended()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
 
 def create_access_token(user: User, db: Session | None = None, ip_address: str | None = None, user_agent: str | None = None) -> str:
@@ -81,7 +81,13 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+def get_current_user(
+    request: Request = None,
+    token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    # Bearer tokens remain supported for API clients; browsers use HttpOnly cookies.
+    token = token or (request.cookies.get("bluepace_access") if request is not None else None)
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired access token",
