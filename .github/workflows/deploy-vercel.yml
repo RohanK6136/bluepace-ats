@@ -66,21 +66,29 @@ jobs:
       - name: Deploy to production
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
 
-      - name: Smoke-test production alias
+      - name: Smoke-test production alias and security headers
         shell: bash
         run: |
           production_url="https://bluepace-ats-frontend.vercel.app/"
           for attempt in $(seq 1 12); do
             response_file="$(mktemp)"
-            status_code="$(curl --silent --show-error --location --max-time 15 --output "$response_file" --write-out '%{http_code}' "$production_url" || true)"
-            if [[ "$status_code" == "200" ]] && grep -qi '<title>BluePace ATS' "$response_file" && grep -qi 'id="root"' "$response_file"; then
-              rm -f "$response_file"
-              echo "Production smoke test passed: HTTP 200 and expected BluePace ATS HTML markers found."
+            header_file="$(mktemp)"
+            status_code="$(curl --silent --show-error --location --max-time 15 --dump-header "$header_file" --output "$response_file" --write-out '%{http_code}' "$production_url" || true)"
+            if [[ "$status_code" == "200" ]] \
+              && grep -qi '<title>BluePace ATS' "$response_file" \
+              && grep -qi 'id="root"' "$response_file" \
+              && grep -Eiq '^strict-transport-security:[[:space:]]*max-age=31536000' "$header_file" \
+              && grep -Eiq '^x-content-type-options:[[:space:]]*nosniff' "$header_file" \
+              && grep -Eiq '^x-frame-options:[[:space:]]*DENY' "$header_file" \
+              && grep -Eiq '^referrer-policy:[[:space:]]*strict-origin-when-cross-origin' "$header_file" \
+              && grep -Eiq '^permissions-policy:.*camera=\(\).*microphone=\(\).*geolocation=\(\)' "$header_file"; then
+              rm -f "$response_file" "$header_file"
+              echo "Production smoke test passed: HTTP 200, expected BluePace ATS HTML, and required security headers found."
               exit 0
             fi
-            rm -f "$response_file"
-            echo "Production alias not ready or unexpected HTML (attempt $attempt/12, HTTP ${status_code:-unknown})."
+            rm -f "$response_file" "$header_file"
+            echo "Production alias not ready or security headers missing (attempt $attempt/12, HTTP ${status_code:-unknown})."
             sleep 5
           done
-          echo "::error title=Production smoke test failed::Vercel reported a deployment, but the production alias did not serve the expected BluePace ATS HTML."
+          echo "::error title=Production security smoke test failed::Vercel did not serve expected BluePace ATS HTML and all required security headers."
           exit 1
