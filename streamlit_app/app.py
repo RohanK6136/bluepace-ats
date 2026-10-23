@@ -1,32 +1,15 @@
 import io
-import os
 import time
 from typing import Any
 import requests
 import streamlit as st
 
+from streamlit_app.backend_config import default_api_url_from_environment, normalize_api_url
+
 APP_TITLE = "BluePace ATS | Streamlit Workspace"
 DEFAULT_API_URL = ""
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 ALLOWED_EXTENSIONS = {"pdf", "docx", "txt"}
-def default_api_url_from_environment() -> str:
-    """Read an explicit API URL, rejecting retired backend hosts."""
-    candidate = os.getenv("ATS_API_URL", "").strip().rstrip("/")
-    if not candidate:
-        return ""
-    from urllib.parse import urlsplit
-    try:
-        parsed = urlsplit(candidate)
-        host = (parsed.hostname or "").lower()
-    except ValueError:
-        return ""
-    if parsed.scheme not in {"http", "https"} or not host:
-        return ""
-    if host == "railway.app" or host.endswith(".railway.app") or host.endswith(".railway.internal"):
-        return ""
-    return candidate
-
-
 st.set_page_config(page_title=APP_TITLE, page_icon="🧭", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>
 .stApp { background: #0b1020; color: #e7ecf5; }
@@ -42,19 +25,23 @@ st.markdown('<p class="bp-muted">A lightweight companion for service checks and 
 
 with st.sidebar:
     st.subheader("Connection")
-    api_url = st.text_input(
+    api_url_input = st.text_input(
         "Backend API URL",
         value=default_api_url_from_environment() or DEFAULT_API_URL,
         placeholder="https://your-active-backend.example.com",
-    ).strip().rstrip("/")
-    if not api_url:
+    )
+    api_url = normalize_api_url(api_url_input)
+    if api_url_input.strip() and not api_url:
+        st.error("Enter a valid HTTPS backend URL. HTTP is allowed only for localhost development; retired or malformed hosts are rejected.")
+    elif not api_url:
         st.info("Enter the active ATS backend URL to enable health checks and Zoho integration tools.")
     st.caption("Keep API keys and passwords in Streamlit Secrets or service environment variables. Never paste secrets into the app.")
     st.divider()
     page = st.radio("Workspace", ["Overview", "Resume review", "Zoho Recruit", "Integration guide"])
     st.divider()
     st.markdown("[Open main ATS](https://bluepace-ats-frontend.vercel.app/?mode=admin)")
-    st.markdown("[Backend API docs](" + api_url + "/docs)")
+    if api_url:
+        st.markdown("[Backend API docs](" + api_url + "/docs)")
 
 
 def check_endpoint(base_url: str, path: str) -> tuple[bool, str, float]:
