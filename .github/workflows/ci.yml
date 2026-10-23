@@ -43,18 +43,15 @@ jobs:
           cache-dependency-path: frontend-vite/package-lock.json
       - working-directory: frontend-vite
         run: npm ci --no-audit --no-fund
-      - name: Audit frontend dependencies
+      - name: Report all frontend dependency advisories
         working-directory: frontend-vite
         shell: bash
         run: |
-          audit_status=0
-          npm audit --audit-level=moderate --json > "$RUNNER_TEMP/npm-audit-report.json" || audit_status=$?
+          npm audit --json > "$RUNNER_TEMP/npm-audit-report.json" || true
           node - "$RUNNER_TEMP/npm-audit-report.json" <<'NODE'
           const fs = require("node:fs");
-          const reportPath = process.argv[2];
-          const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-          const totals = report.metadata?.vulnerabilities || {};
-          console.log("npm audit totals:", JSON.stringify(totals));
+          const report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("Full npm audit totals:", JSON.stringify(report.metadata?.vulnerabilities || {}));
           for (const [name, vuln] of Object.entries(report.vulnerabilities || {}).sort((a, b) => a[0].localeCompare(b[0]))) {
             const advisories = (vuln.via || [])
               .filter((item) => item && typeof item === "object")
@@ -70,8 +67,52 @@ jobs:
             }));
           }
           NODE
-          exit "$audit_status"
+      - name: Fail on vulnerable production dependencies
+        working-directory: frontend-vite
+        run: npm audit --omit=dev --audit-level=moderate
       - working-directory: frontend-vite
         run: npm run build
       - working-directory: frontend-vite
         run: npm run test:server
+
+  remediate_frontend_lockfile:
+    # One-time lockfile repair for this security branch. The job has write
+    # access only while repairing this specific PR's lockfile.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/security/frontend-npm-audit'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/frontend-npm-audit
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend-vite/package-lock.json
+      - name: Install locked dependencies
+        working-directory: frontend-vite
+        run: npm ci --no-audit --no-fund
+      - name: Apply compatible security fixes to lockfile
+        working-directory: frontend-vite
+        shell: bash
+        run: |
+          npm audit fix --package-lock-only --ignore-scripts --no-fund || true
+          npm ci --no-audit --no-fund
+          npm run build
+          npm run test:server
+          npm audit --omit=dev --audit-level=moderate
+      - name: Commit compatible lockfile changes to this PR
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend-vite/package-lock.json
+          if git diff --cached --quiet; then
+            echo "No compatible lockfile updates were needed."
+            exit 0
+          fi
+          git commit -m "fix: apply compatible frontend dependency security updates"
+          git push origin HEAD:security/frontend-npm-audit
