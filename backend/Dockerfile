@@ -2,6 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Fail closed if a host forgets to inject APP_ENV. Local development containers
+# can explicitly override this with APP_ENV=development.
+ENV APP_ENV=production
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgl1 \
