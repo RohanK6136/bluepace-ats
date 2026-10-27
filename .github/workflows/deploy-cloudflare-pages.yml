@@ -1,0 +1,100 @@
+name: Deploy frontend to Cloudflare Pages
+
+# This is a manual production deployment to the existing Direct Upload Pages
+# project. Cloudflare's Git integration currently returns an account-level
+# installation error, so use Wrangler Direct Upload instead.
+#
+# Required repository secret:
+#   CLOUDFLARE_API_TOKEN - a scoped API token with Account > Cloudflare Pages > Edit
+#
+# The account ID is not secret and is pinned to the connected Cloudflare account.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: cloudflare-pages-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 801f07a6dac2f1cf281b70f31ca9cc68
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Validate Cloudflare credentials
+        shell: bash
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error title=Cloudflare deployment is not configured::Add CLOUDFLARE_API_TOKEN in Settings > Secrets and variables > Actions. Create a scoped Cloudflare API token with Account > Cloudflare Pages > Edit."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend-vite/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend-vite
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend-vite
+        run: npm run lint
+
+      - name: Test server and bulk-matching utilities
+        working-directory: frontend-vite
+        run: |
+          npm run test:server
+          npm run test:bulk-match
+          npm run test:jd-match-api
+
+      - name: Build frontend
+        working-directory: frontend-vite
+        run: npm run build
+
+      - name: Deploy frontend and Pages Functions
+        working-directory: frontend-vite
+        run: npx --yes wrangler@4 pages deploy dist --project-name=bluepace-ats-frontend --branch=main
+
+      - name: Verify production site and model API
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://bluepace-ats-frontend.pages.dev"
+          html="$(curl --silent --show-error --location --max-time 20 --fail "$base/")"
+          grep -qi '<title>BluePace ATS' <<<"$html"
+          models="$(curl --silent --show-error --location --max-time 20 --fail "$base/v1/models")"
+          node -e '
+            const rows = JSON.parse(process.argv[1]);
+            if (!Array.isArray(rows)) throw new Error("GET /v1/models must return an array");
+            const byId = new Map(rows.map((row) => [row.id, row]));
+            for (const id of ["rules", "openrouter", "gemini", "deepseek", "grok", "openai"]) {
+              if (!byId.has(id)) throw new Error("Missing model profile: " + id);
+            }
+            if (byId.get("rules").enabled !== true) throw new Error("Built-in rules engine must work without a provider key");
+            const retired = byId.get("github-models");
+            if (!retired || retired.enabled !== false || !/retired/i.test(retired.disabled_reason || "")) {
+              throw new Error("Retired GitHub Models profile must remain disabled");
+            }
+          ' "$models"
+
+          jd='{"text":"Software Engineer\nResponsibilities:\nBuild and maintain REST APIs.\nRequirements:\nPython, SQL, and 3 years of experience.","options":{"profile":"rules","mode":"light"}}'
+          standardized="$(curl --silent --show-error --location --max-time 20 --fail -H 'Content-Type: application/json' -d "$jd" "$base/v1/jd/standardize")"
+          node -e 'const x=JSON.parse(process.argv[1]); if (!x || !x.title || !Array.isArray(x.requirements)) throw new Error("JD standardization returned an invalid payload");' "$standardized"
+
+          rubric_response="$(curl --silent --show-error --location --max-time 20 --fail -H 'Content-Type: application/json' -d '{"jd_text":"Software Engineer\nRequirements:\nPython, SQL, and 3 years of experience.\nResponsibilities:\nBuild and maintain REST APIs.","options":{"profile":"rules"}}' "$base/v1/match/rubrics")"
+          rubric="$(node -e 'const x=JSON.parse(process.argv[1]); if (!x.rubric || !Array.isArray(x.rubric.items) || x.rubric.items.length < 1) throw new Error("Rubric generation returned no criteria"); process.stdout.write(JSON.stringify(x.rubric));' "$rubric_response")"
+          match_response="$(curl --silent --show-error --location --max-time 20 --fail -F "profile=rules" -F "rubric=$rubric" -F "text=Software engineer with 4 years of experience building REST APIs in Python and SQL. Developed, tested, and maintained production services." "$base/v1/match/analyze")"
+          node -e 'const x=JSON.parse(process.argv[1]); if (!Array.isArray(x.evidence) || x.evidence.length < 1) throw new Error("Applicant analysis returned no evidence");' "$match_response"
+          echo "Cloudflare production smoke tests passed: frontend, keyless rules engine, JD standardization, rubric creation, and resume evidence matching."
