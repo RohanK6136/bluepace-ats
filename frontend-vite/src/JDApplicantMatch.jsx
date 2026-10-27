@@ -182,8 +182,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     setSelectedAtsApplicationId("");
     setAssessmentHistory([]);
     if (!selectedAtsJobId) return () => { active = false; };
-    request("get", "/applications", undefined, {
-      params: { job_id: Number(selectedAtsJobId), limit: 100 },
+    request("get", "/ai-hiring/jobs/" + encodeURIComponent(selectedAtsJobId) + "/application-choices", undefined, {
       timeout: 12000,
     })
       .then((response) => {
@@ -904,7 +903,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                         <select className={fieldClass} value={selectedAtsApplicationId} onChange={(event) => { setSelectedAtsApplicationId(event.target.value); setAtsIntegrationError(""); setAtsIntegrationMessage(""); }} disabled={!selectedAtsJobId || !atsApplications.length}>
                           <option value="">Choose application…</option>
                           {atsApplications.map((application) => {
-                            const candidateName = application.candidate?.full_name || application.candidate?.name || [application.candidate?.first_name, application.candidate?.last_name].filter(Boolean).join(" ") || ("Candidate #" + application.candidate_id);
+                            const candidateName = application.candidate_name || ("Candidate #" + application.candidate_id);
                             return <option key={application.id} value={application.id}>Application #{application.id} · {candidateName}</option>;
                           })}
                         </select>
