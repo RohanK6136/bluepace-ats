@@ -64,6 +64,9 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [apiKey, setApiKey] = useState(() => {
     try { return sessionStorage.getItem("bluepace_feature_api_key") || ""; } catch { return ""; }
   });
+  const [apiKeyDraft, setApiKeyDraft] = useState(() => {
+    try { return sessionStorage.getItem("bluepace_feature_api_key") || ""; } catch { return ""; }
+  });
   const [models, setModels] = useState([]);
   const [selectedProfile, setSelectedProfile] = useState("");
   const [connection, setConnection] = useState("checking");
@@ -134,7 +137,8 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   }, [activeTab, connection, refreshSavedRubrics]);
 
 
-  function updateApiKey(value) {
+  function applyApiKey() {
+    const value = apiKeyDraft.trim();
     setApiKey(value);
     try {
       if (value) sessionStorage.setItem("bluepace_feature_api_key", value);
@@ -143,6 +147,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       // Continue with an in-memory key if session storage is disabled.
     }
     setNotice(value ? "API key kept for this browser session only." : "Optional API key cleared.");
+    if (value === apiKey) refreshConnection();
   }
 
   async function runJD(mode) {
@@ -335,9 +340,9 @@ export default function JDApplicantMatch({ token, apiRequest }) {
           <summary className="cursor-pointer text-xs font-semibold text-ink-600">API access settings (optional)</summary>
           <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <Field label="X-API-Key" hint="Kept in session storage for this browser tab session. Never sent to GitHub or stored by this UI. Leave blank if the backend does not require API-key authentication.">
-              <input type="password" autoComplete="off" value={apiKey} onChange={(event) => updateApiKey(event.target.value)} placeholder="Paste API key only if your backend requires one" className={fieldClass} />
+              <input type="password" autoComplete="off" value={apiKeyDraft} onChange={(event) => setApiKeyDraft(event.target.value)} placeholder="Paste API key only if your backend requires one" className={fieldClass} />
             </Field>
-            <button type="button" className={secondaryButton} onClick={refreshConnection}>Test API connection</button>
+            <button type="button" className={secondaryButton} onClick={applyApiKey}>Apply key & test connection</button>
           </div>
         </details>
         <div className="px-5 py-5 sm:px-7 sm:py-6">
