@@ -97,6 +97,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [apiKeyDraft, setApiKeyDraft] = useState(() => {
     try { return sessionStorage.getItem("bluepace_feature_api_key") || ""; } catch { return ""; }
   });
+  const [openRouterKey, setOpenRouterKey] = useState(() => sessionProviderKey("openrouter"));
   const [openRouterKeyDraft, setOpenRouterKeyDraft] = useState(() => sessionProviderKey("openrouter"));
   const [inferenceTest, setInferenceTest] = useState({ status: "", message: "" });
   const [models, setModels] = useState([]);
@@ -140,14 +141,16 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       ["openai", "X-OpenAI-Api-Key"],
     ];
     for (const [provider, header] of keys) {
-      const value = sessionProviderKey(provider);
+      const value = provider === "openrouter"
+        ? (sessionProviderKey(provider) || openRouterKey)
+        : sessionProviderKey(provider);
       if (value) headers[header] = value;
     }
     const isFeatureRoute = String(path || "").startsWith("/v1/");
     const requestOptions = { ...options, headers, ...(isFeatureRoute ? { baseURL: window.location.origin } : {}) };
     if (data !== undefined) requestOptions.data = data;
     return apiRequest(token, method, path, requestOptions);
-  }, [apiKey, apiRequest, token]);
+  }, [apiKey, apiRequest, openRouterKey, token]);
 
   const refreshConnection = useCallback(async () => {
     setConnection("checking");
@@ -206,8 +209,8 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     if (value === apiKey) refreshConnection();
   }
 
-  function saveOpenRouterKey() {
-    const value = openRouterKeyDraft.trim();
+  function storeOpenRouterKey(value) {
+    setOpenRouterKey(value);
     try {
       if (value) {
         sessionStorage.setItem("bluepace_ai_openrouter_key", value);
@@ -217,8 +220,13 @@ export default function JDApplicantMatch({ token, apiRequest }) {
         sessionStorage.removeItem("bluepace_openrouter_key");
       }
     } catch {
-      // Keep the request usable if browser session storage is unavailable.
+      // The in-memory state keeps the key usable if session storage is unavailable.
     }
+  }
+
+  function saveOpenRouterKey() {
+    const value = openRouterKeyDraft.trim();
+    storeOpenRouterKey(value);
     setInferenceTest({ status: "", message: "" });
     setNotice(value
       ? "OpenRouter key saved for this browser tab session."
@@ -227,10 +235,15 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   }
 
   async function testOpenRouterInference() {
+    const value = openRouterKeyDraft.trim();
+    storeOpenRouterKey(value);
     setInferenceTest({ status: "checking", message: "Sending a short test prompt to OpenRouter. Provider usage charges may apply." });
     setNotice("");
     try {
-      const response = await request("post", "/v1/test", {}, { timeout: 60000 });
+      const response = await request("post", "/v1/test", {}, {
+        timeout: 60000,
+        ...(value ? { headers: { "X-OpenRouter-Api-Key": value } } : {}),
+      });
       const result = response.data || {};
       setInferenceTest({
         status: "success",
