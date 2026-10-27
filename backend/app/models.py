@@ -492,3 +492,23 @@ class ApplicationMatchAssessment(Base):
     match_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     assessment_data: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+class ApplicantMatchRubricLink(Base):
+    """Organisation-scoped link from an existing ATS job to a saved Applicant Match rubric version."""
+
+    __tablename__ = "applicant_match_rubric_links"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "job_id", "rubric_id", name="uq_app_match_rubric_link_org_job_rubric"),
+        Index("ix_app_match_rubric_links_org_job_created", "organization_id", "job_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    rubric_id: Mapped[str] = mapped_column(String(100), index=True)
+    rubric_hash: Mapped[str] = mapped_column(String(64))
+    rubric_title: Mapped[str] = mapped_column(String(200), default="")
+    rubric_items: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
