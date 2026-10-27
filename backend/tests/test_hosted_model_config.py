@@ -41,6 +41,7 @@ def test_direct_provider_profiles_are_registered_and_disabled_without_keys(monke
         "gemini": ("https://openrouter.ai/api/v1", "google/gemini-2.5-flash", "OPENROUTER_API_KEY"),
         "deepseek": ("https://openrouter.ai/api/v1", "deepseek/deepseek-chat", "OPENROUTER_API_KEY"),
         "grok": ("https://openrouter.ai/api/v1", "x-ai/grok-3-mini", "OPENROUTER_API_KEY"),
+        "openrouter-openai": ("https://openrouter.ai/api/v1", "openai/gpt-4.1", "OPENROUTER_API_KEY"),
         "github-models": ("https://models.github.ai/inference", "openai/gpt-4.1", "GITHUB_MODELS_TOKEN"),
     }
     for profile_id, (base_url, model, key_env) in expected.items():
@@ -56,5 +57,5 @@ def test_direct_provider_profiles_are_registered_and_disabled_without_keys(monke
     monkeypatch.setenv("GITHUB_TOKEN", "test-token")
     assert registry.disabled_reason(registry.get("github-models")) is None
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-token")
-    for profile_id in ("openrouter", "gemini", "deepseek", "grok"):
+    for profile_id in ("openrouter", "gemini", "deepseek", "grok", "openrouter-openai"):
         assert registry.disabled_reason(registry.get(profile_id)) is None
