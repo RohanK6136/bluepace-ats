@@ -1,0 +1,5 @@
+# Words a generated summary may never contain (protected attributes and gendered pronouns). Case-insensitive,
+# word-bounded. A hit replaces the summary with the code-built template.
+terms: [age, aged, years old, gender, male, female, woman, he, she, his, her, him, hers, nationality, citizenship,
+        ethnicity, ethnic, race, racial, religion, religious, marital status, married, divorced, family, children,
+        pregnant, pregnancy, health, disability, disabled, photo]

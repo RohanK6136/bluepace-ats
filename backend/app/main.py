@@ -124,6 +124,8 @@ from app.routers.offer_management import router as offer_management_router
 from app.routers.ai_hiring_studio import router as ai_hiring_studio_router
 from app.routers.zoho_recruit import router as zoho_recruit_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
+from app.features.jd_standardizer.routes import router as jd_router
+from app.features.applicant_match.routes import router as match_router
 from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
@@ -380,6 +382,35 @@ async def lifespan(_app: FastAPI):
     if APP_ENV != "test":
         resume_dispatcher_task = asyncio.create_task(_delayed_resume_dispatcher_start())
 
+    # --- AI Feature Platform (JD Standardizer + Applicant Match) ---
+    try:
+        from app.config import get_settings as _get_ai_settings
+        from app.store.db import Store as _AIStore
+        from app.llm.registry import ModelRegistry as _ModelRegistry
+        from app.llm.client import LLMGateway as _LLMGateway
+        from app.features.jd_standardizer.pipeline.policy import load_policy as _load_policy
+        from app.features.jd_standardizer.pipeline.runner import PipelineDeps as _PipelineDeps
+        from app.api.deps import Platform as _Platform
+        import pathlib as _pathlib
+        _ai_settings = _get_ai_settings()
+        _ai_store = _AIStore(_ai_settings.DB_PATH)
+        _models_path = _pathlib.Path(_ai_settings.MODELS_FILE)
+        _registry = _ModelRegistry.from_file(_models_path) if _models_path.is_file() else None
+        _llm_client = _LLMGateway(_registry, _ai_settings, store=_ai_store)
+        _jd_deps = _PipelineDeps(llm=_llm_client, store=_ai_store, settings=_ai_settings, policy=_load_policy())
+        _app.state.platform = _Platform(
+            settings=_ai_settings, store=_ai_store, llm=_llm_client,
+            registry=_registry, jd=_jd_deps
+        )
+        print("[ai-platform] JD Standardizer + Applicant Match platform initialised.", flush=True)
+    except Exception as _ai_init_err:
+        print(
+            f"[ai-platform] WARNING: AI feature platform failed to initialise"
+            f" ({_ai_init_err}); /v1/* routes will return 503.",
+            flush=True,
+        )
+        _app.state.platform = None
+
     try:
         yield
     finally:
@@ -399,6 +430,8 @@ app.include_router(offer_management_router)
 app.include_router(next_features_router)
 app.include_router(ai_hiring_studio_router)
 app.include_router(zoho_recruit_router)
+app.include_router(jd_router)
+app.include_router(match_router)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 

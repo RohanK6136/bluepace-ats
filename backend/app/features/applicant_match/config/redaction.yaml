@@ -1,0 +1,27 @@
+# Deterministic redaction rules, applied before any model sees a resume. Pinned: changing them is a release-gate
+# change (determinism + fairness runs).
+
+# A line with one of these labels followed by ":" or "-" ("Age: 32", "Gender - Male") is replaced entirely
+# (case-insensitive, word-bounded).
+personal_line_labels: [date of birth, dob, d.o.b, born, birth date, birthday, age, gender, sex, nationality,
+                       citizenship, marital status, religion, passport, passport no, father's name, mother's name,
+                       spouse, photo, photograph, ethnicity, race, place of birth, national id, ssn,
+                       social security, aadhaar, pan no, visa status, sexual orientation, pronouns]
+
+# Unambiguous labels that also redact a short line (≤ 6 words) when it merely starts with them
+# ("Date of Birth 12/03/1990", "Nationality Indian").
+personal_line_starts: [date of birth, dob, d.o.b, birth date, place of birth, marital status, nationality, gender,
+                       citizenship, religion, passport no, passport number]
+
+# A line starting with one of these labels is treated as a postal address.
+address_labels: [address, permanent address, current address, residential address, home address, correspondence address]
+
+# Words that mean a short title-case line is a section heading or a job title, not a person's name.
+not_a_name: [resume, curriculum vitae, cv, profile, summary, objective, experience, education, skills, contact,
+             professional, career, work, history, projects, certifications, languages, references, about, me,
+             engineer, developer, manager, analyst, consultant, specialist, designer, officer, administrator,
+             architect, lead, director, executive, associate, intern, technician, support, assistant,
+             coordinator, scientist, accountant, recruiter, representative, senior, junior, principal, head]
+
+# Phone numbers: runs of digits/separators with at least this many digits (year ranges are skipped).
+phone_min_digits: 9

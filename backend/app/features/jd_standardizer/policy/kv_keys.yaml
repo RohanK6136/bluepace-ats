@@ -1,0 +1,8 @@
+fact_company:   [company, employer, client]
+fact_location:  [location, work location, job location, city]
+fact_role_type: [employment type, job type, type, contract type, engagement, work type]
+fact_experience: [experience, experience required, years of experience, exp]
+fact_duration:  [duration, tenure, term, contract duration, contract length, length of contract]
+fact_work_mode: [work mode, work model, workplace, work arrangement]
+info_schedule:  [shift, work schedule, schedule, working hours, timezone, time zone]
+info_other:     [travel, notice period, start date, joining, language, languages]

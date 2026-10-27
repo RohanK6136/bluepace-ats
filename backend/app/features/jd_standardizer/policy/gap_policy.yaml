@@ -1,0 +1,55 @@
+version: 1
+tier:
+  brief_body_words_below: 80
+sections:
+  about_role:
+    min_words_provided: 25
+    min_words_partial: 8
+    draft_when_missing: true
+    supplement_when_partial: false
+    review_required: false
+    draft: {sentences: [2, 3], words: [25, 70]}
+  responsibilities:
+    min_items_provided: 4
+    draft_when_missing: true
+    supplement_when_partial: true
+    review_required: false
+    draft: {target_items: 6, min_items: 4, max_items: 8, words: [4, 22]}
+  requirements:
+    min_items_provided: 3
+    draft_when_missing: true
+    supplement_when_partial: true
+    review_required: true        # drafted items must be accepted before publish
+    draft: {target_items: 5, min_items: 3, max_items: 6, words: [3, 20]}
+  nice_to_have:    {draft_when_missing: false}
+  offer:           {draft_when_missing: false}   # never generated
+  additional_info: {draft_when_missing: false}
+required_facts: [title, role_type, country]
+never_generate: [role_type, country, state, city, experience, duration_months, work_mode, pay, benefits, visa]
+
+# Fast single-call generation (/v1/jd/generate). Profile chosen by options.detail.
+generate:
+  max_source_chars: 6000       # recruiter text sent to the model
+  supplement_min: 2            # bullets added when a section is partial
+  bullet_words: [3, 40]
+  profiles:
+    detailed:                  # rich, descriptive JD (~11-13 s on a 9B model at ~70 tok/s; streamed)
+      about_paragraphs: 2
+      about_words: "90 to 140"
+      responsibility_groups: 4 # themed groups (heading + bullets), like "End-User Support"
+      bullets_per_group: 3
+      responsibility_words: "14-28"
+      qualifications: 8
+      qualification_words: "10-24"
+      preferred_skills: 5      # only when the text has no preferred/nice-to-have section
+      tokens: {base: 180, about: 260, per_bullet: 40}
+    concise:                   # short JD (~4-5 s)
+      about_paragraphs: 1
+      about_words: "40 to 70"
+      responsibility_groups: 0 # 0 = flat list
+      bullets_per_group: 6
+      responsibility_words: "6-18"
+      qualifications: 6
+      qualification_words: "4-18"
+      preferred_skills: 0
+      tokens: {base: 160, about: 140, per_bullet: 32}

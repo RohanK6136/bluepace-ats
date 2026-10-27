@@ -1,0 +1,18 @@
+line_patterns:        # whole-line, case-insensitive
+  - '^apply now\b.*$'
+  - '^apply$'
+  - '^apply (today|here|for this (job|role|position))$'
+  - '^back to (all )?(roles|jobs|openings|careers|search results)$'
+  - '^posted\s+\d+\s+(minutes?|hours?|days?|weeks?|months?)\s+ago$'
+  - '^posted\s+(today|yesterday|just now)$'
+  - '^job description$'
+  - '^internal$'
+  - '^(share|save|print)( this)?( job| role)?$'
+  - '^\(opens in a new (window|tab)\)$'
+  - '^similar (jobs|roles)$'
+  - '^job (id|ref(erence)?|requisition)\s*[:#].*$'
+cta_sentence_patterns:   # sentence-level; applied only outside responsibilities/requirements/nice_to_have
+  - '\b(apply|submit (your )?(application|cv|resume))\b.*\b(cv|resume|resumé|portal|link|form|online|today|now|via|through)\b'
+  - '\bsend (us )?(your )?(cv|resume|resumé)\b'
+  - '\bup-to-date (cv|resume)\b'
+  - '\bclick (here|the link)\b'

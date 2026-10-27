@@ -1,0 +1,22 @@
+sections:
+  about_role: [about the role, about this role, about the team, about the position, position summary,
+    position overview, role summary, role overview, job summary, job overview, overview, summary,
+    the role, introduction]
+  responsibilities: [key responsibilities, responsibilities, roles and responsibilities,
+    role and responsibilities, duties, key duties, what you will do, what you'll do,
+    in this role you will, your responsibilities, day to day]
+  requirements: [requirements, required qualifications, required skills, required skills and experience,
+    essential skills and experience, essential skills, qualifications, qualifications and experience,
+    must have, must-have qualifications, must have qualifications, minimum qualifications,
+    what you bring, skills and experience, key competencies, competencies, recommended seniority]
+  nice_to_have: [preferred qualifications, preferred skills, preferred, nice to have, desirable,
+    desirable skills, bonus, bonus points, good to have, plus]
+  offer: [what we offer, benefits, perks, benefits and perks, compensation and benefits, why join us]
+  additional_info: [additional information, additional details, contract details, job details,
+    other details, work schedule]
+  company_about: [about us, about the company, who we are, company overview]
+  legal: [equal opportunity employer, equal employment opportunity, affirmative action,
+    privacy policy, applicant privacy policy, eeo statement, accommodations]
+  apply_cta: [how to apply, application process]
+patterns:
+  company_about_regex: '^about\s+(?!the\b|this\b|you\b|us\b)[A-Z][\w&.\- ]{1,40}$'   # e.g. "About OpenAI"

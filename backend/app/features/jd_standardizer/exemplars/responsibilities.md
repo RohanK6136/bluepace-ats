@@ -1,0 +1,5 @@
+- Coordinate schedules and deliverables across teams
+- Maintain accurate records and project documentation
+- Track open issues and follow up with owners until resolved
+- Prepare weekly status reports for team leads
+- Liaise with vendors on timelines and deliveries

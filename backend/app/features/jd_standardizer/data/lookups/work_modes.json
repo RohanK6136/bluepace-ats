@@ -1,0 +1,14 @@
+{
+  "canonical": ["remote", "hybrid", "onsite"],
+  "aliases": {
+    "remote": "remote",
+    "work from home": "remote",
+    "wfh": "remote",
+    "hybrid": "hybrid",
+    "on-site": "onsite",
+    "on site": "onsite",
+    "onsite": "onsite",
+    "in-office": "onsite",
+    "in office": "onsite"
+  }
+}

@@ -1,0 +1,98 @@
+# Model profiles for the LLM gateway.
+#
+# A profile = one model endpoint plus how to call it. Features ask for a profile by id (the UI's model picker,
+# or options.profile in the API); the default below is used otherwise. Switching models never needs code.
+#
+#   ${VAR}            value from the environment (empty if unset)
+#   ${VAR:-default}   value from the environment, or the default
+#   api_key_env       NAME of the env var holding the key — keys are never written in this file
+#
+# A profile is shown as disabled (with the reason) until its key / model id / SDK is available.
+# Prices are USD per million tokens and drive the cost figures on the Runs dashboard; local models are 0.
+
+default_profile: ${LLM_PROFILE:-local-qwen}
+
+defaults:
+  json_instruction: "Return JSON only, matching this JSON schema exactly:"
+  profile:
+    temperature: 0
+    top_p: 1
+    seed: 42
+    timeout_s: 120
+    stall_timeout_s: 20
+    concurrency: 1
+
+profiles:
+  local-qwen:
+    label: Qwen 3.5 9B · local (LM Studio)
+    description: Runs on this machine; no data leaves it. Thinking disabled for speed (~70 tokens/s on the dev GPU).
+    provider: openai_compatible
+    base_url: ${LMSTUDIO_BASE_URL:-http://localhost:1235/v1}
+    model: ${LMSTUDIO_MODEL:-qwen/qwen3.5-9b}
+    local: true
+    structured_output: json_schema
+    extra_body:
+      reasoning_effort: none        # LM Studio: turns Qwen's reasoning off (≈19 s → ≈0.6 s per short call)
+    context_tokens: 8192             # must not exceed the context length the model is loaded with
+    fingerprint: ${MODEL_FINGERPRINT:-}
+
+  local-ollama:
+    label: Ollama · local
+    description: Any model pulled into Ollama (set OLLAMA_MODEL, e.g. qwen3:8b).
+    provider: openai_compatible
+    base_url: ${OLLAMA_BASE_URL:-http://localhost:11434/v1}
+    model: ${OLLAMA_MODEL:-}
+    local: true
+    structured_output: json_schema
+    context_tokens: 8192
+
+  openai-compatible:
+    label: OpenAI-compatible API
+    description: OpenAI, Azure OpenAI, OpenRouter, Groq, vLLM… Set OPENAI_BASE_URL, OPENAI_MODEL and OPENAI_API_KEY.
+    provider: openai_compatible
+    base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    model: ${OPENAI_MODEL:-}
+    api_key_env: OPENAI_API_KEY
+    structured_output: json_schema
+    max_tokens_param: max_completion_tokens
+    seed: null
+    # strict structured outputs reject some validation keywords; the gateway still validates them client-side
+    schema_drop_keywords: [maxLength, minLength, minItems, maxItems, pattern]
+    context_tokens: 128000
+    concurrency: 4
+    pricing:
+      input_per_mtok: ${OPENAI_INPUT_PRICE:-0}
+      output_per_mtok: ${OPENAI_OUTPUT_PRICE:-0}
+
+  claude-opus:
+    label: Claude Opus 5.5 · Anthropic API
+    description: Hosted. Requires ANTHROPIC_API_KEY and the 'anthropic' extra. Text is sent to Anthropic.
+    provider: anthropic
+    model: claude-opus-5-5
+    api_key_env: ANTHROPIC_API_KEY
+    structured_output: json_schema
+    effort: low                      # thinking is always on for this model; low effort keeps latency down
+    server_fallbacks: true           # on a safety refusal, Anthropic re-runs the request on its recommended fallback
+    temperature: null                # sampling parameters are not accepted by this model
+    top_p: null
+    seed: null
+    max_tokens_floor: 16000          # headroom for adaptive thinking, which counts toward max_tokens
+    stall_timeout_s: 90
+    schema_drop_keywords: [maxLength, minLength, minItems, maxItems, minimum, maximum, pattern]
+    context_tokens: 1000000
+    concurrency: 4
+    pricing:
+      input_per_mtok: 4.00
+      output_per_mtok: 20.00
+  openrouter:
+    label: OpenRouter (hosted)
+    description: Routes to best available hosted model. Requires OPENROUTER_API_KEY. Text is sent to OpenRouter.
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    model:     api_key_env: OPENROUTER_API_KEY
+    structured_output: json_schema
+    schema_drop_keywords: [maxLength, minLength, minItems, maxItems, pattern]
+    context_tokens: 128000
+    concurrency: 4
+    pricing:
+      input_per_mtok:       output_per_mtok: 

@@ -1,0 +1,21 @@
+{
+  "canonical": ["Full-Time", "Part-Time", "Contract", "Contract-to-Hire", "Temporary", "Internship", "Freelance"],
+  "aliases": {
+    "full time": "Full-Time",
+    "fulltime": "Full-Time",
+    "permanent": "Full-Time",
+    "part time": "Part-Time",
+    "contract": "Contract",
+    "contractual": "Contract",
+    "consultant": "Contract",
+    "fixed term": "Contract",
+    "contract to hire": "Contract-to-Hire",
+    "c2h": "Contract-to-Hire",
+    "temp": "Temporary",
+    "temporary": "Temporary",
+    "intern": "Internship",
+    "internship": "Internship",
+    "freelance": "Freelance",
+    "freelancer": "Freelance"
+  }
+}

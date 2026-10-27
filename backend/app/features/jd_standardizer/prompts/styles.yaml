@@ -1,0 +1,4 @@
+# Section style lines injected into gapfill_list.md as rule 3 (part of the prompt; bump gapfill_list version on change)
+responsibilities: "Start every bullet with an imperative verb (e.g. Manage, Coordinate, Prepare) describing day-to-day duties typical for the title."
+requirements: "Describe skills, knowledge and experience areas typical for the title as short noun phrases or 'Experience with …' bullets. Do not state years, degrees or certifications unless provided."
+prompt_only_suffix: "Return JSON only, matching this JSON schema exactly:"

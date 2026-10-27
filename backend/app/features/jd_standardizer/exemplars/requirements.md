@@ -1,0 +1,5 @@
+- Experience in a coordination, administration or operations role
+- Strong written and verbal communication skills
+- Good organisational skills and attention to detail
+- Comfort working with spreadsheets and reporting tools
+- Ability to manage competing priorities

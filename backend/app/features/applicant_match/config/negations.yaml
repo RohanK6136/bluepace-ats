@@ -1,0 +1,4 @@
+# A matching resume line that contains one of these cues makes the requirement "unclear" (flagged for the
+# recruiter), never "met". Case-insensitive, word-bounded. Quote every entry: YAML reads a bare no as false.
+cues: ["no", "not", "without", "lack of", "lacking", "learning", "currently learning", "want to learn",
+       "interested in learning", "beginner", "basic exposure", "exposure to", "familiar with", "never"]

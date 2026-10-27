@@ -1,0 +1,17 @@
+banned_words:       # case-insensitive, whole word/phrase
+  pay: [salary, salaries, compensation, bonus, bonuses, equity, stock, stipend, remuneration, ctc, hourly rate]
+  deal: [visa, sponsorship, relocation, h1b, h-1b, green card]
+  benefits: [insurance, 401k, pto, paid time off, gym, wellness, pension, maternity, parental leave]
+  # work-model claims (allowed only if the fact sheet has work_mode). Not bare "remote": "remote troubleshooting" is a duty.
+  work_mode: [remote work, work remotely, working remotely, fully remote, remote-first, remote role, remote position,
+              remote basis, hybrid, onsite, on-site, work from home, wfh]
+  promo: [dynamic, passionate, world-class, cutting-edge, rockstar, ninja, guru, fast-paced,
+          innovative, best-in-class, competitive, exciting, unlimited]
+  pronouns: [we, our, us, you, your, i, my]
+case_sensitive_words: [us, I]   # matched exactly as written: lowercase "us" (not the country "US"), standalone uppercase "I"
+patterns:
+  - {name: currency, regex: '[$€£₹¥]|\b(usd|eur|gbp|inr)\b'}
+  - {name: url,      regex: 'https?://|www\.'}
+  - {name: email,    regex: '[\w.+-]+@[\w-]+\.[\w.]+'}
+  - {name: digits,   regex: '\d+', allowed_if_in_source: true}
+allowed_acronyms: [KPI, SLA, SOP, ROI, QA, UAT, HR, IT]

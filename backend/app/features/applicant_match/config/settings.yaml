@@ -1,0 +1,65 @@
+# Applicant Match settings. Every number on a card is computed in code from these values.
+# Changing anything here changes scores: run the determinism and fairness gates afterwards.
+
+# Category weights for the match score (editable per rubric). A category with nothing to score is excluded and
+# the remaining weights are renormalised.
+weights:
+  required_skills: 50
+  experience: 25
+  preferred_skills: 15
+  education: 10
+
+# Requirement status → value used in every percentage.
+status_values:
+  met: 1.0
+  partial: 0.5
+  unclear: 0.0
+  not_evidenced: 0.0
+
+groups:
+  coding: Coding skills
+  cloud_tools: Cloud and tools
+  domain: Domain
+  soft: Soft skills
+  other: Other
+
+item_types: [skill, certification, language, other]
+item_weight: {default: 1, min: 1, max: 3}
+
+# Education levels in ascending order. The rubric minimum and the resume's highest level use these keys.
+education_levels: [none, high_school, diploma, associate, bachelor, master, phd]
+# Regexes, word-bounded. Case-insensitive, except those starting with "=" (degree abbreviations, so "will be."
+# is not a B.E. and "Scrum Master" is not a master's degree).
+education_patterns:
+  phd: ['ph\.?\s?d', 'doctorate', 'doctoral', '=D\.?Phil']
+  master: ["master'?s?\\s+(?:degree|of|in)", "master'?s", '=M\.?\s?Sc', '=M\.?\s?Tech', '=M\.?\s?E\.', '=M\.?\s?S\.',
+           '=MBA', '=M\.?\s?A\.', '=MCA', 'post\s?graduate degree', 'postgraduate']
+  bachelor: ["bachelor'?s?", '=B\.?\s?Sc', '=B\.?\s?Tech', '=B\.?\s?E\.', '=B\.?\s?S\.', '=B\.?\s?A\.', '=BCA',
+             '=B\.?\s?Com', 'undergraduate degree']
+  associate: ["associate'?s? degree"]
+  diploma: ['diploma', 'higher national']
+  high_school: ['high school', 'secondary school', 'a-levels', '=GCSE', '=HSC', '12th grade', 'class xii']
+# A degree mentioned without a level ("degree in Computer Science") counts as bachelor, but only when no specific
+# level is named in the same text ("Master's degree in …" stays master).
+education_generic_degree: ['graduate degree', '(?:university|college) degree', 'degree in', 'degree']
+equivalent_experience_patterns: ['or equivalent', 'equivalent experience', 'equivalent practical experience', 'or relevant experience']
+
+resume:
+  max_prompt_chars: 9000          # resume text sent to the model (longer resumes are cut and flagged)
+  min_chars: 200                  # below this the file is treated as unreadable (scanned PDF?)
+  parse_quality:
+    short_line_ratio: 0.45        # share of 1-2 word lines that suggests a broken multi-column layout
+    odd_char_ratio: 0.03          # share of replacement / control characters that suggests garbled text
+
+llm:
+  rubric_max_tokens: 1500
+  profile_max_tokens: 1400
+  judge_max_tokens: 700
+  summary_max_tokens: 160
+  max_rubric_lines: 40
+
+summary:
+  max_words: 60
+  verdict_words: [hire, hiring decision, reject, rejected, recommend, recommended, recommendation, ideal, perfect,
+                  excellent, impressive, best, good fit, poor fit, strong fit, weak fit, outstanding, unsuitable,
+                  suitable, shortlist, top candidate]

@@ -1,0 +1,32 @@
+default: eeo_default
+regions:
+  US: eeo_us
+  IN: eeo_in
+  # EU members
+  AT: eeo_eu
+  BE: eeo_eu
+  BG: eeo_eu
+  HR: eeo_eu
+  CY: eeo_eu
+  CZ: eeo_eu
+  DK: eeo_eu
+  EE: eeo_eu
+  FI: eeo_eu
+  FR: eeo_eu
+  DE: eeo_eu
+  GR: eeo_eu
+  HU: eeo_eu
+  IE: eeo_eu
+  IT: eeo_eu
+  LV: eeo_eu
+  LT: eeo_eu
+  LU: eeo_eu
+  MT: eeo_eu
+  NL: eeo_eu
+  PL: eeo_eu
+  PT: eeo_eu
+  RO: eeo_eu
+  SK: eeo_eu
+  SI: eeo_eu
+  ES: eeo_eu
+  SE: eeo_eu
