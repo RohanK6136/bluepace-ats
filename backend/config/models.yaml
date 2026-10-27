@@ -102,12 +102,12 @@ profiles:
       output_per_mtok: ${OPENROUTER_OUTPUT_PRICE:-0}
 
   gemini:
-    label: Google Gemini 2.5 Flash
-    description: Direct Google Gemini API using its OpenAI-compatible endpoint. Requires GOOGLE_API_KEY.
+    label: Gemini 2.5 Flash · OpenRouter
+    description: Google Gemini routed through OpenRouter. Uses the existing OPENROUTER_API_KEY.
     provider: openai_compatible
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai
-    model: ${GEMINI_MODEL:-gemini-2.5-flash}
-    api_key_env: GOOGLE_API_KEY
+    base_url: https://openrouter.ai/api/v1
+    model: ${OPENROUTER_GEMINI_MODEL:-google/gemini-2.5-flash}
+    api_key_env: OPENROUTER_API_KEY
     structured_output: prompt_only
     max_tokens_param: max_tokens
     seed: null
@@ -115,12 +115,12 @@ profiles:
     concurrency: 4
 
   deepseek:
-    label: DeepSeek Chat
-    description: Direct DeepSeek API. Requires DEEPSEEK_API_KEY.
+    label: DeepSeek Chat · OpenRouter
+    description: DeepSeek Chat routed through OpenRouter. Uses the existing OPENROUTER_API_KEY.
     provider: openai_compatible
-    base_url: https://api.deepseek.com
-    model: ${DEEPSEEK_MODEL:-deepseek-chat}
-    api_key_env: DEEPSEEK_API_KEY
+    base_url: https://openrouter.ai/api/v1
+    model: ${OPENROUTER_DEEPSEEK_MODEL:-deepseek/deepseek-chat}
+    api_key_env: OPENROUTER_API_KEY
     structured_output: prompt_only
     max_tokens_param: max_tokens
     seed: null
@@ -128,12 +128,12 @@ profiles:
     concurrency: 4
 
   grok:
-    label: xAI Grok
-    description: Direct xAI API. Requires XAI_API_KEY.
+    label: Grok · OpenRouter
+    description: xAI Grok routed through OpenRouter. Uses the existing OPENROUTER_API_KEY.
     provider: openai_compatible
-    base_url: https://api.x.ai/v1
-    model: ${XAI_MODEL:-grok-3-mini}
-    api_key_env: XAI_API_KEY
+    base_url: https://openrouter.ai/api/v1
+    model: ${OPENROUTER_GROK_MODEL:-x-ai/grok-3-mini}
+    api_key_env: OPENROUTER_API_KEY
     structured_output: prompt_only
     max_tokens_param: max_tokens
     seed: null
