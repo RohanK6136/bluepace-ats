@@ -547,10 +547,16 @@ export default function JDApplicantMatch({ token, apiRequest }) {
           </div>
         </details>
         <div className="px-5 py-5 sm:px-7 sm:py-6">
+          {connection === "connected" && models.some((model) => model.id === "rules" && model.enabled) && models.filter((model) => model.id !== "rules").every((model) => !model.enabled) && (
+            <div role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+              <p className="font-semibold">Built-in Rules Engine is enabled; hosted AI keys are not configured.</p>
+              <p className="mt-1">You can standardize a JD, build a rubric and compare resumes using explicit keyword evidence now. This is deterministic text matching, not generative AI; it can miss synonyms and context. To enable hosted AI models, save a valid provider API key in AI Hiring Studio → Settings for this browser tab.</p>
+            </div>
+          )}
           {connection === "connected" && models.length > 0 && models.every((model) => !model.enabled) && (
             <div role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
-              <p className="font-semibold">Model API is online; provider credentials are missing.</p>
-              <p className="mt-1">Open AI Hiring Studio → Settings and save a provider key for this browser tab. One OpenRouter key can enable the Gemini, DeepSeek, Grok, and GPT model options. GitHub Models is retired and cannot be enabled with a Copilot subscription.</p>
+              <p className="font-semibold">Model API is online; no model profile is enabled.</p>
+              <p className="mt-1">Retry the connection. Hosted AI models require a valid provider key; local models must run on a computer reachable by the API.</p>
             </div>
           )}
           {notice && <div role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{notice}</div>}
