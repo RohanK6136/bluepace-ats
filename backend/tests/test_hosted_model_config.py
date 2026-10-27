@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import yaml
+
+from app.llm.registry import ModelRegistry
 
 
 def test_openrouter_is_the_safe_hosted_default() -> None:
@@ -19,12 +20,13 @@ def test_openrouter_is_the_safe_hosted_default() -> None:
     assert profile["pricing"]["output_per_mtok"] == "${OPENROUTER_OUTPUT_PRICE:-0}"
 
 
-def test_openrouter_profile_parses_without_provider_secrets(monkeypatch) -> None:
-    # No credentials are needed just to parse the configuration. The profile will be
-    # marked unavailable by the registry until OPENROUTER_API_KEY is configured.
+def test_openrouter_profile_is_disabled_without_provider_secret(monkeypatch) -> None:
+    # The model id/config can be parsed without credentials, but the registry must not
+    # mark this hosted provider usable until its key is securely supplied at runtime.
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     config_path = Path(__file__).parents[1] / "config" / "models.yaml"
-    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    profile = data["profiles"]["openrouter"]
-    assert profile["api_key_env"] == "OPENROUTER_API_KEY"
-    assert "OPENROUTER_API_KEY" not in repr(profile)
+    registry = ModelRegistry.from_file(config_path)
+
+    profile = registry.get("openrouter")
+    assert profile.model == "google/gemini-2.5-flash"
+    assert registry.disabled_reason(profile) == "set OPENROUTER_API_KEY to enable"
