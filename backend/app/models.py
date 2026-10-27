@@ -475,6 +475,7 @@ class ApplicationMatchAssessment(Base):
     __tablename__ = "applicant_match_assessments"
     __table_args__ = (
         Index("ix_app_match_assessments_org_application_created", "organization_id", "application_id", "created_at"),
+        UniqueConstraint("request_id", name="uq_app_match_assessment_request_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -483,7 +484,7 @@ class ApplicationMatchAssessment(Base):
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"), index=True)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    request_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    request_id: Mapped[str] = mapped_column(String(100), index=True)
     rubric_id: Mapped[str] = mapped_column(String(100), index=True)
     rubric_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rubric_title: Mapped[str] = mapped_column(String(200), default="")
