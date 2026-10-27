@@ -152,3 +152,16 @@ profiles:
     seed: null
     context_tokens: 128000
     concurrency: 2
+
+  openrouter-openai:
+    label: OpenAI GPT-4.1 · OpenRouter
+    description: OpenAI model routed through OpenRouter. Uses the existing OPENROUTER_API_KEY.
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    model: ${OPENROUTER_OPENAI_MODEL:-openai/gpt-4.1}
+    api_key_env: OPENROUTER_API_KEY
+    structured_output: prompt_only
+    max_tokens_param: max_tokens
+    seed: null
+    context_tokens: 128000
+    concurrency: 4
