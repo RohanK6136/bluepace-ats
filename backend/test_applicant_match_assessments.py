@@ -1,4 +1,12 @@
-from app.routers.ai_hiring_studio import _safe_applicant_match_assessment
+import json
+
+import pytest
+from fastapi import HTTPException
+
+from app.routers.ai_hiring_studio import (
+    _safe_applicant_match_assessment,
+    _verified_applicant_match_result,
+)
 
 
 def test_safe_applicant_match_assessment_keeps_scores_but_drops_resume_text():
@@ -53,3 +61,67 @@ def test_safe_applicant_match_assessment_bounds_untrusted_scores_and_items():
     assert result["match_score"] is None
     assert result["evidence"] == []
     assert result["status"] == "complete"
+
+class FakeRunStore:
+    def __init__(self, row):
+        self.row = row
+
+    def get_run(self, request_id):
+        if self.row and self.row.get("id") == request_id:
+            return self.row
+        return None
+
+
+class FakePlatform:
+    def __init__(self, row):
+        self.store = FakeRunStore(row)
+
+
+def test_verified_applicant_match_result_uses_server_recorded_card():
+    card = {
+        "request_id": "run-123",
+        "rubric": {"id": "rb_123", "hash": "abc123", "title": "Backend Engineer"},
+        "scores": {"match": 76},
+    }
+    row = {
+        "id": "run-123",
+        "feature": "applicant_match",
+        "operation": "analyze",
+        "outcome": "success",
+        "result_json": json.dumps(card),
+    }
+
+    result, rubric = _verified_applicant_match_result(FakePlatform(row), "run-123")
+
+    assert result["scores"]["match"] == 76
+    assert rubric["id"] == "rb_123"
+
+
+def test_verified_applicant_match_result_rejects_unrelated_run():
+    row = {
+        "id": "run-123",
+        "feature": "jd_standardizer",
+        "operation": "analyze",
+        "outcome": "success",
+        "result_json": json.dumps({"request_id": "run-123", "rubric": {"id": "rb"}}),
+    }
+
+    with pytest.raises(HTTPException) as error:
+        _verified_applicant_match_result(FakePlatform(row), "run-123")
+
+    assert error.value.status_code == 404
+
+
+def test_verified_applicant_match_result_rejects_missing_recorded_output():
+    row = {
+        "id": "run-123",
+        "feature": "applicant_match",
+        "operation": "analyze",
+        "outcome": "success",
+        "result_json": None,
+    }
+
+    with pytest.raises(HTTPException) as error:
+        _verified_applicant_match_result(FakePlatform(row), "run-123")
+
+    assert error.value.status_code == 409
