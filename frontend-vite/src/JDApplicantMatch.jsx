@@ -106,6 +106,17 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
   const [batchError, setBatchError] = useState("");
   const [notice, setNotice] = useState("");
+  const [atsJobs, setAtsJobs] = useState([]);
+  const [selectedAtsJobId, setSelectedAtsJobId] = useState("");
+  const [atsJobRubricLinks, setAtsJobRubricLinks] = useState([]);
+  const [linkingRubric, setLinkingRubric] = useState(false);
+  const [atsApplications, setAtsApplications] = useState([]);
+  const [selectedAtsApplicationId, setSelectedAtsApplicationId] = useState("");
+  const [atsIntegrationError, setAtsIntegrationError] = useState("");
+  const [atsIntegrationMessage, setAtsIntegrationMessage] = useState("");
+  const [savingAssessment, setSavingAssessment] = useState(false);
+  const [assessmentHistory, setAssessmentHistory] = useState([]);
+  const [assessmentHistoryLoading, setAssessmentHistoryLoading] = useState(false);
 
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
@@ -145,6 +156,25 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     }
   }, [request]);
 
+  const refreshAtsJobRubricLinks = useCallback(async (jobId) => {
+    if (!jobId) {
+      setAtsJobRubricLinks([]);
+      return;
+    }
+    try {
+      const response = await request(
+        "get",
+        "/ai-hiring/jobs/" + encodeURIComponent(jobId) + "/applicant-match-rubrics",
+        undefined,
+        { timeout: 12000 },
+      );
+      setAtsJobRubricLinks(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      setAtsJobRubricLinks([]);
+      setAtsIntegrationError(explainError(error));
+    }
+  }, [request]);
+
   useEffect(() => {
     refreshConnection();
   }, [refreshConnection]);
@@ -152,6 +182,145 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   useEffect(() => {
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
   }, [activeTab, connection, refreshSavedRubrics]);
+
+  useEffect(() => {
+    refreshAtsJobRubricLinks(selectedAtsJobId);
+  }, [selectedAtsJobId, refreshAtsJobRubricLinks]);
+  
+  useEffect(() => {
+    let active = true;
+    request("get", "/jobs", undefined, { params: { limit: 100 }, timeout: 12000 })
+      .then((response) => {
+        if (!active) return;
+        setAtsJobs(Array.isArray(response.data) ? response.data : []);
+        setAtsIntegrationError("");
+      })
+      .catch(() => {
+        if (active) setAtsIntegrationError("ATS job records could not be loaded. Confirm your ATS session and API connection.");
+      });
+    return () => { active = false; };
+  }, [request]);
+
+  useEffect(() => {
+    let active = true;
+    setAtsApplications([]);
+    setSelectedAtsApplicationId("");
+    setAssessmentHistory([]);
+    if (!selectedAtsJobId) return () => { active = false; };
+    request("get", "/ai-hiring/jobs/" + encodeURIComponent(selectedAtsJobId) + "/application-choices", undefined, {
+      timeout: 12000,
+    })
+      .then((response) => {
+        if (!active) return;
+        setAtsApplications(Array.isArray(response.data) ? response.data : []);
+        setAtsIntegrationError("");
+      })
+      .catch(() => {
+        if (active) setAtsIntegrationError("Applications for this ATS job could not be loaded.");
+      });
+    return () => { active = false; };
+  }, [request, selectedAtsJobId]);
+
+  const refreshAssessmentHistory = useCallback(async (applicationId) => {
+    if (!applicationId) {
+      setAssessmentHistory([]);
+      return;
+    }
+    setAssessmentHistoryLoading(true);
+    try {
+      const response = await request(
+        "get",
+        "/ai-hiring/applications/" + encodeURIComponent(applicationId) + "/applicant-match-assessments",
+        undefined,
+        { timeout: 12000 },
+      );
+      setAssessmentHistory(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      setAtsIntegrationError(explainError(error));
+    } finally {
+      setAssessmentHistoryLoading(false);
+    }
+  }, [request]);
+
+  useEffect(() => {
+    refreshAssessmentHistory(selectedAtsApplicationId);
+  }, [selectedAtsApplicationId, refreshAssessmentHistory]);
+
+  function useSelectedAtsJobDescription() {
+    const job = atsJobs.find((item) => String(item.id) === String(selectedAtsJobId));
+    if (!job) {
+      setAtsIntegrationError("Choose an existing ATS job first.");
+      return;
+    }
+    if (!String(job.description || "").trim()) {
+      setAtsIntegrationError("The selected ATS job has no description. Add a job description before building its rubric.");
+      return;
+    }
+    setJdText(String(job.title || "Job") + "\n\n" + job.description);
+    setJdError("");
+    setAtsIntegrationError("");
+    setNotice("Loaded the existing ATS job description: " + (job.title || ("Job #" + job.id)) + ". Review it before compiling the rubric.");
+    setActiveTab("jd");
+  }
+
+  async function linkSelectedRubricToAtsJob() {
+    if (!selectedAtsJobId) {
+      setAtsIntegrationError("Choose an ATS job before linking a rubric.");
+      return;
+    }
+    if (!selectedRubricId) {
+      setAtsIntegrationError("Select or save a rubric version before linking it to the ATS job.");
+      return;
+    }
+    setLinkingRubric(true);
+    setAtsIntegrationError("");
+    setAtsIntegrationMessage("");
+    try {
+      const response = await request(
+        "post",
+        "/ai-hiring/jobs/" + encodeURIComponent(selectedAtsJobId) + "/applicant-match-rubrics",
+        { rubric_id: selectedRubricId },
+        { timeout: 15000 },
+      );
+      setAtsIntegrationMessage("Linked rubric " + response.data.rubric_id + " to ATS job #" + selectedAtsJobId + ".");
+      await refreshAtsJobRubricLinks(selectedAtsJobId);
+    } catch (error) {
+      setAtsIntegrationError(explainError(error));
+    } finally {
+      setLinkingRubric(false);
+    }
+  }
+
+  async function saveCurrentAssessmentToApplication() {
+    if (!candidateCard) {
+      setAtsIntegrationError("Run an assessment before saving it to an ATS application.");
+      return;
+    }
+    if (!selectedAtsJobId || !selectedAtsApplicationId) {
+      setAtsIntegrationError("Choose an ATS job and one of its applications.");
+      return;
+    }
+    if (!selectedRubricId) {
+      setAtsIntegrationError("Select the saved rubric used for this assessment.");
+      return;
+    }
+    setSavingAssessment(true);
+    setAtsIntegrationError("");
+    setAtsIntegrationMessage("");
+    try {
+      const response = await request("post", "/ai-hiring/applicant-match/assessments", {
+        job_id: Number(selectedAtsJobId),
+        application_id: Number(selectedAtsApplicationId),
+        request_id: candidateCard.request_id,
+      }, { timeout: 15000 });
+      setAtsIntegrationMessage("Saved the privacy-minimised assessment to application #" + (response.data?.application_id || selectedAtsApplicationId) + ".");
+      await refreshAssessmentHistory(selectedAtsApplicationId);
+    } catch (error) {
+      setAtsIntegrationError(explainError(error));
+    } finally {
+      setSavingAssessment(false);
+    }
+  }
 
 
   function applyApiKey() {
@@ -572,12 +741,35 @@ export default function JDApplicantMatch({ token, apiRequest }) {
               <div className="grid gap-5 xl:grid-cols-2">
                 <div className="space-y-4">
                   <SectionHeading eyebrow="Step 03" title="Build a reviewable rubric" detail="Create a draft from the job description, check the requirements, then save an immutable rubric version before assessing resumes." />
+                  <div className="rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
+                    <Field label="Start from an existing ATS job" hint="Loads the saved job description into the JD editor; it does not modify the job record.">
+                      <select className={fieldClass} value={selectedAtsJobId} onChange={(event) => { setSelectedAtsJobId(event.target.value); setAtsIntegrationError(""); setAtsIntegrationMessage(""); }} disabled={!atsJobs.length}>
+                        <option value="">Choose an ATS job…</option>
+                        {atsJobs.map((job) => <option key={job.id} value={job.id}>{job.title || ("Job #" + job.id)} · {job.status || "unknown status"}</option>)}
+                      </select>
+                    </Field>
+                    <button type="button" className={secondaryButton + " mt-3"} onClick={useSelectedAtsJobDescription} disabled={!selectedAtsJobId}>Use selected job description</button>
+                    {atsIntegrationError && <p role="alert" className="mt-2 text-xs text-rose-700">{atsIntegrationError}</p>}
+                  </div>
                   <Field label="Saved rubric version">
                     <select value={selectedRubricId} onChange={(event) => loadRubric(event.target.value)} className={fieldClass} disabled={rubricLoading}>
                       <option value="">Choose a saved rubric…</option>
                       {savedRubrics.map((item) => <option key={item.rubric_id} value={item.rubric_id}>{item.title || "Untitled role"} · {item.items} requirements · {item.rubric_id}</option>)}
                     </select>
                   </Field>
+                  <div className="rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div><p className="text-sm font-semibold text-ink-900">Link rubric to selected ATS job</p><p className="mt-1 text-xs text-ink-500">Only linked rubric versions can be saved with an ATS application assessment.</p></div>
+                      <button type="button" className={secondaryButton} onClick={linkSelectedRubricToAtsJob} disabled={linkingRubric || !selectedAtsJobId || !selectedRubricId}>{linkingRubric ? "Linking…" : "Link selected rubric"}</button>
+                    </div>
+                    {atsJobRubricLinks.length > 0 ? <div className="mt-3 space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Rubrics linked to this job</p>
+                      {atsJobRubricLinks.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink-100 bg-white p-2.5">
+                        <div><p className="text-xs font-semibold text-ink-800">{item.rubric_title || "Saved rubric"}</p><p className="mt-1 text-[11px] text-ink-500">{item.rubric_items} criteria · {item.rubric_id}</p></div>
+                        <button type="button" className="text-xs font-semibold text-ink-700 underline" onClick={() => loadRubric(item.rubric_id)}>Load version</button>
+                      </div>)}
+                    </div> : <p className="mt-3 text-xs text-ink-500">{selectedAtsJobId ? "No saved rubrics are linked to this ATS job yet." : "Choose an ATS job to view its linked rubrics."}</p>}
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" className={primaryButton} onClick={compileRubric} disabled={rubricLoading || connection !== "connected" || !jdText.trim()}>{rubricLoading ? "Building…" : "Build rubric from JD text"}</button>
                     <button type="button" className={secondaryButton} onClick={refreshSavedRubrics} disabled={connection !== "connected" || rubricLoading}>Refresh saved rubrics</button>
@@ -770,6 +962,29 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                     <ScoreMetric label="Required skills" value={candidateCard.scores?.required_skills?.pct == null ? "—" : `${candidateCard.scores.required_skills.pct}%`} detail={`${candidateCard.scores?.required_skills?.met ?? 0} of ${candidateCard.scores?.required_skills?.total ?? 0} evidenced`} />
                     <ScoreMetric label="Education" value={candidateCard.scores?.education?.pct == null ? "—" : `${candidateCard.scores.education.pct}%`} detail={candidateCard.profile?.education_level || "Not established"} />
                   </div>
+                  <div className="rounded-lg border border-ink-200 bg-white p-4">
+                    <SectionHeading eyebrow="ATS connection" title="Save to an application" detail="Select the existing application that this resume belongs to. The backend verifies the run and stores only scores/statuses; resume excerpts and profile data are not copied into the ATS record." />
+                    <div className="mt-4">
+                      <Field label="Application in the selected ATS job">
+                        <select className={fieldClass} value={selectedAtsApplicationId} onChange={(event) => { setSelectedAtsApplicationId(event.target.value); setAtsIntegrationError(""); setAtsIntegrationMessage(""); }} disabled={!selectedAtsJobId || !atsApplications.length}>
+                          <option value="">Choose application…</option>
+                          {atsApplications.map((application) => {
+                            const candidateName = application.candidate_name || ("Candidate #" + application.candidate_id);
+                            return <option key={application.id} value={application.id}>Application #{application.id} · {candidateName}</option>;
+                          })}
+                        </select>
+                      </Field>
+                    </div>
+                    <button type="button" className={primaryButton + " mt-3"} onClick={saveCurrentAssessmentToApplication} disabled={savingAssessment || !selectedAtsJobId || !selectedAtsApplicationId}>{savingAssessment ? "Saving assessment…" : "Save assessment to application"}</button>
+                    {atsIntegrationMessage && <p role="status" className="mt-3 text-sm text-emerald-800">{atsIntegrationMessage}</p>}
+                    {atsIntegrationError && <p role="alert" className="mt-3 text-sm text-rose-700">{atsIntegrationError}</p>}
+                    {selectedAtsApplicationId && <div className="mt-4 border-t border-ink-100 pt-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Saved assessment history · application #{selectedAtsApplicationId}</p><button type="button" className="text-xs font-semibold text-ink-700 underline" onClick={() => refreshAssessmentHistory(selectedAtsApplicationId)}>Refresh</button></div>
+                      {assessmentHistoryLoading ? <p className="mt-2 text-xs text-ink-500">Loading history…</p> : assessmentHistory.length === 0 ? <p className="mt-2 text-xs text-ink-500">No linked Applicant Match assessments have been saved for this application.</p> : <div className="mt-2 space-y-2">
+                        {assessmentHistory.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink-100 bg-[#fafaf8] p-3 text-xs"><div><p className="font-semibold text-ink-800">{item.rubric_title || "Applicant Match rubric"}</p><p className="mt-1 text-ink-500">Rubric {item.rubric_id} · {item.created_at ? new Date(item.created_at).toLocaleString() : "saved date unavailable"}</p></div><span className="font-semibold text-ink-800">{item.match_score == null ? "Manual review" : item.match_score + "% match"}</span></div>)}
+                      </div>}
+                    </div>}
+                  </div>
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"><strong>Recruiter review required.</strong> This assessment is based on resume-derived evidence; verify any important claim directly and apply the same criteria consistently across applicants.</div>
                   {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
                   {(candidateCard.evidence || []).map((item) => <div key={item.item_id} className="rounded-lg border border-ink-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-semibold text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.importance === "must" ? "Must-have" : "Preferred"} · {item.group}</p></div><Pill tone={item.status === "met" ? "good" : item.status === "partial" ? "warn" : "neutral"}>{item.status.replaceAll("_", " ")}</Pill></div>{item.note && <p className="mt-2 text-sm leading-6 text-ink-700">{item.note}</p>}{item.lines?.length > 0 && <ul className="mt-3 space-y-2">{item.lines.map((line) => <li key={line.id} className="border-l-2 border-gold-400 pl-3 text-sm leading-6 text-ink-600"><span className="mr-2 text-xs font-semibold text-ink-400">{line.id}</span>{line.text}</li>)}</ul>}</div>)}
@@ -781,7 +996,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
           )}
         </div>
       </section>
-      <p className="text-xs leading-5 text-ink-500">Privacy and audit note: AI calls require a configured backend model provider. Candidate assessments remain recruiter decision support; confirm evidence and do not use the score alone to make hiring decisions.</p>
+      <p className="text-xs leading-5 text-ink-500">Privacy and audit note: AI calls require a configured backend model provider. Candidate assessments remain recruiter decision support; confirm evidence and do not use the score alone to make hiring decisions. ATS-linked records retain aggregate scores and criterion statuses, not uploaded resume text or evidence excerpts.</p>
     </div>
   );
 }

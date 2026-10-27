@@ -120,13 +120,19 @@ async def rubrics(body: RubricRequest, p: Platform = Depends(platform)) -> Rubri
 
 @router.get("/rubrics", response_model=list[RubricSummary], summary="Saved rubric versions, newest first")
 async def list_rubrics(limit: int = 50, p: Platform = Depends(platform)) -> list[RubricSummary]:
-    return [RubricSummary(rubric_id=r["id"], rubric_hash=r["hash"], title=r["title"], job_ref=r["job_ref"],
-                          items=r["items"], created_at=r["created_at"]) for r in p.store.list_rubrics(limit)]
+    current_key_id = api_key_id.get()
+    rows = p.store.list_rubrics(limit)
+    return [
+        RubricSummary(rubric_id=r["id"], rubric_hash=r["hash"], title=r["title"], job_ref=r["job_ref"],
+                      items=r["items"], created_at=r["created_at"])
+        for r in rows
+        if r.get("created_by") == current_key_id
+    ]
 
 
 def _load_rubric(p: Platform, rubric_id: str) -> Rubric:
     row = p.store.get_rubric(rubric_id)
-    if not row:
+    if not row or row.get("created_by") != api_key_id.get():
         raise _err(404, "E_RUBRIC_NOT_FOUND", f"no saved rubric {rubric_id!r}")
     return Rubric.model_validate_json(row["rubric_json"])
 
