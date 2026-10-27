@@ -256,14 +256,10 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     setAtsIntegrationError("");
     setAtsIntegrationMessage("");
     try {
-      const selectedRubric = savedRubrics.find((item) => String(item.rubric_id) === String(selectedRubricId));
       const response = await request("post", "/ai-hiring/applicant-match/assessments", {
         job_id: Number(selectedAtsJobId),
         application_id: Number(selectedAtsApplicationId),
-        rubric_id: selectedRubricId,
-        rubric_hash: candidateCard.rubric?.hash || candidateCard.rubric?.rubric_hash || selectedRubric?.rubric_hash || null,
-        rubric_title: candidateCard.rubric?.title || rubric?.title || selectedRubric?.title || "",
-        assessment: candidateCard,
+        request_id: candidateCard.request_id,
       }, { timeout: 15000 });
       setAtsIntegrationMessage("Saved the privacy-minimised assessment to application #" + (response.data?.application_id || selectedAtsApplicationId) + ".");
       await refreshAssessmentHistory(selectedAtsApplicationId);
@@ -902,7 +898,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                     <ScoreMetric label="Education" value={candidateCard.scores?.education?.pct == null ? "—" : `${candidateCard.scores.education.pct}%`} detail={candidateCard.profile?.education_level || "Not established"} />
                   </div>
                   <div className="rounded-lg border border-ink-200 bg-white p-4">
-                    <SectionHeading eyebrow="ATS connection" title="Save to an application" detail="Select the existing application that this resume belongs to. Only scores and criterion statuses are retained; resume excerpts and profile data are not stored." />
+                    <SectionHeading eyebrow="ATS connection" title="Save to an application" detail="Select the existing application that this resume belongs to. The backend verifies the run and stores only scores/statuses; resume excerpts and profile data are not copied into the ATS record." />
                     <div className="mt-4">
                       <Field label="Application in the selected ATS job">
                         <select className={fieldClass} value={selectedAtsApplicationId} onChange={(event) => { setSelectedAtsApplicationId(event.target.value); setAtsIntegrationError(""); setAtsIntegrationMessage(""); }} disabled={!selectedAtsJobId || !atsApplications.length}>
