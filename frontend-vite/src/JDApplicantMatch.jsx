@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { buildBulkMatchCsv, MAX_BULK_RESUMES, validateBulkResume } from "./bulkMatchUtils.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -99,6 +100,11 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [candidateCard, setCandidateCard] = useState(null);
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState("");
+  const [batchFiles, setBatchFiles] = useState([]);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchCurrentName, setBatchCurrentName] = useState("");
+  const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
+  const [batchError, setBatchError] = useState("");
   const [notice, setNotice] = useState("");
 
   const request = useCallback((method, path, data, options = {}) => {
@@ -285,6 +291,137 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     }
   }
 
+
+  function handleBatchFileSelection(event) {
+    const selected = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!selected.length) return;
+
+    const nextRows = [...batchFiles];
+    const issues = [];
+    for (const file of selected) {
+      if (nextRows.length >= MAX_BULK_RESUMES) {
+        issues.push(\`The queue is limited to \${MAX_BULK_RESUMES} resumes. Remove files before adding more.\`);
+        break;
+      }
+      const validation = validateBulkResume(file, nextRows.map((row) => row.file));
+      if (!validation.valid) {
+        issues.push(\`\${file.name}: \${validation.reason}\`);
+        continue;
+      }
+      nextRows.push({
+        id: \`\${Date.now()}-\${nextRows.length}-\${file.name}\`,
+        file,
+        status: "queued",
+        result: null,
+        error: "",
+      });
+    }
+    setBatchFiles(nextRows);
+    setBatchError(issues.slice(0, 4).join(" "));
+    setBatchProgress({ done: 0, total: 0 });
+  }
+
+  function updateBatchRow(id, patch) {
+    setBatchFiles((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row));
+  }
+
+  function removeBatchRow(id) {
+    if (batchRunning) return;
+    setBatchFiles((current) => current.filter((row) => row.id !== id));
+    setBatchError("");
+  }
+
+  function clearBatchQueue() {
+    if (batchRunning) return;
+    setBatchFiles([]);
+    setBatchCurrentName("");
+    setBatchProgress({ done: 0, total: 0 });
+    setBatchError("");
+  }
+
+  function downloadBulkCsv() {
+    if (!batchFiles.length) return;
+    const blob = new Blob([buildBulkMatchCsv(batchFiles)], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = \`bluepace-applicant-match-\${new Date().toISOString().slice(0, 10)}.csv\`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function runBatchMatches(retryOnly = false, onlyIds = null) {
+    if (!selectedRubricId) {
+      setBatchError("Select a saved rubric or save the draft rubric before running bulk matching.");
+      return;
+    }
+    if (connection !== "connected") {
+      setBatchError("The AI API is not connected. Restore the feature API connection before processing resumes.");
+      return;
+    }
+    const queue = batchFiles.filter((row) => {
+      if (onlyIds?.length) return onlyIds.includes(row.id) && ["queued", "failed"].includes(row.status);
+      return retryOnly ? row.status === "failed" : row.status === "queued";
+    });
+    if (!queue.length) {
+      setBatchError(retryOnly ? "There are no failed resumes to retry." : "Add at least one queued resume first.");
+      return;
+    }
+
+    setBatchRunning(true);
+    setBatchError("");
+    setNotice("");
+    setBatchCurrentName("");
+    setBatchProgress({ done: 0, total: queue.length });
+    let complete = 0;
+    let manual = 0;
+    let failed = 0;
+
+    for (let index = 0; index < queue.length; index += 1) {
+      const row = queue[index];
+      setBatchCurrentName(row.file.name);
+      updateBatchRow(row.id, { status: "processing", error: "" });
+      const body = new FormData();
+      body.append("rubric_id", selectedRubricId);
+      body.append("file", row.file);
+      if (selectedProfile) body.append("profile", selectedProfile);
+
+      try {
+        const response = await request("post", "/v1/match/analyze", body, { timeout: 120000 });
+        const result = response.data;
+        const status = result?.status === "manual" ? "manual" : "complete";
+        updateBatchRow(row.id, { status, result, error: "" });
+        if (status === "manual") manual += 1;
+        else complete += 1;
+      } catch (error) {
+        const message = explainError(error);
+        updateBatchRow(row.id, { status: "failed", error: message, result: null });
+        failed += 1;
+
+        // Authentication, route, and service-availability errors affect the whole batch.
+        // Mark the remaining rows so users can see and retry them without sending
+        // dozens of identical requests to an unavailable API.
+        const httpStatus = error?.response?.status;
+        if ([401, 403, 404, 503].includes(httpStatus)) {
+          for (const remaining of queue.slice(index + 1)) {
+            updateBatchRow(remaining.id, { status: "failed", error: message });
+            failed += 1;
+          }
+          setBatchProgress({ done: queue.length, total: queue.length });
+          break;
+        }
+      }
+      setBatchProgress({ done: index + 1, total: queue.length });
+    }
+
+    setBatchCurrentName("");
+    setBatchRunning(false);
+    setNotice(\`Bulk match finished: \${complete} completed, \${manual} needing manual review, \${failed} failed. Review each result before making any recruiting decision.\`);
+  }
+
   function updateRubricItem(index, patch) {
     setRubric((current) => current ? {
       ...current,
@@ -312,6 +449,9 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const jdTitle = jdResult?.fields?.title?.value || jdResult?.fields?.title?.raw || jdResult?.title?.text || "Job description review";
   const descriptionOutput = jdResult?.description_markdown || jdResult?.long_description || jdResult?.long_description_annotated || jdResult?.long_description_text || "";
   const matchScore = candidateCard?.scores?.match;
+  const batchQueuedCount = batchFiles.filter((row) => row.status === "queued").length;
+  const batchFailedCount = batchFiles.filter((row) => row.status === "failed").length;
+  const batchTerminalCount = batchFiles.filter((row) => ["complete", "manual", "failed"].includes(row.status)).length;
 
   return (
     <div className="space-y-6">
@@ -503,6 +643,123 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                   </div>
                 </div>
               </div>
+
+
+              <section className="space-y-4 border-t border-ink-200 pt-6">
+                <SectionHeading
+                  eyebrow="Step 05"
+                  title="Bulk resume comparison"
+                  detail={\`Match up to \${MAX_BULK_RESUMES} resumes against the selected saved rubric. Processing runs one resume at a time; failures do not discard successful results.\`}
+                  action={<button type="button" className={secondaryButton} onClick={downloadBulkCsv} disabled={!batchFiles.length}>Export CSV</button>}
+                />
+                <div className="rounded-lg border border-ink-100 bg-white p-4">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                    <Field label="Resume files" hint="PDF, DOCX, TXT or MD · each file up to 5 MB · maximum 50 files in the queue">
+                      <input
+                        className={fieldClass}
+                        type="file"
+                        accept=".pdf,.docx,.txt,.md"
+                        multiple
+                        disabled={batchRunning || batchFiles.length >= MAX_BULK_RESUMES}
+                        onChange={handleBatchFileSelection}
+                      />
+                    </Field>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className={primaryButton} onClick={() => runBatchMatches(false)} disabled={batchRunning || connection !== "connected" || !selectedRubricId || !batchQueuedCount}>
+                        {batchRunning ? "Matching…" : \`Run queued (\${batchQueuedCount})\`}
+                      </button>
+                      <button type="button" className={secondaryButton} onClick={() => runBatchMatches(true)} disabled={batchRunning || connection !== "connected" || !selectedRubricId || !batchFailedCount}>
+                        Retry failed ({batchFailedCount})
+                      </button>
+                      <button type="button" className={secondaryButton} onClick={clearBatchQueue} disabled={batchRunning || !batchFiles.length}>Clear</button>
+                    </div>
+                  </div>
+                  {!selectedRubricId && <p className="mt-3 text-xs leading-5 text-amber-800">Choose a saved rubric above or save the reviewed draft before starting a batch.</p>}
+                  {batchError && <ErrorNotice>{batchError}</ErrorNotice>}
+                  {batchRunning && (
+                    <div className="mt-4" aria-live="polite">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-600">
+                        <span>Processing {batchProgress.done} of {batchProgress.total}</span>
+                        <span className="max-w-full truncate">{batchCurrentName}</span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-ink-100" role="progressbar" aria-valuemin={0} aria-valuemax={batchProgress.total || 1} aria-valuenow={batchProgress.done} aria-label="Bulk resume analysis progress">
+                        <div className="h-full rounded-full bg-[#c49a4a] transition-all" style={{ width: \`\${batchProgress.total ? Math.round(batchProgress.done / batchProgress.total * 100) : 0}%\` }} />
+                      </div>
+                    </div>
+                  )}
+                  {batchFiles.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                      <Pill>{batchFiles.length}/{MAX_BULK_RESUMES} queued</Pill>
+                      <Pill tone="good">{batchFiles.filter((row) => row.status === "complete").length} complete</Pill>
+                      <Pill tone="warn">{batchFiles.filter((row) => row.status === "manual").length} manual review</Pill>
+                      <Pill tone="bad">{batchFailedCount} failed</Pill>
+                      {batchTerminalCount > 0 && <span className="self-center text-ink-500">{batchTerminalCount} attempted</span>}
+                    </div>
+                  )}
+                </div>
+
+                {batchFiles.length === 0 ? (
+                  <EmptyPanel title="No resumes in this batch" detail="Select multiple resume files to compare them against the same saved rubric. You can export the results when processing finishes." />
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-ink-100 bg-white">
+                    <table className="w-full min-w-[1040px] border-collapse text-left text-sm">
+                      <thead className="bg-[#fafaf8] text-[11px] uppercase tracking-wide text-ink-500">
+                        <tr>
+                          <th className="px-3 py-3 font-semibold">Resume</th>
+                          <th className="px-3 py-3 font-semibold">Status</th>
+                          <th className="px-3 py-3 font-semibold">Candidate ref</th>
+                          <th className="px-3 py-3 font-semibold">Match</th>
+                          <th className="px-3 py-3 font-semibold">Required skills</th>
+                          <th className="px-3 py-3 font-semibold">Experience</th>
+                          <th className="px-3 py-3 font-semibold">Gaps to review</th>
+                          <th className="px-3 py-3 font-semibold">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {batchFiles.map((row) => {
+                          const result = row.result;
+                          const statusLabel = {
+                            queued: "Queued",
+                            processing: "Processing",
+                            complete: "Complete",
+                            manual: "Manual review",
+                            failed: "Failed",
+                          }[row.status] || row.status;
+                          const tone = row.status === "complete" ? "good" : row.status === "manual" || row.status === "failed" ? "warn" : "neutral";
+                          const gaps = (result?.gaps || []).filter((gap) => gap.importance === "must" || gap.status !== "met");
+                          return (
+                            <tr key={row.id} className="border-t border-ink-100 align-top">
+                              <td className="max-w-[240px] px-3 py-3">
+                                <p className="break-all text-xs font-semibold text-ink-800">{row.file.name}</p>
+                                <p className="mt-1 text-[11px] text-ink-500">{(row.file.size / 1024).toFixed(0)} KB</p>
+                              </td>
+                              <td className="px-3 py-3">
+                                <Pill tone={tone}>{statusLabel}</Pill>
+                                {row.error && <p className="mt-2 max-w-[260px] text-xs leading-5 text-rose-700">{row.error}</p>}
+                                {result?.status === "manual" && <p className="mt-2 max-w-[260px] text-xs leading-5 text-amber-800">{result.reason || "Review the resume manually."}</p>}
+                              </td>
+                              <td className="px-3 py-3 font-mono text-xs text-ink-600">{result?.applicant_id || "—"}</td>
+                              <td className="px-3 py-3 font-semibold tabular-nums">{result?.scores?.match == null ? "—" : \`\${result.scores.match}%\`}</td>
+                              <td className="px-3 py-3 tabular-nums">{result?.scores?.required_skills?.pct == null ? "—" : \`\${result.scores.required_skills.pct}%\`}</td>
+                              <td className="px-3 py-3 tabular-nums">{result?.scores?.experience?.pct == null ? "—" : \`\${result.scores.experience.pct}%\`}</td>
+                              <td className="max-w-[240px] px-3 py-3 text-xs leading-5 text-ink-600">{gaps.length ? gaps.map((gap) => gap.label).join(", ") : result ? "No unverified gaps returned" : "—"}</td>
+                              <td className="px-3 py-3">
+                                <div className="flex flex-wrap gap-2">
+                                  {row.status === "failed" && !batchRunning && <button type="button" className="text-xs font-semibold text-blue-700 underline" onClick={() => runBatchMatches(false, [row.id])} disabled={connection !== "connected" || !selectedRubricId}>Retry</button>}
+                                  {!batchRunning && <button type="button" className="text-xs font-semibold text-ink-500 underline" onClick={() => removeBatchRow(row.id)}>Remove</button>}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <p className="border-t border-ink-100 bg-[#fafaf8] px-3 py-3 text-xs leading-5 text-ink-500">
+                      Match scores summarize evidence against this rubric; they do not rank candidates for automatic rejection or hiring. Verify the cited evidence and review flags before deciding.
+                    </p>
+                  </div>
+                )}
+              </section>
 
               {candidateCard && (
                 <section className="space-y-4 border-t border-ink-200 pt-6">
