@@ -133,7 +133,6 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
   }, [activeTab, connection, refreshSavedRubrics]);
 
-  const enabledModels = useMemo(() => models.filter((model) => model.enabled), [models]);
 
   function updateApiKey(value) {
     setApiKey(value);
@@ -296,7 +295,6 @@ export default function JDApplicantMatch({ token, apiRequest }) {
 
   const jdTitle = jdResult?.fields?.title?.value || jdResult?.fields?.title?.raw || "Job description review";
   const matchScore = candidateCard?.scores?.match;
-  const connectionTone = connection === "connected" ? "good" : connection === "checking" ? "neutral" : "warn";
 
   return (
     <div className="space-y-6">
