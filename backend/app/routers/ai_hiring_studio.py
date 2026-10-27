@@ -1,6 +1,7 @@
 """Protected AI Hiring Studio endpoints with multiple AI providers."""
 import hashlib
 import json
+import math
 import os
 import re
 import urllib.error
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, func, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from app.api.deps import Platform, platform, require_api_key
 from app.database import Base, get_db
 from app.models import Application, ApplicationMatchAssessment, Job, Role, User
 from app.security import require_roles
@@ -784,17 +786,22 @@ def delete_saved_rubric(
 class SaveApplicantMatchAssessmentRequest(BaseModel):
     application_id: int = Field(gt=0)
     job_id: int = Field(gt=0)
-    rubric_id: str = Field(min_length=1, max_length=100)
-    rubric_hash: str | None = Field(default=None, max_length=64)
-    rubric_title: str = Field(default="", max_length=200)
-    assessment: dict[str, Any]
+    request_id: str = Field(min_length=1, max_length=100)
 
 
 def _bounded_integer(value: Any, minimum: int = 0, maximum: int = 100) -> int | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
+    if not math.isfinite(value):
+        return None
     number = int(value)
     return number if minimum <= number <= maximum else None
+
+
+def _bounded_years(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value) if 0 <= value <= 80 else None
 
 
 def _safe_applicant_match_assessment(source: dict[str, Any]) -> dict[str, Any]:
@@ -812,7 +819,7 @@ def _safe_applicant_match_assessment(source: dict[str, Any]) -> dict[str, Any]:
     experience = scores.get("experience") if isinstance(scores.get("experience"), dict) else {}
     education = scores.get("education") if isinstance(scores.get("education"), dict) else {}
     safe_groups = []
-    for group in scores.get("groups") or []:
+    for group in (scores.get("groups") if isinstance(scores.get("groups"), list) else []):
         if not isinstance(group, dict):
             continue
         label = str(group.get("label") or group.get("name") or "").strip()[:120]
@@ -829,7 +836,7 @@ def _safe_applicant_match_assessment(source: dict[str, Any]) -> dict[str, Any]:
             break
 
     safe_evidence = []
-    for item in source.get("evidence") or []:
+    for item in (source.get("evidence") if isinstance(source.get("evidence"), list) else []):
         if not isinstance(item, dict):
             continue
         label = str(item.get("label") or "").strip()[:120]
@@ -845,7 +852,7 @@ def _safe_applicant_match_assessment(source: dict[str, Any]) -> dict[str, Any]:
             break
 
     safe_gaps = []
-    for item in source.get("gaps") or []:
+    for item in (source.get("gaps") if isinstance(source.get("gaps"), list) else []):
         if not isinstance(item, dict):
             continue
         label = str(item.get("label") or "").strip()[:120]
@@ -859,9 +866,10 @@ def _safe_applicant_match_assessment(source: dict[str, Any]) -> dict[str, Any]:
         if len(safe_gaps) >= 100:
             break
 
+    raw_flags = source.get("flags") if isinstance(source.get("flags"), list) else []
     flags = [
         str(flag).strip()[:120]
-        for flag in (source.get("flags") or [])[:20]
+        for flag in raw_flags[:20]
         if isinstance(flag, str) and flag.strip()
     ]
     return {
@@ -872,9 +880,9 @@ def _safe_applicant_match_assessment(source: dict[str, Any]) -> dict[str, Any]:
             "preferred_skills": count_score(scores.get("preferred_skills")),
             "experience": {
                 "pct": _bounded_integer(experience.get("pct")),
-                "relevant_years": experience.get("relevant_years") if isinstance(experience.get("relevant_years"), (int, float)) else None,
-                "total_years": experience.get("total_years") if isinstance(experience.get("total_years"), (int, float)) else None,
-                "required_years": experience.get("required_years") if isinstance(experience.get("required_years"), (int, float)) else None,
+                "relevant_years": _bounded_years(experience.get("relevant_years")),
+                "total_years": _bounded_years(experience.get("total_years")),
+                "required_years": _bounded_years(experience.get("required_years")),
             },
             "education": {
                 "pct": _bounded_integer(education.get("pct")),
@@ -888,6 +896,28 @@ def _safe_applicant_match_assessment(source: dict[str, Any]) -> dict[str, Any]:
         "flags": flags,
         "decision_support_only": True,
     }
+
+
+def _verified_applicant_match_result(p: Platform, request_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load the immutable feature-run result from server storage; never trust scores echoed by a browser."""
+    row = p.store.get_run(request_id)
+    if not row or row.get("feature") != "applicant_match" or row.get("operation") != "analyze":
+        raise HTTPException(404, "Applicant Match run not found. Run the assessment again before saving.")
+    if row.get("outcome") not in {"success", "degraded"}:
+        raise HTTPException(409, "This Applicant Match run did not produce a savable assessment.")
+    raw_result = row.get("result_json")
+    if not raw_result:
+        raise HTTPException(409, "This run has no retained result payload, so its score cannot be verified for ATS linking.")
+    try:
+        result = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+    except (TypeError, ValueError):
+        raise HTTPException(409, "The recorded Applicant Match result could not be verified. Run the assessment again.") from None
+    if not isinstance(result, dict) or result.get("request_id") != request_id:
+        raise HTTPException(409, "The recorded Applicant Match result could not be verified. Run the assessment again.")
+    rubric = result.get("rubric")
+    if not isinstance(rubric, dict) or not str(rubric.get("id") or "").strip():
+        raise HTTPException(409, "The recorded assessment has no saved rubric reference.")
+    return result, rubric
 
 
 def _applicant_match_assessment_payload(row: ApplicationMatchAssessment) -> dict[str, Any]:
@@ -912,8 +942,10 @@ def save_applicant_match_assessment(
     request: SaveApplicantMatchAssessmentRequest,
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
+    p: Platform = Depends(platform),
+    _api_key_check: None = Depends(require_api_key),
 ):
-    """Store minimal result metadata only after checking the application, job, and tenant."""
+    """Attach a verified, privacy-minimised run to an application in the authenticated organisation."""
     application = db.scalar(select(Application).where(
         Application.id == request.application_id,
         Application.organization_id == user.organization_id,
@@ -927,17 +959,18 @@ def save_applicant_match_assessment(
     if application.job_id != job.id:
         raise HTTPException(409, "The selected application does not belong to the selected ATS job.")
 
-    assessment = _safe_applicant_match_assessment(request.assessment)
+    verified_result, rubric = _verified_applicant_match_result(p, request.request_id)
+    assessment = _safe_applicant_match_assessment(verified_result)
     row = ApplicationMatchAssessment(
         organization_id=user.organization_id,
         application_id=application.id,
         job_id=job.id,
         candidate_id=application.candidate_id,
         created_by_id=user.id,
-        request_id=str(request.assessment.get("request_id") or "").strip()[:100] or None,
-        rubric_id=request.rubric_id.strip(),
-        rubric_hash=request.rubric_hash,
-        rubric_title=request.rubric_title.strip()[:200],
+        request_id=request.request_id,
+        rubric_id=str(rubric["id"])[:100],
+        rubric_hash=str(rubric.get("hash") or "")[:64] or None,
+        rubric_title=str(rubric.get("title") or "")[:200],
         status=assessment["status"],
         match_score=assessment["match_score"],
         assessment_data=assessment,
