@@ -236,11 +236,11 @@ test("Cloudflare Pages adapter builds a rubric and assesses resume evidence with
   const boundary = "cloudflare-rules-test-boundary";
   const resume = "Software engineer with 4 years of experience. Built REST APIs in Python and SQL; maintained production services.";
   const multipart = [
-    "--" + boundary + "\\r\nContent-Disposition: form-data; name=\"rubric\"\\r\n\\r\n" + JSON.stringify(rubric) + "\\r\n",
-    "--" + boundary + "\\r\nContent-Disposition: form-data; name=\"text\"\\r\n\\r\n" + resume + "\\r\n",
-    "--" + boundary + "\\r\nContent-Disposition: form-data; name=\"profile\"\\r\n\\r\nrules\\r\n",
-    "--" + boundary + "\\r\nContent-Disposition: form-data; name=\"rubric_id\"\\r\n\\r\n" + rubric.rubric_id + "\\r\n",
-    "--" + boundary + "--\\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric\"\r\n\r\n" + JSON.stringify(rubric) + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\n" + resume + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"profile\"\r\n\r\nrules\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric_id\"\r\n\r\n" + rubric.rubric_id + "\r\n",
+    "--" + boundary + "--\r\n",
   ].join("");
   const matchResponse = await invokePagesFunction(["match", "analyze"], {
     method: "POST",
