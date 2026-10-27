@@ -231,6 +231,43 @@ test("built-in rules engine builds a rubric and returns evidence-based resume ma
 });
 
 
+test("hosted model requests enable JSON mode before parsing structured JD output", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, init = {}) => {
+    requestBody = JSON.parse(init.body);
+    return new Response(JSON.stringify({
+      model: "google/gemini-3.8-flash",
+      choices: [{ message: { content: JSON.stringify({
+        title: "Software Engineer",
+        responsibilities: ["Build and maintain APIs"],
+        requirements: ["Python"],
+        experience: { min_years: 3, max_years: null },
+        location: { work_mode: "hybrid" },
+      }) } }],
+      usage: { prompt_tokens: 20, completion_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-json-mode-key" },
+      "POST",
+      ["jd", "standardize"],
+      JSON.stringify({
+        text: "Software Engineer\nRequirements:\n- Python and 3 years of experience",
+        options: { profile: "openrouter", mode: "light" },
+      }),
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.deepEqual(requestBody.response_format, { type: "json_object" });
+    assert.equal(response.body.fields.title.value, "Software Engineer");
+    assert.equal(response.body.meta.model, "google/gemini-3.8-flash");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
 async function invokePagesFunction(pathParts, { method = "GET", headers = {}, body } = {}) {
   const url = "https://bluepace-ats-frontend.pages.dev/v1/" + pathParts.join("/");
   const request = new Request(url, {
