@@ -108,6 +108,8 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [notice, setNotice] = useState("");
   const [atsJobs, setAtsJobs] = useState([]);
   const [selectedAtsJobId, setSelectedAtsJobId] = useState("");
+  const [atsJobRubricLinks, setAtsJobRubricLinks] = useState([]);
+  const [linkingRubric, setLinkingRubric] = useState(false);
   const [atsApplications, setAtsApplications] = useState([]);
   const [selectedAtsApplicationId, setSelectedAtsApplicationId] = useState("");
   const [atsIntegrationError, setAtsIntegrationError] = useState("");
@@ -154,6 +156,25 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     }
   }, [request]);
 
+  const refreshAtsJobRubricLinks = useCallback(async (jobId) => {
+    if (!jobId) {
+      setAtsJobRubricLinks([]);
+      return;
+    }
+    try {
+      const response = await request(
+        "get",
+        "/ai-hiring/jobs/" + encodeURIComponent(jobId) + "/applicant-match-rubrics",
+        undefined,
+        { timeout: 12000 },
+      );
+      setAtsJobRubricLinks(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      setAtsJobRubricLinks([]);
+      setAtsIntegrationError(explainError(error));
+    }
+  }, [request]);
+
   useEffect(() => {
     refreshConnection();
   }, [refreshConnection]);
@@ -161,6 +182,10 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   useEffect(() => {
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
   }, [activeTab, connection, refreshSavedRubrics]);
+
+  useEffect(() => {
+    refreshAtsJobRubricLinks(selectedAtsJobId);
+  }, [selectedAtsJobId, refreshAtsJobRubricLinks]);
   
   useEffect(() => {
     let active = true;
@@ -236,6 +261,34 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     setAtsIntegrationError("");
     setNotice("Loaded the existing ATS job description: " + (job.title || ("Job #" + job.id)) + ". Review it before compiling the rubric.");
     setActiveTab("jd");
+  }
+
+  async function linkSelectedRubricToAtsJob() {
+    if (!selectedAtsJobId) {
+      setAtsIntegrationError("Choose an ATS job before linking a rubric.");
+      return;
+    }
+    if (!selectedRubricId) {
+      setAtsIntegrationError("Select or save a rubric version before linking it to the ATS job.");
+      return;
+    }
+    setLinkingRubric(true);
+    setAtsIntegrationError("");
+    setAtsIntegrationMessage("");
+    try {
+      const response = await request(
+        "post",
+        "/ai-hiring/jobs/" + encodeURIComponent(selectedAtsJobId) + "/applicant-match-rubrics",
+        { rubric_id: selectedRubricId },
+        { timeout: 15000 },
+      );
+      setAtsIntegrationMessage("Linked rubric " + response.data.rubric_id + " to ATS job #" + selectedAtsJobId + ".");
+      await refreshAtsJobRubricLinks(selectedAtsJobId);
+    } catch (error) {
+      setAtsIntegrationError(explainError(error));
+    } finally {
+      setLinkingRubric(false);
+    }
   }
 
   async function saveCurrentAssessmentToApplication() {
@@ -704,6 +757,19 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                       {savedRubrics.map((item) => <option key={item.rubric_id} value={item.rubric_id}>{item.title || "Untitled role"} · {item.items} requirements · {item.rubric_id}</option>)}
                     </select>
                   </Field>
+                  <div className="rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div><p className="text-sm font-semibold text-ink-900">Link rubric to selected ATS job</p><p className="mt-1 text-xs text-ink-500">Only linked rubric versions can be saved with an ATS application assessment.</p></div>
+                      <button type="button" className={secondaryButton} onClick={linkSelectedRubricToAtsJob} disabled={linkingRubric || !selectedAtsJobId || !selectedRubricId}>{linkingRubric ? "Linking…" : "Link selected rubric"}</button>
+                    </div>
+                    {atsJobRubricLinks.length > 0 ? <div className="mt-3 space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Rubrics linked to this job</p>
+                      {atsJobRubricLinks.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink-100 bg-white p-2.5">
+                        <div><p className="text-xs font-semibold text-ink-800">{item.rubric_title || "Saved rubric"}</p><p className="mt-1 text-[11px] text-ink-500">{item.rubric_items} criteria · {item.rubric_id}</p></div>
+                        <button type="button" className="text-xs font-semibold text-ink-700 underline" onClick={() => loadRubric(item.rubric_id)}>Load version</button>
+                      </div>)}
+                    </div> : <p className="mt-3 text-xs text-ink-500">{selectedAtsJobId ? "No saved rubrics are linked to this ATS job yet." : "Choose an ATS job to view its linked rubrics."}</p>}
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" className={primaryButton} onClick={compileRubric} disabled={rubricLoading || connection !== "connected" || !jdText.trim()}>{rubricLoading ? "Building…" : "Build rubric from JD text"}</button>
                     <button type="button" className={secondaryButton} onClick={refreshSavedRubrics} disabled={connection !== "connected" || rubricLoading}>Refresh saved rubrics</button>
