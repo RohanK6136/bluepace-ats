@@ -108,52 +108,123 @@ function modelStatuses(headers) {
     || rows.find((row) => row.enabled && !row.rule_based && !row.retired && !row.local);
   return rows.map((row) => ({ ...row, is_default: defaultHosted ? row.id === defaultHosted.id : row.id === "rules" }));
 }
+function parseStructuredObject(candidate) {
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) return candidate;
+  if (typeof candidate !== "string") return null;
+  let text = candidate.trim();
+  if (!text) return null;
+  text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  try {
+    const direct = JSON.parse(text);
+    if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
+  } catch { /* Try to isolate a complete JSON object from surrounding text. */ }
+  // Scan balanced braces rather than taking the first "{" through the last "}".
+  // This preserves nested objects and ignores braces inside quoted strings.
+  for (let start = text.indexOf("{"); start >= 0; start = text.indexOf("{", start + 1)) {
+    let depth = 0, inString = false, escaped = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(text.slice(start, i + 1));
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+          } catch { /* Continue looking for a complete object. */ }
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function parseModelResponse(data) {
+  const message = data && data.choices && data.choices[0] && data.choices[0].message;
+  if (!message) return null;
+  const candidates = [message.parsed, message.content, message.reasoning_content, data.output_text];
+  for (const candidate of candidates) {
+    const normalized = Array.isArray(candidate)
+      ? candidate.map((part) => typeof part === "string" ? part : part && (part.text || part.content) || "").join("")
+      : candidate;
+    const parsed = parseStructuredObject(normalized);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
 async function callModel(profile, headers, system, user, maxTokens) {
   const credential = resolveCredential(profile, headers);
   if (!credential) throw Object.assign(new Error("Add the selected provider API key in AI Hiring Studio Settings before using this model. One saved OpenRouter key can power OpenRouter, Gemini, DeepSeek, Grok and GPT model options."), { statusCode: 400 });
   const started = Date.now();
-  let response;
-  try {
-    response = await fetch(credential.endpoint, {
-      method: "POST",
-      headers: { Authorization: "Bearer " + credential.key, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: credential.model, messages: [{ role: "system", content: system }, { role: "user", content: user }], response_format: { type: "json_object" }, ...(credential.provider === "google" ? {} : { temperature: 0.1 }), max_tokens: maxTokens || 4000 }),
-      signal: AbortSignal.timeout(55000)
-    });
-  } catch (error) {
-    throw Object.assign(new Error(error && error.name === "TimeoutError" ? "The model provider timed out. Retry or select a faster model." : "Could not reach the model provider. Check the key and try again."), { statusCode: error && error.name === "TimeoutError" ? 504 : 502 });
-  }
-  const raw = await response.text();
-  let data = {};
-  try { data = JSON.parse(raw); } catch { /* malformed response or unsupported stream; use the fallback parser */ }
-  if (!response.ok) {
-    const detail = data && data.error && data.error.message ? data.error.message : "HTTP " + response.status;
-    const message = response.status === 401 || response.status === 403
-      ? "The provider rejected the API key or model access. Reconnect the provider in AI Hiring Studio Settings."
-      : response.status === 429
-        ? "The provider rate-limited the request or has insufficient balance. Try another connected model."
-        : "Model request failed (" + response.status + "): " + String(detail).slice(0, 220);
-    throw Object.assign(new Error(message), { statusCode: response.status === 429 ? 429 : response.status >= 500 ? 502 : 400 });
-  }
-  const choice = data && data.choices && data.choices[0];
-  let content = choice && choice.message && choice.message.content;
-  if (Array.isArray(content)) content = content.map((part) => part && part.text || "").join("");
-  if (!content && choice && choice.message && choice.message.reasoning_content) content = choice.message.reasoning_content;
-  let parsed;
-  if (typeof content === "string") {
-    const fence = String.fromCharCode(96, 96, 96);
-    let clean = content.trim();
-    if (clean.startsWith(fence)) clean = clean.replace(fence, "").replace(/^json\s*/i, "").replace(new RegExp(fence + "$"), "").trim();
-    try { parsed = JSON.parse(clean); } catch { /* malformed response or unsupported stream; use the fallback parser */ }
-    if (!parsed) {
-      const first = clean.indexOf("{");
-      const last = clean.lastIndexOf("}");
-      if (first >= 0 && last > first) { try { parsed = JSON.parse(clean.slice(first, last + 1)); } catch { /* malformed response or unsupported stream; use the fallback parser */ } }
+  const makeRequestBody = (messages, tokenLimit) => ({
+    model: credential.model,
+    messages,
+    response_format: { type: "json_object" },
+    ...(credential.provider === "openrouter" ? { plugins: [{ id: "response-healing" }] } : {}),
+    ...(credential.provider === "google" ? {} : { temperature: 0.1 }),
+    max_tokens: tokenLimit || 4000,
+  });
+
+  async function requestCompletion(messages, tokenLimit) {
+    let response;
+    try {
+      response = await fetch(credential.endpoint, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + credential.key, "Content-Type": "application/json" },
+        body: JSON.stringify(makeRequestBody(messages, tokenLimit)),
+        signal: AbortSignal.timeout(55000),
+      });
+    } catch (error) {
+      throw Object.assign(new Error(error && error.name === "TimeoutError" ? "The model provider timed out. Retry or select a faster model." : "Could not reach the model provider. Check the key and try again."), { statusCode: error && error.name === "TimeoutError" ? 504 : 502 });
     }
+    const raw = await response.text();
+    let data = {};
+    try { data = JSON.parse(raw); } catch { /* Provider returned a malformed response body. */ }
+    if (!response.ok) {
+      const detail = data && data.error && data.error.message ? data.error.message : "HTTP " + response.status;
+      const message = response.status === 401 || response.status === 403
+        ? "The provider rejected the API key or model access. Reconnect the provider in AI Hiring Studio Settings."
+        : response.status === 429
+          ? "The provider rate-limited the request or has insufficient balance. Try another connected model."
+          : "Model request failed (" + response.status + "): " + String(detail).slice(0, 220);
+      throw Object.assign(new Error(message), { statusCode: response.status === 429 ? 429 : response.status >= 500 ? 502 : 400 });
+    }
+    return data;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw Object.assign(new Error("The model returned invalid structured output. Retry or choose another model."), { statusCode: 502 });
+
+  const primaryMessages = [{ role: "system", content: system }, { role: "user", content: user }];
+  let data = await requestCompletion(primaryMessages, maxTokens || 4000);
+  let parsed = parseModelResponse(data);
+  // Some provider routes can still return empty/truncated/non-JSON content despite JSON mode.
+  // Retry only this parsing failure once, with a stricter output contract and a larger budget.
+  if (!parsed) {
+    const repairMessages = [
+      { role: "system", content: system + "\n\nOUTPUT CONTRACT: Return exactly one complete JSON object. Do not include Markdown fences, prose, comments, or reasoning outside the JSON object. Ensure every string is escaped and every bracket is closed." },
+      { role: "user", content: user },
+      { role: "user", content: "Your previous response could not be parsed as a JSON object. Retry the same task and return only one complete, syntactically valid JSON object matching the requested response structure. Do not omit required keys; use null or empty arrays where the schema permits them." },
+    ];
+    data = await requestCompletion(repairMessages, Math.max(Number(maxTokens) || 4000, 6000));
+    parsed = parseModelResponse(data);
+  }
+  if (!parsed) {
+    const finishReason = String(data && data.choices && data.choices[0] && data.choices[0].finish_reason || "");
+    const suffix = finishReason === "length"
+      ? " The response hit its output limit."
+      : "";
+    throw Object.assign(new Error("The model did not return a valid JSON object after an automatic repair attempt." + suffix + " Retry once or choose Google Gemini 3.8 Flash in AI Hiring Studio Settings."), { statusCode: 502 });
+  }
   return { parsed, model: data.model || credential.model, latency_ms: Date.now() - started, prompt_tokens: Number(data.usage && data.usage.prompt_tokens || 0), completion_tokens: Number(data.usage && data.usage.completion_tokens || 0) };
 }
+
 function list(value, max) {
   const limit = max || 30;
   if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean).slice(0, limit);

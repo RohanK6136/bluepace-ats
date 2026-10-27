@@ -268,6 +268,50 @@ test("hosted model requests enable JSON mode before parsing structured JD output
 });
 
 
+test("OpenRouter requests enable response healing and retry malformed structured output once", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init = {}) => {
+    const request = JSON.parse(init.body);
+    requests.push(request);
+    const content = requests.length === 1
+      ? "I will structure this response now."
+      : JSON.stringify({
+          title: "Software Engineer",
+          responsibilities: ["Build REST APIs"],
+          requirements: ["Python"],
+          location: { work_mode: "hybrid" },
+          experience: { min_years: 3, max_years: null },
+        });
+    return new Response(JSON.stringify({
+      model: "google/gemini-3.8-flash",
+      choices: [{ message: { content }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 20, completion_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-repair-key" },
+      "POST",
+      ["jd", "standardize"],
+      JSON.stringify({
+        text: "Software Engineer\\nRequirements:\\n- Python and 3 years of experience",
+        options: { profile: "openrouter", mode: "light" },
+      }),
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(requests.length, 2);
+    assert.deepEqual(requests[0].response_format, { type: "json_object" });
+    assert.deepEqual(requests[0].plugins, [{ id: "response-healing" }]);
+    assert.match(requests[1].messages[0].content, /OUTPUT CONTRACT/);
+    assert.equal(response.body.fields.title.value, "Software Engineer");
+    assert.equal(response.body.meta.model, "google/gemini-3.8-flash");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
 async function invokePagesFunction(pathParts, { method = "GET", headers = {}, body } = {}) {
   const url = "https://bluepace-ats-frontend.pages.dev/v1/" + pathParts.join("/");
   const request = new Request(url, {
