@@ -64,13 +64,23 @@ class ModelRegistry:
     def ids(self) -> list[str]:
         return list(self._profiles)
 
+    @staticmethod
+    def _api_key_configured(profile: ModelProfile) -> bool:
+        if not profile.api_key_env:
+            return True
+        if os.environ.get(profile.api_key_env):
+            return True
+        # Accept the conventional GitHub token name as an alternative for GitHub Models.
+        return profile.api_key_env == "GITHUB_MODELS_TOKEN" and bool(os.environ.get("GITHUB_TOKEN"))
+
     def disabled_reason(self, profile: ModelProfile) -> str | None:
         if not profile.model:
             return "no model id configured"
         if profile.provider == "openai_compatible" and not profile.base_url:
             return "no base_url configured"
-        if profile.api_key_env and not os.environ.get(profile.api_key_env):
-            return f"set {profile.api_key_env} to enable"
+        if profile.api_key_env and not self._api_key_configured(profile):
+            alternate = " or GITHUB_TOKEN" if profile.api_key_env == "GITHUB_MODELS_TOKEN" else ""
+            return f"set {profile.api_key_env}{alternate} to enable"
         if profile.provider == "anthropic" and importlib.util.find_spec("anthropic") is None:
             return "install the 'anthropic' extra (pip install -e .[anthropic])"
         return None
