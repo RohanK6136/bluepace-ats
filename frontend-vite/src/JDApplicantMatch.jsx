@@ -97,6 +97,9 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [apiKeyDraft, setApiKeyDraft] = useState(() => {
     try { return sessionStorage.getItem("bluepace_feature_api_key") || ""; } catch { return ""; }
   });
+  const [openRouterKey, setOpenRouterKey] = useState(() => sessionProviderKey("openrouter"));
+  const [openRouterKeyDraft, setOpenRouterKeyDraft] = useState(() => sessionProviderKey("openrouter"));
+  const [inferenceTest, setInferenceTest] = useState({ status: "", message: "" });
   const [models, setModels] = useState([]);
   const [selectedProfile, setSelectedProfile] = useState("");
   const [connection, setConnection] = useState("checking");
@@ -138,14 +141,16 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       ["openai", "X-OpenAI-Api-Key"],
     ];
     for (const [provider, header] of keys) {
-      const value = sessionProviderKey(provider);
+      const value = provider === "openrouter"
+        ? (sessionProviderKey(provider) || openRouterKey)
+        : sessionProviderKey(provider);
       if (value) headers[header] = value;
     }
     const isFeatureRoute = String(path || "").startsWith("/v1/");
     const requestOptions = { ...options, headers, ...(isFeatureRoute ? { baseURL: window.location.origin } : {}) };
     if (data !== undefined) requestOptions.data = data;
     return apiRequest(token, method, path, requestOptions);
-  }, [apiKey, apiRequest, token]);
+  }, [apiKey, apiRequest, openRouterKey, token]);
 
   const refreshConnection = useCallback(async () => {
     setConnection("checking");
@@ -202,6 +207,55 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     }
     setNotice(value ? "API key kept for this browser session only." : "Optional API key cleared.");
     if (value === apiKey) refreshConnection();
+  }
+
+  function storeOpenRouterKey(value) {
+    setOpenRouterKey(value);
+    try {
+      if (value) {
+        sessionStorage.setItem("bluepace_ai_openrouter_key", value);
+        sessionStorage.setItem("bluepace_openrouter_key", value);
+      } else {
+        sessionStorage.removeItem("bluepace_ai_openrouter_key");
+        sessionStorage.removeItem("bluepace_openrouter_key");
+      }
+    } catch {
+      // The in-memory state keeps the key usable if session storage is unavailable.
+    }
+  }
+
+  function saveOpenRouterKey() {
+    const value = openRouterKeyDraft.trim();
+    storeOpenRouterKey(value);
+    setInferenceTest({ status: "", message: "" });
+    setNotice(value
+      ? "OpenRouter key saved for this browser tab session."
+      : "OpenRouter key cleared from this browser tab session.");
+    void refreshConnection();
+  }
+
+  async function testOpenRouterInference() {
+    const value = openRouterKeyDraft.trim();
+    storeOpenRouterKey(value);
+    setInferenceTest({ status: "checking", message: "Sending a short test prompt to OpenRouter. Provider usage charges may apply." });
+    setNotice("");
+    try {
+      const response = await request("post", "/v1/test", {}, {
+        timeout: 60000,
+        ...(value ? { headers: { "X-OpenRouter-Api-Key": value } } : {}),
+      });
+      const result = response.data || {};
+      setInferenceTest({
+        status: "success",
+        message: "Inference verified: " + String(result.model || "OpenRouter model")
+          + " responded in " + String(Number(result.latency_ms) || 0) + " ms."
+          + " Token usage: " + String(Number(result.prompt_tokens) || 0) + " prompt, "
+          + String(Number(result.completion_tokens) || 0) + " completion.",
+      });
+      await refreshConnection();
+    } catch (error) {
+      setInferenceTest({ status: "error", message: explainError(error) });
+    }
   }
 
   async function runJD(mode) {
@@ -536,6 +590,19 @@ export default function JDApplicantMatch({ token, apiRequest }) {
               {models.map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : " · unavailable"}</option>)}
             </select>
           </div>
+        </div>
+        <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <Field label="OpenRouter API key (provider credential)" hint="This key authorizes model generation. It is different from the optional X-API-Key field below and is kept only in this browser tab session.">
+              <input type="password" autoComplete="off" value={openRouterKeyDraft} onChange={(event) => setOpenRouterKeyDraft(event.target.value)} placeholder="sk-or-v1-…" className={fieldClass} />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className={secondaryButton} onClick={saveOpenRouterKey}>Save key & refresh</button>
+              <button type="button" className={primaryButton} onClick={() => void testOpenRouterInference()} disabled={inferenceTest.status === "checking"}>{inferenceTest.status === "checking" ? "Testing…" : "Test real inference"}</button>
+            </div>
+          </div>
+          <p className="mt-2 text-[11px] leading-5 text-ink-500">The inference test sends a tiny prompt to the selected OpenRouter model and can incur a small provider charge. The key is not displayed in test results or logged by this UI.</p>
+          {inferenceTest.message && <div role="status" className={"mt-3 rounded-md border px-3 py-2 text-xs leading-5 " + (inferenceTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : inferenceTest.status === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900")}>{inferenceTest.message}</div>}
         </div>
         <details className="border-b border-ink-100 px-5 py-3 sm:px-6">
           <summary className="cursor-pointer text-xs font-semibold text-ink-600">API access settings (optional)</summary>
