@@ -301,16 +301,16 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     const issues = [];
     for (const file of selected) {
       if (nextRows.length >= MAX_BULK_RESUMES) {
-        issues.push(\`The queue is limited to \${MAX_BULK_RESUMES} resumes. Remove files before adding more.\`);
+        issues.push(`The queue is limited to ${MAX_BULK_RESUMES} resumes. Remove files before adding more.`);
         break;
       }
       const validation = validateBulkResume(file, nextRows.map((row) => row.file));
       if (!validation.valid) {
-        issues.push(\`\${file.name}: \${validation.reason}\`);
+        issues.push(`${file.name}: ${validation.reason}`);
         continue;
       }
       nextRows.push({
-        id: \`\${Date.now()}-\${nextRows.length}-\${file.name}\`,
+        id: `${Date.now()}-${nextRows.length}-${file.name}`,
         file,
         status: "queued",
         result: null,
@@ -346,7 +346,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = \`bluepace-applicant-match-\${new Date().toISOString().slice(0, 10)}.csv\`;
+    link.download = `bluepace-applicant-match-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -419,7 +419,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
 
     setBatchCurrentName("");
     setBatchRunning(false);
-    setNotice(\`Bulk match finished: \${complete} completed, \${manual} needing manual review, \${failed} failed. Review each result before making any recruiting decision.\`);
+    setNotice(`Bulk match finished: ${complete} completed, ${manual} needing manual review, ${failed} failed. Review each result before making any recruiting decision.`);
   }
 
   function updateRubricItem(index, patch) {
@@ -649,7 +649,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                 <SectionHeading
                   eyebrow="Step 05"
                   title="Bulk resume comparison"
-                  detail={\`Match up to \${MAX_BULK_RESUMES} resumes against the selected saved rubric. Processing runs one resume at a time; failures do not discard successful results.\`}
+                  detail={`Match up to ${MAX_BULK_RESUMES} resumes against the selected saved rubric. Processing runs one resume at a time; failures do not discard successful results.`}
                   action={<button type="button" className={secondaryButton} onClick={downloadBulkCsv} disabled={!batchFiles.length}>Export CSV</button>}
                 />
                 <div className="rounded-lg border border-ink-100 bg-white p-4">
@@ -666,7 +666,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                     </Field>
                     <div className="flex flex-wrap gap-2">
                       <button type="button" className={primaryButton} onClick={() => runBatchMatches(false)} disabled={batchRunning || connection !== "connected" || !selectedRubricId || !batchQueuedCount}>
-                        {batchRunning ? "Matching…" : \`Run queued (\${batchQueuedCount})\`}
+                        {batchRunning ? "Matching…" : `Run queued (${batchQueuedCount})`}
                       </button>
                       <button type="button" className={secondaryButton} onClick={() => runBatchMatches(true)} disabled={batchRunning || connection !== "connected" || !selectedRubricId || !batchFailedCount}>
                         Retry failed ({batchFailedCount})
@@ -683,7 +683,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                         <span className="max-w-full truncate">{batchCurrentName}</span>
                       </div>
                       <div className="mt-2 h-2 overflow-hidden rounded-full bg-ink-100" role="progressbar" aria-valuemin={0} aria-valuemax={batchProgress.total || 1} aria-valuenow={batchProgress.done} aria-label="Bulk resume analysis progress">
-                        <div className="h-full rounded-full bg-[#c49a4a] transition-all" style={{ width: \`\${batchProgress.total ? Math.round(batchProgress.done / batchProgress.total * 100) : 0}%\` }} />
+                        <div className="h-full rounded-full bg-[#c49a4a] transition-all" style={{ width: `${batchProgress.total ? Math.round(batchProgress.done / batchProgress.total * 100) : 0}%` }} />
                       </div>
                     </div>
                   )}
@@ -739,9 +739,9 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                                 {result?.status === "manual" && <p className="mt-2 max-w-[260px] text-xs leading-5 text-amber-800">{result.reason || "Review the resume manually."}</p>}
                               </td>
                               <td className="px-3 py-3 font-mono text-xs text-ink-600">{result?.applicant_id || "—"}</td>
-                              <td className="px-3 py-3 font-semibold tabular-nums">{result?.scores?.match == null ? "—" : \`\${result.scores.match}%\`}</td>
-                              <td className="px-3 py-3 tabular-nums">{result?.scores?.required_skills?.pct == null ? "—" : \`\${result.scores.required_skills.pct}%\`}</td>
-                              <td className="px-3 py-3 tabular-nums">{result?.scores?.experience?.pct == null ? "—" : \`\${result.scores.experience.pct}%\`}</td>
+                              <td className="px-3 py-3 font-semibold tabular-nums">{result?.scores?.match == null ? "—" : `${result.scores.match}%`}</td>
+                              <td className="px-3 py-3 tabular-nums">{result?.scores?.required_skills?.pct == null ? "—" : `${result.scores.required_skills.pct}%`}</td>
+                              <td className="px-3 py-3 tabular-nums">{result?.scores?.experience?.pct == null ? "—" : `${result.scores.experience.pct}%`}</td>
                               <td className="max-w-[240px] px-3 py-3 text-xs leading-5 text-ink-600">{gaps.length ? gaps.map((gap) => gap.label).join(", ") : result ? "No unverified gaps returned" : "—"}</td>
                               <td className="px-3 py-3">
                                 <div className="flex flex-wrap gap-2">
