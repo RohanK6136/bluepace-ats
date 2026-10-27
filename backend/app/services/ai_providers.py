@@ -15,29 +15,34 @@ PROVIDER_LABELS = {
     "openrouter": "OpenRouter", "openai": "OpenAI / ChatGPT",
     "claude": "Claude (Anthropic)", "deepseek": "DeepSeek",
     "cloudflare": "Cloudflare Workers AI", "ollama": "Local Ollama", "gemini": "Google Gemini",
+    "xai": "xAI Grok", "github_models": "GitHub Models",
 }
 DEFAULT_MODELS = {
     "openrouter": "openrouter/free", "openai": "gpt-5.4",
     "claude": "claude-sonnet-4-6", "deepseek": "deepseek-flash",
     "cloudflare": "@cf/qwen/qwen3.8-27b", "ollama": "qwen3.5:4b", "gemini": "gemini-2.5-flash",
+    "xai": "grok-3-mini", "github_models": "openai/gpt-4.1",
 }
 KEY_ENV = {
     "openrouter": ("OPENROUTER_API_KEY",), "openai": ("OPENAI_API_KEY",),
     "claude": ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY"),
     "deepseek": ("DEEPSEEK_API_KEY",),
     "cloudflare": ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_KEY"), "ollama": (), "gemini": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+    "xai": ("XAI_API_KEY",), "github_models": ("GITHUB_MODELS_TOKEN", "GITHUB_TOKEN"),
 }
 MODEL_ENV = {
     "openrouter": ("OPENROUTER_MODEL",), "openai": ("OPENAI_MODEL",),
     "claude": ("ANTHROPIC_MODEL", "CLAUDE_MODEL"),
     "deepseek": ("DEEPSEEK_MODEL",), "cloudflare": ("CLOUDFLARE_MODEL",),
     "ollama": ("OLLAMA_MODEL",), "gemini": ("GEMINI_MODEL", "GOOGLE_GENAI_MODEL"),
+    "xai": ("XAI_MODEL",), "github_models": ("GITHUB_MODELS_MODEL",),
 }
 ALIASES = {
     "chatgpt": "openai", "anthropic": "claude",
     "cloudflare_workers_ai": "cloudflare", "workers_ai": "cloudflare",
     "local": "ollama", "qwen": "ollama", "ollama_local": "ollama",
     "google": "gemini", "google_genai": "gemini", "google-gemini": "gemini",
+    "grok": "xai", "github-copilot": "github_models", "copilot": "github_models", "github": "github_models",
 }
 
 
@@ -45,7 +50,7 @@ def provider_name(value: str | None = None) -> str:
     candidate = (value or os.getenv("AI_PROVIDER") or "openrouter").strip().lower()
     candidate = ALIASES.get(candidate, candidate)
     if candidate not in PROVIDER_LABELS:
-        raise ValueError("Choose OpenRouter, OpenAI, Google Gemini, Claude, DeepSeek, Cloudflare Workers AI, or Ollama.")
+        raise ValueError("Choose OpenRouter, OpenAI/ChatGPT, Google Gemini, Claude, DeepSeek, xAI Grok, GitHub Models, Cloudflare Workers AI, or Ollama.")
     return candidate
 
 
@@ -248,6 +253,11 @@ def call_ai_provider(
             url, headers = "https://api.openai.com/v1/chat/completions", {"Authorization": "Bearer " + key}
         elif provider == "deepseek":
             url, headers = "https://api.deepseek.com/chat/completions", {"Authorization": "Bearer " + key}
+        elif provider == "xai":
+            url, headers = "https://api.x.ai/v1/chat/completions", {"Authorization": "Bearer " + key}
+        elif provider == "github_models":
+            # GitHub Models is a separate inference API; a Copilot subscription alone is not an API credential.
+            url, headers = "https://models.github.ai/inference/chat/completions", {"Authorization": "Bearer " + key}
         elif provider == "cloudflare":
             account = (account_id or os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
             if not account:
