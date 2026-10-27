@@ -49,3 +49,6 @@ def test_direct_provider_profiles_are_registered_and_disabled_without_keys(monke
         assert profile.model == model
         assert profile.api_key_env == key_env
         assert registry.disabled_reason(profile) == f"set {key_env} to enable"
+
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    assert registry.disabled_reason(registry.get("github-models")) is None
