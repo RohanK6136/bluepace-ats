@@ -61,8 +61,12 @@ def provider_label(provider: str) -> str:
 def default_model(provider: str) -> str:
     provider = provider_name(provider)
     for name in MODEL_ENV[provider]:
-        if os.getenv(name, "").strip():
-            return os.environ[name].strip()
+        configured = os.getenv(name, "").strip()
+        if configured:
+            # Migrate the retired generic free-router alias to a concrete model.
+            if provider == "openrouter" and configured == "openrouter/free":
+                return DEFAULT_MODELS[provider]
+            return configured
     return DEFAULT_MODELS[provider]
 
 
