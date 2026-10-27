@@ -19,6 +19,10 @@ export default defineConfig([
     },
   },
   {
+    files: ['api/**/*.js'],
+    languageOptions: { globals: globals.node },
+  },
+  {
     files: ['src/**/*.{js,jsx}'],
     rules: {
       // Existing data-loading effects intentionally update loading/response state.
