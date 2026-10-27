@@ -58,5 +58,5 @@ test("one OpenRouter key enables Gemini, DeepSeek, Grok, and OpenAI profile choi
   assert.equal(byId.grok.enabled, true);
   assert.equal(byId.grok.model, "x-ai/grok-4.7");
   assert.equal(byId.openai.enabled, true);
-  assert.equal(byId.openai.model, "openai/gpt-4.1");
+  assert.equal(byId.openai.model, "openai/gpt-5.4");
 });
