@@ -60,3 +60,28 @@ test("one OpenRouter key enables Gemini, DeepSeek, Grok, and OpenAI profile choi
   assert.equal(byId.openai.enabled, true);
   assert.equal(byId.openai.model, "openai/gpt-5.4");
 });
+test("Vercel environment credentials also enable provider choices without browser keys", async () => {
+  const previousOpenRouter = process.env.OPENROUTER_API_KEY;
+  const previousGoogle = process.env.GOOGLE_API_KEY;
+  try {
+    process.env.OPENROUTER_API_KEY = "test-env-openrouter-key";
+    delete process.env.GOOGLE_API_KEY;
+    const routed = await invoke({ host: "ats.vercel.app" });
+    const byId = Object.fromEntries(routed.body.map((row) => [row.id, row]));
+    assert.equal(byId.openrouter.enabled, true);
+    assert.equal(byId.gemini.enabled, true);
+    assert.equal(byId.deepseek.enabled, true);
+    assert.equal(byId.grok.enabled, true);
+    assert.equal(byId.openai.enabled, true);
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.GOOGLE_API_KEY = "test-env-google-key";
+    const direct = await invoke({ host: "ats.vercel.app" });
+    assert.equal(direct.body.find((row) => row.id === "gemini").enabled, true);
+    assert.equal(direct.body.find((row) => row.id === "openrouter").enabled, false);
+  } finally {
+    if (previousOpenRouter === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previousOpenRouter;
+    if (previousGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = previousGoogle;
+  }
+});
