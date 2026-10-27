@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import handler from "../api/v1/[...path].js";
 
-function invoke(headers = {}) {
+function invoke(headers = {}, method = "GET", pathParts = ["models"], body = "") {
   const req = {
-    method: "GET",
-    url: "/api/v1/models",
+    method,
+    url: "/api/v1/" + pathParts.join("/"),
     headers,
-    query: { path: ["models"] },
-    async *[Symbol.asyncIterator]() {},
+    query: { path: pathParts },
+    async *[Symbol.asyncIterator]() {
+      if (body) yield Buffer.from(body);
+    },
   };
   const res = {
     statusCode: 200,
@@ -84,4 +86,90 @@ test("Vercel environment credentials also enable provider choices without browse
     if (previousGoogle === undefined) delete process.env.GOOGLE_API_KEY;
     else process.env.GOOGLE_API_KEY = previousGoogle;
   }
+});
+
+test("built-in rules engine is available without a provider key and is the default", async () => {
+  const response = await invoke({ host: "ats.vercel.app" });
+  const rules = response.body.find((row) => row.id === "rules");
+  const openrouter = response.body.find((row) => row.id === "openrouter");
+  assert.equal(response.statusCode, 200);
+  assert.equal(rules.enabled, true);
+  assert.equal(rules.is_default, true);
+  assert.match(rules.label, /no AI key required/i);
+  assert.equal(openrouter.enabled, false);
+});
+
+test("built-in rules engine standardizes a job description without an external provider", async () => {
+  const jd = [
+    "Senior Software Engineer",
+    "Responsibilities",
+    "- Build APIs with Python and FastAPI",
+    "- Maintain services and collaborate with product teams",
+    "Requirements",
+    "- 5 years experience with Python, SQL and AWS",
+    "Nice to have",
+    "- Kubernetes experience",
+    "Location: Hybrid",
+  ].join("\n");
+  const response = await invoke(
+    { host: "ats.vercel.app", "content-type": "application/json" },
+    "POST",
+    ["jd", "standardize"],
+    JSON.stringify({ text: jd, options: { profile: "rules", mode: "light" } }),
+  );
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.meta.profile, "rules");
+  assert.equal(response.body.fields.title.value, "Senior Software Engineer");
+  assert.ok(response.body.sections.some((section) => section.items.length));
+  assert.match(response.body.flags.map((flag) => flag.message).join(" "), /rules engine/i);
+});
+
+test("built-in rules engine builds a rubric and returns evidence-based resume matching", async () => {
+  const jd = [
+    "Senior Software Engineer",
+    "Requirements",
+    "- 5 years experience with Python, SQL and AWS",
+    "- Build REST API services",
+    "Nice to have",
+    "- Kubernetes",
+  ].join("\n");
+  const rubricResponse = await invoke(
+    { host: "ats.vercel.app", "content-type": "application/json" },
+    "POST",
+    ["match", "rubrics"],
+    JSON.stringify({ jd_text: jd, options: { profile: "rules" } }),
+  );
+  assert.equal(rubricResponse.statusCode, 200);
+  const rubric = rubricResponse.body.rubric;
+  assert.ok(rubric.rubric_id);
+  assert.ok(rubric.items.length > 0);
+
+  const boundary = "rules-test-boundary";
+  const resume = [
+    "Senior software engineer with 6 years of experience.",
+    "Built REST API services using Python and FastAPI.",
+    "Worked with SQL databases and AWS cloud deployments.",
+  ].join("\n");
+  const parts = [
+    { name: "rubric", value: JSON.stringify(rubric) },
+    { name: "text", value: resume },
+    { name: "profile", value: "rules" },
+    { name: "rubric_id", value: rubric.rubric_id },
+  ];
+  const multipart = parts.map((part) =>
+    "--" + boundary + "\r\n" +
+    'Content-Disposition: form-data; name="' + part.name + '"\r\n\r\n' +
+    part.value + "\r\n"
+  ).join("") + "--" + boundary + "--\r\n";
+  const matchResponse = await invoke(
+    { host: "ats.vercel.app", "content-type": "multipart/form-data; boundary=" + boundary },
+    "POST",
+    ["match", "analyze"],
+    multipart,
+  );
+  assert.equal(matchResponse.statusCode, 200, JSON.stringify(matchResponse.body));
+  assert.equal(matchResponse.body.versions.profile, "rules");
+  assert.equal(matchResponse.body.status, "complete");
+  assert.ok(matchResponse.body.evidence.length > 0);
+  assert.match(matchResponse.body.flags.join(" "), /not generative AI/i);
 });
