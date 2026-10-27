@@ -125,7 +125,7 @@ def test_default_model_uses_concrete_openrouter_model(monkeypatch):
 
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
     assert DEFAULT_MODEL == "google/gemini-2.5-flash"
-    assert _model_name(None) == "openrouter/free"
+    assert _model_name(None) == "google/gemini-2.5-flash"
 
 
 def test_ai_configuration_status_reports_missing_server_key(monkeypatch):
