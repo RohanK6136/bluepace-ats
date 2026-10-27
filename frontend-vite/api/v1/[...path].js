@@ -108,7 +108,7 @@ async function callModel(profile, headers, system, user, maxTokens) {
     response = await fetch(credential.endpoint, {
       method: "POST",
       headers: { Authorization: "Bearer " + credential.key, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: credential.model, messages: [{ role: "system", content: system }, { role: "user", content: user }], temperature: 0.1, max_tokens: maxTokens || 4000 }),
+      body: JSON.stringify({ model: credential.model, messages: [{ role: "system", content: system }, { role: "user", content: user }], ...(credential.provider === "google" ? {} : { temperature: 0.1 }), max_tokens: maxTokens || 4000 }),
       signal: AbortSignal.timeout(55000)
     });
   } catch (error) {
