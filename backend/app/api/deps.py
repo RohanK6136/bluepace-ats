@@ -26,7 +26,13 @@ class Platform:
 
 
 def platform(request: Request) -> Platform:
-    return request.app.state.platform
+    configured = getattr(request.app.state, "platform", None)
+    if configured is None:
+        raise HTTPException(
+            status_code=503,
+            detail="AI feature platform is unavailable. Check backend startup logs and model configuration.",
+        )
+    return configured
 
 
 def pipeline_deps(p: Platform = Depends(platform)) -> PipelineDeps:
