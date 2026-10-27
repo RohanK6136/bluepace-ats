@@ -83,3 +83,7 @@ jobs:
       - name: Test frontend static server and local AI fallbacks
         working-directory: frontend-vite
         run: npm run test:server
+
+      - name: Test bulk applicant matching validation and CSV export
+        working-directory: frontend-vite
+        run: npm run test:bulk-match
