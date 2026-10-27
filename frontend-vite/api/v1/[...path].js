@@ -352,7 +352,7 @@ function ruleTokens(value) {
 function inferTitle(text) {
   const lines = String(text || "").split(/\r?\n/).map((line) => line.replace(/^\s*[-*•#]+\s*/, "").trim()).filter(Boolean);
   for (const line of lines.slice(0, 5)) {
-    const labelled = /^(?:job\s*)?title\s*[:\-]\s*(.+)$/i.exec(line);
+    const labelled = /^(?:job\s*)?title\s*[:-]\s*(.+)$/i.exec(line);
     if (labelled) return labelled[1].slice(0, 120);
     if (line.length >= 4 && line.length <= 90 && !/^(job description|about the role|responsibilities|requirements|qualifications|what you'll do|what you need)$/i.test(line)) return line;
   }
