@@ -9,11 +9,11 @@ const MAX_FILE = 5 * 1024 * 1024;
 const RETIRED_GITHUB_MODELS = "GitHub Models inference API was retired July 30, 2026. A Copilot subscription is not a general-purpose model API credential.";
 
 const PROFILES = {
-  openrouter: { id: "openrouter", label: "OpenRouter · Gemini 3.8 Flash", provider: "openrouter", model: "google/gemini-3.8-flash", endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", context_tokens: 128000, is_default: true, description: "Use your OpenRouter key from AI Hiring Studio Settings." },
-  gemini: { id: "gemini", label: "Google Gemini 3.8 Flash", provider: "google", model: "gemini-3.8-flash", endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", header: "x-google-api-key", openrouter_model: "google/gemini-3.8-flash", context_tokens: 1000000, description: "Use your Google Gemini key from AI Hiring Studio Settings." },
-  deepseek: { id: "deepseek", label: "DeepSeek V4.1 Flash", provider: "deepseek", model: "deepseek-flash", endpoint: "https://api.deepseek.com/chat/completions", header: "x-deepseek-api-key", openrouter_model: "deepseek/deepseek-v4.1-flash-1017", context_tokens: 1048576, description: "Use your DeepSeek key from AI Hiring Studio Settings." },
-  grok: { id: "grok", label: "xAI Grok 4.7", provider: "xai", model: "grok-4.7", endpoint: "https://api.x.ai/v1/chat/completions", header: "x-xai-api-key", openrouter_model: "x-ai/grok-4.7", context_tokens: 500000, description: "Use your xAI key from AI Hiring Studio Settings." },
-  openai: { id: "openai", label: "OpenAI / ChatGPT API · GPT-5.4", provider: "openai", model: "gpt-5.4", endpoint: "https://api.openai.com/v1/chat/completions", header: "x-openai-api-key", openrouter_model: "openai/gpt-5.4", context_tokens: 1100000, description: "OpenAI API access is billed separately from a ChatGPT subscription." },
+  openrouter: { id: "openrouter", label: "OpenRouter · Gemini 3.8 Flash", provider: "openrouter", model: "google/gemini-3.8-flash", endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY", context_tokens: 128000, is_default: true, description: "Use your OpenRouter key from AI Hiring Studio Settings." },
+  gemini: { id: "gemini", label: "Google Gemini 3.8 Flash", provider: "google", model: "gemini-3.8-flash", endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", header: "x-google-api-key", env: "GOOGLE_API_KEY", alt_env: "GEMINI_API_KEY", openrouter_model: "google/gemini-3.8-flash", context_tokens: 1000000, description: "Use your Google Gemini key from AI Hiring Studio Settings." },
+  deepseek: { id: "deepseek", label: "DeepSeek V4.1 Flash", provider: "deepseek", model: "deepseek-flash", endpoint: "https://api.deepseek.com/chat/completions", header: "x-deepseek-api-key", env: "DEEPSEEK_API_KEY", openrouter_model: "deepseek/deepseek-v4.1-flash-1017", context_tokens: 1048576, description: "Use your DeepSeek key from AI Hiring Studio Settings." },
+  grok: { id: "grok", label: "xAI Grok 4.7", provider: "xai", model: "grok-4.7", endpoint: "https://api.x.ai/v1/chat/completions", header: "x-xai-api-key", env: "XAI_API_KEY", openrouter_model: "x-ai/grok-4.7", context_tokens: 500000, description: "Use your xAI key from AI Hiring Studio Settings." },
+  openai: { id: "openai", label: "OpenAI / ChatGPT API · GPT-5.4", provider: "openai", model: "gpt-5.4", endpoint: "https://api.openai.com/v1/chat/completions", header: "x-openai-api-key", env: "OPENAI_API_KEY", openrouter_model: "openai/gpt-5.4", context_tokens: 1100000, description: "OpenAI API access is billed separately from a ChatGPT subscription." },
   "github-models": { id: "github-models", label: "GitHub Models · retired API", provider: "github", model: "", endpoint: "", header: "", context_tokens: 0, description: RETIRED_GITHUB_MODELS, retired: true },
   "local-qwen": { id: "local-qwen", label: "Qwen · local (LM Studio)", provider: "local", model: "qwen/qwen3.5-9b", endpoint: "", header: "", context_tokens: 8192, description: "Vercel cannot reach LM Studio running on your computer.", local: true },
   "local-ollama": { id: "local-ollama", label: "Ollama · local", provider: "local", model: "", endpoint: "", header: "", context_tokens: 8192, description: "Vercel cannot reach Ollama running on your computer.", local: true }
@@ -75,12 +75,16 @@ function parseMultipart(buffer, contentType) {
   return fields;
 }
 function getKey(profile, headers) {
-  return profile && profile.header ? String(headers[profile.header] || "").trim() : "";
+  const fromHeader = profile && profile.header ? String(headers[profile.header] || "").trim() : "";
+  if (fromHeader) return fromHeader;
+  const fromEnv = profile && profile.env ? String(process.env[profile.env] || "").trim() : "";
+  if (fromEnv) return fromEnv;
+  return profile && profile.alt_env ? String(process.env[profile.alt_env] || "").trim() : "";
 }
 function resolveCredential(profile, headers) {
   const directKey = getKey(profile, headers);
   if (directKey && profile.endpoint) return { key: directKey, endpoint: profile.endpoint, model: profile.model, provider: profile.provider };
-  const openrouterKey = String(headers["x-openrouter-api-key"] || "").trim();
+  const openrouterKey = getKey(PROFILES.openrouter, headers);
   if (openrouterKey && profile.id !== "openrouter" && profile.openrouter_model) {
     return { key: openrouterKey, endpoint: "https://openrouter.ai/api/v1/chat/completions", model: profile.openrouter_model, provider: "openrouter" };
   }
