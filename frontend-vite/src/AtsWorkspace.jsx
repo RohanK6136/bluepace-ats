@@ -13,6 +13,7 @@ const OfferManagement = lazy(() => import("./OfferManagement.jsx"));
 const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.jsx"));
 const AutomationPanel = lazy(() => import("./AutomationPanel.jsx"));
 const AIHiringStudio = lazy(() => import("./AIHiringStudio.jsx"));
+const JDApplicantMatch = lazy(() => import("./JDApplicantMatch.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
@@ -1298,6 +1299,11 @@ export default function AtsWorkspace() {
           </div>
           <h1 className="text-2xl font-semibold">Sign in</h1>
           <p className="mt-1 text-sm text-ink-500">Sign in with your organisation-issued recruiting credentials.</p>
+          <div className="mt-5 rounded-lg border border-[#e7d6ac] bg-[#fbf6e9] p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#806020]">New workspace</p>
+            <p className="mt-1 text-sm font-semibold text-ink-950">JD Standardizer & Applicant Match</p>
+            <p className="mt-1 text-xs leading-5 text-ink-700">Standardize job descriptions, build reviewable assessment rubrics, and compare resumes against job-related evidence.</p>
+          </div>
           <form
             onSubmit={signIn}
             className="mt-7 grid gap-4"
@@ -1326,6 +1332,7 @@ export default function AtsWorkspace() {
     { id: "candidates", label: "Candidates", count: candidates.length },
     { id: "interviews-2", label: "Interviews" },
     { id: "ai-studio", label: "AI Hiring Studio" },
+    { id: "jd-match", label: "JD & Applicant Match" },
   ];
   const secondaryNavItems = [
     { id: "compare", label: "Compare candidates" },
@@ -1448,6 +1455,9 @@ export default function AtsWorkspace() {
               <div className="bp-dashboard-actions flex gap-2">
                 <button type="button" className={buttonPrimary} onClick={() => { setView("ai-studio"); setMoreOpen(false); setError(""); setNotice(""); }}>
                   Open AI Hiring Studio
+                </button>
+                <button type="button" className={buttonSecondary} onClick={() => { setView("jd-match"); setMoreOpen(false); setError(""); setNotice(""); }}>
+                  JD & Applicant Match <span aria-hidden="true">↗</span>
                 </button>
                 {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
                 {canWrite && import.meta.env.DEV && <button type="button" className={buttonSecondary} onClick={populateDemoData} disabled={demoPopulationLoading} title="Add synthetic jobs, candidates, pipeline stages, interviews, offers, talent pools, and workflow examples. Existing data is preserved.">
@@ -2174,6 +2184,7 @@ export default function AtsWorkspace() {
           </section>}
           {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
           {view === "ai-studio" && <AIHiringStudio token={token} apiRequest={apiRequest} jobs={jobs} onSaved={refreshWorkspace} />}
+          {view === "jd-match" && <JDApplicantMatch token={token} apiRequest={apiRequest} /> }
           {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab theme={theme} onToggleTheme={toggleTheme} token={token} /></section>}
           </main>
         </Suspense>
