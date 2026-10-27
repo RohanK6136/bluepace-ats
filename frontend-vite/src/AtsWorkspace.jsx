@@ -1463,7 +1463,7 @@ export default function AtsWorkspace() {
                 <button type="button" className={buttonSecondary} onClick={() => { setView("jd-match"); setMoreOpen(false); setError(""); setNotice(""); }}>
                   JD & Applicant Match <span aria-hidden="true">↗</span>
                 </button>
-                {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
+                {canWrite && <button type="button" className={buttonPrimary} onClick={() => { setView("jobs"); setMoreOpen(false); resetJobForm(); setError(""); setNotice(""); }}>Create job</button>}
                 {canWrite && import.meta.env.DEV && <button type="button" className={buttonSecondary} onClick={populateDemoData} disabled={demoPopulationLoading} title="Add synthetic jobs, candidates, pipeline stages, interviews, offers, talent pools, and workflow examples. Existing data is preserved.">
                   <svg aria-hidden="true" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <ellipse cx="12" cy="5" rx="8" ry="3" />
