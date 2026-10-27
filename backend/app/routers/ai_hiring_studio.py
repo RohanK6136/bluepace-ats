@@ -17,8 +17,9 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text,
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.api.deps import Platform, platform, require_api_key
+from app.core.logging import api_key_id
 from app.database import Base, get_db
-from app.models import Application, ApplicationMatchAssessment, Candidate, Job, Role, User
+from app.models import Application, ApplicationMatchAssessment, ApplicantMatchRubricLink, Candidate, Job, Role, User
 from app.security import require_roles
 from app.services.ai_providers import (
     call_ai_provider as _call_ai_provider,
@@ -783,10 +784,101 @@ def delete_saved_rubric(
     )
 
 
+class LinkApplicantMatchRubricRequest(BaseModel):
+    rubric_id: str = Field(min_length=1, max_length=100)
+
+
 class SaveApplicantMatchAssessmentRequest(BaseModel):
     application_id: int = Field(gt=0)
     job_id: int = Field(gt=0)
     request_id: str = Field(min_length=1, max_length=100)
+
+
+def _applicant_match_rubric_link_payload(row: ApplicantMatchRubricLink) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "job_id": row.job_id,
+        "rubric_id": row.rubric_id,
+        "rubric_hash": row.rubric_hash,
+        "rubric_title": row.rubric_title,
+        "rubric_items": row.rubric_items,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _verified_saved_feature_rubric(p: Platform, rubric_id: str) -> dict[str, Any]:
+    row = p.store.get_rubric(rubric_id)
+    if not row:
+        raise HTTPException(404, "Saved Applicant Match rubric not found.")
+    owner_key_id = row.get("created_by")
+    current_key_id = api_key_id.get()
+    if owner_key_id and owner_key_id != current_key_id:
+        raise HTTPException(404, "Saved Applicant Match rubric not found for this API key.")
+    try:
+        rubric_data = json.loads(row.get("rubric_json") or "")
+    except (TypeError, ValueError):
+        raise HTTPException(409, "The saved rubric could not be verified. Save the rubric again.") from None
+    if not isinstance(rubric_data, dict):
+        raise HTTPException(409, "The saved rubric could not be verified. Save the rubric again.")
+    if rubric_data.get("rubric_id") != rubric_id or rubric_data.get("rubric_hash") != row.get("hash"):
+        raise HTTPException(409, "The saved rubric metadata does not match its stored snapshot.")
+    return row
+
+
+@router.post("/jobs/{job_id}/applicant-match-rubrics", status_code=201)
+def link_applicant_match_rubric(
+    job_id: int,
+    request: LinkApplicantMatchRubricRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+    p: Platform = Depends(platform),
+    _api_key_check: None = Depends(require_api_key),
+):
+    """Link an immutable saved rubric version to an ATS job inside the authenticated organisation."""
+    job = db.scalar(select(Job).where(Job.id == job_id, Job.organization_id == user.organization_id))
+    if job is None:
+        raise HTTPException(404, "Job not found in this organisation.")
+    saved = _verified_saved_feature_rubric(p, request.rubric_id.strip())
+    row = db.scalar(select(ApplicantMatchRubricLink).where(
+        ApplicantMatchRubricLink.organization_id == user.organization_id,
+        ApplicantMatchRubricLink.job_id == job.id,
+        ApplicantMatchRubricLink.rubric_id == saved["id"],
+    ))
+    if row is not None:
+        if row.rubric_hash != saved["hash"]:
+            raise HTTPException(409, "The saved rubric version hash changed. Review the saved rubric before relinking.")
+        return _applicant_match_rubric_link_payload(row)
+    linked = ApplicantMatchRubricLink(
+        organization_id=user.organization_id,
+        job_id=job.id,
+        created_by_id=user.id,
+        rubric_id=saved["id"],
+        rubric_hash=saved["hash"],
+        rubric_title=str(saved.get("title") or "")[:200],
+        rubric_items=int(saved.get("items") or 0),
+    )
+    db.add(linked)
+    db.commit()
+    db.refresh(linked)
+    return _applicant_match_rubric_link_payload(linked)
+
+
+@router.get("/jobs/{job_id}/applicant-match-rubrics")
+def list_applicant_match_rubric_links(
+    job_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = db.scalar(select(Job).where(Job.id == job_id, Job.organization_id == user.organization_id))
+    if job is None:
+        raise HTTPException(404, "Job not found in this organisation.")
+    rows = db.scalars(
+        select(ApplicantMatchRubricLink).where(
+            ApplicantMatchRubricLink.organization_id == user.organization_id,
+            ApplicantMatchRubricLink.job_id == job.id,
+        ).order_by(ApplicantMatchRubricLink.created_at.desc()).limit(50)
+    ).all()
+    return [_applicant_match_rubric_link_payload(row) for row in rows]
 
 
 def _bounded_integer(value: Any, minimum: int = 0, maximum: int = 100) -> int | None:
@@ -903,6 +995,10 @@ def _verified_applicant_match_result(p: Platform, request_id: str) -> tuple[dict
     row = p.store.get_run(request_id)
     if not row or row.get("feature") != "applicant_match" or row.get("operation") != "analyze":
         raise HTTPException(404, "Applicant Match run not found. Run the assessment again before saving.")
+    saved_api_key_id = row.get("api_key_id")
+    current_api_key_id = api_key_id.get()
+    if saved_api_key_id and saved_api_key_id != current_api_key_id:
+        raise HTTPException(404, "Applicant Match run not found. Run the assessment again with the configured API key.")
     if row.get("outcome") not in {"success", "degraded"}:
         raise HTTPException(409, "This Applicant Match run did not produce a savable assessment.")
     raw_result = row.get("result_json")
@@ -972,6 +1068,14 @@ def save_applicant_match_assessment(
         raise HTTPException(409, "This Applicant Match run has already been linked to an application.")
 
     verified_result, rubric = _verified_applicant_match_result(p, request.request_id)
+    rubric_link = db.scalar(select(ApplicantMatchRubricLink).where(
+        ApplicantMatchRubricLink.organization_id == user.organization_id,
+        ApplicantMatchRubricLink.job_id == job.id,
+        ApplicantMatchRubricLink.rubric_id == str(rubric["id"]),
+        ApplicantMatchRubricLink.rubric_hash == str(rubric.get("hash") or ""),
+    ))
+    if rubric_link is None:
+        raise HTTPException(409, "Link this saved rubric version to the selected ATS job before saving the assessment.")
     assessment = _safe_applicant_match_assessment(verified_result)
     row = ApplicationMatchAssessment(
         organization_id=user.organization_id,
