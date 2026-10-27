@@ -30,7 +30,10 @@ class OpenAICompatibleProvider:
         self.json_instruction = json_instruction
         headers = {}
         if profile.api_key_env:
-            headers["Authorization"] = f"Bearer {os.environ.get(profile.api_key_env, '')}"
+            api_key = os.environ.get(profile.api_key_env, "")
+            if profile.api_key_env == "GITHUB_MODELS_TOKEN" and not api_key:
+                api_key = os.environ.get("GITHUB_TOKEN", "")
+            headers["Authorization"] = f"Bearer {api_key}"
         self._http = httpx.AsyncClient(base_url=(profile.base_url or "").rstrip("/"), headers=headers,
                                        timeout=profile.timeout_s, transport=transport)
 
