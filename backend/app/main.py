@@ -425,15 +425,6 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
-app.include_router(merge_center_router)
-app.include_router(demo_data_router)
-app.include_router(offer_management_router)
-app.include_router(next_features_router)
-app.include_router(ai_hiring_studio_router)
-app.include_router(zoho_recruit_router)
-app.include_router(jd_router)
-app.include_router(match_router)
-
 
 @app.get("/v1/models", tags=["AI Feature API"], dependencies=[Depends(require_api_key)])
 @app.get("/v1/jd/models", include_in_schema=False, tags=["AI Feature API"], dependencies=[Depends(require_api_key)])
@@ -445,6 +436,16 @@ def list_ai_model_profiles(p: Platform = Depends(platform)):
             detail="AI model registry is unavailable. Check backend model configuration and startup logs.",
         )
     return [profile.model_dump(mode="json") for profile in p.registry.statuses()]
+
+app.include_router(merge_center_router)
+app.include_router(demo_data_router)
+app.include_router(offer_management_router)
+app.include_router(next_features_router)
+app.include_router(ai_hiring_studio_router)
+app.include_router(zoho_recruit_router)
+app.include_router(jd_router)
+app.include_router(match_router)
+
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
