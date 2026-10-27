@@ -16,7 +16,8 @@ const PROFILES = {
   openai: { id: "openai", label: "OpenAI / ChatGPT API · GPT-5.4", provider: "openai", model: "gpt-5.4", endpoint: "https://api.openai.com/v1/chat/completions", header: "x-openai-api-key", env: "OPENAI_API_KEY", openrouter_model: "openai/gpt-5.4", context_tokens: 1100000, description: "OpenAI API access is billed separately from a ChatGPT subscription." },
   "github-models": { id: "github-models", label: "GitHub Models · retired API", provider: "github", model: "", endpoint: "", header: "", context_tokens: 0, description: RETIRED_GITHUB_MODELS, retired: true },
   "local-qwen": { id: "local-qwen", label: "Qwen · local (LM Studio)", provider: "local", model: "qwen/qwen3.5-9b", endpoint: "", header: "", context_tokens: 8192, description: "Vercel cannot reach LM Studio running on your computer.", local: true },
-  "local-ollama": { id: "local-ollama", label: "Ollama · local", provider: "local", model: "", endpoint: "", header: "", context_tokens: 8192, description: "Vercel cannot reach Ollama running on your computer.", local: true }
+  "local-ollama": { id: "local-ollama", label: "Ollama · local", provider: "local", model: "", endpoint: "", header: "", context_tokens: 8192, description: "Vercel cannot reach Ollama running on your computer.", local: true },
+  rules: { id: "rules", label: "Built-in Rules Engine · no AI key required", provider: "built-in", model: "rule-match-v1", endpoint: "", header: "", context_tokens: 60000, description: "Deterministic text and keyword matching. No external AI model is called.", rule_based: true }
 };
 
 function send(res, status, data) {
@@ -91,17 +92,21 @@ function resolveCredential(profile, headers) {
   return null;
 }
 function modelStatuses(headers) {
-  return Object.values(PROFILES).map((profile) => {
+  const rows = Object.values(PROFILES).map((profile) => {
     let reason = null;
     const credential = resolveCredential(profile, headers);
-    if (profile.retired) reason = profile.description;
+    if (profile.rule_based) reason = null;
+    else if (profile.retired) reason = profile.description;
     else if (profile.local) reason = profile.description;
     else if (!credential) {
       const provider = profile.id === "openrouter" ? "OpenRouter" : profile.provider === "google" ? "Google Gemini" : profile.provider === "xai" ? "xAI Grok" : profile.provider === "openai" ? "OpenAI" : "DeepSeek";
       reason = "Add a " + provider + " API key in AI Hiring Studio Settings to enable this model. A saved OpenRouter key also enables this hosted model option.";
     }
-    return { ...profile, model: credential ? credential.model : profile.model, provider: credential ? credential.provider : profile.provider, enabled: !reason, is_default: Boolean(profile.is_default && !reason), disabled_reason: reason };
+    return { ...profile, model: credential ? credential.model : profile.model, provider: credential ? credential.provider : profile.provider, enabled: !reason, is_default: false, disabled_reason: reason };
   });
+  const defaultHosted = rows.find((row) => row.id === "openrouter" && row.enabled)
+    || rows.find((row) => row.enabled && !row.rule_based && !row.retired && !row.local);
+  return rows.map((row) => ({ ...row, is_default: defaultHosted ? row.id === defaultHosted.id : row.id === "rules" }));
 }
 async function callModel(profile, headers, system, user, maxTokens) {
   const credential = resolveCredential(profile, headers);
@@ -331,6 +336,137 @@ function applicantCard(raw, rubric, profile, usage, resume, filename) {
     usage: { llm_calls: 1, cache_hits: 0, repairs: 0, prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens, cost_usd: null, latency_ms: usage.latency_ms }
   };
 }
+
+const RULE_STOP_WORDS = new Set([
+  "a","an","and","are","as","at","be","been","being","by","for","from","has","have","in","into","is","it",
+  "of","on","or","our","the","their","them","this","to","we","will","with","you","your","years","year",
+  "experience","preferred","required","requirements","responsibilities","role","work","working","ability","strong",
+  "good","plus","must","nice","knowledge","skills","skill","proficiency","proficient","familiarity","familiar",
+  "minimum","least","using","including","such","other","various","related","relevant","candidate","ideal"
+]);
+function ruleTokens(value) {
+  return [...new Set((String(value || "").toLowerCase().match(/[a-z][a-z0-9+#.-]{1,}/g) || [])
+    .map((token) => token.replace(/^[^a-z0-9]+|[^a-z0-9+#.-]+$/g, ""))
+    .filter((token) => token.length >= 2 && !RULE_STOP_WORDS.has(token) && !/^\d+$/.test(token)))];
+}
+function inferTitle(text) {
+  const lines = String(text || "").split(/\r?\n/).map((line) => line.replace(/^\s*[-*•#]+\s*/, "").trim()).filter(Boolean);
+  for (const line of lines.slice(0, 5)) {
+    const labelled = /^(?:job\s*)?title\s*[:\-]\s*(.+)$/i.exec(line);
+    if (labelled) return labelled[1].slice(0, 120);
+    if (line.length >= 4 && line.length <= 90 && !/^(job description|about the role|responsibilities|requirements|qualifications|what you'll do|what you need)$/i.test(line)) return line;
+  }
+  return null;
+}
+function createRulesJD(text) {
+  const rawLines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = sourceLines(text);
+  const responsibilities = [];
+  const requirements = [];
+  const nice = [];
+  const offer = [];
+  const about = [];
+  for (const statement of lines.map((line) => line.text)) {
+    if (/preferred|nice to have|bonus|desirable/i.test(statement)) { nice.push(statement); continue; }
+    if (/salary|compensation|benefits|health insurance|paid leave|equity|stock option|what we offer/i.test(statement)) { offer.push(statement); continue; }
+    if (/responsibilit|you will|responsible for|build|develop|manage|lead|design|implement|maintain|support|deliver|collaborate|analy[sz]e|create|coordinate|optimi[sz]e|ensure|own |oversee/i.test(statement)) responsibilities.push(statement);
+    else if (/require|qualif|degree|bachelor|master|phd|certif|proficien|experience|years?|skills?|knowledge|must have|familiarity|expertise/i.test(statement)) requirements.push(statement);
+    else about.push(statement);
+  }
+  const title = inferTitle(text);
+  const expMatch = String(text).match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\b/i);
+  return {
+    title,
+    short_description: about.slice(0, 2).join(" ").slice(0, 500) || (title ? "Role summary extracted from the supplied job description." : null),
+    category_hint: null,
+    role_type: null,
+    experience: { min_years: expMatch ? Number(expMatch[1]) : null, max_years: null },
+    responsibilities: responsibilities.slice(0, 30),
+    requirements: requirements.slice(0, 30),
+    nice_to_have: nice.slice(0, 20),
+    offer: offer.slice(0, 20),
+    about_role: about.slice(0, 5),
+    additional_info: rawLines.filter((line) => /remote|hybrid|on[- ]site|location|full[- ]time|part[- ]time|contract|salary|compensation/i.test(line)).slice(0, 10),
+    missing_information: [
+      ...(!title ? ["job title: not clearly identified in the supplied text"] : []),
+      ...(!offer.length ? ["compensation or benefits: not stated in the supplied text"] : []),
+      ...(!/location|remote|hybrid|on[- ]site/i.test(text) ? ["work location or mode: not stated in the supplied text"] : []),
+    ],
+    review_flags: ["Built-in rules engine extracted text sections only; review the original JD for omissions and context."]
+  };
+}
+function createRulesRubric(jdText) {
+  const lines = sourceLines(jdText);
+  const raw = {
+    title: inferTitle(jdText),
+    required_years: (String(jdText).match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\b/i) || [])[1] || null,
+    items: lines.slice(0, 40).map((line) => ({
+      label: line.text.slice(0, 120),
+      source_line: line.id,
+      type: /certif|license/i.test(line.text) ? "certification" : "skill",
+      group: /python|java|sql|react|node|aws|azure|cloud|docker|kubernetes|api|database|software|code|program/i.test(line.text) ? "coding" : /customer|sales|recruit|marketing|account/i.test(line.text) ? "domain" : "other",
+      importance: line.section === "nice" ? "nice" : "must",
+      weight: line.section === "nice" ? 1 : 2,
+      aliases: []
+    }))
+  };
+  return freezeRubric(normalizeRubric(raw, jdText));
+}
+function includesRuleToken(haystack, token) {
+  const text = String(haystack || "").toLowerCase();
+  const term = String(token || "").toLowerCase();
+  if (!term) return false;
+  if (term.length <= 3 && /^[a-z0-9+#]+$/.test(term)) {
+    const normalized = " " + text.replace(/[^a-z0-9+#]+/g, " ") + " ";
+    return normalized.includes(" " + term + " ");
+  }
+  return text.includes(term);
+}
+function analyzeRulesResume(resume, rubric) {
+  const text = redact(resume).slice(0, MAX_TEXT);
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const evidence = rubric.items.map((item) => {
+    const keywords = ruleTokens([item.label, ...(item.aliases || [])].join(" "));
+    const checked = keywords.filter((term) => includesRuleToken(text, term));
+    const ratio = keywords.length ? checked.length / keywords.length : 0;
+    const status = !keywords.length || !checked.length ? "not_evidenced" : ratio >= 0.72 ? "met" : ratio >= 0.35 ? "partial" : "not_evidenced";
+    const cited = lines.filter((line) => checked.some((term) => includesRuleToken(line, term))).slice(0, 3);
+    return {
+      item_id: item.id,
+      label: item.label,
+      status,
+      note: "Rule-based keyword overlap: " + checked.length + " of " + keywords.length + " significant terms matched. Verify equivalent wording and context manually.",
+      evidence_lines: cited,
+      years: null,
+      source: null
+    };
+  });
+  const yearMatch = text.match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:relevant\s+)?experience\b/i)
+    || text.match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\b/i);
+  let education = "none";
+  if (/\bph\.?d\b|\bdoctorate\b/i.test(text)) education = "phd";
+  else if (/\bmaster'?s?\b|\bmba\b/i.test(text)) education = "master";
+  else if (/\bbachelor'?s?\b|\bb\.?tech\b|\bb\.?e\.?\b|\bb\.?sc\b/i.test(text)) education = "bachelor";
+  else if (/\bdiploma\b/i.test(text)) education = "diploma";
+  else if (/\bhigh school\b/i.test(text)) education = "high_school";
+  return {
+    profile: {
+      latest_title: null,
+      total_years: yearMatch ? Number(yearMatch[1]) : null,
+      relevant_years: yearMatch ? Number(yearMatch[1]) : null,
+      education_level: education,
+      location: null,
+      roles: [],
+      education: [],
+      certifications: [],
+      languages: []
+    },
+    evidence,
+    summary: "Built-in rules engine compared job requirement keywords against redacted resume text. It does not understand meaning or make a hiring decision.",
+    flags: ["Built-in rules engine, not generative AI.", "Exact keyword matching may miss synonyms, paraphrases, and context.", "Human review is required; never use this score as the sole hiring criterion."]
+  };
+}
+
 async function routeRequest(req, res, path, body) {
   const method = String(req.method || "GET").toUpperCase(), headers = req.headers || {};
   if (method === "OPTIONS") { res.statusCode = 204; res.setHeader("Allow", "GET, POST, OPTIONS"); return res.end(); }
