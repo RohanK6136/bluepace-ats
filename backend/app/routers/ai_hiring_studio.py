@@ -16,7 +16,7 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text,
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.database import Base, get_db
-from app.models import Role, User
+from app.models import Application, ApplicationMatchAssessment, Job, Role, User
 from app.security import require_roles
 from app.services.ai_providers import (
     call_ai_provider as _call_ai_provider,
@@ -779,6 +779,195 @@ def delete_saved_rubric(
         409,
         "Saved rubric versions are retained for assessment auditability. Create a new version instead of deleting a saved snapshot.",
     )
+
+
+class SaveApplicantMatchAssessmentRequest(BaseModel):
+    application_id: int = Field(gt=0)
+    job_id: int = Field(gt=0)
+    rubric_id: str = Field(min_length=1, max_length=100)
+    rubric_hash: str | None = Field(default=None, max_length=64)
+    rubric_title: str = Field(default="", max_length=200)
+    assessment: dict[str, Any]
+
+
+def _bounded_integer(value: Any, minimum: int = 0, maximum: int = 100) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = int(value)
+    return number if minimum <= number <= maximum else None
+
+
+def _safe_applicant_match_assessment(source: dict[str, Any]) -> dict[str, Any]:
+    """Persist scores/statuses only; never retain resume excerpts, profile data, or generated narrative."""
+    scores = source.get("scores") if isinstance(source.get("scores"), dict) else {}
+
+    def count_score(value: Any) -> dict[str, int | None] | None:
+        if not isinstance(value, dict):
+            return None
+        return {
+            key: _bounded_integer(value.get(key), 0, 100 if key == "pct" else 100000)
+            for key in ("pct", "met", "partial", "total")
+        }
+
+    experience = scores.get("experience") if isinstance(scores.get("experience"), dict) else {}
+    education = scores.get("education") if isinstance(scores.get("education"), dict) else {}
+    safe_groups = []
+    for group in scores.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        label = str(group.get("label") or group.get("name") or "").strip()[:120]
+        if not label:
+            continue
+        safe_groups.append({
+            "label": label,
+            "pct": _bounded_integer(group.get("pct")),
+            "met": _bounded_integer(group.get("met"), 0, 100000),
+            "partial": _bounded_integer(group.get("partial"), 0, 100000),
+            "total": _bounded_integer(group.get("total"), 0, 100000),
+        })
+        if len(safe_groups) >= 20:
+            break
+
+    safe_evidence = []
+    for item in source.get("evidence") or []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()[:120]
+        state = str(item.get("status") or "")
+        if label and state in {"met", "partial", "unclear", "not_evidenced"}:
+            safe_evidence.append({
+                "label": label,
+                "status": state,
+                "importance": item.get("importance") if item.get("importance") in {"must", "nice"} else None,
+                "group": str(item.get("group") or "")[:40],
+            })
+        if len(safe_evidence) >= 100:
+            break
+
+    safe_gaps = []
+    for item in source.get("gaps") or []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()[:120]
+        state = str(item.get("status") or "")
+        if label and state in {"met", "partial", "unclear", "not_evidenced"}:
+            safe_gaps.append({
+                "label": label,
+                "status": state,
+                "importance": item.get("importance") if item.get("importance") in {"must", "nice"} else None,
+            })
+        if len(safe_gaps) >= 100:
+            break
+
+    flags = [
+        str(flag).strip()[:120]
+        for flag in (source.get("flags") or [])[:20]
+        if isinstance(flag, str) and flag.strip()
+    ]
+    return {
+        "status": "manual" if source.get("status") == "manual" else "complete",
+        "match_score": _bounded_integer(scores.get("match")),
+        "scores": {
+            "required_skills": count_score(scores.get("required_skills")),
+            "preferred_skills": count_score(scores.get("preferred_skills")),
+            "experience": {
+                "pct": _bounded_integer(experience.get("pct")),
+                "relevant_years": experience.get("relevant_years") if isinstance(experience.get("relevant_years"), (int, float)) else None,
+                "total_years": experience.get("total_years") if isinstance(experience.get("total_years"), (int, float)) else None,
+                "required_years": experience.get("required_years") if isinstance(experience.get("required_years"), (int, float)) else None,
+            },
+            "education": {
+                "pct": _bounded_integer(education.get("pct")),
+                "level": str(education.get("level") or "")[:30] or None,
+                "required": str(education.get("required") or "")[:30] or None,
+            },
+            "groups": safe_groups,
+        },
+        "evidence": safe_evidence,
+        "gaps": safe_gaps,
+        "flags": flags,
+        "decision_support_only": True,
+    }
+
+
+def _applicant_match_assessment_payload(row: ApplicationMatchAssessment) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "application_id": row.application_id,
+        "job_id": row.job_id,
+        "candidate_id": row.candidate_id,
+        "request_id": row.request_id,
+        "rubric_id": row.rubric_id,
+        "rubric_hash": row.rubric_hash,
+        "rubric_title": row.rubric_title,
+        "status": row.status,
+        "match_score": row.match_score,
+        "assessment_data": row.assessment_data or {},
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.post("/applicant-match/assessments", status_code=201)
+def save_applicant_match_assessment(
+    request: SaveApplicantMatchAssessmentRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Store minimal result metadata only after checking the application, job, and tenant."""
+    application = db.scalar(select(Application).where(
+        Application.id == request.application_id,
+        Application.organization_id == user.organization_id,
+    ))
+    job = db.scalar(select(Job).where(
+        Job.id == request.job_id,
+        Job.organization_id == user.organization_id,
+    ))
+    if application is None or job is None:
+        raise HTTPException(404, "ATS job or application not found in this organisation.")
+    if application.job_id != job.id:
+        raise HTTPException(409, "The selected application does not belong to the selected ATS job.")
+
+    assessment = _safe_applicant_match_assessment(request.assessment)
+    row = ApplicationMatchAssessment(
+        organization_id=user.organization_id,
+        application_id=application.id,
+        job_id=job.id,
+        candidate_id=application.candidate_id,
+        created_by_id=user.id,
+        request_id=str(request.assessment.get("request_id") or "").strip()[:100] or None,
+        rubric_id=request.rubric_id.strip(),
+        rubric_hash=request.rubric_hash,
+        rubric_title=request.rubric_title.strip()[:200],
+        status=assessment["status"],
+        match_score=assessment["match_score"],
+        assessment_data=assessment,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _applicant_match_assessment_payload(row)
+
+
+@router.get("/applications/{application_id}/applicant-match-assessments")
+def list_applicant_match_assessments(
+    application_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = db.scalar(select(Application).where(
+        Application.id == application_id,
+        Application.organization_id == user.organization_id,
+    ))
+    if application is None:
+        raise HTTPException(404, "Application not found in this organisation.")
+    rows = db.scalars(
+        select(ApplicationMatchAssessment).where(
+            ApplicationMatchAssessment.application_id == application.id,
+            ApplicationMatchAssessment.organization_id == user.organization_id,
+        ).order_by(ApplicationMatchAssessment.created_at.desc()).limit(20)
+    ).all()
+    return [_applicant_match_assessment_payload(row) for row in rows]
+
 
 @router.get("/history")
 def list_history(limit: int = Query(default=30, ge=1, le=100),
