@@ -91,7 +91,7 @@ jobs:
 
           jd='{"text":"Software Engineer\nResponsibilities:\nBuild and maintain REST APIs.\nRequirements:\nPython, SQL, and 3 years of experience.","options":{"profile":"rules","mode":"light"}}'
           standardized="$(curl --silent --show-error --location --max-time 20 --fail -H 'Content-Type: application/json' -d "$jd" "$base/v1/jd/standardize")"
-          node -e 'const x=JSON.parse(process.argv[1]); if (!x || !x.title || !Array.isArray(x.requirements)) throw new Error("JD standardization returned an invalid payload");' "$standardized"
+          node -e 'const x=JSON.parse(process.argv[1]); if (!x?.fields?.title?.value || !Array.isArray(x.sections)) throw new Error("JD standardization returned an invalid payload");' "$standardized"
 
           rubric_response="$(curl --silent --show-error --location --max-time 20 --fail -H 'Content-Type: application/json' -d '{"jd_text":"Software Engineer\nRequirements:\nPython, SQL, and 3 years of experience.\nResponsibilities:\nBuild and maintain REST APIs.","options":{"profile":"rules"}}' "$base/v1/match/rubrics")"
           rubric="$(node -e 'const x=JSON.parse(process.argv[1]); if (!x.rubric || !Array.isArray(x.rubric.items) || x.rubric.items.length < 1) throw new Error("Rubric generation returned no criteria"); process.stdout.write(JSON.stringify(x.rubric));' "$rubric_response")"
