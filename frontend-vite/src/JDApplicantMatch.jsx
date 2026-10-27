@@ -156,7 +156,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       setModels(rows);
       setConnection("connected");
       setConnectionMessage(rows.length ? `${rows.filter((model) => model.enabled).length} model profile(s) ready` : "API reachable; no model profiles were returned");
-      setSelectedProfile((current) => current || rows.find((model) => model.enabled && model.is_default)?.id || rows.find((model) => model.enabled)?.id || "");
+      setSelectedProfile((current) => rows.find((model) => model.id === current && model.enabled)?.id || rows.find((model) => model.enabled && model.is_default)?.id || rows.find((model) => model.enabled)?.id || "");
       setJdError("");
       setRubricError((current) => current.includes("does not expose") ? "" : current);
     } catch (error) {
