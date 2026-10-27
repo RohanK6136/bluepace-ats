@@ -15,6 +15,9 @@ def test_provider_aliases_and_defaults(monkeypatch):
     assert ai_providers.provider_name("google_genai") == "gemini"
     assert ai_providers.default_model("gemini") == "gemini-2.5-flash"
     assert ai_providers.default_model("openrouter") == "google/gemini-2.5-flash"
+    monkeypatch.setenv("OPENROUTER_MODEL", "openrouter/free")
+    assert ai_providers.default_model("openrouter") == "google/gemini-2.5-flash"
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
     assert ai_providers.default_model("ollama") == "qwen3.5:4b"
     assert ai_providers.default_model("deepseek") == "deepseek-chat"
     assert ai_providers.default_model("cloudflare") == "@cf/qwen/qwen3.8-27b"
