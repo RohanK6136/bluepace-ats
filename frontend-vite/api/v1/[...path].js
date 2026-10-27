@@ -9,11 +9,11 @@ const MAX_FILE = 5 * 1024 * 1024;
 const RETIRED_GITHUB_MODELS = "GitHub Models inference API was retired July 30, 2026. A Copilot subscription is not a general-purpose model API credential.";
 
 const PROFILES = {
-  openrouter: { id: "openrouter", label: "OpenRouter · Gemini 2.5 Flash", provider: "openrouter", model: "google/gemini-2.5-flash", endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", context_tokens: 128000, is_default: true, description: "Use your OpenRouter key from AI Hiring Studio Settings." },
-  gemini: { id: "gemini", label: "Google Gemini 2.5 Flash", provider: "google", model: "gemini-2.5-flash", endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", header: "x-google-api-key", context_tokens: 1000000, description: "Use your Google Gemini key from AI Hiring Studio Settings." },
-  deepseek: { id: "deepseek", label: "DeepSeek Chat", provider: "deepseek", model: "deepseek-chat", endpoint: "https://api.deepseek.com/chat/completions", header: "x-deepseek-api-key", context_tokens: 128000, description: "Use your DeepSeek key from AI Hiring Studio Settings." },
-  grok: { id: "grok", label: "xAI Grok 3 Mini", provider: "xai", model: "grok-3-mini", endpoint: "https://api.x.ai/v1/chat/completions", header: "x-xai-api-key", context_tokens: 131072, description: "Use your xAI key from AI Hiring Studio Settings." },
-  openai: { id: "openai", label: "OpenAI / ChatGPT API · GPT-4.1", provider: "openai", model: "gpt-4.1", endpoint: "https://api.openai.com/v1/chat/completions", header: "x-openai-api-key", context_tokens: 128000, description: "OpenAI API access is billed separately from a ChatGPT subscription." },
+  openrouter: { id: "openrouter", label: "OpenRouter · Gemini 3.8 Flash", provider: "openrouter", model: "google/gemini-3.8-flash", endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", context_tokens: 128000, is_default: true, description: "Use your OpenRouter key from AI Hiring Studio Settings." },
+  gemini: { id: "gemini", label: "Google Gemini 3.8 Flash", provider: "google", model: "gemini-3.8-flash", endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", header: "x-google-api-key", openrouter_model: "google/gemini-3.8-flash", context_tokens: 1000000, description: "Use your Google Gemini key from AI Hiring Studio Settings." },
+  deepseek: { id: "deepseek", label: "DeepSeek V4.1 Flash", provider: "deepseek", model: "deepseek-flash", endpoint: "https://api.deepseek.com/chat/completions", header: "x-deepseek-api-key", openrouter_model: "deepseek/deepseek-v4.1-flash", context_tokens: 1048576, description: "Use your DeepSeek key from AI Hiring Studio Settings." },
+  grok: { id: "grok", label: "xAI Grok 4.7", provider: "xai", model: "grok-4.7", endpoint: "https://api.x.ai/v1/chat/completions", header: "x-xai-api-key", openrouter_model: "x-ai/grok-4.7", context_tokens: 500000, description: "Use your xAI key from AI Hiring Studio Settings." },
+  openai: { id: "openai", label: "OpenAI / ChatGPT API · GPT-4.1", provider: "openai", model: "gpt-4.1", endpoint: "https://api.openai.com/v1/chat/completions", header: "x-openai-api-key", openrouter_model: "openai/gpt-4.1", context_tokens: 128000, description: "OpenAI API access is billed separately from a ChatGPT subscription." },
   "github-models": { id: "github-models", label: "GitHub Models · retired API", provider: "github", model: "", endpoint: "", header: "", context_tokens: 0, description: RETIRED_GITHUB_MODELS, retired: true },
   "local-qwen": { id: "local-qwen", label: "Qwen · local (LM Studio)", provider: "local", model: "qwen/qwen3.5-9b", endpoint: "", header: "", context_tokens: 8192, description: "Vercel cannot reach LM Studio running on your computer.", local: true },
   "local-ollama": { id: "local-ollama", label: "Ollama · local", provider: "local", model: "", endpoint: "", header: "", context_tokens: 8192, description: "Vercel cannot reach Ollama running on your computer.", local: true }
@@ -77,28 +77,38 @@ function parseMultipart(buffer, contentType) {
 function getKey(profile, headers) {
   return profile && profile.header ? String(headers[profile.header] || "").trim() : "";
 }
+function resolveCredential(profile, headers) {
+  const directKey = getKey(profile, headers);
+  if (directKey && profile.endpoint) return { key: directKey, endpoint: profile.endpoint, model: profile.model, provider: profile.provider };
+  const openrouterKey = String(headers["x-openrouter-api-key"] || "").trim();
+  if (openrouterKey && profile.id !== "openrouter" && profile.openrouter_model) {
+    return { key: openrouterKey, endpoint: "https://openrouter.ai/api/v1/chat/completions", model: profile.openrouter_model, provider: "openrouter" };
+  }
+  return null;
+}
 function modelStatuses(headers) {
   return Object.values(PROFILES).map((profile) => {
     let reason = null;
+    const credential = resolveCredential(profile, headers);
     if (profile.retired) reason = profile.description;
     else if (profile.local) reason = profile.description;
-    else if (!getKey(profile, headers)) {
+    else if (!credential) {
       const provider = profile.id === "openrouter" ? "OpenRouter" : profile.provider === "google" ? "Google Gemini" : profile.provider === "xai" ? "xAI Grok" : profile.provider === "openai" ? "OpenAI" : "DeepSeek";
-      reason = "Add a " + provider + " API key in AI Hiring Studio Settings to enable this model.";
+      reason = "Add a " + provider + " API key in AI Hiring Studio Settings to enable this model. A saved OpenRouter key also enables this hosted model option.";
     }
-    return { ...profile, enabled: !reason, is_default: Boolean(profile.is_default && !reason), disabled_reason: reason };
+    return { ...profile, model: credential ? credential.model : profile.model, provider: credential ? credential.provider : profile.provider, enabled: !reason, is_default: Boolean(profile.is_default && !reason), disabled_reason: reason };
   });
 }
 async function callModel(profile, headers, system, user, maxTokens) {
-  const key = getKey(profile, headers);
-  if (!key) throw Object.assign(new Error("Add the selected provider API key in AI Hiring Studio Settings before using this model."), { statusCode: 400 });
+  const credential = resolveCredential(profile, headers);
+  if (!credential) throw Object.assign(new Error("Add the selected provider API key in AI Hiring Studio Settings before using this model. One saved OpenRouter key can power OpenRouter, Gemini, DeepSeek, Grok and GPT model options."), { statusCode: 400 });
   const started = Date.now();
   let response;
   try {
-    response = await fetch(profile.endpoint, {
+    response = await fetch(credential.endpoint, {
       method: "POST",
-      headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: profile.model, messages: [{ role: "system", content: system }, { role: "user", content: user }], temperature: 0.1, max_tokens: maxTokens || 4000 }),
+      headers: { Authorization: "Bearer " + credential.key, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: credential.model, messages: [{ role: "system", content: system }, { role: "user", content: user }], temperature: 0.1, max_tokens: maxTokens || 4000 }),
       signal: AbortSignal.timeout(55000)
     });
   } catch (error) {
@@ -133,7 +143,7 @@ async function callModel(profile, headers, system, user, maxTokens) {
     }
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw Object.assign(new Error("The model returned invalid structured output. Retry or choose another model."), { statusCode: 502 });
-  return { parsed, model: data.model || profile.model, latency_ms: Date.now() - started, prompt_tokens: Number(data.usage && data.usage.prompt_tokens || 0), completion_tokens: Number(data.usage && data.usage.completion_tokens || 0) };
+  return { parsed, model: data.model || credential.model, latency_ms: Date.now() - started, prompt_tokens: Number(data.usage && data.usage.prompt_tokens || 0), completion_tokens: Number(data.usage && data.usage.completion_tokens || 0) };
 }
 function list(value, max) {
   const limit = max || 30;
