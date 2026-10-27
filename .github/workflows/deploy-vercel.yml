@@ -1,7 +1,11 @@
 name: Deploy frontend to Vercel
 
-# Deploy the Vite frontend from main. A missing token must fail visibly rather
-# than reporting a green run while skipping deployment.
+# Manual production deployment only.
+# Vercel's Git integration already deploys pushes to main. Running this CLI
+# deployment on every push creates a duplicate deployment and can exhaust the
+# Hobby plan's 100-deployments-per-24-hours limit. Use workflow_dispatch only
+# when a deliberate redeploy is needed and the Vercel quota is available.
+# A missing token must fail visibly rather than silently skipping deployment.
 #
 # Required repository secret:
 #   VERCEL_TOKEN - a Vercel personal access token with access to this project.
@@ -15,11 +19,6 @@ name: Deploy frontend to Vercel
 # the local Vercel build (for example, "Error: [ENOENT] spawn sh ENOENT").
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "frontend-vite/**"
-      - ".github/workflows/deploy-vercel.yml"
   workflow_dispatch:
 
 jobs:
