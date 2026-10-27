@@ -81,7 +81,9 @@ test("OpenRouter inference test verifies a real completion without exposing the 
 
 test("OpenRouter inference test fails clearly when no provider key is supplied", async () => {
   const originalFetch = globalThis.fetch;
+  const previousKey = process.env.OPENROUTER_API_KEY;
   let fetchCalled = false;
+  delete process.env.OPENROUTER_API_KEY;
   globalThis.fetch = async () => {
     fetchCalled = true;
     throw new Error("A provider request should not be made without a key.");
@@ -93,6 +95,8 @@ test("OpenRouter inference test fails clearly when no provider key is supplied",
     assert.equal(fetchCalled, false);
   } finally {
     globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previousKey;
   }
 });
 
