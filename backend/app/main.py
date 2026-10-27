@@ -118,6 +118,7 @@ from app.services.llm_validator import llm_validator
 from app.services.matching import MATCH_WEIGHTS, matching_service
 from app.services.reranker import reranker_service
 from app.services.match_explanation import build_match_explanation
+from app.api.deps import Platform, platform, require_api_key
 from app.routers.merge_center import router as merge_center_router
 from app.routers.demo_data import router as demo_data_router, populate_demo_data
 from app.routers.offer_management import router as offer_management_router
@@ -432,6 +433,18 @@ app.include_router(ai_hiring_studio_router)
 app.include_router(zoho_recruit_router)
 app.include_router(jd_router)
 app.include_router(match_router)
+
+
+@app.get("/v1/models", tags=["AI Feature API"], dependencies=[Depends(require_api_key)])
+@app.get("/v1/jd/models", include_in_schema=False, tags=["AI Feature API"], dependencies=[Depends(require_api_key)])
+def list_ai_model_profiles(p: Platform = Depends(platform)):
+    """Return configured model profile readiness without exposing secrets."""
+    if p.registry is None:
+        raise HTTPException(
+            status_code=503,
+            detail="AI model registry is unavailable. Check backend model configuration and startup logs.",
+        )
+    return [profile.model_dump(mode="json") for profile in p.registry.statuses()]
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
