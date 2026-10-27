@@ -68,8 +68,9 @@ jobs:
           set -o pipefail
           deploy_output="$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN" 2>&1)" || {
             if grep -Eq 'Resource is limited|api-deployments-free-per-day' <<<"$deploy_output"; then
-              echo "::error title=Vercel deployment quota exceeded::The Vercel Hobby plan has hit its 100 deployments / 24h limit. Wait 24 hours or upgrade the Vercel plan to continue deploying."
-              exit 1
+              echo "$deploy_output"
+              echo "::warning title=Vercel deployment quota exceeded::The Vercel Hobby plan has hit its 100 deployments / 24h limit. The workflow will skip the redeploy instead of failing the job. Wait 24 hours or upgrade the Vercel plan to continue deploying."
+              exit 0
             fi
             echo "$deploy_output"
             echo "::error title=Vercel deployment failed::Deployment failed. Check the output above for details."
