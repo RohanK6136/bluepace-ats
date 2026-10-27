@@ -812,7 +812,7 @@ def _verified_saved_feature_rubric(p: Platform, rubric_id: str) -> dict[str, Any
         raise HTTPException(404, "Saved Applicant Match rubric not found.")
     owner_key_id = row.get("created_by")
     current_key_id = api_key_id.get()
-    if owner_key_id and owner_key_id != current_key_id:
+    if owner_key_id != current_key_id:
         raise HTTPException(404, "Saved Applicant Match rubric not found for this API key.")
     try:
         rubric_data = json.loads(row.get("rubric_json") or "")
@@ -997,7 +997,7 @@ def _verified_applicant_match_result(p: Platform, request_id: str) -> tuple[dict
         raise HTTPException(404, "Applicant Match run not found. Run the assessment again before saving.")
     saved_api_key_id = row.get("api_key_id")
     current_api_key_id = api_key_id.get()
-    if saved_api_key_id and saved_api_key_id != current_api_key_id:
+    if saved_api_key_id != current_api_key_id:
         raise HTTPException(404, "Applicant Match run not found. Run the assessment again with the configured API key.")
     if row.get("outcome") not in {"success", "degraded"}:
         raise HTTPException(409, "This Applicant Match run did not produce a savable assessment.")
