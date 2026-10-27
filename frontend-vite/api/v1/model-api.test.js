@@ -48,3 +48,15 @@ test("retired GitHub Models API remains visibly disabled", async () => {
   assert.equal(profile.enabled, false);
   assert.match(profile.disabled_reason, /retired/i);
 });
+test("one OpenRouter key enables Gemini, DeepSeek, Grok, and OpenAI profile choices", async () => {
+  const response = await invoke({ host: "ats.vercel.app", "x-openrouter-api-key": "test-key-not-used-in-this-test" });
+  const byId = Object.fromEntries(response.body.map((row) => [row.id, row]));
+  assert.equal(byId.gemini.enabled, true);
+  assert.equal(byId.gemini.model, "google/gemini-3.8-flash");
+  assert.equal(byId.deepseek.enabled, true);
+  assert.equal(byId.deepseek.model, "deepseek/deepseek-v4.1-flash");
+  assert.equal(byId.grok.enabled, true);
+  assert.equal(byId.grok.model, "x-ai/grok-4.7");
+  assert.equal(byId.openai.enabled, true);
+  assert.equal(byId.openai.model, "openai/gpt-4.1");
+});
