@@ -18,7 +18,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.api.deps import Platform, platform, require_api_key
 from app.database import Base, get_db
-from app.models import Application, ApplicationMatchAssessment, Job, Role, User
+from app.models import Application, ApplicationMatchAssessment, Candidate, Job, Role, User
 from app.security import require_roles
 from app.services.ai_providers import (
     call_ai_provider as _call_ai_provider,
@@ -979,6 +979,48 @@ def save_applicant_match_assessment(
     db.commit()
     db.refresh(row)
     return _applicant_match_assessment_payload(row)
+
+
+@router.get("/jobs/{job_id}/application-choices")
+def list_applicant_match_application_choices(
+    job_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Return only minimal candidate display fields for tenant-owned applications."""
+    job = db.scalar(select(Job).where(
+        Job.id == job_id,
+        Job.organization_id == user.organization_id,
+    ))
+    if job is None:
+        raise HTTPException(404, "Job not found in this organisation.")
+    rows = db.execute(
+        select(
+            Application.id,
+            Application.candidate_id,
+            Candidate.first_name,
+            Candidate.last_name,
+            Application.stage_id,
+            Application.status,
+        )
+        .join(Candidate, Candidate.id == Application.candidate_id)
+        .where(
+            Application.organization_id == user.organization_id,
+            Application.job_id == job.id,
+        )
+        .order_by(Application.applied_at.desc())
+        .limit(100)
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "candidate_id": row.candidate_id,
+            "candidate_name": " ".join(part for part in (row.first_name, row.last_name) if part).strip(),
+            "stage_id": row.stage_id,
+            "status": row.status,
+        }
+        for row in rows
+    ]
 
 
 @router.get("/applications/{application_id}/applicant-match-assessments")
