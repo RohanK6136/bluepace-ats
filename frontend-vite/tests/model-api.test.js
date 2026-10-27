@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import handler from "../api/v1/[...path].js";
+import { onRequest as pagesFunction } from "../functions/v1/[[path]].js";
 
 function invoke(headers = {}, method = "GET", pathParts = ["models"], body = "") {
   const req = {
@@ -172,4 +173,81 @@ test("built-in rules engine builds a rubric and returns evidence-based resume ma
   assert.equal(matchResponse.body.status, "complete");
   assert.ok(matchResponse.body.evidence.length > 0);
   assert.match(matchResponse.body.flags.join(" "), /not generative AI/i);
+});
+
+
+async function invokePagesFunction(pathParts, { method = "GET", headers = {}, body } = {}) {
+  const url = "https://bluepace-ats-frontend.pages.dev/v1/" + pathParts.join("/");
+  const request = new Request(url, {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body }),
+  });
+  const response = await pagesFunction({ request, params: { path: pathParts } });
+  const responseText = await response.text();
+  let parsed;
+  try { parsed = JSON.parse(responseText); } catch { parsed = responseText; }
+  return { statusCode: response.status, headers: Object.fromEntries(response.headers.entries()), body: parsed };
+}
+
+test("Cloudflare Pages adapter exposes the keyless rules model on /v1/models", async () => {
+  const response = await invokePagesFunction(["models"]);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["cache-control"], "no-store");
+  assert.equal(response.body.find((row) => row.id === "rules")?.enabled, true);
+});
+
+test("Cloudflare Pages adapter standardizes job descriptions through the keyless rules engine", async () => {
+  const text = [
+    "Software Engineer",
+    "Responsibilities:",
+    "- Build REST APIs in Python",
+    "Requirements:",
+    "- SQL and 3 years of experience",
+  ].join("\\n");
+  const response = await invokePagesFunction(["jd", "standardize"], {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text, options: { profile: "rules", mode: "light" } }),
+  });
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  assert.equal(response.body.meta.profile, "rules");
+  assert.equal(response.body.fields.title.value, "Software Engineer");
+});
+
+test("Cloudflare Pages adapter builds a rubric and assesses resume evidence without an AI key", async () => {
+  const jd = [
+    "Software Engineer",
+    "Requirements:",
+    "- Python and SQL",
+    "- 3 years of experience",
+    "Responsibilities:",
+    "- Build and maintain REST APIs",
+  ].join("\\n");
+  const rubricResponse = await invokePagesFunction(["match", "rubrics"], {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jd_text: jd, options: { profile: "rules" } }),
+  });
+  assert.equal(rubricResponse.statusCode, 200, JSON.stringify(rubricResponse.body));
+  const rubric = rubricResponse.body.rubric;
+  assert.ok(rubric?.items?.length > 0);
+
+  const boundary = "cloudflare-rules-test-boundary";
+  const resume = "Software engineer with 4 years of experience. Built REST APIs in Python and SQL; maintained production services.";
+  const multipart = [
+    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\"rubric\"\\r\\n\\r\\n" + JSON.stringify(rubric) + "\\r\\n",
+    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\"text\"\\r\\n\\r\\n" + resume + "\\r\\n",
+    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\"profile\"\\r\\n\\r\\nrules\\r\\n",
+    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\"rubric_id\"\\r\\n\\r\\n" + rubric.rubric_id + "\\r\\n",
+    "--" + boundary + "--\\r\\n",
+  ].join("");
+  const matchResponse = await invokePagesFunction(["match", "analyze"], {
+    method: "POST",
+    headers: { "content-type": "multipart/form-data; boundary=" + boundary },
+    body: multipart,
+  });
+  assert.equal(matchResponse.statusCode, 200, JSON.stringify(matchResponse.body));
+  assert.equal(matchResponse.body.versions.profile, "rules");
+  assert.ok(matchResponse.body.evidence.length > 0);
 });
