@@ -155,7 +155,8 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       const rows = Array.isArray(response.data) ? response.data : [];
       setModels(rows);
       setConnection("connected");
-      setConnectionMessage(rows.length ? `${rows.filter((model) => model.enabled).length} model profile(s) ready` : "API reachable; no model profiles were returned");
+      const readyCount = rows.filter((model) => model.enabled).length;
+      setConnectionMessage(rows.length ? (readyCount ? `${readyCount} model profile(s) ready` : "API is reachable, but no provider key is configured. Add one in AI Hiring Studio Settings.") : "API reachable; no model profiles were returned");
       setSelectedProfile((current) => rows.find((model) => model.id === current && model.enabled)?.id || rows.find((model) => model.enabled && model.is_default)?.id || rows.find((model) => model.enabled)?.id || "");
       setJdError("");
       setRubricError((current) => current.includes("does not expose") ? "" : current);
@@ -546,6 +547,12 @@ export default function JDApplicantMatch({ token, apiRequest }) {
           </div>
         </details>
         <div className="px-5 py-5 sm:px-7 sm:py-6">
+          {connection === "connected" && models.length > 0 && models.every((model) => !model.enabled) && (
+            <div role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+              <p className="font-semibold">Model API is online; provider credentials are missing.</p>
+              <p className="mt-1">Open AI Hiring Studio → Settings and save a provider key for this browser tab. One OpenRouter key can enable the Gemini, DeepSeek, Grok, and GPT model options. GitHub Models is retired and cannot be enabled with a Copilot subscription.</p>
+            </div>
+          )}
           {notice && <div role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{notice}</div>}
           {connection === "unavailable" && (
             <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
