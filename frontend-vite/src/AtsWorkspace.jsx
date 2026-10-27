@@ -22,7 +22,7 @@ const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
   configuredApiUrl ||
   (import.meta.env.PROD
-    ? "https://bluepace-ats-production.up.railway.app"
+    ? "https://bluepace-ats-11.onrender.com"
     : "http://localhost:8000")
 ).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 90_000;
@@ -280,7 +280,7 @@ export default function AtsWorkspace() {
   const [portalLink, setPortalLink] = useState("");
   const [portalLinkLoading, setPortalLinkLoading] = useState(false);
   const [jobFormOpen, setJobFormOpen] = useState(false);
-  const [jobEntryMode, setJobEntryMode] = useState("link");
+  const [jobEntryMode, setJobEntryMode] = useState("manual");
   const [jobDocumentFile, setJobDocumentFile] = useState(null);
   const [jobLinkInput, setJobLinkInput] = useState("");
   const [editingJob, setEditingJob] = useState(null);
@@ -691,7 +691,7 @@ export default function AtsWorkspace() {
 
   function resetJobForm(job = null) {
     setEditingJob(job);
-    setJobEntryMode(job ? "manual" : "link");
+    setJobEntryMode("manual");
     setJobDocumentFile(null);
     setJobLinkInput(job?.jd_analysis?.source_url || "");
     setJobForm(job ? {
@@ -739,6 +739,7 @@ export default function AtsWorkspace() {
   async function saveJob(event) {
     event.preventDefault();
     setError("");
+    setNotice("");
     try {
       if (!editingJob && jobEntryMode === "link") {
         if (!jobLinkInput.trim()) {
@@ -770,21 +771,24 @@ export default function AtsWorkspace() {
           await apiRequest(token, "patch", `/jobs/${editingJob.id}`, { data: jobPayload });
           setNotice("Job updated");
         } else {
-          // New jobs are created through URL import or document extraction.
-          setError("Use a public job posting URL or upload a PDF/DOCX so BluePace can extract the job details automatically.");
-          return;
+          await apiRequest(token, "post", "/jobs", { data: jobPayload });
+          setNotice("Job created successfully.");
         }
       }
       setJobFormOpen(false);
       setJobDocumentFile(null);
       setJobLinkInput("");
-      setJobEntryMode("link");
+      setJobEntryMode("manual");
       await refreshWorkspace();
+      if (view === "dashboard") {
+        setView("dashboard");
+        const refreshedDashboard = await apiRequest(token, "get", "/dashboard");
+        setDashboardData(refreshedDashboard.data || null);
+      }
     } catch (requestError) {
       setError(errorText(requestError));
     }
   }
-
   async function analyzeJob(job) {
     try {
       const response = await apiRequest(token, "post", "/jobs/" + job.id + "/analyze");
@@ -1459,7 +1463,7 @@ export default function AtsWorkspace() {
                 <button type="button" className={buttonSecondary} onClick={() => { setView("jd-match"); setMoreOpen(false); setError(""); setNotice(""); }}>
                   JD & Applicant Match <span aria-hidden="true">↗</span>
                 </button>
-                {canWrite && <button className={buttonPrimary} onClick={() => { resetJobForm(); setError(""); }}>Create job</button>}
+                {canWrite && <button type="button" className={buttonPrimary} onClick={() => { setView("jobs"); setMoreOpen(false); resetJobForm(); setError(""); setNotice(""); }}>Create job</button>}
                 {canWrite && import.meta.env.DEV && <button type="button" className={buttonSecondary} onClick={populateDemoData} disabled={demoPopulationLoading} title="Add synthetic jobs, candidates, pipeline stages, interviews, offers, talent pools, and workflow examples. Existing data is preserved.">
                   <svg aria-hidden="true" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <ellipse cx="12" cy="5" rx="8" ry="3" />
@@ -1557,6 +1561,7 @@ export default function AtsWorkspace() {
             {jobFormOpen && <form onSubmit={saveJob} className="mb-6 border-y border-ink-100 bg-white p-4 sm:p-5">
               <div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">{editingJob ? "Edit job" : "New job"}</h2><button type="button" aria-label="Close form" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>×</button></div>
               {!editingJob && <div className="mb-5 flex flex-wrap gap-2 border-b border-ink-100 pb-3">
+                <button type="button" onClick={() => setJobEntryMode("manual")} className={jobEntryMode === "manual" ? buttonPrimary : buttonSecondary}>Enter manually</button>
                 <button type="button" onClick={() => setJobEntryMode("link")} className={jobEntryMode === "link" ? buttonPrimary : buttonSecondary}>Import from job URL</button>
                 <button type="button" onClick={() => setJobEntryMode("upload")} className={jobEntryMode === "upload" ? buttonPrimary : buttonSecondary}>Upload JD file</button>
               </div>}
@@ -1595,27 +1600,42 @@ export default function AtsWorkspace() {
                   <Field label="Required skills" placeholder="Python, PostgreSQL, AWS" value={jobForm.required_skills} onChange={(event) => setJobForm({ ...jobForm, required_skills: event.target.value })} />
                   <Field label="Minimum experience (years)" type="number" min="0" max="60" step="0.5" value={jobForm.minimum_experience_years} onChange={(event) => setJobForm({ ...jobForm, minimum_experience_years: event.target.value })} />
                   <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700"><input type="checkbox" checked={jobForm.fresher_allowed} onChange={(event) => setJobForm({ ...jobForm, fresher_allowed: event.target.checked })} />Open to freshers</label>
-                  <div className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span>Imported job description · read-only</span>
-                      {editingJob?.jd_analysis?.source_url && (
-                        <button type="button" onClick={refreshEditingJobSource} disabled={jobSourceRefreshing} className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold disabled:opacity-50">
-                          {jobSourceRefreshing ? "Refreshing source…" : "Refresh from source"}
-                        </button>
-                      )}
+                  {(editingJob?.jd_analysis?.source_url || editingJob?.jd_analysis?.source_file) ? (
+                    <div className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span>Imported job description · read-only</span>
+                        {editingJob?.jd_analysis?.source_url && (
+                          <button type="button" onClick={refreshEditingJobSource} disabled={jobSourceRefreshing} className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold disabled:opacity-50">
+                            {jobSourceRefreshing ? "Refreshing source…" : "Refresh from source"}
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-ink-100 bg-[#fafaf8] p-3 text-xs font-normal leading-5 text-ink-700">
+                        {jobForm.description || "No source description is available for this job."}
+                      </div>
+                      <span className="text-[11px] font-normal text-ink-400">
+                        This description was imported from the original source.
+                        {editingJob?.jd_analysis?.source_url ? " Use Refresh from source to sync the latest public posting." : " Import an updated PDF/DOCX to replace this content."}
+                      </span>
+                      {editingJob?.jd_analysis?.source_url && <a className="break-all text-[11px] font-medium text-blue-700 hover:underline" href={editingJob.jd_analysis.source_url} target="_blank" rel="noreferrer">Open original job posting</a>}
                     </div>
-                    <div className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-ink-100 bg-[#fafaf8] p-3 text-xs font-normal leading-5 text-ink-700">
-                      {jobForm.description || "No source description is available for this job."}
-                    </div>
-                    <span className="text-[11px] font-normal text-ink-400">
-                      Job descriptions are extracted from the original source, not retyped here.
-                      {editingJob?.jd_analysis?.source_url ? " Use Refresh from source to sync the latest public posting." : " To replace this content, import an updated public job URL or upload an updated PDF/DOCX."}
-                    </span>
-                    {editingJob?.jd_analysis?.source_url && <a className="break-all text-[11px] font-medium text-blue-700 hover:underline" href={editingJob.jd_analysis.source_url} target="_blank" rel="noreferrer">Open original job posting</a>}
-                  </div>
+                  ) : (
+                    <label className="grid gap-1.5 text-xs font-semibold text-ink-700 sm:col-span-2">
+                      Job description <span className="font-normal text-ink-500">(required)</span>
+                      <textarea
+                        className={inputStyle + " min-h-40 resize-y"}
+                        rows={8}
+                        required
+                        value={jobForm.description}
+                        placeholder="Describe the role, key responsibilities, required skills, experience and qualifications."
+                        onChange={(event) => setJobForm({ ...jobForm, description: event.target.value })}
+                      />
+                      <span className="text-[11px] font-normal text-ink-400">Enter the job description here. BluePace will build matching criteria from the role details.</span>
+                    </label>
+                  )}
                 </div>
               )}
-              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "upload" ? "Extract & create job" : "Import & create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
+              <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "manual" ? "Create job" : jobEntryMode === "upload" ? "Extract & create job" : "Import & create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
             </form>}
             <div className="mb-5"><p className="text-sm text-ink-500">{jobs.length} total jobs</p><h2 className="mt-1 text-xl font-semibold">Job openings</h2></div>
             <div className="ats-jobs-table overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-xs"><div className="min-w-[980px]">
