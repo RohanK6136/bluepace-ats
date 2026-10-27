@@ -54,7 +54,7 @@ test("one OpenRouter key enables Gemini, DeepSeek, Grok, and OpenAI profile choi
   assert.equal(byId.gemini.enabled, true);
   assert.equal(byId.gemini.model, "google/gemini-3.8-flash");
   assert.equal(byId.deepseek.enabled, true);
-  assert.equal(byId.deepseek.model, "deepseek/deepseek-v4.1-flash");
+  assert.equal(byId.deepseek.model, "deepseek/deepseek-v4.1-flash-1017");
   assert.equal(byId.grok.enabled, true);
   assert.equal(byId.grok.model, "x-ai/grok-4.7");
   assert.equal(byId.openai.enabled, true);
