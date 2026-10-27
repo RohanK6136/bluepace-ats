@@ -87,3 +87,7 @@ jobs:
       - name: Test bulk applicant matching validation and CSV export
         working-directory: frontend-vite
         run: npm run test:bulk-match
+
+      - name: Test Vercel JD & Applicant Match model API
+        working-directory: frontend-vite
+        run: npm run test:jd-match-api
