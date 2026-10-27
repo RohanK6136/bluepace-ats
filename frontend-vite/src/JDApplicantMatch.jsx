@@ -6,6 +6,24 @@ const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-m
 const fieldClass = "w-full rounded-md border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
+function readSavedRubrics() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem("bluepace_feature_saved_rubrics") || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch { return []; }
+}
+function writeSavedRubrics(rows) {
+  try { sessionStorage.setItem("bluepace_feature_saved_rubrics", JSON.stringify(rows.slice(0, 50))); } catch { /* session-only convenience */ }
+}
+function sessionProviderKey(provider) {
+  try {
+    const key = sessionStorage.getItem("bluepace_ai_" + provider + "_key");
+    if (key) return key.trim();
+    if (provider === "openrouter") return (sessionStorage.getItem("bluepace_openrouter_key") || "").trim();
+  } catch { /* session storage is optional */ }
+  return "";
+}
+
 function explainError(error) {
   const status = error?.response?.status;
   const requestedPath = error?.config?.url || "";
@@ -110,7 +128,21 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
     if (apiKey.trim()) headers["X-API-Key"] = apiKey.trim();
-    const requestOptions = { ...options, headers };
+    // Model credentials are entered in AI Hiring Studio Settings and remain in this browser tab.
+    // Only JD & Applicant Match calls the same-origin Vercel function with these headers.
+    const keys = [
+      ["openrouter", "X-OpenRouter-Api-Key"],
+      ["gemini", "X-Google-Api-Key"],
+      ["deepseek", "X-DeepSeek-Api-Key"],
+      ["xai", "X-XAI-Api-Key"],
+      ["openai", "X-OpenAI-Api-Key"],
+    ];
+    for (const [provider, header] of keys) {
+      const value = sessionProviderKey(provider);
+      if (value) headers[header] = value;
+    }
+    const isFeatureRoute = String(path || "").startsWith("/v1/");
+    const requestOptions = { ...options, headers, ...(isFeatureRoute ? { baseURL: window.location.origin } : {}) };
     if (data !== undefined) requestOptions.data = data;
     return apiRequest(token, method, path, requestOptions);
   }, [apiKey, apiRequest, token]);
@@ -135,13 +167,17 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   }, [request]);
 
   const refreshSavedRubrics = useCallback(async () => {
+    const localRows = readSavedRubrics();
+    setSavedRubrics(localRows);
     try {
       const response = await request("get", "/v1/match/rubrics", undefined, { params: { limit: 50 }, timeout: 10000 });
-      setSavedRubrics(Array.isArray(response.data) ? response.data : []);
-    } catch (error) {
-      // Connection feedback is shown in the workspace banner. Do not replace a
-      // successfully rendered draft with a secondary list request failure.
-      setRubricError((current) => current || explainError(error));
+      const remoteRows = Array.isArray(response.data) ? response.data : [];
+      const merged = [...localRows];
+      for (const row of remoteRows) if (!merged.some((saved) => saved.rubric_id === row.rubric_id)) merged.push(row);
+      setSavedRubrics(merged.slice(0, 50));
+    } catch {
+      // Serverless deployment is stateless; reviewed rubric versions are kept in this tab's session.
+      setSavedRubrics(localRows);
     }
   }, [request]);
 
@@ -229,10 +265,17 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     }
     setRubricLoading(true);
     try {
-      const response = await request("get", `/v1/match/rubrics/${encodeURIComponent(id)}`, undefined, { timeout: 10000 });
-      setRubric(response.data);
-      setCandidateCard(null);
-      setNotice(`Loaded rubric ${id}.`);
+      const local = readSavedRubrics().find((item) => item.rubric_id === id);
+      if (local) {
+        setRubric(local);
+        setCandidateCard(null);
+        setNotice(`Loaded rubric ${id} from this browser session.`);
+      } else {
+        const response = await request("get", `/v1/match/rubrics/${encodeURIComponent(id)}`, undefined, { timeout: 10000 });
+        setRubric(response.data);
+        setCandidateCard(null);
+        setNotice(`Loaded rubric ${id}.`);
+      }
     } catch (error) {
       setRubricError(explainError(error));
     } finally {
@@ -247,9 +290,12 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     setNotice("");
     try {
       const response = await request("post", "/v1/match/rubrics", { rubric }, { timeout: 30000 });
-      setRubric(response.data);
-      setSelectedRubricId(response.data?.rubric_id || "");
-      setNotice(`Rubric version saved · ${response.data?.rubric_id || "saved"}`);
+      const saved = response.data;
+      const existing = readSavedRubrics().filter((item) => item.rubric_id !== saved.rubric_id);
+      writeSavedRubrics([saved, ...existing]);
+      setRubric(saved);
+      setSelectedRubricId(saved.rubric_id || "");
+      setNotice(`Rubric version saved in this browser session · ${saved.rubric_id || "saved"}`);
       await refreshSavedRubrics();
     } catch (error) {
       setRubricError(explainError(error));
@@ -278,6 +324,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     try {
       const body = new FormData();
       body.append("rubric_id", selectedRubricId);
+      if (rubric) body.append("rubric", JSON.stringify(rubric));
       if (resumeFile) body.append("file", resumeFile);
       else body.append("text", resumeText.trim());
       if (selectedProfile) body.append("profile", selectedProfile);
@@ -386,6 +433,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       updateBatchRow(row.id, { status: "processing", error: "" });
       const body = new FormData();
       body.append("rubric_id", selectedRubricId);
+      if (rubric) body.append("rubric", JSON.stringify(rubric));
       body.append("file", row.file);
       if (selectedProfile) body.append("profile", selectedProfile);
 
