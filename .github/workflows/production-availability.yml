@@ -89,3 +89,32 @@ jobs:
 
           print("Production check passed: HTTP 200, expected page title and React root, and all required security headers on the final response.")
           PY
+
+- name: Check JD & Applicant Match model registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://bluepace-ats-frontend.vercel.app/v1/models"
+          for attempt in $(seq 1 12); do
+            response="$(curl --silent --show-error --location --max-time 15 "$url" || true)"
+            if node -e '
+              const fs = require("node:fs");
+              let rows;
+              try { rows = JSON.parse(fs.readFileSync(0, "utf8")); } catch { process.exit(1); }
+              if (!Array.isArray(rows)) process.exit(1);
+              const ids = new Set(rows.map((row) => row.id));
+              for (const id of ["openrouter", "gemini", "deepseek", "grok", "openai", "github-models"]) {
+                if (!ids.has(id)) process.exit(1);
+              }
+              const retired = rows.find((row) => row.id === "github-models");
+              if (retired.enabled !== false || !/retired/i.test(retired.disabled_reason || "")) process.exit(1);
+            ' <<< "$response"; then
+              echo "JD & Applicant Match model registry is live; provider profiles are being served by Vercel."
+              exit 0
+            fi
+            echo "Model API not ready or returned unexpected output (attempt $attempt/12)."
+            sleep 5
+          done
+          echo "::error title=JD & Applicant Match API missing::The live /v1/models endpoint did not return the expected model registry."
+          exit 1
+
