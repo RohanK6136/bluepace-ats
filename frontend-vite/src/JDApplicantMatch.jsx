@@ -6,14 +6,25 @@ const fieldClass = "w-full rounded-md border border-ink-200 bg-white px-3 py-2.5
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 function explainError(error) {
+  const status = error?.response?.status;
+  const requestedPath = error?.config?.url || "";
   const detail = error?.response?.data?.detail;
+  // A generic FastAPI 404 body ("Not Found") hid the more useful deployment mismatch.
+  if (status === 404 && requestedPath.includes("/v1/models")) {
+    return "The backend answered, but GET /v1/models is missing. Its deployed version is older than this AI workspace. Deploy the compatible backend revision before using JD Standardizer or Applicant Match.";
+  }
+  if (status === 404) {
+    return "The backend answered, but the requested AI feature route is missing. The compatible JD Standardizer / Applicant Match backend revision has not been deployed to this API host yet.";
+  }
+  if (status === 503) {
+    return typeof detail === "string" ? detail : "The backend is reachable, but its AI feature platform or model registry is unavailable. Check backend startup configuration.";
+  }
   if (typeof detail === "string") return detail;
   if (detail?.message) return detail.message;
   if (detail?.detail) return String(detail.detail);
   if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join("; ");
-  if (error?.response?.status === 404) return "This backend does not expose the JD Standardizer / Applicant Match API routes yet. The frontend is deployed, but the backend needs a compatible deployment.";
-  if (error?.response?.status === 401 || error?.response?.status === 403) return "The backend rejected this request. Check the optional X-API-Key in API access settings.";
-  if (error?.response) return `AI Feature API returned HTTP ${error.response.status}.`;
+  if (status === 401 || status === 403) return "The backend rejected this request. Check the optional X-API-Key in API access settings.";
+  if (error?.response) return `AI Feature API returned HTTP ${status}.`;
   if (error?.request) return "The backend could not be reached. Confirm the API service is running and configured for this frontend.";
   return error?.message || "The request failed. Review the configuration and try again.";
 }
