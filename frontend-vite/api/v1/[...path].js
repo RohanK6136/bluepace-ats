@@ -471,6 +471,27 @@ async function routeRequest(req, res, path, body) {
   const method = String(req.method || "GET").toUpperCase(), headers = req.headers || {};
   if (method === "OPTIONS") { res.statusCode = 204; res.setHeader("Allow", "GET, POST, OPTIONS"); return res.end(); }
   if (method === "GET" && path === "/v1/models") return send(res, 200, modelStatuses(headers));
+
+  if (method === "POST" && path === "/v1/test") {
+    const profile = PROFILES.openrouter;
+    const usage = await callModel(
+      profile,
+      headers,
+      "You are validating the BluePace JD and Applicant Match connection. Return a single JSON object with status set to ok.",
+      'Return exactly this JSON object: {"status":"ok"}.',
+      16,
+    );
+    return send(res, 200, {
+      status: "connected",
+      provider: "openrouter",
+      model: usage.model,
+      completion_verified: true,
+      latency_ms: usage.latency_ms,
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+      message: "OpenRouter accepted the request and completed a test inference.",
+    });
+  }
   if (method === "GET" && path === "/healthz") return send(res, 200, { status: "ok", service: "jd-applicant-match-model-api", deployment: "vercel" });
 
   if (method === "POST" && ["/v1/jd/standardize", "/v1/jd/generate", "/v1/jd/standardize/upload", "/v1/jd/generate/upload"].includes(path)) {
