@@ -959,6 +959,18 @@ def save_applicant_match_assessment(
     if application.job_id != job.id:
         raise HTTPException(409, "The selected application does not belong to the selected ATS job.")
 
+    previous = db.scalar(select(ApplicationMatchAssessment).where(
+        ApplicationMatchAssessment.request_id == request.request_id,
+    ))
+    if previous is not None:
+        if (
+            previous.organization_id == user.organization_id
+            and previous.application_id == application.id
+            and previous.job_id == job.id
+        ):
+            return _applicant_match_assessment_payload(previous)
+        raise HTTPException(409, "This Applicant Match run has already been linked to an application.")
+
     verified_result, rubric = _verified_applicant_match_result(p, request.request_id)
     assessment = _safe_applicant_match_assessment(verified_result)
     row = ApplicationMatchAssessment(
