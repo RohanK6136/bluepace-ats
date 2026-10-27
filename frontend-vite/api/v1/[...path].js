@@ -116,7 +116,7 @@ async function callModel(profile, headers, system, user, maxTokens) {
   }
   const raw = await response.text();
   let data = {};
-  try { data = JSON.parse(raw); } catch {}
+  try { data = JSON.parse(raw); } catch { /* malformed response or unsupported stream; use the fallback parser */ }
   if (!response.ok) {
     const detail = data && data.error && data.error.message ? data.error.message : "HTTP " + response.status;
     const message = response.status === 401 || response.status === 403
@@ -135,11 +135,11 @@ async function callModel(profile, headers, system, user, maxTokens) {
     const fence = String.fromCharCode(96, 96, 96);
     let clean = content.trim();
     if (clean.startsWith(fence)) clean = clean.replace(fence, "").replace(/^json\s*/i, "").replace(new RegExp(fence + "$"), "").trim();
-    try { parsed = JSON.parse(clean); } catch {}
+    try { parsed = JSON.parse(clean); } catch { /* malformed response or unsupported stream; use the fallback parser */ }
     if (!parsed) {
       const first = clean.indexOf("{");
       const last = clean.lastIndexOf("}");
-      if (first >= 0 && last > first) { try { parsed = JSON.parse(clean.slice(first, last + 1)); } catch {} }
+      if (first >= 0 && last > first) { try { parsed = JSON.parse(clean.slice(first, last + 1)); } catch { /* malformed response or unsupported stream; use the fallback parser */ } }
     }
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw Object.assign(new Error("The model returned invalid structured output. Retry or choose another model."), { statusCode: 502 });
@@ -240,7 +240,7 @@ function extractPdfText(buffer) {
   while ((match = regex.exec(source))) {
     const start = match.index + match[0].indexOf(match[1]);
     if (/\/FlateDecode/.test(source.slice(Math.max(0, match.index - 300), match.index))) {
-      try { streams.push(inflateSync(buffer.subarray(start, start + Buffer.byteLength(match[1], "latin1"))).toString("latin1")); } catch {}
+      try { streams.push(inflateSync(buffer.subarray(start, start + Buffer.byteLength(match[1], "latin1"))).toString("latin1")); } catch { /* malformed response or unsupported stream; use the fallback parser */ }
     }
   }
   const out = [];
