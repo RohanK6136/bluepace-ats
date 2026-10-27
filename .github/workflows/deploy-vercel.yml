@@ -92,3 +92,24 @@ jobs:
           done
           echo "::error title=Production security smoke test failed::Vercel did not serve expected BluePace ATS HTML and all required security headers."
           exit 1
+
+      - name: Smoke-test JD and Applicant Match model API
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_url="https://bluepace-ats-frontend.vercel.app/v1/models"
+          response="$(curl --silent --show-error --location --max-time 20 --fail "$api_url")"
+          node -e '
+            const fs = require("node:fs");
+            const rows = JSON.parse(fs.readFileSync(0, "utf8"));
+            if (!Array.isArray(rows)) throw new Error("GET /v1/models did not return a JSON array.");
+            const ids = new Set(rows.map((row) => row.id));
+            for (const id of ["openrouter", "gemini", "deepseek", "grok", "openai", "github-models"]) {
+              if (!ids.has(id)) throw new Error("Model profile missing from live endpoint: " + id);
+            }
+            const retired = rows.find((row) => row.id === "github-models");
+            if (retired.enabled !== false || !/retired/i.test(retired.disabled_reason || "")) {
+              throw new Error("GitHub Models must be reported as retired instead of falsely enabled.");
+            }
+            console.log("JD & Applicant Match API passed: live model list is served from Vercel with current hosted model profiles.");
+          ' <<< "$response"
