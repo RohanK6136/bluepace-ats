@@ -183,7 +183,7 @@ def test_additional_provider_adapters_use_fixed_endpoints(monkeypatch, provider,
         def read(self):
             return json.dumps({
                 "model": model,
-                "choices": [{"message": {"content": "{\\"ok\\": true}"}}],
+                "choices": [{"message": {"content": json.dumps({"ok": True})}}],
                 "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
             }).encode()
     def fake_urlopen(request, timeout=45):
