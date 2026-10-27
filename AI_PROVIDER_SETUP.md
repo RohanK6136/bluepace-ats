@@ -8,7 +8,7 @@ Set the provider's secrets in the backend's environment or enter its API key und
 
 | Provider | Backend environment variables | Default model |
 |---|---|---|
-| OpenRouter | `OPENROUTER_API_KEY` | `openrouter/free` |
+| OpenRouter | `OPENROUTER_API_KEY` | `google/gemini-2.5-flash` |
 | OpenAI / ChatGPT API | `OPENAI_API_KEY` | `gpt-5.4` |
 | Claude / Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-chat` |
