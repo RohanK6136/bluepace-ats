@@ -45,6 +45,57 @@ test("model registry enables OpenRouter when the session key is supplied", async
   assert.equal(openrouter.is_default, true);
 });
 
+test("OpenRouter inference test verifies a real completion without exposing the key", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedUrl = "";
+  let capturedAuthorization = "";
+  globalThis.fetch = async (url, init = {}) => {
+    capturedUrl = String(url);
+    capturedAuthorization = String(init.headers?.Authorization || "");
+    return new Response(JSON.stringify({
+      model: "google/gemini-3.8-flash",
+      choices: [{ message: { content: '{"status":"ok"}' } }],
+      usage: { prompt_tokens: 9, completion_tokens: 4 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "x-openrouter-api-key": "test-secret-never-returned" },
+      "POST",
+      ["test"],
+      "{}",
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(response.body.status, "connected");
+    assert.equal(response.body.completion_verified, true);
+    assert.equal(response.body.model, "google/gemini-3.8-flash");
+    assert.equal(response.body.prompt_tokens, 9);
+    assert.equal(response.body.completion_tokens, 4);
+    assert.equal(capturedUrl, "https://openrouter.ai/api/v1/chat/completions");
+    assert.equal(capturedAuthorization, "Bearer test-secret-never-returned");
+    assert.equal(JSON.stringify(response.body).includes("test-secret-never-returned"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("OpenRouter inference test fails clearly when no provider key is supplied", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    throw new Error("A provider request should not be made without a key.");
+  };
+  try {
+    const response = await invoke({ host: "ats.vercel.app" }, "POST", ["test"], "{}");
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body.detail, /API key/i);
+    assert.equal(fetchCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("retired GitHub Models API remains visibly disabled", async () => {
   const response = await invoke({ host: "ats.vercel.app", "x-github-models-api-key": "unused" });
   const profile = response.body.find((row) => row.id === "github-models");
