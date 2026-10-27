@@ -18,7 +18,7 @@ PROVIDER_LABELS = {
     "xai": "xAI Grok", "github_models": "GitHub Models",
 }
 DEFAULT_MODELS = {
-    "openrouter": "openrouter/free", "openai": "gpt-5.4",
+    "openrouter": "google/gemini-2.5-flash", "openai": "gpt-5.4",
     "claude": "claude-sonnet-4-6", "deepseek": "deepseek-chat",
     "cloudflare": "@cf/qwen/qwen3.8-27b", "ollama": "qwen3.5:4b", "gemini": "gemini-2.5-flash",
     "xai": "grok-3-mini", "github_models": "openai/gpt-4.1",
