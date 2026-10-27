@@ -90,7 +90,7 @@ jobs:
           print("Production check passed: HTTP 200, expected page title and React root, and all required security headers on the final response.")
           PY
 
-- name: Check JD & Applicant Match model registry
+      - name: Check JD & Applicant Match model registry
         shell: bash
         run: |
           set -euo pipefail
