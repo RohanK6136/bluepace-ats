@@ -14,9 +14,17 @@ def test_provider_aliases_and_defaults(monkeypatch):
     assert ai_providers.provider_name("google") == "gemini"
     assert ai_providers.provider_name("google_genai") == "gemini"
     assert ai_providers.default_model("gemini") == "gemini-2.5-flash"
+    assert ai_providers.default_model("openrouter") == "google/gemini-2.5-flash"
+    monkeypatch.setenv("OPENROUTER_MODEL", "openrouter/free")
+    assert ai_providers.default_model("openrouter") == "google/gemini-2.5-flash"
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
     assert ai_providers.default_model("ollama") == "qwen3.5:4b"
-    assert ai_providers.default_model("deepseek") == "deepseek-flash"
+    assert ai_providers.default_model("deepseek") == "deepseek-chat"
     assert ai_providers.default_model("cloudflare") == "@cf/qwen/qwen3.8-27b"
+    assert ai_providers.provider_name("grok") == "xai"
+    assert ai_providers.provider_name("copilot") == "github_models"
+    assert ai_providers.default_model("xai") == "grok-3-mini"
+    assert ai_providers.default_model("github_models") == "openai/gpt-4.1"
 
 
 def test_unknown_provider_is_rejected():
@@ -165,3 +173,30 @@ def test_gemini_adapter_uses_official_sdk_and_normalizes_usage(monkeypatch):
     assert result["content"] == '{"ok": true}'
     assert result["usage"]["total_tokens"] == 20
     assert result["actual_model"] == "gemini/gemini-2.5-flash"
+
+
+@pytest.mark.parametrize(("provider", "expected_url", "model"), [
+    ("xai", "https://api.x.ai/v1/chat/completions", "grok-3-mini"),
+    ("github_models", "https://models.github.ai/inference/chat/completions", "openai/gpt-4.1"),
+])
+def test_additional_provider_adapters_use_fixed_endpoints(monkeypatch, provider, expected_url, model):
+    seen = {}
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self):
+            return json.dumps({
+                "model": model,
+                "choices": [{"message": {"content": json.dumps({"ok": True})}}],
+                "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+            }).encode()
+    def fake_urlopen(request, timeout=45):
+        seen["url"] = request.full_url
+        seen["authorization"] = request.get_header("Authorization")
+        return FakeResponse()
+    monkeypatch.setattr(ai_providers.urllib.request, "urlopen", fake_urlopen)
+    result = ai_providers.call_ai_provider(provider, "test-token", model, "system", "user", 20, json_mode=False)
+    assert seen["url"] == expected_url
+    assert seen["authorization"] == "Bearer test-token"
+    assert result["content"] == '{"ok": true}'
+    assert result["usage"]["total_tokens"] == 5

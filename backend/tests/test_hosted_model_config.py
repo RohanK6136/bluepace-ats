@@ -30,3 +30,32 @@ def test_openrouter_profile_is_disabled_without_provider_secret(monkeypatch) -> 
     profile = registry.get("openrouter")
     assert profile.model == "google/gemini-2.5-flash"
     assert registry.disabled_reason(profile) == "set OPENROUTER_API_KEY to enable"
+
+def test_direct_provider_profiles_are_registered_and_disabled_without_keys(monkeypatch) -> None:
+    config_path = Path(__file__).parents[1] / "config" / "models.yaml"
+    for name in ("OPENROUTER_API_KEY", "GITHUB_MODELS_TOKEN", "GITHUB_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    registry = ModelRegistry.from_file(config_path)
+
+    expected = {
+        "gemini": ("https://openrouter.ai/api/v1", "google/gemini-2.5-flash", "OPENROUTER_API_KEY"),
+        "deepseek": ("https://openrouter.ai/api/v1", "deepseek/deepseek-chat", "OPENROUTER_API_KEY"),
+        "grok": ("https://openrouter.ai/api/v1", "x-ai/grok-3-mini", "OPENROUTER_API_KEY"),
+        "openrouter-openai": ("https://openrouter.ai/api/v1", "openai/gpt-4.1", "OPENROUTER_API_KEY"),
+        "github-models": ("https://models.github.ai/inference", "openai/gpt-4.1", "GITHUB_MODELS_TOKEN"),
+    }
+    for profile_id, (base_url, model, key_env) in expected.items():
+        profile = registry.get(profile_id)
+        assert profile.base_url == base_url
+        assert profile.model == model
+        assert profile.api_key_env == key_env
+        if profile_id == "github-models":
+            assert registry.disabled_reason(profile) == f"set {key_env} or GITHUB_TOKEN to enable"
+        else:
+            assert registry.disabled_reason(profile) == f"set {key_env} to enable"
+
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    assert registry.disabled_reason(registry.get("github-models")) is None
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-token")
+    for profile_id in ("openrouter", "gemini", "deepseek", "grok", "openrouter-openai"):
+        assert registry.disabled_reason(registry.get(profile_id)) is None

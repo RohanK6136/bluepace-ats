@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { assessResumeLocally, buildLocalRubric } from "./aiLocalFallbacks.mjs";
 
-const DEFAULT_MODEL = "openrouter/free";
+const DEFAULT_MODEL = "google/gemini-2.5-flash";
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const PROVIDER_OPTIONS = [
-  { id: "openrouter", label: "OpenRouter", defaultModel: "openrouter/free", keyPlaceholder: "sk-or-v1-…", keyEnvVar: "OPENROUTER_API_KEY" },
+  { id: "openrouter", label: "OpenRouter", defaultModel: "google/gemini-2.5-flash", keyPlaceholder: "sk-or-v1-…", keyEnvVar: "OPENROUTER_API_KEY" },
   { id: "gemini", label: "Google Gemini", defaultModel: "gemini-2.5-flash", keyPlaceholder: "Google AI API key", keyEnvVar: "GOOGLE_API_KEY (or GEMINI_API_KEY)" },
   { id: "openai", label: "OpenAI / ChatGPT API", defaultModel: "gpt-5.4", keyPlaceholder: "OpenAI API key", keyEnvVar: "OPENAI_API_KEY" },
   { id: "claude", label: "Claude (Anthropic)", defaultModel: "claude-sonnet-4-6", keyPlaceholder: "Anthropic API key", keyEnvVar: "ANTHROPIC_API_KEY (or CLAUDE_API_KEY)" },
-  { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-flash", keyPlaceholder: "DeepSeek API key", keyEnvVar: "DEEPSEEK_API_KEY" },
+  { id: "deepseek", label: "DeepSeek", defaultModel: "deepseek-chat", keyPlaceholder: "DeepSeek API key", keyEnvVar: "DEEPSEEK_API_KEY" },
+  { id: "xai", label: "xAI Grok", defaultModel: "grok-3-mini", keyPlaceholder: "xAI API key", keyEnvVar: "XAI_API_KEY" },
+  { id: "github_models", label: "GitHub Models (Copilot ecosystem)", defaultModel: "openai/gpt-4.1", keyPlaceholder: "GitHub token with Models access", keyEnvVar: "GITHUB_MODELS_TOKEN (or GITHUB_TOKEN)" },
   { id: "cloudflare", label: "Cloudflare Workers AI", defaultModel: "@cf/qwen/qwen3.8-27b", keyPlaceholder: "Cloudflare API token", keyEnvVar: "CLOUDFLARE_API_TOKEN" },
   { id: "ollama", label: "Local Ollama · Qwen 3.5", defaultModel: "qwen3.5:4b", keyPlaceholder: "", baseUrl: "http://localhost:11434/v1" },
 ];
@@ -147,7 +149,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     const current = storedProvider();
     const saved = readSessionValue("bluepace_ai_" + current + "_model")
       || (current === "openrouter" ? readSessionValue("bluepace_openrouter_model") : "");
-    return !saved || saved === "openai/gpt-4o-mini" ? PROVIDER_BY_ID[current].defaultModel : saved;
+    return !saved || saved === "openai/gpt-4o-mini" || (current === "openrouter" && saved === "openrouter/free") ? PROVIDER_BY_ID[current].defaultModel : saved;
   });
   const [baseUrl, setBaseUrl] = useState(() => readSessionValue("bluepace_ai_ollama_base_url") || "http://localhost:11434/v1");
   const [accountId, setAccountId] = useState(() => readSessionValue("bluepace_ai_cloudflare_account_id"));
@@ -251,7 +253,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     setApiKey(readSessionValue("bluepace_ai_" + nextProvider + "_key")
       || (nextProvider === "openrouter" ? readSessionValue("bluepace_openrouter_key") : ""));
     setModel(readSessionValue("bluepace_ai_" + nextProvider + "_model")
-      || (nextProvider === "openrouter" && readSessionValue("bluepace_openrouter_model")
+      || (nextProvider === "openrouter" && readSessionValue("bluepace_openrouter_model") && readSessionValue("bluepace_openrouter_model") !== "openrouter/free"
         ? readSessionValue("bluepace_openrouter_model") : next.defaultModel));
     if (nextProvider === "ollama") setBaseUrl(readSessionValue("bluepace_ai_ollama_base_url") || next.baseUrl);
     if (nextProvider === "cloudflare") setAccountId(readSessionValue("bluepace_ai_cloudflare_account_id"));

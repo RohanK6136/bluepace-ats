@@ -100,3 +100,68 @@ profiles:
     pricing:
       input_per_mtok: ${OPENROUTER_INPUT_PRICE:-0}
       output_per_mtok: ${OPENROUTER_OUTPUT_PRICE:-0}
+
+  gemini:
+    label: Gemini 2.5 Flash · OpenRouter
+    description: Google Gemini routed through OpenRouter. Uses the existing OPENROUTER_API_KEY.
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    model: ${OPENROUTER_GEMINI_MODEL:-google/gemini-2.5-flash}
+    api_key_env: OPENROUTER_API_KEY
+    structured_output: prompt_only
+    max_tokens_param: max_tokens
+    seed: null
+    context_tokens: 1000000
+    concurrency: 4
+
+  deepseek:
+    label: DeepSeek Chat · OpenRouter
+    description: DeepSeek Chat routed through OpenRouter. Uses the existing OPENROUTER_API_KEY.
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    model: ${OPENROUTER_DEEPSEEK_MODEL:-deepseek/deepseek-chat}
+    api_key_env: OPENROUTER_API_KEY
+    structured_output: prompt_only
+    max_tokens_param: max_tokens
+    seed: null
+    context_tokens: 128000
+    concurrency: 4
+
+  grok:
+    label: Grok · OpenRouter
+    description: xAI Grok routed through OpenRouter. Uses the existing OPENROUTER_API_KEY.
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    model: ${OPENROUTER_GROK_MODEL:-x-ai/grok-3-mini}
+    api_key_env: OPENROUTER_API_KEY
+    structured_output: prompt_only
+    max_tokens_param: max_tokens
+    seed: null
+    context_tokens: 131072
+    concurrency: 4
+
+  github-models:
+    label: GitHub Models (Copilot ecosystem)
+    description: GitHub Models inference API; a Copilot subscription alone is not an API token. Requires GITHUB_MODELS_TOKEN or GITHUB_TOKEN.
+    provider: openai_compatible
+    base_url: https://models.github.ai/inference
+    model: ${GITHUB_MODELS_MODEL:-openai/gpt-4.1}
+    api_key_env: GITHUB_MODELS_TOKEN
+    structured_output: prompt_only
+    max_tokens_param: max_tokens
+    seed: null
+    context_tokens: 128000
+    concurrency: 2
+
+  openrouter-openai:
+    label: OpenAI GPT-4.1 · OpenRouter
+    description: OpenAI model routed through OpenRouter. Uses the existing OPENROUTER_API_KEY.
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    model: ${OPENROUTER_OPENAI_MODEL:-openai/gpt-4.1}
+    api_key_env: OPENROUTER_API_KEY
+    structured_output: prompt_only
+    max_tokens_param: max_tokens
+    seed: null
+    context_tokens: 128000
+    concurrency: 4
