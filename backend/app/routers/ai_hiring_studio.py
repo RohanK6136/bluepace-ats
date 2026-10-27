@@ -31,7 +31,7 @@ router = APIRouter(prefix="/ai-hiring", tags=["AI Hiring Studio"])
 WRITE_ROLES = (Role.admin, Role.recruiter, Role.hiring_manager)
 CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
-DEFAULT_MODEL = "openrouter/free"
+DEFAULT_MODEL = "google/gemini-2.5-flash"
 MAX_TEXT_CHARS = 50000
 
 _SENSITIVE_RESUME_KEYS = frozenset({
