@@ -10,7 +10,9 @@
 # A profile is shown as disabled (with the reason) until its key / model id / SDK is available.
 # Prices are USD per million tokens and drive the cost figures on the Runs dashboard; local models are 0.
 
-default_profile: ${LLM_PROFILE:-local-qwen}
+# A hosted deployment should not silently try a developer's machine-local model.
+# Operators can explicitly override this with LLM_PROFILE when using another provider.
+default_profile: ${LLM_PROFILE:-openrouter}
 
 defaults:
   json_instruction: "Return JSON only, matching this JSON schema exactly:"
@@ -32,8 +34,8 @@ profiles:
     local: true
     structured_output: json_schema
     extra_body:
-      reasoning_effort: none        # LM Studio: turns Qwen's reasoning off (≈19 s → ≈0.6 s per short call)
-    context_tokens: 8192             # must not exceed the context length the model is loaded with
+      reasoning_effort: none
+    context_tokens: 8192
     fingerprint: ${MODEL_FINGERPRINT:-}
 
   local-ollama:
@@ -56,7 +58,6 @@ profiles:
     structured_output: json_schema
     max_tokens_param: max_completion_tokens
     seed: null
-    # strict structured outputs reject some validation keywords; the gateway still validates them client-side
     schema_drop_keywords: [maxLength, minLength, minItems, maxItems, pattern]
     context_tokens: 128000
     concurrency: 4
@@ -71,12 +72,12 @@ profiles:
     model: claude-opus-5-5
     api_key_env: ANTHROPIC_API_KEY
     structured_output: json_schema
-    effort: low                      # thinking is always on for this model; low effort keeps latency down
-    server_fallbacks: true           # on a safety refusal, Anthropic re-runs the request on its recommended fallback
-    temperature: null                # sampling parameters are not accepted by this model
+    effort: low
+    server_fallbacks: true
+    temperature: null
     top_p: null
     seed: null
-    max_tokens_floor: 16000          # headroom for adaptive thinking, which counts toward max_tokens
+    max_tokens_floor: 16000
     stall_timeout_s: 90
     schema_drop_keywords: [maxLength, minLength, minItems, maxItems, minimum, maximum, pattern]
     context_tokens: 1000000
@@ -84,15 +85,18 @@ profiles:
     pricing:
       input_per_mtok: 4.00
       output_per_mtok: 20.00
+
   openrouter:
     label: OpenRouter (hosted)
-    description: Routes to best available hosted model. Requires OPENROUTER_API_KEY. Text is sent to OpenRouter.
+    description: Uses the configured hosted model through OpenRouter. Requires OPENROUTER_API_KEY. Text is sent to OpenRouter.
     provider: openai_compatible
     base_url: https://openrouter.ai/api/v1
-    model:     api_key_env: OPENROUTER_API_KEY
+    model: ${OPENROUTER_MODEL:-google/gemini-2.5-flash}
+    api_key_env: OPENROUTER_API_KEY
     structured_output: json_schema
     schema_drop_keywords: [maxLength, minLength, minItems, maxItems, pattern]
     context_tokens: 128000
     concurrency: 4
     pricing:
-      input_per_mtok:       output_per_mtok: 
+      input_per_mtok: ${OPENROUTER_INPUT_PRICE:-0}
+      output_per_mtok: ${OPENROUTER_OUTPUT_PRICE:-0}
