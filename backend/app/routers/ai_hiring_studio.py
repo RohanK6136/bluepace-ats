@@ -247,7 +247,7 @@ def _call_openrouter(key: str, model: str, system_prompt: str, user_prompt: str,
             headers={
                 "Authorization": "Bearer " + key,
                 "Content-Type": "application/json",
-                "HTTP-Referer": os.getenv("PUBLIC_APP_URL", "https://bluepace-frontend-production.up.railway.app"),
+                "HTTP-Referer": os.getenv("PUBLIC_APP_URL", "https://bluepace-ats-frontend.vercel.app"),
                 "X-Title": "BluePace ATS AI Hiring Studio",
             },
             method="POST",
@@ -515,12 +515,29 @@ def test_provider_connection(request: OpenRouterRequest, user: User = Depends(re
             raise HTTPException(504, "OpenRouter connection timed out or is unreachable.") from None
         models = data.get("data") or []
         available = any(item.get("id") == model for item in models if isinstance(item, dict))
+        if not available:
+            raise HTTPException(
+                422,
+                "OpenRouter accepted the API key, but the selected model is not listed for this account. "
+                "Check the model identifier and model access, then retry.",
+            )
+
+        # A models-list response only validates the key. Run a tiny completion as well so
+        # the UI's connection check proves the chosen model can actually generate output.
+        smoke_result = _call_openrouter(
+            key,
+            model,
+            'You are validating the BluePace AI provider connection. Return only JSON: {"status":"ok"}.',
+            'Return exactly this JSON object: {"status":"ok"}.',
+            max_tokens=16,
+        )
         return {
             "status": "connected", "provider": provider, "provider_label": _provider_label(provider),
-            "model": model, "model_listed": available, "available_model_count": len(models),
+            "model": model, "model_listed": True, "completion_verified": True,
+            "available_model_count": len(models), "usage": smoke_result.get("usage", {}),
             "latency_ms": int((perf_counter() - started) * 1000),
             "key_source": "browser" if request.api_key else "server environment",
-            "message": "OpenRouter API key accepted." + ("" if available else " Check the selected model identifier."),
+            "message": "OpenRouter key accepted; the selected model is listed and completed a test inference.",
         }
     _call_ai_provider(
         provider=provider, api_key_value=key, model=model,

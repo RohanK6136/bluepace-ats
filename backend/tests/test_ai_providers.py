@@ -1,9 +1,15 @@
 """Unit tests for multi-provider AI support."""
 import json
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 from app.services import ai_providers
-from app.routers.ai_hiring_studio import _configuration_status
+from app.routers.ai_hiring_studio import (
+    OpenRouterRequest,
+    _configuration_status,
+    test_provider_connection as run_provider_connection_test,
+)
 
 
 def test_provider_aliases_and_defaults(monkeypatch):
@@ -200,3 +206,91 @@ def test_additional_provider_adapters_use_fixed_endpoints(monkeypatch, provider,
     assert seen["authorization"] == "Bearer test-token"
     assert result["content"] == '{"ok": true}'
     assert result["usage"]["total_tokens"] == 5
+
+
+def test_openrouter_connection_test_runs_a_real_completion(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = json.dumps(payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return self.payload
+
+    def fake_urlopen(request, timeout=45):
+        calls.append({
+            "url": request.full_url,
+            "method": request.get_method(),
+            "headers": dict(request.header_items()),
+            "body": json.loads(request.data.decode()) if request.data else None,
+            "timeout": timeout,
+        })
+        if request.full_url.endswith("/models"):
+            return FakeResponse({"data": [{"id": "google/gemini-2.5-flash"}]})
+        assert request.full_url.endswith("/chat/completions")
+        return FakeResponse({
+            "model": "google/gemini-2.5-flash",
+            "choices": [{"message": {"content": '{"status":"ok"}'}}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+        })
+
+    monkeypatch.setattr("app.routers.ai_hiring_studio.urllib.request.urlopen", fake_urlopen)
+    result = run_provider_connection_test(
+        OpenRouterRequest(
+            provider="openrouter",
+            api_key="test-openrouter-key",
+            model="google/gemini-2.5-flash",
+        ),
+        user=SimpleNamespace(id="test-user"),
+    )
+
+    assert result["status"] == "connected"
+    assert result["model_listed"] is True
+    assert result["completion_verified"] is True
+    assert result["usage"]["total_tokens"] == 12
+    assert result["key_source"] == "browser"
+    assert len(calls) == 2
+    assert calls[0]["method"] == "GET"
+    assert calls[1]["method"] == "POST"
+    assert calls[1]["body"]["model"] == "google/gemini-2.5-flash"
+    assert "test-openrouter-key" not in repr(result)
+
+
+def test_openrouter_connection_test_rejects_unlisted_model_before_inference(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({"data": [{"id": "google/gemini-2.5-flash"}]}).encode()
+
+    def fake_urlopen(request, timeout=45):
+        calls.append(request.get_method())
+        return FakeResponse()
+
+    monkeypatch.setattr("app.routers.ai_hiring_studio.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(HTTPException) as error:
+        run_provider_connection_test(
+            OpenRouterRequest(
+                provider="openrouter",
+                api_key="test-openrouter-key",
+                model="made-up/missing-model",
+            ),
+            user=SimpleNamespace(id="test-user"),
+        )
+
+    assert error.value.status_code == 422
+    assert "not listed" in error.value.detail
+    assert calls == ["GET"]

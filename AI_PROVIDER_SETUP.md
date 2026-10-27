@@ -16,7 +16,7 @@ Set the provider's secrets in the backend's environment or enter its API key und
 | GitHub Models (Copilot ecosystem) | `GITHUB_MODELS_TOKEN` or `GITHUB_TOKEN` | `openai/gpt-4.1` |
 | Cloudflare Workers AI | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `@cf/qwen/qwen3.8-27b` |
 
-The model ID is editable because availability depends on provider account, plan and region. The Test connection action sends a short prompt for direct provider adapters and may create a small usage charge. OpenRouter test validates the key and checks the model list. DeepSeek defaults to `deepseek-chat`; verify the current model and pricing in the [official model and pricing docs](https://api-docs.deepseek.com/quick_start/pricing/).
+The model ID is editable because availability depends on provider account, plan and region. **Test connection** validates the OpenRouter key, checks that the selected model is listed for the account, and sends a small test completion to prove inference works; the test may incur a small usage charge. Direct provider adapters also send a short test prompt. DeepSeek defaults to `deepseek-chat`; verify the current model and pricing in the [official model and pricing docs](https://api-docs.deepseek.com/quick_start/pricing/).
 
 ## Local Ollama with Qwen
 
@@ -26,7 +26,7 @@ Install Ollama on the same machine as the backend. Pull a model:
 ollama pull qwen3.5:4b
 ```
 
-Choose **Local Ollama · Qwen 3.5**, keep the base URL at `http://localhost:11434/v1`, and use model `qwen3.5:4b` or another already installed Ollama model. The published Ollama library lists Qwen 3.5 tags; the phrase “Qwen 3.4.5” is not a model tag I could verify. See the [Ollama Qwen 3.5 library](https://ollama.com/library/qwen3.5).
+Choose **Local Ollama · Qwen 3.5**, keep the base URL at `http://localhost:11434/v1`, and use model `qwen3.5:4b` or another already installed Ollama model. This only works when the backend process itself runs on the same machine as Ollama. A hosted Vercel/Cloudflare frontend or remote backend cannot reach `localhost` on a recruiter laptop; use OpenRouter or another hosted provider for cloud deployments. The published Ollama library lists Qwen 3.5 tags; the phrase “Qwen 3.4.5” is not a model tag I could verify. See the [Ollama Qwen 3.5 library](https://ollama.com/library/qwen3.5).
 
 **Deployment limitation:** `localhost` is the backend host. When the API is running on Railway, it cannot reach Ollama installed on your personal computer by using localhost. The adapter accepts loopback URLs only and rejects remote addresses to prevent SSRF. Local inference in the deployed UI requires the backend and Ollama on the same machine, or a separately secured local bridge. That is not established by a simple URL setting.
 
