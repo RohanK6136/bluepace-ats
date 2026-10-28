@@ -60,9 +60,14 @@ function Metric({ label, value, detail, tone = "ink" }) {
   return <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{label}</p><p className={`mt-1 text-2xl font-semibold tabular-nums ${valueTone}`}>{value}</p><p className="mt-1 text-xs text-ink-500">{detail}</p></div>;
 }
 
-export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, onOpenInterviews, onOpenJobs, onOpenCandidate }) {
+export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, onOpenInterviews, onOpenJobs, onOpenCandidate, onNotice }) {
   const [applications, setApplications] = useState([]);
   const [jobs, setJobs] = useState([]);
+  const [candidates, setCandidates] = useState([]);
+  const [recruiters, setRecruiters] = useState([]);
+  const [ownerSelections, setOwnerSelections] = useState({});
+  const [assigningCandidate, setAssigningCandidate] = useState(null);
+  const [upcomingInterviews, setUpcomingInterviews] = useState([]);
   const [upcomingInterviews, setUpcomingInterviews] = useState([]);
   const [threshold, setThreshold] = useState(5);
   const [loading, setLoading] = useState(true);
@@ -74,13 +79,17 @@ export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, 
     setLoading(true);
     setError("");
     try {
-      const [applicationResponse, jobResponse, dashboardResponse] = await Promise.all([
+      const [applicationResponse, jobResponse, dashboardResponse, candidateResponse, recruiterResponse] = await Promise.all([
         apiRequest(token, "get", "/applications", { params: { limit: 100 } }),
         apiRequest(token, "get", "/jobs", { params: { limit: 100 } }),
         apiRequest(token, "get", "/dashboard"),
+        apiRequest(token, "get", "/candidates", { params: { limit: 100 } }),
+        apiRequest(token, "get", "/recruiting-users"),
       ]);
       setApplications(Array.isArray(applicationResponse.data) ? applicationResponse.data : []);
       setJobs(Array.isArray(jobResponse.data) ? jobResponse.data : []);
+      setCandidates(Array.isArray(candidateResponse.data) ? candidateResponse.data : []);
+      setRecruiters(Array.isArray(recruiterResponse.data) ? recruiterResponse.data : []);
       setUpcomingInterviews(Array.isArray(dashboardResponse.data?.upcoming_interviews) ? dashboardResponse.data.upcoming_interviews : []);
       setLastUpdated(new Date());
     } catch (requestError) {
@@ -92,6 +101,29 @@ export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, 
   }, [apiRequest, token]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  const activeCandidateIds = new Set(applications.filter((application) => !isTerminalApplication(application)).map((application) => application.candidate_id));
+  const activeCandidates = candidates.filter((candidate) => !candidate.archived && activeCandidateIds.has(candidate.id));
+  const recruiterLoads = recruiters.map((recruiter) => ({
+    ...recruiter,
+    activeCount: activeCandidates.filter((candidate) => candidate.owner_id === recruiter.id).length,
+  })).sort((a, b) => a.activeCount - b.activeCount || a.full_name.localeCompare(b.full_name));
+  const unassignedCandidates = activeCandidates.filter((candidate) => !candidate.owner_id);
+
+  async function assignCandidate(candidate) {
+    const selectedOwner = Number(ownerSelections[candidate.id]) || recruiterLoads[0]?.id;
+    if (!selectedOwner) return;
+    setAssigningCandidate(candidate.id);
+    try {
+      await apiRequest(token, "patch", `/candidates/${candidate.id}/collaboration`, { data: { owner_id: selectedOwner } });
+      onNotice?.(`${candidate.first_name} ${candidate.last_name} assigned to ${recruiters.find((item) => item.id === selectedOwner)?.full_name || "recruiter"}.`);
+      await refresh();
+    } catch (requestError) {
+      setError(String(requestError?.response?.data?.detail || requestError?.message || "Could not assign candidate."));
+    } finally {
+      setAssigningCandidate(null);
+    }
+  }
 
   const queue = useMemo(() => {
     const now = Date.now();
@@ -203,6 +235,16 @@ Best,
             {thresholds.map((days) => <option key={days} value={days}>{days} days</option>)}
           </select>
         </label>
+      </section>
+
+      <section className="rounded-xl border border-ink-100 bg-white p-4 sm:p-5" aria-labelledby="recruiter-load-title">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Team coverage</p><h3 id="recruiter-load-title" className="mt-1 font-semibold text-ink-950">Active candidate ownership</h3><p className="mt-1 text-xs leading-5 text-ink-500">Counts are unique active candidates. Unassigned records are suggested to the recruiter with the lightest active load.</p></div><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900">{unassignedCandidates.length} unassigned</span></div>
+        <div className="mt-3 flex flex-wrap gap-2">{recruiterLoads.map((recruiter) => <span key={recruiter.id} className="rounded-lg border border-ink-100 bg-[#fafaf8] px-3 py-2 text-xs text-ink-700"><strong>{recruiter.full_name}</strong> · {recruiter.activeCount} active</span>)}{!recruiterLoads.length && <p className="text-sm text-ink-500">No active recruiter accounts found.</p>}</div>
+        {unassignedCandidates.length > 0 && recruiterLoads.length > 0 && <div className="mt-4 grid gap-2 border-t border-ink-100 pt-3">{unassignedCandidates.slice(0, 8).map((candidate) => {
+          const activeRoles = applications.filter((application) => application.candidate_id === candidate.id && !isTerminalApplication(application));
+          const suggested = recruiterLoads[0];
+          return <div key={candidate.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-100 p-3"><div><button type="button" className="text-left text-sm font-semibold text-ink-900 hover:underline" onClick={() => onOpenCandidate?.(candidate.id)}>{candidate.first_name} {candidate.last_name}</button><p className="mt-1 text-xs text-ink-500">{activeRoles.length} active role{activeRoles.length === 1 ? "" : "s"} · suggested: {suggested.full_name}</p></div><div className="flex flex-wrap gap-2"><select aria-label={`Assign ${candidate.first_name} ${candidate.last_name} to recruiter`} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs" value={ownerSelections[candidate.id] || suggested.id} onChange={(event) => setOwnerSelections((current) => ({ ...current, [candidate.id]: Number(event.target.value) }))}>{recruiterLoads.map((recruiter) => <option key={recruiter.id} value={recruiter.id}>{recruiter.full_name} · {recruiter.activeCount}</option>)}</select><button type="button" className={button} disabled={assigningCandidate === candidate.id} onClick={() => assignCandidate(candidate)}>{assigningCandidate === candidate.id ? "Assigning…" : "Assign owner"}</button></div></div>;
+        })}{unassignedCandidates.length > 8 && <p className="text-xs text-ink-500">Showing 8 of {unassignedCandidates.length} unassigned active candidates. Candidate data is limited to the first 100 records.</p>}</div>}
       </section>
 
       {error && <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
