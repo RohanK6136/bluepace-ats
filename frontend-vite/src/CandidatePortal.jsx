@@ -24,6 +24,9 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
   const [questions, setQuestions] = useState([]);
   const [questionForm, setQuestionForm] = useState({ subject: "", question: "" });
   const [questionLoading, setQuestionLoading] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState({});
+  const [rescheduleDrafts, setRescheduleDrafts] = useState({});
+  const [rescheduleLoadingId, setRescheduleLoadingId] = useState(null);
   const [selectedRequestId, setSelectedRequestId] = useState(null);
 
   async function load() {
@@ -118,6 +121,29 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
     } finally {
       setQuestionLoading(false);
     }
+  }
+
+  async function submitRescheduleRequest(interview) {
+    const availability = String(rescheduleDrafts[interview.id] || "").trim();
+    if (!availability) {
+      setError("Add a few alternative times and your time zone before sending the request.");
+      return;
+    }
+    setRescheduleLoadingId(interview.id);
+    setError("");
+    setMessage("");
+    try {
+      await axios.post(API_URL + "/public/application/" + encodeURIComponent(token) + "/questions", {
+        subject: `Reschedule request · Round ${interview.round_number}`,
+        question: `I cannot attend the scheduled interview on ${new Date(interview.starts_at).toLocaleString()}. Please let me know whether another time is possible. My alternative availability and time zone: ${availability}`,
+      }, { timeout: 30000 });
+      setRescheduleOpen((current) => ({ ...current, [interview.id]: false }));
+      setRescheduleDrafts((current) => ({ ...current, [interview.id]: "" }));
+      setMessage("Your request was sent to the recruiting team. The interview remains scheduled until the team confirms a change.");
+      await load();
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || "We could not send your reschedule request.");
+    } finally { setRescheduleLoadingId(null); }
   }
 
   async function withdrawApplication() {
@@ -266,7 +292,9 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
                     <div className="mt-3 flex flex-wrap gap-3">
                       {interview.meeting_url && <a className="text-sm font-semibold underline" href={interview.meeting_url} target="_blank" rel="noreferrer">Join interview</a>}
                       {interview.status !== "cancelled" && <a className="text-sm font-semibold underline" href={calendarHref}>Add to calendar</a>}
+                      {interview.status === "scheduled" && <button type="button" className="text-sm font-semibold underline" onClick={() => setRescheduleOpen((current) => ({ ...current, [interview.id]: !current[interview.id] }))}>{rescheduleOpen[interview.id] ? "Cancel request" : "Request a different time"}</button>}
                     </div>
+                    {rescheduleOpen[interview.id] && <div className="mt-4 rounded-lg border border-amber-100 bg-amber-50/60 p-3"><label className="grid gap-1.5 text-xs font-semibold text-ink-700">Alternative dates, time windows, and your time zone<textarea className="min-h-24 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-normal" maxLength={2000} value={rescheduleDrafts[interview.id] || ""} onChange={(event) => setRescheduleDrafts((current) => ({ ...current, [interview.id]: event.target.value }))} placeholder="For example: Tuesday 10:00–12:00 IST or Wednesday after 3:00 PM IST" /></label><div className="mt-2 flex flex-wrap items-center justify-between gap-2"><p className="text-[11px] leading-5 text-amber-900">This sends a request only; your current interview stays scheduled unless the recruiting team confirms a change.</p><button type="button" className="rounded-md bg-[#1769d3] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" disabled={rescheduleLoadingId === interview.id || !String(rescheduleDrafts[interview.id] || "").trim()} onClick={() => submitRescheduleRequest(interview)}>{rescheduleLoadingId === interview.id ? "Sending…" : "Send reschedule request"}</button></div></div>}
                   </div>
                 );
               })}
@@ -337,3 +365,4 @@ export default function CandidatePortal({ token, theme = "light", onToggleTheme 
 }
 
 const inputStyle = "w-full rounded-md border border-amber-200 bg-white px-3 py-2.5 text-sm text-ink-900 outline-hidden focus:border-amber-400 focus:ring-2 focus:ring-amber-100";
+
