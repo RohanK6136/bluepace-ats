@@ -41,7 +41,8 @@ test("workflow advances through the intended stages and stops at terminal states
 
 test("workflow filtering supports job, stage, search, and active/closed status", () => {
   assert.deepEqual(filterWorkflowApplications(applications, { jobId: "10" }).map((row) => row.id), [1, 2]);
-  assert.deepEqual(filterWorkflowApplications(applications, { stage: "Interview", status: "all" }).map((row) => row.id), [2, 6]);
+  assert.deepEqual(filterWorkflowApplications(applications, { stage: "Interview", status: "all" }).map((row) => row.id), [2]);
+  assert.deepEqual(filterWorkflowApplications(applications, { stage: "Withdrawn", status: "all" }).map((row) => row.id), [6]);
   assert.deepEqual(filterWorkflowApplications(applications, { search: "mira", status: "all" }).map((row) => row.id), [3]);
   assert.deepEqual(filterWorkflowApplications(applications, { status: "closed" }).map((row) => row.id), [4, 5, 6]);
   assert.deepEqual(filterWorkflowApplications(applications, { status: "active" }).map((row) => row.id), [1, 2, 3]);
