@@ -1446,7 +1446,7 @@ export default function AtsWorkspace() {
           {loading && <div className="mb-3 text-xs text-ink-500">Loading workspace…</div>}
 
 
-          {view === "control-tower" && <HiringControlTower token={token} apiRequest={apiRequest} onOpenWorkflow={() => setView("hiring-workflow")} onOpenInterviews={() => setView("interviews-2")} onOpenJobs={() => setView("jobs")} />}
+          {view === "control-tower" && <HiringControlTower token={token} apiRequest={apiRequest} onOpenWorkflow={() => setView("hiring-workflow")} onOpenInterviews={() => setView("interviews-2")} onOpenJobs={() => setView("jobs")} onOpenCandidate={(candidateId) => { if (candidateId) { setSelectedCandidate(candidateId); setView("candidates"); } }} />}
 
           {view === "hiring-workflow" && <HiringWorkflowPanel token={token} applications={applications} jobs={jobs} canWrite={Boolean(canWrite)} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onRefresh={refreshWorkspace} />}
 
