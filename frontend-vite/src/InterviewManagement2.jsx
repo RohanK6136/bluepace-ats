@@ -4,8 +4,9 @@ const input = "w-full rounded-md border border-ink-100 bg-white px-3 py-2 text-s
 const primary = "rounded-md bg-[#1769d3] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50";
 const secondary = "rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800";
 
-export default function InterviewManagement2({ token, apiRequest, applications = [], onNotice, onError }) {
+export default function InterviewManagement2({ token, apiRequest, applications = [], onNotice, onError, onOpenFeedback }) {
   const [availability, setAvailability] = useState([]);
+  const [feedbackQueue, setFeedbackQueue] = useState([]);
   const [applicationId, setApplicationId] = useState(applications[0]?.id ? String(applications[0].id) : "");
   const [rounds, setRounds] = useState([]);
   const [users, setUsers] = useState([]);
@@ -24,6 +25,14 @@ export default function InterviewManagement2({ token, apiRequest, applications =
       if (failed) onError(failed.reason);
     });
   }, [token]);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest(token, "get", "/interviewer-dashboard")
+      .then((response) => { if (active) setFeedbackQueue((response.data?.interviews || []).filter((row) => row.status === "completed" && !row.scorecard_submitted)); })
+      .catch((error) => { if (active) onError(error); });
+    return () => { active = false; };
+  }, [apiRequest, token]);
 
   async function loadRounds() {
     if (!applicationId) return;
@@ -56,6 +65,13 @@ export default function InterviewManagement2({ token, apiRequest, applications =
 
   return <section className="space-y-5">
     <div><p className="text-sm text-ink-500">Scheduling & feedback</p><h2 className="mt-1 text-2xl font-semibold">Interviews</h2></div>
+    <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 sm:p-5" aria-labelledby="feedback-queue-title">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Interviewer follow-through</p><h3 id="feedback-queue-title" className="mt-1 font-semibold text-ink-950">Outstanding interview feedback</h3><p className="mt-1 text-xs leading-5 text-ink-600">Completed interviews assigned to you that still need a submitted scorecard.</p></div><span className="rounded-full bg-white px-3 py-1 text-sm font-semibold tabular-nums text-amber-900">{feedbackQueue.length} pending</span></div>
+      {feedbackQueue.length > 0 ? <div className="mt-3 grid gap-2">{feedbackQueue.map((row) => {
+        const late = row.feedback_deadline && Date.parse(row.feedback_deadline) < Date.now();
+        return <div key={row.interview_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-white p-3"><div><p className="text-sm font-semibold text-ink-900">{row.candidate_name} · {row.job_title}</p><p className="mt-1 text-xs text-ink-500">{row.round_name || "Interview"}{row.feedback_deadline ? ` · Due ${new Date(row.feedback_deadline).toLocaleString()}` : " · No deadline set"}</p>{late && <p className="mt-1 text-xs font-semibold text-rose-700">Feedback deadline has passed</p>}</div><button type="button" className={secondary} onClick={() => onOpenFeedback?.(row.application_id)}>Open scorecard</button></div>;
+      })}</div> : <p className="mt-3 rounded-lg border border-amber-100 bg-white p-3 text-sm text-emerald-800">No completed interviews are waiting on your feedback.</p>}
+    </section>
     <div className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
       <div className="rounded-xl border border-ink-100 bg-white p-5">
         <h3 className="font-semibold">Schedule panel interview</h3>
