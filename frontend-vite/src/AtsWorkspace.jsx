@@ -18,6 +18,7 @@ const JDApplicantMatch = lazy(() => import("./JDApplicantMatch.jsx"));
 const HiringWorkflowPanel = lazy(() => import("./HiringWorkflowPanel.jsx"));
 const HiringControlTower = lazy(() => import("./HiringControlTower.jsx"));
 const HiringFlowSimulator = lazy(() => import("./HiringFlowSimulator.jsx"));
+const CandidateHandoffBrief = lazy(() => import("./CandidateHandoffBrief.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
@@ -1893,6 +1894,8 @@ export default function AtsWorkspace() {
                   </div>
                   <button aria-label="Close profile" onClick={() => { setSelectedCandidate(null); setFitAnalysis(null); setCandidateActivity(null); setPortalLink(""); }}>×</button>
                 </div>
+
+                <CandidateHandoffBrief candidate={candidate} profile={profile} application={scorecardApplication} fitAnalysis={fitAnalysis} events={candidateActivity?.events || []} />
 
                 <div className="mt-5 rounded-xl border border-ink-100 bg-[#fcfcfa] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
