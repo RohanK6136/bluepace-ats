@@ -9,6 +9,7 @@ export default function CandidateDocumentRequests({ token, apiRequest, applicati
   const [form, setForm] = useState({ name: "", description: "", required: true, due_at: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [openingDocumentId, setOpeningDocumentId] = useState(null);
   const [portalLink, setPortalLink] = useState("");
   const [linkLoading, setLinkLoading] = useState(false);
   const applicationKey = useMemo(() => applications.map((item) => item.id).join(","), [applications]);
@@ -67,6 +68,24 @@ export default function CandidateDocumentRequests({ token, apiRequest, applicati
     catch { onNotice?.(portalLink); }
   }
 
+  async function openUploadedDocument(request) {
+    const previewWindow = window.open("about:blank", "_blank");
+    if (!previewWindow) return onError?.({ message: "Allow pop-ups to open the uploaded document." });
+    setOpeningDocumentId(request.id);
+    try {
+      const linkResponse = await apiRequest(token, "get", `/applications/${request.application_id}/portal-link`);
+      const portalToken = new URL(linkResponse.data?.url, window.location.origin).searchParams.get("portal");
+      if (!portalToken) throw new Error("Could not create a secure portal link for this upload.");
+      const response = await apiRequest(token, "get", `/public/application/${encodeURIComponent(portalToken)}/documents/${request.document_id}`, { responseType: "blob" });
+      const objectUrl = URL.createObjectURL(new Blob([response.data], { type: response.headers?.["content-type"] || "application/octet-stream" }));
+      previewWindow.location.href = objectUrl;
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 5 * 60 * 1000);
+    } catch (error) {
+      previewWindow.close();
+      onError?.(error);
+    } finally { setOpeningDocumentId(null); }
+  }
+
   const pendingCount = requests.filter((request) => request.status !== "fulfilled").length;
 
   return <section className="mt-5 rounded-xl border border-blue-100 bg-blue-50/30 p-4 sm:p-5" aria-labelledby="candidate-documents-heading">
@@ -83,7 +102,7 @@ export default function CandidateDocumentRequests({ token, apiRequest, applicati
     {loading ? <p className="mt-3 rounded-lg border border-ink-100 bg-white p-3 text-sm text-ink-500">Loading document requests…</p>
       : requests.length ? <div className="mt-3 grid gap-2">{requests.map((request) => {
         const overdue = request.status !== "fulfilled" && request.due_at && Date.parse(request.due_at) < Date.now();
-        return <article key={request.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-100 bg-white p-3"><div><p className="text-sm font-semibold text-ink-900">{request.name}{request.required && <span className="ml-2 text-[10px] font-semibold uppercase text-rose-700">Required</span>}</p><p className="mt-1 text-xs text-ink-500">{request.job_title || `Application #${request.application_id}`}{request.due_at ? ` · Due ${new Date(request.due_at).toLocaleDateString()}` : " · No due date"}{overdue ? " · Overdue" : ""}</p>{request.description && <p className="mt-1 text-xs text-ink-600">{request.description}</p>}</div><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${request.status === "fulfilled" ? "bg-emerald-50 text-emerald-800" : overdue ? "bg-rose-50 text-rose-800" : "bg-amber-50 text-amber-900"}`}>{request.status}</span></article>;
+        return <article key={request.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-100 bg-white p-3"><div><p className="text-sm font-semibold text-ink-900">{request.name}{request.required && <span className="ml-2 text-[10px] font-semibold uppercase text-rose-700">Required</span>}</p><p className="mt-1 text-xs text-ink-500">{request.job_title || `Application #${request.application_id}`}{request.due_at ? ` · Due ${new Date(request.due_at).toLocaleDateString()}` : " · No due date"}{overdue ? " · Overdue" : ""}</p>{request.description && <p className="mt-1 text-xs text-ink-600">{request.description}</p>}</div><div className="flex items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${request.status === "fulfilled" ? "bg-emerald-50 text-emerald-800" : overdue ? "bg-rose-50 text-rose-800" : "bg-amber-50 text-amber-900"}`}>{request.status}</span>{request.status === "fulfilled" && request.document_id && <button type="button" className={button} disabled={openingDocumentId === request.id} onClick={() => openUploadedDocument(request)}>{openingDocumentId === request.id ? "Opening…" : "Review upload"}</button>}</div></article>;
       })}</div> : <p className="mt-3 rounded-lg border border-ink-100 bg-white p-3 text-sm text-ink-500">No documents have been requested for this candidate.</p>}
   </section>;
 }
