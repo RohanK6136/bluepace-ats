@@ -1450,7 +1450,7 @@ export default function AtsWorkspace() {
 
           {view === "hiring-workflow" && <HiringWorkflowPanel token={token} applications={applications} jobs={jobs} canWrite={Boolean(canWrite)} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onRefresh={refreshWorkspace} />}
 
-          {view === "interviews-2" && <InterviewManagement2 token={token} apiRequest={apiRequest} applications={applications} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
+          {view === "interviews-2" && <InterviewManagement2 token={token} apiRequest={apiRequest} applications={applications} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onOpenFeedback={(applicationId) => { const application = applications.find((item) => item.id === Number(applicationId)); if (application) { setFitJobId(String(application.job_id)); setSelectedCandidate(application.candidate_id); setView("candidates"); } }} />}
 
           {view === "offers" && <OfferManagement token={token} apiRequest={apiRequest} applications={applications} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
