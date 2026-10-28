@@ -72,6 +72,26 @@ export default function OfferManagement({ token, apiRequest, applications = [], 
   }
 
   const editable = selected && ["draft", "internal_review"].includes(selected.status);
+  const responseOffers = offers
+    .filter((offer) => ["sent", "viewed"].includes(offer.status))
+    .map((offer) => {
+      const application = applications.find((item) => item.id === offer.application_id);
+      const expiresAt = offer.expires_at ? Date.parse(offer.expires_at) : null;
+      const daysLeft = Number.isFinite(expiresAt) ? Math.ceil((expiresAt - Date.now()) / 86_400_000) : null;
+      return { ...offer, application, daysLeft };
+    })
+    .sort((a, b) => (a.daysLeft ?? Number.POSITIVE_INFINITY) - (b.daysLeft ?? Number.POSITIVE_INFINITY));
+
+  async function copyOfferFollowUp(offer) {
+    const firstName = offer.application?.candidate?.first_name || "there";
+    const draft = `Hi ${firstName},\n\nI wanted to check whether you have any questions about the offer for ${offer.position_title}. You can review the details and respond securely through your candidate portal. If you’d like to discuss any part of the offer, please let us know.\n\nBest,\n[Your name]`;
+    try {
+      await navigator.clipboard.writeText(draft);
+      onNotice?.("Offer follow-up draft copied.");
+    } catch (error) {
+      onError?.(error);
+    }
+  }
 
   return <section>
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
@@ -84,6 +104,15 @@ export default function OfferManagement({ token, apiRequest, applications = [], 
         {stages.map((stage) => <div key={stage} className="rounded-lg bg-ink-50 p-2"><p className="text-[10px] font-semibold uppercase text-ink-500">{label(stage)}</p><p className="mt-1 text-lg font-bold">{offers.filter((o) => o.status === stage).length}</p></div>)}
       </div>
     </details>
+    {responseOffers.length > 0 && <section className="mb-5 rounded-xl border border-blue-100 bg-blue-50/40 p-4 sm:p-5" aria-labelledby="offer-response-title">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Offer follow-through</p><h3 id="offer-response-title" className="mt-1 font-semibold text-ink-950">Awaiting candidate response</h3><p className="mt-1 text-xs leading-5 text-ink-600">Offers published to the candidate portal that are still awaiting a response.</p></div><span className="rounded-full bg-white px-3 py-1 text-sm font-semibold tabular-nums">{responseOffers.length} pending</span></div>
+      <div className="mt-3 grid gap-2">{responseOffers.map((offer) => {
+        const candidate = offer.application?.candidate;
+        const candidateName = [candidate?.first_name, candidate?.last_name].filter(Boolean).join(" ") || `Application #${offer.application_id}`;
+        const expiry = offer.daysLeft === null ? "No expiry date" : offer.daysLeft < 0 ? "Expiry date passed · verify portal status" : offer.daysLeft === 0 ? "Expires today" : `Expires in ${offer.daysLeft} day${offer.daysLeft === 1 ? "" : "s"}`;
+        return <article key={offer.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-100 bg-white p-3"><div><p className="text-sm font-semibold text-ink-900">{candidateName} · {offer.position_title}</p><p className="mt-1 text-xs text-ink-500">{label(offer.status)} · {expiry}{offer.expires_at ? ` (${new Date(offer.expires_at).toLocaleDateString()})` : ""}</p></div><div className="flex flex-wrap gap-2"><button type="button" className="rounded-md border border-ink-100 px-3 py-2 text-xs font-semibold" onClick={() => selectOffer(offer)}>Review offer</button><button type="button" className="rounded-md border border-ink-100 px-3 py-2 text-xs font-semibold" onClick={() => copyOfferFollowUp(offer)}>Copy follow-up draft</button></div></article>;
+      })}</div>
+    </section>}
     <div className="grid gap-5 xl:grid-cols-[1fr_1.35fr]">
       <section className="rounded-xl border border-ink-100 bg-white p-4">
         <div className="flex items-center justify-between"><h3 className="font-semibold">Offers</h3><span className="text-xs text-ink-500">{offers.length} total</span></div>
