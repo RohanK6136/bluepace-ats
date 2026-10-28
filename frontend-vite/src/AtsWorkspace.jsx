@@ -1440,7 +1440,7 @@ export default function AtsWorkspace() {
           {loading && <div className="mb-3 text-xs text-ink-500">Loading workspace…</div>}
 
 
-          {view === "hiring-workflow" && <HiringWorkflowPanel token={token} applications={applications} jobs={jobs} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onRefresh={refreshWorkspace} />}
+          {view === "hiring-workflow" && <HiringWorkflowPanel token={token} applications={applications} jobs={jobs} canWrite={Boolean(canWrite)} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onRefresh={refreshWorkspace} />}
 
           {view === "interviews-2" && <InterviewManagement2 token={token} apiRequest={apiRequest} applications={applications} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
