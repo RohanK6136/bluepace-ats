@@ -5,6 +5,48 @@ const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md 
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
 const fieldClass = "w-full rounded-md border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const WORKSPACE_STORAGE_KEY = "bluepace_jd_match_workspaces_v1";
+const ACTIVE_WORKSPACE_KEY = "bluepace_jd_match_active_workspace_v1";
+
+function readWorkspaces() {
+  try {
+    const value = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch { return []; }
+}
+function readActiveWorkspace() {
+  try {
+    const id = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+    return readWorkspaces().find((workspace) => workspace.id === id) || null;
+  } catch { return null; }
+}
+function writeWorkspaces(rows) {
+  try {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(rows.slice(0, 40)));
+    return true;
+  } catch { return false; }
+}
+function newWorkspaceId() {
+  return globalThis.crypto?.randomUUID?.() || `workspace-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+function savedApplicantRows(batchRows) {
+  return batchRows
+    .filter((row) => row.status !== "queued" && row.status !== "processing")
+    .map((row) => ({
+      id: row.id,
+      fileName: row.file?.name || row.fileName || "Applicant resume",
+      fileSize: Number(row.file?.size || row.fileSize || 0),
+      status: row.status,
+      result: row.result || null,
+      error: row.error || "",
+    }));
+}
+function workspaceProgress(workspace) {
+  const hasJD = Boolean(workspace.jdText?.trim() || workspace.jdResult);
+  const hasRubric = Boolean(workspace.rubric?.items?.length);
+  const applicantCount = (workspace.applicants || []).filter((row) => row.result).length + (workspace.candidateCard ? 1 : 0);
+  return `${hasJD ? "JD ✓" : "JD —"} · ${hasRubric ? "Rubric ✓" : "Rubric —"} · ${applicantCount} applicant${applicantCount === 1 ? "" : "s"}`;
+}
 
 function readSavedRubrics() {
   try {
@@ -90,6 +132,13 @@ function EmptyPanel({ title, detail }) {
 }
 
 export default function JDApplicantMatch({ token, apiRequest }) {
+  const initialWorkspace = readActiveWorkspace();
+  const [workspaces, setWorkspaces] = useState(readWorkspaces);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => initialWorkspace?.id || "");
+  const [workspaceName, setWorkspaceName] = useState(() => initialWorkspace?.title || "");
+  const [workspaceNotes, setWorkspaceNotes] = useState(() => initialWorkspace?.notes || "");
+  const [savedApplicants, setSavedApplicants] = useState(() => initialWorkspace?.applicants || []);
+  const [workspaceStorageError, setWorkspaceStorageError] = useState(false);
   const [activeTab, setActiveTab] = useState("jd");
   const [apiKey, setApiKey] = useState(() => {
     try { return sessionStorage.getItem("bluepace_feature_api_key") || ""; } catch { return ""; }
@@ -101,24 +150,24 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [openRouterKeyDraft, setOpenRouterKeyDraft] = useState(() => sessionProviderKey("openrouter"));
   const [inferenceTest, setInferenceTest] = useState({ status: "", message: "" });
   const [models, setModels] = useState([]);
-  const [selectedProfile, setSelectedProfile] = useState("");
+  const [selectedProfile, setSelectedProfile] = useState(() => initialWorkspace?.selectedProfile || "");
   const [connection, setConnection] = useState("checking");
   const [connectionMessage, setConnectionMessage] = useState("Checking the AI Feature API…");
-  const [jdText, setJdText] = useState("");
-  const [jdMode, setJdMode] = useState("light");
-  const [jdDetail, setJdDetail] = useState("detailed");
-  const [jdResult, setJdResult] = useState(null);
+  const [jdText, setJdText] = useState(() => initialWorkspace?.jdText || "");
+  const [jdMode, setJdMode] = useState(() => initialWorkspace?.jdMode || "light");
+  const [jdDetail, setJdDetail] = useState(() => initialWorkspace?.jdDetail || "detailed");
+  const [jdResult, setJdResult] = useState(() => initialWorkspace?.jdResult || null);
   const [jdLoading, setJdLoading] = useState(false);
   const [jdError, setJdError] = useState("");
-  const [rubric, setRubric] = useState(null);
-  const [rubricNotes, setRubricNotes] = useState([]);
+  const [rubric, setRubric] = useState(() => initialWorkspace?.rubric || null);
+  const [rubricNotes, setRubricNotes] = useState(() => initialWorkspace?.rubricNotes || []);
   const [savedRubrics, setSavedRubrics] = useState([]);
-  const [selectedRubricId, setSelectedRubricId] = useState("");
+  const [selectedRubricId, setSelectedRubricId] = useState(() => initialWorkspace?.selectedRubricId || "");
   const [rubricLoading, setRubricLoading] = useState(false);
   const [rubricError, setRubricError] = useState("");
   const [resumeFile, setResumeFile] = useState(null);
   const [resumeText, setResumeText] = useState("");
-  const [candidateCard, setCandidateCard] = useState(null);
+  const [candidateCard, setCandidateCard] = useState(() => initialWorkspace?.candidateCard || null);
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState("");
   const [batchFiles, setBatchFiles] = useState([]);
@@ -127,6 +176,155 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
   const [batchError, setBatchError] = useState("");
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    const existingRows = readWorkspaces();
+    const existing = existingRows.find((workspace) => workspace.id === activeWorkspaceId);
+    if (!existing) return;
+    const applicantsById = new Map();
+    for (const applicant of [...savedApplicants, ...savedApplicantRows(batchFiles)]) {
+      applicantsById.set(applicant.id, applicant);
+    }
+    const updated = {
+      ...existing,
+      title: workspaceName.trim() || "Untitled workspace",
+      jdText,
+      jdMode,
+      jdDetail,
+      jdResult,
+      rubric,
+      rubricNotes,
+      selectedRubricId,
+      selectedProfile,
+      candidateCard,
+      applicants: Array.from(applicantsById.values()).slice(-MAX_BULK_RESUMES),
+      notes: workspaceNotes,
+      updatedAt: new Date().toISOString(),
+    };
+    const next = [updated, ...existingRows.filter((workspace) => workspace.id !== activeWorkspaceId)].slice(0, 40);
+    const saved = writeWorkspaces(next);
+    setWorkspaceStorageError(!saved);
+    if (saved) setWorkspaces(next);
+  }, [activeWorkspaceId, workspaceName, workspaceNotes, jdText, jdMode, jdDetail, jdResult, rubric, rubricNotes, selectedRubricId, selectedProfile, candidateCard, savedApplicants, batchFiles]);
+
+  function activateWorkspace(workspace) {
+    if (!workspace) return;
+    setActiveWorkspaceId(workspace.id);
+    setWorkspaceName(workspace.title || "Untitled workspace");
+    setWorkspaceNotes(workspace.notes || "");
+    setJdText(workspace.jdText || "");
+    setJdMode(workspace.jdMode || "light");
+    setJdDetail(workspace.jdDetail || "detailed");
+    setJdResult(workspace.jdResult || null);
+    setRubric(workspace.rubric || null);
+    setRubricNotes(workspace.rubricNotes || []);
+    setSelectedRubricId(workspace.selectedRubricId || "");
+    setSelectedProfile(workspace.selectedProfile || "");
+    setCandidateCard(workspace.candidateCard || null);
+    setSavedApplicants(workspace.applicants || []);
+    setResumeFile(null);
+    setResumeText("");
+    setBatchFiles([]);
+    setMatchError("");
+    setBatchError("");
+    setJdError("");
+    setRubricError("");
+    setNotice(`Opened “${workspace.title || "Untitled workspace"}”.`);
+    try { localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspace.id); } catch { /* Workspace can still be used in memory. */ }
+  }
+
+  function saveWorkspace() {
+    const existingRows = readWorkspaces();
+    const existing = existingRows.find((workspace) => workspace.id === activeWorkspaceId);
+    const id = existing?.id || newWorkspaceId();
+    const title = workspaceName.trim() || jdTitle || "Untitled workspace";
+    const applicantsById = new Map();
+    for (const applicant of [...savedApplicants, ...savedApplicantRows(batchFiles)]) applicantsById.set(applicant.id, applicant);
+    const workspace = {
+      ...existing,
+      id,
+      title,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      jdText,
+      jdMode,
+      jdDetail,
+      jdResult,
+      rubric,
+      rubricNotes,
+      selectedRubricId,
+      selectedProfile,
+      candidateCard,
+      applicants: Array.from(applicantsById.values()).slice(-MAX_BULK_RESUMES),
+      notes: workspaceNotes,
+    };
+    const next = [workspace, ...existingRows.filter((row) => row.id !== id)].slice(0, 40);
+    const saved = writeWorkspaces(next);
+    setWorkspaceStorageError(!saved);
+    setWorkspaces(next);
+    setActiveWorkspaceId(id);
+    setWorkspaceName(title);
+    try { localStorage.setItem(ACTIVE_WORKSPACE_KEY, id); } catch { /* Workspace remains open in memory. */ }
+    setNotice(saved ? `Workspace “${title}” saved on this device.` : "Could not save this workspace. Browser storage may be full or unavailable.");
+  }
+
+  function createWorkspace() {
+    if (activeWorkspaceId || jdText.trim() || jdResult || rubric || candidateCard || batchFiles.length || workspaceNotes.trim()) saveWorkspace();
+    const now = new Date().toISOString();
+    const workspace = {
+      id: newWorkspaceId(),
+      title: "Untitled workspace",
+      createdAt: now,
+      updatedAt: now,
+      jdText: "",
+      jdMode: "light",
+      jdDetail: "detailed",
+      jdResult: null,
+      rubric: null,
+      rubricNotes: [],
+      selectedRubricId: "",
+      selectedProfile: "",
+      candidateCard: null,
+      applicants: [],
+      notes: "",
+    };
+    const next = [workspace, ...readWorkspaces()].slice(0, 40);
+    writeWorkspaces(next);
+    setWorkspaces(next);
+    activateWorkspace(workspace);
+  }
+
+  function deleteWorkspace() {
+    if (!activeWorkspaceId) return;
+    const current = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+    if (!window.confirm(`Delete “${current?.title || "Untitled workspace"}” and its saved review data from this device?`)) return;
+    const next = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId);
+    const saved = writeWorkspaces(next);
+    setWorkspaces(next);
+    if (next.length) activateWorkspace(next[0]);
+    else {
+      setActiveWorkspaceId("");
+      setWorkspaceName("");
+      setWorkspaceNotes("");
+      setJdText("");
+      setJdMode("light");
+      setJdDetail("detailed");
+      setJdResult(null);
+      setRubric(null);
+      setRubricNotes([]);
+      setSelectedRubricId("");
+      setSelectedProfile("");
+      setCandidateCard(null);
+      setSavedApplicants([]);
+      setResumeFile(null);
+      setResumeText("");
+      setBatchFiles([]);
+      try { localStorage.removeItem(ACTIVE_WORKSPACE_KEY); } catch { /* Ignore unavailable local storage. */ }
+    }
+    setWorkspaceStorageError(!saved);
+    setNotice(saved ? "Workspace deleted from this device." : "Could not update browser storage.");
+  }
 
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
@@ -552,6 +750,8 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const jdTitle = jdResult?.fields?.title?.value || jdResult?.fields?.title?.raw || jdResult?.title?.text || "Job description review";
   const descriptionOutput = jdResult?.description_markdown || jdResult?.long_description || jdResult?.long_description_annotated || jdResult?.long_description_text || "";
   const matchScore = candidateCard?.scores?.match;
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+  const workspaceProgressState = { jdText, jdResult, rubric, applicants: [...savedApplicants, ...savedApplicantRows(batchFiles)], candidateCard };
   const batchQueuedCount = batchFiles.filter((row) => row.status === "queued").length;
   const batchFailedCount = batchFiles.filter((row) => row.status === "failed").length;
   const batchTerminalCount = batchFiles.filter((row) => ["complete", "manual", "failed"].includes(row.status)).length;
@@ -579,6 +779,33 @@ export default function JDApplicantMatch({ token, apiRequest }) {
               <button type="button" onClick={refreshConnection} disabled={connection === "checking"} className="mt-3 text-xs font-semibold text-gold-300 underline underline-offset-4 disabled:opacity-50">Retry connection</button>
             </div>
           </div>
+        </div>
+        <div className="space-y-3 border-b border-ink-100 bg-white px-4 py-4 sm:px-6">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+            <Field label="Saved job workspace" hint="Keep the JD, rubric, applicant results and notes together.">
+              <select value={activeWorkspaceId} onChange={(event) => activateWorkspace(workspaces.find((workspace) => workspace.id === event.target.value))} className={fieldClass}>
+                <option value="">Current session · not saved</option>
+                {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.title} · {workspaceProgress(workspace)}</option>)}
+              </select>
+            </Field>
+            <Field label="Workspace name">
+              <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder={jdTitle || "e.g. Senior Data Engineer · Hyderabad"} className={fieldClass} maxLength={120} />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className={secondaryButton} onClick={createWorkspace}>New workspace</button>
+              <button type="button" className={primaryButton} onClick={saveWorkspace}>Save workspace</button>
+              <button type="button" className={secondaryButton} onClick={deleteWorkspace} disabled={!activeWorkspaceId}>Delete</button>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-500">
+            <span>{activeWorkspaceId ? `Progress: ${workspaceProgress(workspaceProgressState)}` : "Create or save a workspace to preserve this review."}</span>
+            <span>Saved on this device only. Resume files and pasted resume text are not stored.</span>
+          </div>
+          {workspaceStorageError && <p role="alert" className="text-xs text-rose-700">Browser storage could not save this workspace. Check available device storage.</p>}
+          <details>
+            <summary className="cursor-pointer text-xs font-semibold text-ink-600">Workspace notes</summary>
+            <textarea value={workspaceNotes} onChange={(event) => setWorkspaceNotes(event.target.value)} rows={3} maxLength={10000} placeholder="Add recruiter context, review reminders, or decisions to revisit." className={`${fieldClass} mt-2 resize-y leading-6`} />
+          </details>
         </div>
         <div className="flex flex-wrap gap-2 border-b border-ink-100 bg-[#fafaf8] px-4 py-3 sm:px-6" role="tablist" aria-label="AI feature workflows">
           <button type="button" role="tab" aria-selected={activeTab === "jd"} onClick={() => setActiveTab("jd")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "jd" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>1 · JD Standardizer</button>
@@ -889,6 +1116,18 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                 )}
               </section>
 
+              {savedApplicants.length > 0 && (
+                <section className="space-y-3 border-t border-ink-200 pt-6">
+                  <SectionHeading eyebrow="Saved in this workspace" title="Applicant review history" detail="Completed batch results are kept with this job on this device. Reopen the workspace to review these summaries; resume files are not retained." />
+                  <div className="overflow-x-auto rounded-lg border border-ink-100 bg-white">
+                    <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                      <thead className="bg-[#fafaf8] text-[11px] uppercase tracking-wide text-ink-500"><tr><th className="px-3 py-3 font-semibold">Resume</th><th className="px-3 py-3 font-semibold">Status</th><th className="px-3 py-3 font-semibold">Match</th><th className="px-3 py-3 font-semibold">Candidate ref</th></tr></thead>
+                      <tbody>{savedApplicants.map((applicant) => <tr key={applicant.id} className="border-t border-ink-100"><td className="break-all px-3 py-3 text-xs font-medium text-ink-800">{applicant.fileName || "Applicant resume"}</td><td className="px-3 py-3"><Pill tone={applicant.status === "complete" ? "good" : applicant.status === "manual" || applicant.status === "failed" ? "warn" : "neutral"}>{applicant.status || "Saved"}</Pill>{applicant.error && <p className="mt-1 max-w-sm text-xs text-rose-700">{applicant.error}</p>}</td><td className="px-3 py-3 font-semibold tabular-nums">{applicant.result?.scores?.match == null ? "—" : `${applicant.result.scores.match}%`}</td><td className="px-3 py-3 font-mono text-xs text-ink-600">{applicant.result?.applicant_id || "—"}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
               {candidateCard && (
                 <section className="space-y-4 border-t border-ink-200 pt-6">
                   <SectionHeading eyebrow="Evidence review" title="Applicant assessment" detail="Review source evidence and missing or unclear information. An absent detail is not proof of a candidate's ability." />
@@ -913,3 +1152,4 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     </div>
   );
 }
+
