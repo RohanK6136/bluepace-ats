@@ -93,7 +93,7 @@ function profileForId(profileId) {
 function resolveCredential(profile, headers) {
   if (profile && profile.openrouter_dynamic) {
     const openrouterKey = getKey(PROFILES.openrouter, headers);
-    return openrouterKey ? { key: openrouterKey, endpoint: profile.endpoint, model: profile.model, provider: "openrouter" } : null;
+    return openrouterKey ? { key: openrouterKey, endpoint: profile.endpoint, model: profile.model, provider: "openrouter", response_format: profile.response_format !== false } : null;
   }
   const directKey = getKey(profile, headers);
   if (directKey && profile.endpoint) return { key: directKey, endpoint: profile.endpoint, model: profile.model, provider: profile.provider };
@@ -130,8 +130,8 @@ async function modelStatuses(headers) {
           const modalities = item.architecture && item.architecture.output_modalities;
           const parameters = item.supported_parameters;
           if (!/^[A-Za-z0-9._:/-]{1,200}$/.test(model) || !Array.isArray(modalities) || !modalities.includes("text")) continue;
-          if (!Array.isArray(parameters) || !parameters.includes("response_format")) continue;
-          const profile = profileForId("openrouter:" + model);
+          
+          const profile = { ...profileForId("openrouter:" + model), response_format: Array.isArray(parameters) && parameters.includes("response_format") };
           const name = String(item.name || model).slice(0, 120);
           rows.push({
             ...profile,
@@ -211,7 +211,7 @@ async function callModel(profile, headers, system, user, maxTokens) {
   const makeRequestBody = (messages, tokenLimit) => ({
     model: credential.model,
     messages,
-    response_format: { type: "json_object" },
+    ...(credential.response_format === false ? {} : { response_format: { type: "json_object" } }),
     ...(credential.provider === "openrouter" ? { plugins: [{ id: "response-healing" }] } : {}),
     ...(credential.provider === "google" ? {} : { temperature: 0.1 }),
     max_tokens: tokenLimit || 4000,
