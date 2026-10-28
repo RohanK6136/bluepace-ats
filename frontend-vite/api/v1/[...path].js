@@ -82,7 +82,19 @@ function getKey(profile, headers) {
   if (fromEnv) return fromEnv;
   return profile && profile.alt_env ? String(process.env[profile.alt_env] || "").trim() : "";
 }
+function profileForId(profileId) {
+  const id = String(profileId || "");
+  if (PROFILES[id]) return PROFILES[id];
+  if (!id.startsWith("openrouter:")) return null;
+  const model = id.slice("openrouter:".length);
+  if (!/^[A-Za-z0-9._:/-]{1,200}$/.test(model)) return null;
+  return { id, label: model, provider: "openrouter", model, endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", context_tokens: 0, openrouter_dynamic: true };
+}
 function resolveCredential(profile, headers) {
+  if (profile && profile.openrouter_dynamic) {
+    const openrouterKey = getKey(PROFILES.openrouter, headers);
+    return openrouterKey ? { key: openrouterKey, endpoint: profile.endpoint, model: profile.model, provider: "openrouter" } : null;
+  }
   const directKey = getKey(profile, headers);
   if (directKey && profile.endpoint) return { key: directKey, endpoint: profile.endpoint, model: profile.model, provider: profile.provider };
   const openrouterKey = getKey(PROFILES.openrouter, headers);
@@ -91,7 +103,7 @@ function resolveCredential(profile, headers) {
   }
   return null;
 }
-function modelStatuses(headers) {
+async function modelStatuses(headers) {
   const rows = Object.values(PROFILES).map((profile) => {
     let reason = null;
     const credential = resolveCredential(profile, headers);
@@ -104,6 +116,37 @@ function modelStatuses(headers) {
     }
     return { ...profile, model: credential ? credential.model : profile.model, provider: credential ? credential.provider : profile.provider, enabled: !reason, is_default: false, disabled_reason: reason };
   });
+  const openrouterKey = getKey(PROFILES.openrouter, headers);
+  if (openrouterKey) {
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/models", {
+        headers: { Authorization: "Bearer " + openrouterKey },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (response.ok) {
+        const catalog = await response.json();
+        for (const item of Array.isArray(catalog.data) ? catalog.data : []) {
+          const model = String(item.id || "");
+          const modalities = item.architecture && item.architecture.output_modalities;
+          const parameters = item.supported_parameters;
+          if (!/^[A-Za-z0-9._:/-]{1,200}$/.test(model) || !Array.isArray(modalities) || !modalities.includes("text")) continue;
+          if (!Array.isArray(parameters) || !parameters.includes("response_format")) continue;
+          const profile = profileForId("openrouter:" + model);
+          const name = String(item.name || model).slice(0, 120);
+          rows.push({
+            ...profile,
+            label: name + " · OpenRouter",
+            model,
+            provider: "openrouter",
+            context_tokens: Number(item.context_length) || 0,
+            enabled: true,
+            is_default: false,
+            disabled_reason: null,
+          });
+        }
+      }
+    } catch { /* Keep the built-in and fixed provider options available when catalog lookup fails. */ }
+  }
   const defaultHosted = rows.find((row) => row.id === "openrouter" && row.enabled)
     || rows.find((row) => row.enabled && !row.rule_based && !row.retired && !row.local);
   return rows.map((row) => ({ ...row, is_default: defaultHosted ? row.id === defaultHosted.id : row.id === "rules" }));
@@ -541,7 +584,7 @@ function analyzeRulesResume(resume, rubric) {
 async function routeRequest(req, res, path, body) {
   const method = String(req.method || "GET").toUpperCase(), headers = req.headers || {};
   if (method === "OPTIONS") { res.statusCode = 204; res.setHeader("Allow", "GET, POST, OPTIONS"); return res.end(); }
-  if (method === "GET" && path === "/v1/models") return send(res, 200, modelStatuses(headers));
+  if (method === "GET" && path === "/v1/models") return send(res, 200, await modelStatuses(headers));
 
   if (method === "POST" && path === "/v1/test") {
     const profile = PROFILES.openrouter;
@@ -573,7 +616,7 @@ async function routeRequest(req, res, path, body) {
     if (text.length < 15) throw Object.assign(new Error("Paste a job description with at least 15 characters."), { statusCode: 422 });
     if (text.length > MAX_TEXT) throw Object.assign(new Error("Job description exceeds the 60,000 character limit."), { statusCode: 413 });
     const options = payload.options && typeof payload.options === "object" ? payload.options : {};
-    const profile = PROFILES[String(options.profile || "openrouter")];
+    const profile = profileForId(options.profile || "openrouter");
     if (!profile || profile.retired || profile.local) throw Object.assign(new Error("This model cannot be used by the hosted workspace."), { statusCode: 422 });
     if (profile.rule_based) {
       const usage = { model: profile.model, latency_ms: 0, prompt_tokens: 0, completion_tokens: 0 };
@@ -592,7 +635,7 @@ async function routeRequest(req, res, path, body) {
     const jd = String(payload.jd_text || "").trim();
     if (jd.length < 15) throw Object.assign(new Error("Paste a job description with at least 15 characters to build a rubric."), { statusCode: 422 });
     if (jd.length > MAX_TEXT) throw Object.assign(new Error("Job description exceeds the 60,000 character limit."), { statusCode: 413 });
-    const profile = PROFILES[String(payload.options && payload.options.profile || "openrouter")];
+    const profile = profileForId(payload.options && payload.options.profile || "openrouter");
     if (!profile || profile.retired || profile.local) throw Object.assign(new Error("This model cannot be used by the hosted workspace."), { statusCode: 422 });
     if (profile.rule_based) {
       const rubric = createRulesRubric(jd);
@@ -613,7 +656,7 @@ async function routeRequest(req, res, path, body) {
     let rubric;
     try { rubric = JSON.parse(String(fields.rubric || "")); } catch { rubric = null; }
     if (!rubric || !Array.isArray(rubric.items)) throw Object.assign(new Error("Rubric was not included. Select or save the rubric again and retry."), { statusCode: 422 });
-    const profile = PROFILES[String(fields.profile || "openrouter")];
+    const profile = profileForId(fields.profile || "openrouter");
     if (!profile || profile.retired || profile.local) throw Object.assign(new Error("This model cannot be used by the hosted workspace."), { statusCode: 422 });
     const file = fields.file && typeof fields.file === "object" ? fields.file : null;
     const resume = String(fields.text || "").trim() || (file ? await extractResume(file) : "");
