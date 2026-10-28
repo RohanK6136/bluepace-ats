@@ -1875,6 +1875,8 @@ export default function AtsWorkspace() {
               const candidate = candidates.find((item) => item.id === selectedCandidate);
               if (!candidate) return null;
               const profile = candidate.resume_data || {};
+              const scorecardApplication = applications.find((item) => item.candidate_id === candidate.id && (fitJobId ? item.job_id === Number(fitJobId) : item.stage_name === "Interview")) || applications.find((item) => item.candidate_id === candidate.id);
+              const scorecardJob = jobs.find((item) => item.id === scorecardApplication?.job_id) || null;
               return <section className="mt-5 border-y border-ink-100 bg-white p-4 sm:p-5">
                 <div className="flex items-start justify-between gap-4 border-b border-ink-100 pb-5">
                   <div>
@@ -2116,8 +2118,10 @@ export default function AtsWorkspace() {
                 </div>
                 <ScorecardPanel
                   token={token}
-                  applicationId={applications.find((item) => item.candidate_id === candidate.id && (fitJobId ? item.job_id === Number(fitJobId) : item.stage_name === "Interview"))?.id || applications.find((item) => item.candidate_id === candidate.id)?.id}
+                  applicationId={scorecardApplication?.id}
                   candidateName={candidate.first_name + " " + candidate.last_name}
+                  job={scorecardJob}
+                  userId={user?.id}
                   apiRequest={apiRequest}
                   onNotice={setNotice}
                   onError={(requestError) => setError(errorText(requestError))}
