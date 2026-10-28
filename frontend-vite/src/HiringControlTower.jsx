@@ -68,7 +68,6 @@ export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, 
   const [ownerSelections, setOwnerSelections] = useState({});
   const [assigningCandidate, setAssigningCandidate] = useState(null);
   const [upcomingInterviews, setUpcomingInterviews] = useState([]);
-  const [upcomingInterviews, setUpcomingInterviews] = useState([]);
   const [threshold, setThreshold] = useState(5);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
