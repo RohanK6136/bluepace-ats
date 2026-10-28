@@ -263,6 +263,7 @@ export default function AtsWorkspace() {
   const [view, setView] = useState("dashboard");
   const [interviewApplicationFocus, setInterviewApplicationFocus] = useState("");
   const [interviewRoundFocus, setInterviewRoundFocus] = useState(null);
+  const [interviewRescheduleQuestionFocus, setInterviewRescheduleQuestionFocus] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [candidates, setCandidates] = useState([]);
@@ -1455,7 +1456,7 @@ export default function AtsWorkspace() {
 
           {view === "hiring-workflow" && <HiringWorkflowPanel token={token} applications={applications} jobs={jobs} canWrite={Boolean(canWrite)} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onRefresh={refreshWorkspace} />}
 
-          {view === "interviews-2" && <InterviewManagement2 token={token} apiRequest={apiRequest} applications={applications} initialApplicationId={interviewApplicationFocus} initialInterviewRoundNumber={interviewRoundFocus} onRescheduled={() => setInterviewRoundFocus(null)} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onOpenFeedback={(applicationId) => { const application = applications.find((item) => item.id === Number(applicationId)); if (application) { setFitJobId(String(application.job_id)); setSelectedCandidate(application.candidate_id); setView("candidates"); } }} />}
+          {view === "interviews-2" && <InterviewManagement2 token={token} apiRequest={apiRequest} applications={applications} initialApplicationId={interviewApplicationFocus} initialInterviewRoundNumber={interviewRoundFocus} initialRescheduleQuestionId={interviewRescheduleQuestionFocus} onRescheduled={() => { setInterviewRoundFocus(null); setInterviewRescheduleQuestionFocus(null); }} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onOpenFeedback={(applicationId) => { const application = applications.find((item) => item.id === Number(applicationId)); if (application) { setFitJobId(String(application.job_id)); setSelectedCandidate(application.candidate_id); setView("candidates"); } }} />}
 
           {view === "offers" && <OfferManagement token={token} apiRequest={apiRequest} applications={applications} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 
@@ -1902,7 +1903,7 @@ export default function AtsWorkspace() {
                 </div>
 
                 <CandidateHandoffBrief candidate={candidate} profile={profile} application={scorecardApplication} fitAnalysis={fitAnalysis} events={candidateActivity?.events || []} />
-                <CandidatePortalQuestions token={token} apiRequest={apiRequest} applications={candidateActivity?.applications || []} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onOpenScheduling={(applicationId, roundNumber) => { setInterviewApplicationFocus(String(applicationId)); setInterviewRoundFocus(roundNumber); setView("interviews-2"); }} />
+                <CandidatePortalQuestions token={token} apiRequest={apiRequest} applications={candidateActivity?.applications || []} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onOpenScheduling={(applicationId, roundNumber, questionId) => { setInterviewApplicationFocus(String(applicationId)); setInterviewRoundFocus(roundNumber); setInterviewRescheduleQuestionFocus(questionId); setView("interviews-2"); }} />
                 <CandidateDocumentRequests token={token} apiRequest={apiRequest} applications={candidateActivity?.applications || []} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />
 
                 <div className="mt-5 rounded-xl border border-ink-100 bg-[#fcfcfa] p-4">
