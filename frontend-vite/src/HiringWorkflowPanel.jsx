@@ -34,7 +34,7 @@ function Metric({ label, value, detail }) {
   );
 }
 
-export default function HiringWorkflowPanel({ token, applications = [], jobs = [], apiRequest, onNotice, onError, onRefresh }) {
+export default function HiringWorkflowPanel({ token, applications = [], jobs = [], canWrite = false, apiRequest, onNotice, onError, onRefresh }) {
   const [rows, setRows] = useState(applications);
   const [search, setSearch] = useState("");
   const [jobId, setJobId] = useState("all");
@@ -78,7 +78,7 @@ export default function HiringWorkflowPanel({ token, applications = [], jobs = [
   }
 
   async function moveApplication(application, targetStage, details = {}) {
-    if (savingId !== null) return;
+    if (!canWrite || savingId !== null) return;
     if (targetStage === "Hired" && !window.confirm("Mark " + candidateName(application) + " as hired? This closes the application.")) return;
     if (targetStage === "Rejected" && !window.confirm("Reject " + candidateName(application) + " for " + application.job_title + "?")) return;
 
@@ -213,7 +213,7 @@ export default function HiringWorkflowPanel({ token, applications = [], jobs = [
                             {application.candidate?.source && <p>Source: {application.candidate.source}</p>}
                             <p className="font-medium text-ink-700">Status: {String(application.status || "active").replaceAll("_", " ")}</p>
                           </div>
-                          {!terminal && (
+                          {!terminal && canWrite && (
                             <div className="mt-3 grid gap-2">
                               {nextStage === "Interview" ? (
                                 <button type="button" className={primary} disabled={savingId !== null} onClick={() => openInterview(application)}>Schedule interview</button>
@@ -224,6 +224,7 @@ export default function HiringWorkflowPanel({ token, applications = [], jobs = [
                             </div>
                           )}
                           {terminal && <p className="mt-3 rounded-md bg-ink-50 px-2.5 py-2 text-[11px] text-ink-500">This application is closed.</p>}
+                          {!terminal && !canWrite && <p className="mt-3 rounded-md bg-ink-50 px-2.5 py-2 text-[11px] text-ink-500">Read-only view. A recruiter or admin can update this stage.</p>}
                           {isSaving && <p className="mt-2 text-[11px] text-ink-500" role="status">Saving stage change…</p>}
                         </article>
                       );
