@@ -18,6 +18,7 @@ const JDApplicantMatch = lazy(() => import("./JDApplicantMatch.jsx"));
 const HiringWorkflowPanel = lazy(() => import("./HiringWorkflowPanel.jsx"));
 const HiringControlTower = lazy(() => import("./HiringControlTower.jsx"));
 const HiringFlowSimulator = lazy(() => import("./HiringFlowSimulator.jsx"));
+const JobLaunchReadiness = lazy(() => import("./JobLaunchReadiness.jsx"));
 const CandidateHandoffBrief = lazy(() => import("./CandidateHandoffBrief.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
@@ -1650,6 +1651,7 @@ export default function AtsWorkspace() {
               <div className="mt-4 flex gap-2"><button className={buttonPrimary} type="submit">{editingJob ? "Save changes" : jobEntryMode === "manual" ? "Create job" : jobEntryMode === "upload" ? "Extract & create job" : "Import & create job"}</button><button className={buttonSecondary} type="button" onClick={() => { setJobFormOpen(false); setJobDocumentFile(null); setJobLinkInput(""); }}>Cancel</button></div>
             </form>}
             <div className="mb-5"><p className="text-sm text-ink-500">{jobs.length} total jobs</p><h2 className="mt-1 text-xl font-semibold">Job openings</h2></div>
+            <JobLaunchReadiness jobs={jobs} canWrite={canWrite} onEdit={(job) => resetJobForm(job)} />
             <div className="ats-jobs-table overflow-x-auto rounded-xl border border-ink-100 bg-white shadow-xs"><div className="min-w-[980px]">
               <div className="ats-jobs-grid grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-100 bg-[#fafaf8] px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-500"><span>Role</span><span>Location</span><span>Created</span><span>Status</span></div>
               {jobs.map((job) => <div key={job.id} className="ats-jobs-grid grid grid-cols-[minmax(360px,2.4fr)_minmax(150px,0.9fr)_110px_minmax(220px,1.2fr)] gap-5 border-b border-ink-50 px-5 py-5 last:border-0">
