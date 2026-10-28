@@ -217,7 +217,7 @@ async function callModel(profile, headers, system, user, maxTokens) {
     max_tokens: tokenLimit || 4000,
   });
 
-  async function requestCompletion(messages, tokenLimit) {
+  async function requestCompletion(messages, tokenLimit, retriedForCredits = false) {
     let response;
     try {
       response = await fetch(credential.endpoint, {
@@ -234,6 +234,13 @@ async function callModel(profile, headers, system, user, maxTokens) {
     try { data = JSON.parse(raw); } catch { /* Provider returned a malformed response body. */ }
     if (!response.ok) {
       const detail = data && data.error && data.error.message ? data.error.message : "HTTP " + response.status;
+      if (response.status === 402 && credential.provider === "openrouter" && !retriedForCredits) {
+        const affordable = /can only afford\s+(\d+)/i.exec(String(detail));
+        const reducedLimit = affordable ? Math.floor(Number(affordable[1]) * 0.9) : 0;
+        if (reducedLimit >= 512 && reducedLimit < (Number(tokenLimit) || 4000)) {
+          return requestCompletion(messages, reducedLimit, true);
+        }
+      }
       const message = response.status === 401 || response.status === 403
         ? "The provider rejected the API key or model access. Reconnect the provider in AI Hiring Studio Settings."
         : response.status === 429
