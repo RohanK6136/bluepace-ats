@@ -4,6 +4,32 @@ const input = "w-full rounded-md border border-ink-100 bg-white px-3 py-2 text-s
 const primary = "rounded-md bg-[#1769d3] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50";
 const secondary = "rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800";
 
+function findSharedSlots(slots, interviewerIds, durationMinutes) {
+  if (!interviewerIds.length) return [];
+  const now = Date.now();
+  let windows = slots
+    .filter((slot) => Number(slot.user_id) === interviewerIds[0] && slot.status === "available")
+    .map((slot) => ({ start: Date.parse(slot.starts_at), end: Date.parse(slot.ends_at) }))
+    .filter((window) => Number.isFinite(window.start) && Number.isFinite(window.end) && window.end > now);
+  for (const userId of interviewerIds.slice(1)) {
+    windows = windows.flatMap((window) => slots
+      .filter((slot) => Number(slot.user_id) === userId && slot.status === "available")
+      .map((slot) => ({ start: Math.max(window.start, Date.parse(slot.starts_at)), end: Math.min(window.end, Date.parse(slot.ends_at)) }))
+      .filter((window) => window.end > window.start));
+  }
+  const duration = Number(durationMinutes) * 60_000;
+  const unique = new Map();
+  windows.filter((window) => window.start >= now && window.end - window.start >= duration)
+    .sort((a, b) => a.start - b.start)
+    .forEach((window) => unique.set(`${window.start}:${window.end}`, window));
+  return [...unique.values()].slice(0, 6);
+}
+
+function localDateTimeValue(timestamp) {
+  const date = new Date(timestamp);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 export default function InterviewManagement2({ token, apiRequest, applications = [], onNotice, onError, onOpenFeedback }) {
   const [availability, setAvailability] = useState([]);
   const [feedbackQueue, setFeedbackQueue] = useState([]);
@@ -62,6 +88,7 @@ export default function InterviewManagement2({ token, apiRequest, applications =
   }
 
   const selected = applications.find(a=>a.id===Number(applicationId));
+  const suggestedSlots = findSharedSlots(availability, form.interviewer_ids, form.duration_minutes);
 
   return <section className="space-y-5">
     <div><p className="text-sm text-ink-500">Scheduling & feedback</p><h2 className="mt-1 text-2xl font-semibold">Interviews</h2></div>
@@ -86,13 +113,14 @@ export default function InterviewManagement2({ token, apiRequest, applications =
           {form.mode==="online"?<label className="text-xs font-semibold">Meeting URL<input className={input} placeholder="https://..." value={form.meeting_url} onChange={e=>setForm({...form,meeting_url:e.target.value})}/></label>:<label className="text-xs font-semibold">Location<input className={input} value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label>}
           <label className="text-xs font-semibold">Feedback deadline<input className={input} type="datetime-local" value={form.feedback_deadline} onChange={e=>setForm({...form,feedback_deadline:e.target.value})}/></label>
           <label className="text-xs font-semibold sm:col-span-2">Interviewers<select multiple className={input+" min-h-28"} value={form.interviewer_ids.map(String)} onChange={e=>setForm({...form,interviewer_ids:Array.from(e.target.selectedOptions).map(o=>Number(o.value))})}>{users.map(u=><option key={u.id} value={u.id}>{u.full_name} · {u.role}</option>)}</select></label>
+          {form.interviewer_ids.length > 0 && <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 sm:col-span-2"><p className="text-xs font-semibold text-blue-900">Shared panel availability</p><p className="mt-1 text-xs text-ink-600">Suggestions fit the selected duration and intersect published availability for every selected interviewer.</p>{suggestedSlots.length ? <div className="mt-2 grid gap-2">{suggestedSlots.map((slot) => <div key={`${slot.start}-${slot.end}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-100 bg-white px-3 py-2"><span className="text-xs font-medium text-ink-800">{new Date(slot.start).toLocaleString()} · {Math.floor((slot.end - slot.start) / 60_000)} min window</span><button type="button" className={secondary} onClick={() => setForm({...form, starts_at:localDateTimeValue(slot.start)})}>Use this time</button></div>)}</div> : <p className="mt-2 text-xs text-amber-800">No shared future slot is published for this panel and duration. Ask interviewers to publish overlapping availability or choose a time manually.</p>}</div>}
         </div>
         <button className={primary+" mt-4"} onClick={schedule}>Schedule interview</button>
       </div>
       <div className="rounded-xl border border-ink-100 bg-white p-5">
         <h3 className="font-semibold">Interviewer availability</h3>
-        <p className="mt-1 text-xs text-ink-500">Your published availability slots.</p>
-        <div className="mt-4 space-y-2">{availability.map(slot=><div key={slot.id} className="rounded-lg bg-ink-50 p-3 text-sm"><div className="font-semibold">{new Date(slot.starts_at).toLocaleString()} — {new Date(slot.ends_at).toLocaleTimeString()}</div><div className="text-xs text-ink-500">{slot.status}{slot.note?" · "+slot.note:""}</div></div>)}{!availability.length&&<p className="text-sm text-ink-500">No availability slots published.</p>}</div>
+        <p className="mt-1 text-xs text-ink-500">Published organization interviewer availability.</p>
+        <div className="mt-4 space-y-2">{availability.map(slot=><div key={slot.id} className="rounded-lg bg-ink-50 p-3 text-sm"><div className="font-semibold">{new Date(slot.starts_at).toLocaleString()} — {new Date(slot.ends_at).toLocaleTimeString()}</div><div className="text-xs text-ink-500">{users.find((user) => user.id === slot.user_id)?.full_name || `Interviewer #${slot.user_id}`} · {slot.status}{slot.note?" · "+slot.note:""}</div></div>)}{!availability.length&&<p className="text-sm text-ink-500">No availability slots published.</p>}</div>
       </div>
     </div>
     <div className="rounded-xl border border-ink-100 bg-white p-5">
