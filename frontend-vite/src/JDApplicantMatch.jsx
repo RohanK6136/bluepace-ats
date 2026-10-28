@@ -344,6 +344,7 @@ function EmptyPanel({ title, detail }) {
 export default function JDApplicantMatch({ token, apiRequest }) {
   const initialWorkspace = readActiveWorkspace();
   const [workspaces, setWorkspaces] = useState(readWorkspaces);
+  const [teamWorkspaceBusy, setTeamWorkspaceBusy] = useState(false);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => initialWorkspace?.id || "");
   const [workspaceName, setWorkspaceName] = useState(() => initialWorkspace?.title || "");
   const [workspaceNotes, setWorkspaceNotes] = useState(() => initialWorkspace?.notes || "");
@@ -485,6 +486,55 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     setWorkspaceName(title);
     try { localStorage.setItem(ACTIVE_WORKSPACE_KEY, id); } catch { /* Workspace remains open in memory. */ }
     setNotice(saved ? `Workspace “${title}” saved on this device.` : "Could not save this workspace. Browser storage may be full or unavailable.");
+    return workspace;
+  }
+
+  async function syncWorkspaceToTeam() {
+    if (!token) {
+      setNotice("Sign in to sync workspaces with your organization.");
+      return;
+    }
+    setTeamWorkspaceBusy(true);
+    try {
+      const workspace = saveWorkspace();
+      await request("put", `/ai-hiring/workspaces/${encodeURIComponent(workspace.id)}`, { workspace });
+      setNotice(`Workspace “${workspace.title}” synced with your organization.`);
+    } catch (error) {
+      setNotice(`Team sync failed: ${explainError(error)}`);
+    } finally {
+      setTeamWorkspaceBusy(false);
+    }
+  }
+
+  async function loadTeamWorkspaces() {
+    if (!token) {
+      setNotice("Sign in to load workspaces shared by your organization.");
+      return;
+    }
+    setTeamWorkspaceBusy(true);
+    try {
+      const response = await request("get", "/ai-hiring/workspaces", undefined, { timeout: 15000 });
+      const remoteRows = Array.isArray(response.data?.workspaces) ? response.data.workspaces : [];
+      const localRows = readWorkspaces();
+      const byId = new Map(localRows.map((workspace) => [workspace.id, workspace]));
+      for (const remote of remoteRows) {
+        if (!remote?.id) continue;
+        const local = byId.get(remote.id);
+        const localTime = Date.parse(local?.updatedAt || local?.createdAt || "") || 0;
+        const remoteTime = Date.parse(remote.updatedAt || remote.createdAt || "") || 0;
+        if (!local || remoteTime >= localTime) byId.set(remote.id, remote);
+      }
+      const merged = Array.from(byId.values())
+        .sort((a, b) => (Date.parse(b.updatedAt || b.createdAt || "") || 0) - (Date.parse(a.updatedAt || a.createdAt || "") || 0))
+        .slice(0, 40);
+      writeWorkspaces(merged);
+      setWorkspaces(merged);
+      setNotice(`Loaded ${remoteRows.length} team workspace${remoteRows.length === 1 ? "" : "s"}. Choose one from the workspace list.`);
+    } catch (error) {
+      setNotice(`Could not load team workspaces: ${explainError(error)}`);
+    } finally {
+      setTeamWorkspaceBusy(false);
+    }
   }
 
   function createWorkspace() {
@@ -1220,13 +1270,15 @@ export default function JDApplicantMatch({ token, apiRequest }) {
             <div className="flex flex-wrap gap-2">
               <button type="button" className={secondaryButton} onClick={createWorkspace}>New workspace</button>
               <button type="button" className={primaryButton} onClick={saveWorkspace}>Save workspace</button>
+              <button type="button" className={secondaryButton} onClick={syncWorkspaceToTeam} disabled={!token || teamWorkspaceBusy} title="Share this saved workspace with authenticated members of your organization">{teamWorkspaceBusy ? "Syncing…" : "Sync with team"}</button>
+              <button type="button" className={secondaryButton} onClick={loadTeamWorkspaces} disabled={!token || teamWorkspaceBusy}>{teamWorkspaceBusy ? "Loading…" : "Load team workspaces"}</button>
               <button type="button" className={secondaryButton} onClick={downloadWorkspaceReport} disabled={!activeWorkspaceId} title="Export a standalone HTML report you can print or save as PDF">Export summary</button>
               <button type="button" className={secondaryButton} onClick={deleteWorkspace} disabled={!activeWorkspaceId}>Delete</button>
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-500">
             <span>{activeWorkspaceId ? `Progress: ${workspaceProgress(workspaceProgressState)}` : "Create or save a workspace to preserve this review."}</span>
-            <span>Saved on this device only. Resume files and pasted resume text are not stored.</span>
+            <span>Workspaces save on this device; use team sync to share them with your organization. Resume files and pasted resume text are not stored.</span>
           </div>
           {workspaceStorageError && <p role="alert" className="text-xs text-rose-700">Browser storage could not save this workspace. Check available device storage.</p>}
           <details>
