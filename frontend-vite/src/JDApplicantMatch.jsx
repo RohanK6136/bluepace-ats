@@ -58,6 +58,12 @@ function workspaceProgress(workspace) {
 function appendReviewEvent(history, event) {
   return [...(Array.isArray(history) ? history : []), { ...event, at: new Date().toISOString() }].slice(-200);
 }
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+function reportAnchor(value) {
+  return String(value || "item").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "item";
+}
 
 function readSavedRubrics() {
   try {
@@ -808,6 +814,68 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     URL.revokeObjectURL(url);
   }
 
+  function downloadWorkspaceReport() {
+    if (!activeWorkspaceId) return;
+    const applicantsById = new Map();
+    for (const applicant of [...savedApplicants, ...savedApplicantRows(batchFiles)]) applicantsById.set(applicant.id, applicant);
+    const applicants = Array.from(applicantsById.values());
+    if (candidateCard) applicants.unshift({ id: "individual-applicant", fileName: "Individual applicant assessment", status: "complete", result: candidateCard, reviewStage: candidateReview.stage, reviewHistory: candidateReview.history });
+    const criteria = Array.isArray(rubric?.items) ? rubric.items : [];
+    const criterionAnchor = (itemId, label) => {
+      const index = criteria.findIndex((item) => item.id === itemId || item.label === label);
+      return index >= 0 ? `criterion-${index + 1}` : "";
+    };
+    const applicantAnchor = (applicant, index) => `applicant-${index + 1}-${reportAnchor(applicant.id || applicant.fileName)}`;
+    const criterionHtml = criteria.length
+      ? `<ol class="criteria">${criteria.map((item, index) => `<li id="criterion-${index + 1}"><strong>${escapeHtml(item.label)}</strong> <span>${escapeHtml(item.importance || "")}${item.weight ? ` · weight ${escapeHtml(item.weight)}` : ""}</span>${item.source_text ? `<p>${escapeHtml(item.source_text)}</p>` : ""}</li>`).join("")}</ol>`
+      : "<p>No rubric is saved in this workspace.</p>";
+    const overviewRows = applicants.map((applicant, index) => {
+      const result = applicant.result || {};
+      const stage = REVIEW_STAGES.find(([value]) => value === applicant.reviewStage)?.[1] || "New";
+      return `<tr><td><a href="#${applicantAnchor(applicant, index)}">${escapeHtml(applicant.fileName || "Applicant")}</a></td><td>${escapeHtml(stage)}</td><td>${result.scores?.match == null ? "—" : `${escapeHtml(result.scores.match)}%`}</td><td>${escapeHtml(result.applicant_id || "—")}</td></tr>`;
+    }).join("");
+    const applicantHtml = applicants.length
+      ? applicants.map((applicant, index) => {
+        const result = applicant.result || {};
+        const stage = REVIEW_STAGES.find(([value]) => value === applicant.reviewStage)?.[1] || "New";
+        const evidence = Array.isArray(result.evidence) ? result.evidence : [];
+        const evidenceHtml = evidence.length ? evidence.map((item, evidenceIndex) => {
+          const anchor = criterionAnchor(item.item_id, item.label);
+          const status = item.review_override ? `${item.status || "unclear"} · reviewer override: ${item.review_override}` : (item.status || "unclear");
+          const excerpts = item.lines?.length ? `<ul>${item.lines.map((line) => `<li><strong>${escapeHtml(line.id || "Excerpt")}</strong> ${escapeHtml(line.text)}</li>`).join("")}</ul>` : '<p class="muted">No exact excerpt returned; inspect the original resume.</p>';
+          return `<article class="evidence"><h4>${anchor ? `<a href="#${anchor}">${escapeHtml(item.label)}</a>` : escapeHtml(item.label)}</h4><p><strong>AI rating:</strong> ${escapeHtml(item.status || "unclear")} · <strong>Reviewer rating:</strong> ${escapeHtml(item.review_override || "Not overridden")}</p>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ""}${excerpts}</article>`;
+        }).join("") : "<p>No criterion-level evidence is available for this applicant.</p>";
+        const history = Array.isArray(applicant.reviewHistory) ? applicant.reviewHistory : [];
+        const historyHtml = history.length ? `<ol class="history">${history.map((entry) => {
+          const event = entry.type === "stage"
+            ? `Stage changed from ${REVIEW_STAGES.find(([value]) => value === entry.from)?.[1] || entry.from} to ${REVIEW_STAGES.find(([value]) => value === entry.to)?.[1] || entry.to}`
+            : `Reviewer note: ${entry.text || ""}`;
+          return `<li><span>${escapeHtml(event)}</span><time>${escapeHtml(entry.at ? new Date(entry.at).toLocaleString() : "Time not recorded")}</time></li>`;
+        }).join("")}</ol>` : "<p>No stage changes or reviewer notes.</p>";
+        const flags = Array.isArray(result.flags) && result.flags.length ? `<ul>${result.flags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")}</ul>` : "<p>None returned.</p>";
+        const rawSummary = result.summary?.value || result.summary || "";
+        const summary = typeof rawSummary === "string" ? rawSummary : "";
+        return `<section class="applicant" id="${applicantAnchor(applicant, index)}"><h3>${escapeHtml(applicant.fileName || "Applicant")}</h3><p class="meta">Stage: ${escapeHtml(stage)} · Match: ${result.scores?.match == null ? "—" : `${escapeHtml(result.scores.match)}%`} · Candidate ref: ${escapeHtml(result.applicant_id || "—")}</p>${applicant.error ? `<p class="alert">${escapeHtml(applicant.error)}</p>` : ""}${summary ? `<p>${escapeHtml(summary)}</p>` : ""}<h4>Evidence and reviewer ratings</h4>${evidenceHtml}<h4>Review activity</h4>${historyHtml}<h4>Flags to review</h4>${flags}</section>`;
+      }).join("")
+      : "<p>No applicant assessments are saved in this workspace yet.</p>";
+    const workspaceNotesHtml = workspaceNotes.trim() ? `<section><h2>Workspace notes</h2><p class="pre">${escapeHtml(workspaceNotes)}</p></section>` : "";
+    const jobDescriptionHtml = jdText.trim() ? `<section><h2>Source job description</h2><p class="pre">${escapeHtml(jdText)}</p></section>` : "";
+    const standardizedHtml = descriptionOutput ? `<section><h2>Standardized job description</h2><p class="pre">${escapeHtml(descriptionOutput)}</p></section>` : "";
+    const report = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(workspaceName || jdTitle)} · Applicant review</title><style>
+      :root{color-scheme:light;font-family:Arial,Helvetica,sans-serif;color:#172033}body{max-width:980px;margin:32px auto;padding:0 24px;line-height:1.55}h1{font-size:28px;margin-bottom:4px}h2{font-size:20px;margin-top:28px;border-bottom:1px solid #d7dce4;padding-bottom:7px}h3{font-size:18px;margin-bottom:4px}h4{font-size:14px;margin:20px 0 8px}p{white-space:normal}a{color:#1557a0}table{width:100%;border-collapse:collapse;margin:14px 0}th,td{text-align:left;vertical-align:top;border:1px solid #d7dce4;padding:8px;font-size:13px}.muted,.meta,time{color:#596579;font-size:12px}.criteria{padding-left:24px}.criteria li{padding:8px 4px}.criteria span{color:#596579;font-size:12px}.criteria p{margin:4px 0 0;color:#596579;font-size:12px}.applicant{border:1px solid #d7dce4;border-radius:8px;padding:16px;margin:22px 0;break-inside:avoid}.evidence{padding:10px 12px;margin:10px 0;border-left:3px solid #c49a4a;background:#fafaf8}.evidence h4{margin-top:2px}.evidence ul{padding-left:22px}.evidence li{margin:6px 0}.history{padding-left:22px}.history li{margin:8px 0}.history time{display:block}.alert{color:#8b1d1d;background:#fff2f2;padding:8px}.pre{white-space:pre-wrap;background:#fafaf8;border:1px solid #e3e7ed;padding:12px;border-radius:6px;font-size:13px}.notice{border:1px solid #ead9b1;background:#fbf6e9;padding:12px;border-radius:6px;font-size:12px}@media print{body{margin:0 auto;padding:0 8mm}a{color:inherit;text-decoration:none}.applicant{break-inside:avoid}}
+      </style></head><body><h1>${escapeHtml(workspaceName || jdTitle)}</h1><p class="meta">Applicant review summary · Generated ${escapeHtml(new Date().toLocaleString())}</p><p class="notice">Hiring decision support only. Verify source evidence and apply consistent criteria; this report does not make hiring recommendations. Review applicant information carefully before sharing.</p>${workspaceNotesHtml}<section><h2>Job and rubric</h2><p><strong>Role:</strong> ${escapeHtml(jdTitle)}</p>${jobDescriptionHtml}${standardizedHtml}<h3>Review criteria</h3>${criterionHtml}</section><section><h2>Applicant overview</h2>${applicants.length ? `<table><thead><tr><th>Applicant</th><th>Stage</th><th>Match</th><th>Candidate ref</th></tr></thead><tbody>${overviewRows}</tbody></table>` : "<p>No applicants are saved in this workspace yet.</p>"}</section><section><h2>Applicant evidence and activity</h2>${applicantHtml}</section></body></html>`;
+    const fileName = (workspaceName || jdTitle || "job-review").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "job-review";
+    const url = URL.createObjectURL(new Blob([report], { type: "text/html;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${fileName}-review-summary.html`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setNotice("Review summary exported as a standalone HTML file. Open it in a browser to print or save as PDF.");
+  }
+
   async function runBatchMatches(retryOnly = false, onlyIds = null) {
     if (!selectedRubricId) {
       setBatchError("Select a saved rubric or save the draft rubric before running bulk matching.");
@@ -949,6 +1017,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
             <div className="flex flex-wrap gap-2">
               <button type="button" className={secondaryButton} onClick={createWorkspace}>New workspace</button>
               <button type="button" className={primaryButton} onClick={saveWorkspace}>Save workspace</button>
+              <button type="button" className={secondaryButton} onClick={downloadWorkspaceReport} disabled={!activeWorkspaceId} title="Export a standalone HTML report you can print or save as PDF">Export summary</button>
               <button type="button" className={secondaryButton} onClick={deleteWorkspace} disabled={!activeWorkspaceId}>Delete</button>
             </div>
           </div>
