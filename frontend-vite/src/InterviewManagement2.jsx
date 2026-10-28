@@ -115,7 +115,6 @@ export default function InterviewManagement2({ token, apiRequest, applications =
         } else if (!initialRescheduleQuestionId || !portalReplyOnReschedule) {
           onNotice("Interview rescheduled. The existing panel assignment was retained.");
         }
-        onNotice("Interview rescheduled. The existing panel assignment was retained.");
         setReschedulingInterviewId(null);
         onRescheduled?.();
       } else {
