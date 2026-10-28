@@ -66,6 +66,7 @@ jobs:
           npm run test:server
           npm run test:bulk-match
           npm run test:jd-match-api
+          npm run test:hiring-workflow
 
       - name: Build frontend
         working-directory: frontend-vite

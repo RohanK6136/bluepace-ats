@@ -14,6 +14,7 @@ const CandidateComparisonPanel = lazy(() => import("./CandidateComparisonPanel.j
 const AutomationPanel = lazy(() => import("./AutomationPanel.jsx"));
 const AIHiringStudio = lazy(() => import("./AIHiringStudio.jsx"));
 const JDApplicantMatch = lazy(() => import("./JDApplicantMatch.jsx"));
+const HiringWorkflowPanel = lazy(() => import("./HiringWorkflowPanel.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
@@ -402,7 +403,7 @@ export default function AtsWorkspace() {
   useEffect(() => {
     if (!token) return undefined;
     const needsCandidates = new Set(["candidates", "merge-center"]);
-    const needsApplications = new Set(["compare", "interviews-2", "offers"]);
+    const needsApplications = new Set(["compare", "interviews-2", "offers", "hiring-workflow"]);
     if (!needsCandidates.has(view) && !needsApplications.has(view)) return undefined;
     let active = true;
     async function loadViewData() {
@@ -413,7 +414,7 @@ export default function AtsWorkspace() {
         } else {
           requests.push(Promise.resolve(null));
         }
-        if (needsApplications.has(view) && !applications.length) {
+        if (needsApplications.has(view) && (!applications.length || view === "hiring-workflow")) {
           requests.push(apiRequest(token, "get", "/applications", { params: { limit: 100 } }));
         } else {
           requests.push(Promise.resolve(null));
@@ -1334,6 +1335,7 @@ export default function AtsWorkspace() {
     { id: "dashboard", label: "Dashboard" },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
+    { id: "hiring-workflow", label: "Hiring Workflow" },
     { id: "interviews-2", label: "Interviews" },
     { id: "ai-studio", label: "AI Hiring Studio" },
     { id: "jd-match", label: "JD & Applicant Match" },
@@ -1437,6 +1439,8 @@ export default function AtsWorkspace() {
           {error && <div role="alert" className="mb-4 flex items-center justify-between border-l-2 border-rose-600 bg-white px-4 py-3 text-sm text-rose-800"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
           {loading && <div className="mb-3 text-xs text-ink-500">Loading workspace…</div>}
 
+
+          {view === "hiring-workflow" && <HiringWorkflowPanel token={token} applications={applications} jobs={jobs} canWrite={Boolean(canWrite)} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onRefresh={refreshWorkspace} />}
 
           {view === "interviews-2" && <InterviewManagement2 token={token} apiRequest={apiRequest} applications={applications} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
 

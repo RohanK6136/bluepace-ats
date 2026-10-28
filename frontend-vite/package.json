@@ -11,7 +11,8 @@
     "test:bulk-match": "node --test src/bulkMatchUtils.test.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:jd-match-api": "node --test tests/model-api.test.js"
+    "test:jd-match-api": "node --test tests/model-api.test.js",
+    "test:hiring-workflow": "node --test src/hiringWorkflowUtils.test.mjs"
   },
   "dependencies": {
     "axios": "^1.20.0",
