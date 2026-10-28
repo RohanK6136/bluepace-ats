@@ -30,7 +30,7 @@ function localDateTimeValue(timestamp) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
-export default function InterviewManagement2({ token, apiRequest, applications = [], onNotice, onError, onOpenFeedback }) {
+export default function InterviewManagement2({ token, apiRequest, applications = [], initialApplicationId = "", onNotice, onError, onOpenFeedback }) {
   const [availability, setAvailability] = useState([]);
   const [feedbackQueue, setFeedbackQueue] = useState([]);
   const [applicationId, setApplicationId] = useState(applications[0]?.id ? String(applications[0].id) : "");
@@ -39,7 +39,12 @@ export default function InterviewManagement2({ token, apiRequest, applications =
   const [form, setForm] = useState({ starts_at:"", duration_minutes:60, mode:"online", meeting_url:"", location:"", round_name:"Technical Interview", round_type:"technical", round_number:1, feedback_deadline:"", interviewer_ids:[] });
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { setApplicationId(applications[0]?.id ? String(applications[0].id) : ""); }, [applications]);
+  useEffect(() => {
+    const preferred = applications.some((application) => String(application.id) === String(initialApplicationId))
+      ? String(initialApplicationId)
+      : applications[0]?.id ? String(applications[0].id) : "";
+    setApplicationId(preferred);
+  }, [applications, initialApplicationId]);
   useEffect(() => {
     Promise.allSettled([
       apiRequest(token, "get", "/interviewers/availability"),
