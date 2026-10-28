@@ -4,6 +4,7 @@ import AtsChatbot from "./AtsChatbot.jsx";
 const ResumeLab = lazy(() => import("./App.jsx"));
 const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
 const ScorecardPanel = lazy(() => import("./ScorecardPanel.jsx"));
+const CandidateRoleRediscovery = lazy(() => import("./CandidateRoleRediscovery.jsx"));
 const ApplicationEnhancements = lazy(() => import("./ApplicationEnhancements.jsx"));
 const RecruiterToolsPanel = lazy(() => import("./RecruiterToolsPanel.jsx"));
 const InterviewPanel = lazy(() => import("./InterviewPanel.jsx"));
@@ -2116,6 +2117,17 @@ export default function AtsWorkspace() {
                     </>
                   )}
                 </div>
+                <CandidateRoleRediscovery
+                  candidate={candidate}
+                  jobs={jobs}
+                  applications={applications}
+                  canWrite={Boolean(canWrite)}
+                  token={token}
+                  apiRequest={apiRequest}
+                  onCreated={(application) => setApplications((current) => application ? [application, ...current.filter((row) => row.id !== application.id)] : current)}
+                  onNotice={setNotice}
+                  onError={(requestError) => setError(errorText(requestError))}
+                />
                 <ScorecardPanel
                   token={token}
                   applicationId={scorecardApplication?.id}
