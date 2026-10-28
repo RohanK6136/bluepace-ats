@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, MAX_BULK_RESUMES, validateBulkResume } from "./bulkMatchUtils.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
@@ -120,6 +120,54 @@ function Field({ label, children, hint }) {
 
 function ScoreMetric({ label, value, detail }) {
   return <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{label}</p><p className="mt-2 text-2xl font-semibold tabular-nums text-ink-950">{value ?? "—"}</p>{detail && <p className="mt-1 text-xs text-ink-500">{detail}</p>}</div>;
+}
+
+function EvidenceRatingCard({ item, onOverride }) {
+  const fieldId = useId();
+  const ratingOptions = [
+    ["met", "Met"],
+    ["partial", "Partial"],
+    ["unclear", "Unclear"],
+    ["not_evidenced", "Not evidenced"],
+  ];
+  return (
+    <div className="rounded-lg border border-ink-100 bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><p className="text-sm font-semibold text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.importance === "must" ? "Must-have" : "Preferred"} · {item.group}</p></div>
+        <div className="flex flex-wrap items-center gap-2"><span className="text-[11px] text-ink-500">AI rating</span><Pill tone={item.status === "met" ? "good" : item.status === "partial" ? "warn" : "neutral"}>{String(item.status || "unclear").replaceAll("_", " ")}</Pill></div>
+      </div>
+      {item.note && <p className="mt-2 text-sm leading-6 text-ink-700">{item.note}</p>}
+      {item.lines?.length > 0 ? <ul className="mt-3 space-y-2">{item.lines.map((line) => <li key={line.id} className="border-l-2 border-gold-400 pl-3 text-sm leading-6 text-ink-600"><span className="mr-2 text-xs font-semibold text-ink-400">{line.id}</span>{line.text}</li>)}</ul> : <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">No exact resume excerpt was returned for this criterion. Check the original resume before confirming a rating.</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-ink-100 pt-3">
+        <label className="text-xs font-semibold text-ink-700" htmlFor={fieldId}>Reviewer override</label>
+        <select id={fieldId} value={item.review_override || ""} onChange={(event) => onOverride(event.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs text-ink-800">
+          <option value="">Use AI rating</option>
+          {ratingOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        {item.review_override && <Pill tone="gold">Reviewer: {String(item.review_override).replaceAll("_", " ")}</Pill>}
+      </div>
+      <p className="mt-2 text-[11px] leading-5 text-ink-500">This records your review separately; it does not change the AI rating or match score.</p>
+    </div>
+  );
+}
+
+function withEvidenceOverride(result, itemId, override) {
+  if (!result || !Array.isArray(result.evidence)) return result;
+  return {
+    ...result,
+    evidence: result.evidence.map((item) => {
+      if (item.item_id !== itemId) return item;
+      const next = { ...item };
+      if (override) {
+        next.review_override = override;
+        next.reviewed_at = new Date().toISOString();
+      } else {
+        delete next.review_override;
+        delete next.reviewed_at;
+      }
+      return next;
+    }),
+  };
 }
 
 function ErrorNotice({ children }) {
@@ -626,6 +674,18 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     setBatchFiles((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row));
   }
 
+  function overrideBatchEvidence(rowId, itemId, status) {
+    setBatchFiles((current) => current.map((row) => row.id === rowId ? { ...row, result: withEvidenceOverride(row.result, itemId, status) } : row));
+  }
+
+  function overrideSavedApplicantEvidence(applicantId, itemId, status) {
+    setSavedApplicants((current) => current.map((applicant) => applicant.id === applicantId ? { ...applicant, result: withEvidenceOverride(applicant.result, itemId, status) } : applicant));
+  }
+
+  function overrideCandidateEvidence(itemId, status) {
+    setCandidateCard((current) => withEvidenceOverride(current, itemId, status));
+  }
+
   function removeBatchRow(id) {
     if (batchRunning) return;
     setBatchFiles((current) => current.filter((row) => row.id !== id));
@@ -1103,6 +1163,10 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                                   {row.status === "failed" && !batchRunning && <button type="button" className="text-xs font-semibold text-blue-700 underline" onClick={() => runBatchMatches(false, [row.id])} disabled={connection !== "connected" || !selectedRubricId}>Retry</button>}
                                   {!batchRunning && <button type="button" className="text-xs font-semibold text-ink-500 underline" onClick={() => removeBatchRow(row.id)}>Remove</button>}
                                 </div>
+                                {result?.evidence?.length > 0 && <details className="mt-2 min-w-[300px]">
+                                  <summary className="cursor-pointer text-xs font-semibold text-blue-700 underline">Review evidence & ratings</summary>
+                                  <div className="mt-2 space-y-2">{result.evidence.map((item) => <EvidenceRatingCard key={item.item_id} item={item} onOverride={(status) => overrideBatchEvidence(row.id, item.item_id, status)} />)}</div>
+                                </details>}
                               </td>
                             </tr>
                           );
@@ -1120,9 +1184,9 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                 <section className="space-y-3 border-t border-ink-200 pt-6">
                   <SectionHeading eyebrow="Saved in this workspace" title="Applicant review history" detail="Completed batch results are kept with this job on this device. Reopen the workspace to review these summaries; resume files are not retained." />
                   <div className="overflow-x-auto rounded-lg border border-ink-100 bg-white">
-                    <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-                      <thead className="bg-[#fafaf8] text-[11px] uppercase tracking-wide text-ink-500"><tr><th className="px-3 py-3 font-semibold">Resume</th><th className="px-3 py-3 font-semibold">Status</th><th className="px-3 py-3 font-semibold">Match</th><th className="px-3 py-3 font-semibold">Candidate ref</th></tr></thead>
-                      <tbody>{savedApplicants.map((applicant) => <tr key={applicant.id} className="border-t border-ink-100"><td className="break-all px-3 py-3 text-xs font-medium text-ink-800">{applicant.fileName || "Applicant resume"}</td><td className="px-3 py-3"><Pill tone={applicant.status === "complete" ? "good" : applicant.status === "manual" || applicant.status === "failed" ? "warn" : "neutral"}>{applicant.status || "Saved"}</Pill>{applicant.error && <p className="mt-1 max-w-sm text-xs text-rose-700">{applicant.error}</p>}</td><td className="px-3 py-3 font-semibold tabular-nums">{applicant.result?.scores?.match == null ? "—" : `${applicant.result.scores.match}%`}</td><td className="px-3 py-3 font-mono text-xs text-ink-600">{applicant.result?.applicant_id || "—"}</td></tr>)}</tbody>
+                    <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+                      <thead className="bg-[#fafaf8] text-[11px] uppercase tracking-wide text-ink-500"><tr><th className="px-3 py-3 font-semibold">Resume</th><th className="px-3 py-3 font-semibold">Status</th><th className="px-3 py-3 font-semibold">Match</th><th className="px-3 py-3 font-semibold">Candidate ref</th><th className="px-3 py-3 font-semibold">Evidence review</th></tr></thead>
+                      <tbody>{savedApplicants.map((applicant) => <tr key={applicant.id} className="border-t border-ink-100"><td className="break-all px-3 py-3 text-xs font-medium text-ink-800">{applicant.fileName || "Applicant resume"}</td><td className="px-3 py-3"><Pill tone={applicant.status === "complete" ? "good" : applicant.status === "manual" || applicant.status === "failed" ? "warn" : "neutral"}>{applicant.status || "Saved"}</Pill>{applicant.error && <p className="mt-1 max-w-sm text-xs text-rose-700">{applicant.error}</p>}</td><td className="px-3 py-3 font-semibold tabular-nums">{applicant.result?.scores?.match == null ? "—" : `${applicant.result.scores.match}%`}</td><td className="px-3 py-3 font-mono text-xs text-ink-600">{applicant.result?.applicant_id || "—"}</td><td className="px-3 py-3">{applicant.result?.evidence?.length ? <details><summary className="cursor-pointer text-xs font-semibold text-blue-700 underline">Review {applicant.result.evidence.length} criteria</summary><div className="mt-2 min-w-[320px] space-y-2">{applicant.result.evidence.map((item) => <EvidenceRatingCard key={item.item_id} item={item} onOverride={(status) => overrideSavedApplicantEvidence(applicant.id, item.item_id, status)} />)}</div></details> : <span className="text-xs text-ink-400">No evidence details</span>}</td></tr>)}</tbody>
                     </table>
                   </div>
                 </section>
@@ -1139,7 +1203,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                   </div>
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"><strong>Recruiter review required.</strong> This assessment is based on resume-derived evidence; verify any important claim directly and apply the same criteria consistently across applicants.</div>
                   {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
-                  {(candidateCard.evidence || []).map((item) => <div key={item.item_id} className="rounded-lg border border-ink-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-semibold text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.importance === "must" ? "Must-have" : "Preferred"} · {item.group}</p></div><Pill tone={item.status === "met" ? "good" : item.status === "partial" ? "warn" : "neutral"}>{item.status.replaceAll("_", " ")}</Pill></div>{item.note && <p className="mt-2 text-sm leading-6 text-ink-700">{item.note}</p>}{item.lines?.length > 0 && <ul className="mt-3 space-y-2">{item.lines.map((line) => <li key={line.id} className="border-l-2 border-gold-400 pl-3 text-sm leading-6 text-ink-600"><span className="mr-2 text-xs font-semibold text-ink-400">{line.id}</span>{line.text}</li>)}</ul>}</div>)}
+                  {(candidateCard.evidence || []).map((item) => <EvidenceRatingCard key={item.item_id} item={item} onOverride={(status) => overrideCandidateEvidence(item.item_id, status)} />)}
                   {candidateCard.gaps?.length > 0 && <div className="rounded-lg border border-ink-100 bg-white p-4"><h3 className="text-sm font-semibold text-ink-900">Gaps and items to verify</h3><ul className="mt-3 space-y-2">{candidateCard.gaps.map((gap) => <li key={gap.item_id} className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-100 pb-2 last:border-0"><span className="text-sm text-ink-800">{gap.label}{gap.note && <span className="mt-1 block text-xs leading-5 text-ink-500">{gap.note}</span>}</span><Pill tone={gap.importance === "must" ? "warn" : "neutral"}>{gap.status.replaceAll("_", " ")}</Pill></li>)}</ul></div>}
                   {candidateCard.flags?.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><h3 className="text-sm font-semibold text-amber-950">Review flags</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">{candidateCard.flags.map((flag, index) => <li key={index}>{flag}</li>)}</ul></div>}
                 </section>
