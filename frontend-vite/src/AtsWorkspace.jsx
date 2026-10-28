@@ -20,6 +20,7 @@ const HiringControlTower = lazy(() => import("./HiringControlTower.jsx"));
 const HiringFlowSimulator = lazy(() => import("./HiringFlowSimulator.jsx"));
 const JobLaunchReadiness = lazy(() => import("./JobLaunchReadiness.jsx"));
 const CandidatePortalQuestions = lazy(() => import("./CandidatePortalQuestions.jsx"));
+const CandidateDocumentRequests = lazy(() => import("./CandidateDocumentRequests.jsx"));
 const CandidateHandoffBrief = lazy(() => import("./CandidateHandoffBrief.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
@@ -1900,6 +1901,7 @@ export default function AtsWorkspace() {
 
                 <CandidateHandoffBrief candidate={candidate} profile={profile} application={scorecardApplication} fitAnalysis={fitAnalysis} events={candidateActivity?.events || []} />
                 <CandidatePortalQuestions token={token} apiRequest={apiRequest} applications={candidateActivity?.applications || []} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />
+                <CandidateDocumentRequests token={token} apiRequest={apiRequest} applications={candidateActivity?.applications || []} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />
 
                 <div className="mt-5 rounded-xl border border-ink-100 bg-[#fcfcfa] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
