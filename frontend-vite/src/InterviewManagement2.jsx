@@ -30,11 +30,12 @@ function localDateTimeValue(timestamp) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
-export default function InterviewManagement2({ token, apiRequest, applications = [], initialApplicationId = "", onNotice, onError, onOpenFeedback }) {
+export default function InterviewManagement2({ token, apiRequest, applications = [], initialApplicationId = "", initialInterviewRoundNumber = null, onNotice, onError, onOpenFeedback, onRescheduled }) {
   const [availability, setAvailability] = useState([]);
   const [feedbackQueue, setFeedbackQueue] = useState([]);
   const [applicationId, setApplicationId] = useState(applications[0]?.id ? String(applications[0].id) : "");
   const [rounds, setRounds] = useState([]);
+  const [reschedulingInterviewId, setReschedulingInterviewId] = useState(null);
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ starts_at:"", duration_minutes:60, mode:"online", meeting_url:"", location:"", round_name:"Technical Interview", round_type:"technical", round_number:1, feedback_deadline:"", interviewer_ids:[] });
   const [loading, setLoading] = useState(false);
@@ -73,16 +74,39 @@ export default function InterviewManagement2({ token, apiRequest, applications =
   }
   useEffect(() => { loadRounds(); }, [applicationId]);
 
+  useEffect(() => {
+    if (!initialInterviewRoundNumber) return;
+    const target = rounds.find((round) => Number(round.round_number) === Number(initialInterviewRoundNumber) && round.status !== "cancelled");
+    if (!target) return;
+    setReschedulingInterviewId(target.id);
+    setForm((current) => ({ ...current, starts_at: "", duration_minutes: target.duration_minutes || 60, mode: target.mode || "online", meeting_url: target.meeting_url || "", location: target.location || "", round_name: target.round_name || "Interview", round_type: target.round_type || "technical", round_number: target.round_number || 1, feedback_deadline: target.feedback_deadline ? localDateTimeValue(Date.parse(target.feedback_deadline)) : "", interviewer_ids: [] }));
+  }, [rounds, initialInterviewRoundNumber]);
+
   async function schedule() {
-    if (!applicationId || !form.starts_at || !form.interviewer_ids.length) return onError({message:"Select an application, time, and at least one interviewer."});
+    if (!applicationId || !form.starts_at || (!reschedulingInterviewId && !form.interviewer_ids.length)) return onError({message:"Select an application, time, and at least one interviewer."});
     try {
-      await apiRequest(token, "post", "/applications/"+applicationId+"/interviews", {data:{
+      const payload = {
         ...form, starts_at:new Date(form.starts_at).toISOString(),
         feedback_deadline: form.feedback_deadline ? new Date(form.feedback_deadline).toISOString() : null,
         duration_minutes:Number(form.duration_minutes), round_number:Number(form.round_number),
-      }});
-      onNotice("Interview round scheduled with the full panel."); setForm({...form, starts_at:"", feedback_deadline:""}); await loadRounds();
+      };
+      if (reschedulingInterviewId) {
+        await apiRequest(token, "patch", "/interviews/"+reschedulingInterviewId+"/reschedule", {data:payload});
+        onNotice("Interview rescheduled. The existing panel assignment was retained.");
+        setReschedulingInterviewId(null);
+        onRescheduled?.();
+      } else {
+        await apiRequest(token, "post", "/applications/"+applicationId+"/interviews", {data:payload});
+        onNotice("Interview round scheduled with the full panel.");
+      }
+      setForm({...form, starts_at:"", feedback_deadline:""}); await loadRounds();
     } catch(e) { onError(e); }
+  }
+
+  function cancelRescheduling() {
+    setReschedulingInterviewId(null);
+    setForm((current) => ({ ...current, starts_at:"", feedback_deadline:"", round_name:"Technical Interview", round_type:"technical", round_number:1, interviewer_ids:[] }));
+    onRescheduled?.();
   }
 
   async function cancel(id) {
@@ -106,7 +130,7 @@ export default function InterviewManagement2({ token, apiRequest, applications =
     </section>
     <div className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
       <div className="rounded-xl border border-ink-100 bg-white p-5">
-        <h3 className="font-semibold">Schedule panel interview</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{reschedulingInterviewId ? "Reschedule interview" : "Schedule panel interview"}</h3>{reschedulingInterviewId && <button type="button" className={secondary} onClick={cancelRescheduling}>Cancel edit</button>}</div>{reschedulingInterviewId && <p className="mt-2 text-xs text-amber-900">This updates the existing interview round. Its current interviewer assignments remain in place.</p>}
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-semibold">Application<select className={input} value={applicationId} onChange={e=>setApplicationId(e.target.value)}><option value="">Select application</option>{applications.map(a=><option key={a.id} value={a.id}>#{a.id} · {a.job_title} · {a.candidate?.first_name} {a.candidate?.last_name}</option>)}</select></label>
           <label className="text-xs font-semibold">Round type<select className={input} value={form.round_type} onChange={e=>setForm({...form,round_type:e.target.value})}><option value="technical">Technical</option><option value="hr">HR</option><option value="manager">Manager</option><option value="custom">Custom</option></select></label>
@@ -117,10 +141,10 @@ export default function InterviewManagement2({ token, apiRequest, applications =
           <label className="text-xs font-semibold">Mode<select className={input} value={form.mode} onChange={e=>setForm({...form,mode:e.target.value})}><option value="online">Online</option><option value="offline">Offline</option></select></label>
           {form.mode==="online"?<label className="text-xs font-semibold">Meeting URL<input className={input} placeholder="https://..." value={form.meeting_url} onChange={e=>setForm({...form,meeting_url:e.target.value})}/></label>:<label className="text-xs font-semibold">Location<input className={input} value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label>}
           <label className="text-xs font-semibold">Feedback deadline<input className={input} type="datetime-local" value={form.feedback_deadline} onChange={e=>setForm({...form,feedback_deadline:e.target.value})}/></label>
-          <label className="text-xs font-semibold sm:col-span-2">Interviewers<select multiple className={input+" min-h-28"} value={form.interviewer_ids.map(String)} onChange={e=>setForm({...form,interviewer_ids:Array.from(e.target.selectedOptions).map(o=>Number(o.value))})}>{users.map(u=><option key={u.id} value={u.id}>{u.full_name} · {u.role}</option>)}</select></label>
+          {!reschedulingInterviewId && <label className="text-xs font-semibold sm:col-span-2">Interviewers<select multiple className={input+" min-h-28"} value={form.interviewer_ids.map(String)} onChange={e=>setForm({...form,interviewer_ids:Array.from(e.target.selectedOptions).map(o=>Number(o.value))})}>{users.map(u=><option key={u.id} value={u.id}>{u.full_name} · {u.role}</option>)}</select></label>}
           {form.interviewer_ids.length > 0 && <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 sm:col-span-2"><p className="text-xs font-semibold text-blue-900">Shared panel availability</p><p className="mt-1 text-xs text-ink-600">Suggestions fit the selected duration and intersect published availability for every selected interviewer.</p>{suggestedSlots.length ? <div className="mt-2 grid gap-2">{suggestedSlots.map((slot) => <div key={`${slot.start}-${slot.end}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-100 bg-white px-3 py-2"><span className="text-xs font-medium text-ink-800">{new Date(slot.start).toLocaleString()} · {Math.floor((slot.end - slot.start) / 60_000)} min window</span><button type="button" className={secondary} onClick={() => setForm({...form, starts_at:localDateTimeValue(slot.start)})}>Use this time</button></div>)}</div> : <p className="mt-2 text-xs text-amber-800">No shared future slot is published for this panel and duration. Ask interviewers to publish overlapping availability or choose a time manually.</p>}</div>}
         </div>
-        <button className={primary+" mt-4"} onClick={schedule}>Schedule interview</button>
+        <button className={primary+" mt-4"} onClick={schedule}>{reschedulingInterviewId ? "Save new interview time" : "Schedule interview"}</button>
       </div>
       <div className="rounded-xl border border-ink-100 bg-white p-5">
         <h3 className="font-semibold">Interviewer availability</h3>
