@@ -113,6 +113,12 @@ export default function ScorecardPanel({ token, applicationId, candidateName, jo
   const peerSubmissions = ownSubmission
     ? history.filter((row) => row.submitted_at && row.ratings?._interviewKit?.kitId === kit.kitId)
     : [];
+  const panelRecommendations = peerSubmissions.map((row) => row.recommendation).filter(Boolean);
+  const recommendationCounts = panelRecommendations.reduce((counts, value) => ({ ...counts, [value]: (counts[value] || 0) + 1 }), {});
+  const disagreementCues = kit.questions.map((question) => {
+    const scores = peerSubmissions.map((row) => Number(row.ratings?._interviewKit?.responses?.[question.id]?.rating)).filter((value) => Number.isFinite(value) && value >= 1 && value <= 5);
+    return { competency: question.competency, scores, spread: scores.length > 1 ? Math.max(...scores) - Math.min(...scores) : 0 };
+  }).filter((item) => item.spread >= 2);
   const allRated = kit.questions.length > 0 && kit.questions.every((question) => Number(responses[question.id]?.rating) >= 1 && Number(responses[question.id]?.rating) <= 5);
 
   function updateResponse(questionId, patch) {
@@ -136,6 +142,24 @@ export default function ScorecardPanel({ token, applicationId, candidateName, jo
     try {
       await navigator.clipboard.writeText(guide);
       onNotice("Structured interview guide copied.");
+    } catch {
+      onError(new Error("Clipboard access is unavailable in this browser."));
+    }
+  }
+
+  async function copyDebriefAgenda() {
+    const agenda = [
+      `${kit.role} · panel debrief for ${candidateName}`,
+      "Start with job-related evidence from each independently submitted scorecard.",
+      "Recommendation distribution:",
+      ...(Object.keys(recommendationCounts).length ? Object.entries(recommendationCounts).map(([value, count]) => `- ${value}: ${count}`) : ["- No submitted recommendations"]),
+      "Competencies with a rating spread of 2 or more:",
+      ...(disagreementCues.length ? disagreementCues.map((item) => `- ${item.competency}: ratings ${Math.min(...item.scores)}–${Math.max(...item.scores)}`) : ["- None flagged by the rating spread check"]),
+      "Discuss the evidence behind differences. These summaries are prompts and do not make a hiring decision.",
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(agenda);
+      onNotice("Panel debrief agenda copied.");
     } catch {
       onError(new Error("Clipboard access is unavailable in this browser."));
     }
@@ -216,6 +240,7 @@ export default function ScorecardPanel({ token, applicationId, candidateName, jo
       {!allRated && <p className="mt-2 text-xs text-amber-800">Rate each question before submitting. Notes are saved with your scorecard and remain separate for each interviewer.</p>}
       {peerSubmissions.length > 1 && <section className="mt-5 rounded-lg border border-ink-100 bg-[#fafaf8] p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-ink-600">Panel debrief cues</p><p className="mt-1 text-xs leading-5 text-ink-500">Ratings are compared only after you submit your own. A wide spread is a prompt to discuss evidence, not an automatic hiring decision.</p>
+        <div className="mt-3 rounded-lg border border-ink-100 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-ink-800">Recommendation alignment</p><button type="button" className={secondary} onClick={copyDebriefAgenda}>Copy debrief agenda</button></div><div className="mt-2 flex flex-wrap gap-2">{Object.entries(recommendationCounts).map(([value, count]) => <span key={value} className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-900">{value} · {count}</span>)}{!Object.keys(recommendationCounts).length && <span className="text-xs text-ink-500">No recommendations recorded</span>}</div><p className="mt-2 text-xs leading-5 text-ink-600">{Object.keys(recommendationCounts).length > 1 ? "Recommendations differ; compare the evidence each interviewer observed." : "Review the question-level ranges before the team debrief."}</p>{disagreementCues.length > 0 && <p className="mt-2 text-xs font-medium text-amber-900">Discuss first: {disagreementCues.map((item) => item.competency).join(", ")}.</p>}</div>
         <div className="mt-3 divide-y divide-ink-100">{kit.questions.map((question) => {
           const scores = peerSubmissions.map((row) => Number(row.ratings?._interviewKit?.responses?.[question.id]?.rating)).filter((value) => Number.isFinite(value) && value >= 1 && value <= 5);
           return <div key={question.id} className="flex flex-wrap items-center justify-between gap-2 py-2"><span className="text-xs font-medium text-ink-800">{question.competency}</span><ScoreRange scores={scores} /></div>;
