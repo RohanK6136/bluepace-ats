@@ -64,6 +64,17 @@ function escapeHtml(value) {
 function reportAnchor(value) {
   return String(value || "item").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "item";
 }
+function latestReviewerRatings(item) {
+  const latest = new Map();
+  for (const rating of Array.isArray(item?.reviewer_ratings) ? item.reviewer_ratings : []) {
+    const name = String(rating.reviewer || "").trim();
+    if (name) latest.set(name.toLowerCase(), { ...rating, reviewer: name });
+  }
+  return Array.from(latest.values());
+}
+function hasReviewerDisagreement(item) {
+  return new Set(latestReviewerRatings(item).map((rating) => rating.status)).size > 1;
+}
 
 function readSavedRubrics() {
   try {
@@ -139,14 +150,21 @@ function ScoreMetric({ label, value, detail }) {
   return <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{label}</p><p className="mt-2 text-2xl font-semibold tabular-nums text-ink-950">{value ?? "—"}</p>{detail && <p className="mt-1 text-xs text-ink-500">{detail}</p>}</div>;
 }
 
-function EvidenceRatingCard({ item, onOverride }) {
+function EvidenceRatingCard({ item, onOverride, reviewerName, onRecordRating, onResolve }) {
   const fieldId = useId();
+  const [ratingDraft, setRatingDraft] = useState(item.review_override || item.status || "unclear");
+  const [resolutionDraft, setResolutionDraft] = useState(item.calibration_resolution?.status || "");
+  const [resolutionNoteDraft, setResolutionNoteDraft] = useState(item.calibration_resolution?.note || "");
   const ratingOptions = [
     ["met", "Met"],
     ["partial", "Partial"],
     ["unclear", "Unclear"],
     ["not_evidenced", "Not evidenced"],
   ];
+  const reviewerRatings = latestReviewerRatings(item);
+  function saveResolution() {
+    onResolve(resolutionDraft, resolutionNoteDraft.trim());
+  }
   return (
     <div className="rounded-lg border border-ink-100 bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -164,6 +182,36 @@ function EvidenceRatingCard({ item, onOverride }) {
         {item.review_override && <Pill tone="gold">Reviewer: {String(item.review_override).replaceAll("_", " ")}</Pill>}
       </div>
       <p className="mt-2 text-[11px] leading-5 text-ink-500">This records your review separately; it does not change the AI rating or match score.</p>
+      <div className="mt-4 border-t border-ink-100 pt-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-semibold text-ink-800">Reviewer calibration</p>
+          {hasReviewerDisagreement(item) && !item.calibration_resolution && <Pill tone="warn">Disagreement to resolve</Pill>}
+          {item.calibration_resolution && <Pill tone="good">Resolved · {String(item.calibration_resolution.status).replaceAll("_", " ")}</Pill>}
+        </div>
+        {reviewerRatings.length > 0 ? <div className="mt-2 flex flex-wrap gap-1.5">{reviewerRatings.map((rating) => <Pill key={rating.reviewer} tone="neutral">{rating.reviewer}: {String(rating.status).replaceAll("_", " ")}</Pill>)}</div> : <p className="mt-1 text-[11px] text-ink-500">No independent reviewer ratings recorded yet.</p>}
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="text-[11px] font-semibold text-ink-700" htmlFor={`${fieldId}-rating`}>Your independent rating
+            <select id={`${fieldId}-rating`} value={ratingDraft} onChange={(event) => setRatingDraft(event.target.value)} className="mt-1 block rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs text-ink-800">
+              {ratingOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <button type="button" className={secondaryButton} onClick={() => onRecordRating(ratingDraft, reviewerName)} disabled={!reviewerName?.trim()}>Record rating</button>
+          {!reviewerName?.trim() && <span className="text-[11px] text-amber-800">Enter reviewer name above first.</span>}
+        </div>
+        {(hasReviewerDisagreement(item) || item.calibration_resolution) && <div className="mt-3 grid gap-2 border-t border-ink-100 pt-3 sm:grid-cols-[minmax(140px,0.7fr)_minmax(0,1fr)_auto] sm:items-end">
+          <label className="text-[11px] font-semibold text-ink-700" htmlFor={`${fieldId}-resolution`}>Agreed rating
+            <select id={`${fieldId}-resolution`} value={resolutionDraft} onChange={(event) => setResolutionDraft(event.target.value)} className="mt-1 block w-full rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs text-ink-800">
+              <option value="">Choose resolution…</option>
+              {ratingOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label className="text-[11px] font-semibold text-ink-700" htmlFor={`${fieldId}-rationale`}>Resolution rationale
+            <input id={`${fieldId}-rationale`} value={resolutionNoteDraft} onChange={(event) => setResolutionNoteDraft(event.target.value)} maxLength={1000} placeholder="Why did reviewers agree on this rating?" className="mt-1 block w-full rounded-md border border-ink-200 px-2.5 py-2 text-xs" />
+          </label>
+          <button type="button" className={primaryButton} onClick={saveResolution} disabled={!resolutionDraft || !reviewerName?.trim()}>Save resolution</button>
+          {item.calibration_resolution && <p className="text-[11px] leading-5 text-ink-500 sm:col-span-3">Resolved by {item.calibration_resolution.reviewer} · {item.calibration_resolution.at ? new Date(item.calibration_resolution.at).toLocaleString() : "time not recorded"}{item.calibration_resolution.note ? ` · ${item.calibration_resolution.note}` : ""}</p>}
+        </div>}
+      </div>
     </div>
   );
 }
@@ -223,6 +271,35 @@ function withEvidenceOverride(result, itemId, override) {
   };
 }
 
+function withReviewerRating(result, itemId, reviewer, status) {
+  if (!result || !Array.isArray(result.evidence) || !reviewer?.trim()) return result;
+  return {
+    ...result,
+    evidence: result.evidence.map((item) => {
+      if (item.item_id !== itemId) return item;
+      const next = { ...item, reviewer_ratings: [...(Array.isArray(item.reviewer_ratings) ? item.reviewer_ratings : []), { reviewer: reviewer.trim(), status, at: new Date().toISOString() }].slice(-100) };
+      delete next.calibration_resolution;
+      return next;
+    }),
+  };
+}
+
+function withCalibrationResolution(result, itemId, reviewer, status, note) {
+  if (!result || !Array.isArray(result.evidence)) return result;
+  return {
+    ...result,
+    evidence: result.evidence.map((item) => {
+      if (item.item_id !== itemId) return item;
+      if (!status) {
+        const next = { ...item };
+        delete next.calibration_resolution;
+        return next;
+      }
+      return { ...item, calibration_resolution: { reviewer: reviewer.trim(), status, note: note || "", at: new Date().toISOString() } };
+    }),
+  };
+}
+
 function ErrorNotice({ children }) {
   if (!children) return null;
   return <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-900">{children}</div>;
@@ -238,6 +315,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => initialWorkspace?.id || "");
   const [workspaceName, setWorkspaceName] = useState(() => initialWorkspace?.title || "");
   const [workspaceNotes, setWorkspaceNotes] = useState(() => initialWorkspace?.notes || "");
+  const [calibrationReviewerName, setCalibrationReviewerName] = useState(() => initialWorkspace?.calibrationReviewerName || "");
   const [savedApplicants, setSavedApplicants] = useState(() => initialWorkspace?.applicants || []);
   const [workspaceStorageError, setWorkspaceStorageError] = useState(false);
   const [activeTab, setActiveTab] = useState("jd");
@@ -303,19 +381,21 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       candidateReview,
       applicants: Array.from(applicantsById.values()).slice(-MAX_BULK_RESUMES),
       notes: workspaceNotes,
+      calibrationReviewerName,
       updatedAt: new Date().toISOString(),
     };
     const next = [updated, ...existingRows.filter((workspace) => workspace.id !== activeWorkspaceId)].slice(0, 40);
     const saved = writeWorkspaces(next);
     setWorkspaceStorageError(!saved);
     if (saved) setWorkspaces(next);
-  }, [activeWorkspaceId, workspaceName, workspaceNotes, jdText, jdMode, jdDetail, jdResult, rubric, rubricNotes, selectedRubricId, selectedProfile, candidateCard, candidateReview, savedApplicants, batchFiles]);
+  }, [activeWorkspaceId, workspaceName, workspaceNotes, calibrationReviewerName, jdText, jdMode, jdDetail, jdResult, rubric, rubricNotes, selectedRubricId, selectedProfile, candidateCard, candidateReview, savedApplicants, batchFiles]);
 
   function activateWorkspace(workspace) {
     if (!workspace) return;
     setActiveWorkspaceId(workspace.id);
     setWorkspaceName(workspace.title || "Untitled workspace");
     setWorkspaceNotes(workspace.notes || "");
+    setCalibrationReviewerName(workspace.calibrationReviewerName || "");
     setJdText(workspace.jdText || "");
     setJdMode(workspace.jdMode || "light");
     setJdDetail(workspace.jdDetail || "detailed");
@@ -363,6 +443,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       candidateReview,
       applicants: Array.from(applicantsById.values()).slice(-MAX_BULK_RESUMES),
       notes: workspaceNotes,
+      calibrationReviewerName,
     };
     const next = [workspace, ...existingRows.filter((row) => row.id !== id)].slice(0, 40);
     const saved = writeWorkspaces(next);
@@ -394,6 +475,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       candidateReview: { stage: "new", history: [] },
       applicants: [],
       notes: "",
+      calibrationReviewerName: "",
     };
     const next = [workspace, ...readWorkspaces()].slice(0, 40);
     writeWorkspaces(next);
@@ -413,6 +495,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       setActiveWorkspaceId("");
       setWorkspaceName("");
       setWorkspaceNotes("");
+      setCalibrationReviewerName("");
       setJdText("");
       setJdMode("light");
       setJdDetail("detailed");
@@ -746,6 +829,30 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     setCandidateCard((current) => withEvidenceOverride(current, itemId, status));
   }
 
+  function recordBatchCalibrationRating(rowId, itemId, status, reviewer) {
+    setBatchFiles((current) => current.map((row) => row.id === rowId ? { ...row, result: withReviewerRating(row.result, itemId, reviewer, status) } : row));
+  }
+
+  function resolveBatchCalibration(rowId, itemId, status, note) {
+    setBatchFiles((current) => current.map((row) => row.id === rowId ? { ...row, result: withCalibrationResolution(row.result, itemId, calibrationReviewerName, status, note) } : row));
+  }
+
+  function recordSavedCalibrationRating(applicantId, itemId, status, reviewer) {
+    setSavedApplicants((current) => current.map((applicant) => applicant.id === applicantId ? { ...applicant, result: withReviewerRating(applicant.result, itemId, reviewer, status) } : applicant));
+  }
+
+  function resolveSavedCalibration(applicantId, itemId, status, note) {
+    setSavedApplicants((current) => current.map((applicant) => applicant.id === applicantId ? { ...applicant, result: withCalibrationResolution(applicant.result, itemId, calibrationReviewerName, status, note) } : applicant));
+  }
+
+  function recordCandidateCalibrationRating(itemId, status, reviewer) {
+    setCandidateCard((current) => withReviewerRating(current, itemId, reviewer, status));
+  }
+
+  function resolveCandidateCalibration(itemId, status, note) {
+    setCandidateCard((current) => withCalibrationResolution(current, itemId, calibrationReviewerName, status, note));
+  }
+
   function updateBatchReviewStage(rowId, stage) {
     const row = batchFiles.find((item) => item.id === rowId);
     if (!row || (row.reviewStage || "new") === stage) return;
@@ -841,9 +948,11 @@ export default function JDApplicantMatch({ token, apiRequest }) {
         const evidence = Array.isArray(result.evidence) ? result.evidence : [];
         const evidenceHtml = evidence.length ? evidence.map((item, evidenceIndex) => {
           const anchor = criterionAnchor(item.item_id, item.label);
-          const status = item.review_override ? `${item.status || "unclear"} · reviewer override: ${item.review_override}` : (item.status || "unclear");
+          const reviewerRatings = latestReviewerRatings(item);
+          const ratingsHtml = reviewerRatings.length ? `<p><strong>Independent reviewer ratings:</strong> ${reviewerRatings.map((rating) => `${escapeHtml(rating.reviewer)}: ${escapeHtml(rating.status)}`).join(" · ")}</p>` : "";
+          const resolutionHtml = item.calibration_resolution ? `<p><strong>Agreed rating:</strong> ${escapeHtml(item.calibration_resolution.status)} · Resolved by ${escapeHtml(item.calibration_resolution.reviewer)}${item.calibration_resolution.note ? ` · ${escapeHtml(item.calibration_resolution.note)}` : ""}${item.calibration_resolution.at ? ` · ${escapeHtml(new Date(item.calibration_resolution.at).toLocaleString())}` : ""}</p>` : (hasReviewerDisagreement(item) ? '<p class="alert">Reviewer disagreement remains unresolved.</p>' : "");
           const excerpts = item.lines?.length ? `<ul>${item.lines.map((line) => `<li><strong>${escapeHtml(line.id || "Excerpt")}</strong> ${escapeHtml(line.text)}</li>`).join("")}</ul>` : '<p class="muted">No exact excerpt returned; inspect the original resume.</p>';
-          return `<article class="evidence"><h4>${anchor ? `<a href="#${anchor}">${escapeHtml(item.label)}</a>` : escapeHtml(item.label)}</h4><p><strong>AI rating:</strong> ${escapeHtml(item.status || "unclear")} · <strong>Reviewer rating:</strong> ${escapeHtml(item.review_override || "Not overridden")}</p>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ""}${excerpts}</article>`;
+          return `<article class="evidence"><h4>${anchor ? `<a href="#${anchor}">${escapeHtml(item.label)}</a>` : escapeHtml(item.label)}</h4><p><strong>AI rating:</strong> ${escapeHtml(item.status || "unclear")} · <strong>Reviewer override:</strong> ${escapeHtml(item.review_override || "None")}</p>${ratingsHtml}${resolutionHtml}${item.note ? `<p>${escapeHtml(item.note)}</p>` : ""}${excerpts}</article>`;
         }).join("") : "<p>No criterion-level evidence is available for this applicant.</p>";
         const history = Array.isArray(applicant.reviewHistory) ? applicant.reviewHistory : [];
         const historyHtml = history.length ? `<ol class="history">${history.map((entry) => {
@@ -978,6 +1087,13 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const batchQueuedCount = batchFiles.filter((row) => row.status === "queued").length;
   const batchFailedCount = batchFiles.filter((row) => row.status === "failed").length;
   const batchTerminalCount = batchFiles.filter((row) => ["complete", "manual", "failed"].includes(row.status)).length;
+  const calibrationEvidence = [
+    ...[...savedApplicants, ...savedApplicantRows(batchFiles)].flatMap((applicant) => (applicant.result?.evidence || []).map((item) => ({ item, applicant: applicant.fileName || "Applicant" }))),
+    ...(candidateCard?.evidence || []).map((item) => ({ item, applicant: "Individual applicant" })),
+  ];
+  const unresolvedCalibrationCount = calibrationEvidence.filter(({ item }) => hasReviewerDisagreement(item) && !item.calibration_resolution).length;
+  const resolvedCalibrationCount = calibrationEvidence.filter(({ item }) => Boolean(item.calibration_resolution)).length;
+  const calibrationReviewers = new Set(calibrationEvidence.flatMap(({ item }) => latestReviewerRatings(item).map((rating) => rating.reviewer))).size;
 
   return (
     <div className="space-y-6">
@@ -1004,7 +1120,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
           </div>
         </div>
         <div className="space-y-3 border-b border-ink-100 bg-white px-4 py-4 sm:px-6">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(180px,0.65fr)_auto] xl:items-end">
             <Field label="Saved job workspace" hint="Keep the JD, rubric, applicant results and notes together.">
               <select value={activeWorkspaceId} onChange={(event) => activateWorkspace(workspaces.find((workspace) => workspace.id === event.target.value))} className={fieldClass}>
                 <option value="">Current session · not saved</option>
@@ -1013,6 +1129,9 @@ export default function JDApplicantMatch({ token, apiRequest }) {
             </Field>
             <Field label="Workspace name">
               <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder={jdTitle || "e.g. Senior Data Engineer · Hyderabad"} className={fieldClass} maxLength={120} />
+            </Field>
+            <Field label="Calibration reviewer" hint="Name or initials required to record ratings.">
+              <input value={calibrationReviewerName} onChange={(event) => setCalibrationReviewerName(event.target.value)} placeholder="Reviewer name" className={fieldClass} maxLength={80} />
             </Field>
             <div className="flex flex-wrap gap-2">
               <button type="button" className={secondaryButton} onClick={createWorkspace}>New workspace</button>
@@ -1148,6 +1267,11 @@ export default function JDApplicantMatch({ token, apiRequest }) {
 
           {activeTab === "match" && (
             <div className="space-y-7">
+              <section className="rounded-lg border border-ink-100 bg-[#fafaf8] p-4">
+                <SectionHeading eyebrow="Rubric calibration" title="Reviewer alignment" detail="Record independent ratings beside the same resume evidence. Resolve differences with an agreed rating and rationale before making a decision." action={<Pill tone={unresolvedCalibrationCount ? "warn" : "good"}>{unresolvedCalibrationCount ? `${unresolvedCalibrationCount} disagreement${unresolvedCalibrationCount === 1 ? "" : "s"} to resolve` : "No unresolved disagreements"}</Pill>} />
+                <p className="mt-2 text-xs leading-5 text-ink-600">{calibrationReviewers} reviewer{calibrationReviewers === 1 ? "" : "s"} have recorded ratings · {resolvedCalibrationCount} criterion resolution{resolvedCalibrationCount === 1 ? "" : "s"} saved in this workspace. Reviewer ratings are local to this browser and appear in exported summaries.</p>
+                {!calibrationReviewerName.trim() && <p className="mt-2 text-xs font-medium text-amber-800">Enter a calibration reviewer name above to record ratings or resolutions.</p>}
+              </section>
               <div className="grid gap-5 xl:grid-cols-2">
                 <div className="space-y-4">
                   <SectionHeading eyebrow="Step 03" title="Build a reviewable rubric" detail="Create a draft from the job description, check the requirements, then save an immutable rubric version before assessing resumes." />
@@ -1334,7 +1458,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                                 />
                                 {result?.evidence?.length > 0 && <details className="mt-2 min-w-[300px]">
                                   <summary className="cursor-pointer text-xs font-semibold text-blue-700 underline">Review evidence & ratings</summary>
-                                  <div className="mt-2 space-y-2">{result.evidence.map((item) => <EvidenceRatingCard key={item.item_id} item={item} onOverride={(status) => overrideBatchEvidence(row.id, item.item_id, status)} />)}</div>
+                                  <div className="mt-2 space-y-2">{result.evidence.map((item) => <EvidenceRatingCard key={`${row.id}:${item.item_id}`} item={item} reviewerName={calibrationReviewerName} onOverride={(status) => overrideBatchEvidence(row.id, item.item_id, status)} onRecordRating={(status, reviewer) => recordBatchCalibrationRating(row.id, item.item_id, status, reviewer)} onResolve={(status, note) => resolveBatchCalibration(row.id, item.item_id, status, note)} />)}</div>
                                 </details>}
                               </td>
                             </tr>
@@ -1355,7 +1479,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                   <div className="overflow-x-auto rounded-lg border border-ink-100 bg-white">
                     <table className="w-full min-w-[1160px] border-collapse text-left text-sm">
                       <thead className="bg-[#fafaf8] text-[11px] uppercase tracking-wide text-ink-500"><tr><th className="px-3 py-3 font-semibold">Resume</th><th className="px-3 py-3 font-semibold">Status</th><th className="px-3 py-3 font-semibold">Match</th><th className="px-3 py-3 font-semibold">Candidate ref</th><th className="px-3 py-3 font-semibold">Evidence review</th><th className="px-3 py-3 font-semibold">Workflow</th></tr></thead>
-                      <tbody>{savedApplicants.map((applicant) => <tr key={applicant.id} className="border-t border-ink-100"><td className="break-all px-3 py-3 text-xs font-medium text-ink-800">{applicant.fileName || "Applicant resume"}</td><td className="px-3 py-3"><Pill tone={applicant.status === "complete" ? "good" : applicant.status === "manual" || applicant.status === "failed" ? "warn" : "neutral"}>{applicant.status || "Saved"}</Pill>{applicant.error && <p className="mt-1 max-w-sm text-xs text-rose-700">{applicant.error}</p>}</td><td className="px-3 py-3 font-semibold tabular-nums">{applicant.result?.scores?.match == null ? "—" : `${applicant.result.scores.match}%`}</td><td className="px-3 py-3 font-mono text-xs text-ink-600">{applicant.result?.applicant_id || "—"}</td><td className="px-3 py-3">{applicant.result?.evidence?.length ? <details><summary className="cursor-pointer text-xs font-semibold text-blue-700 underline">Review {applicant.result.evidence.length} criteria</summary><div className="mt-2 min-w-[320px] space-y-2">{applicant.result.evidence.map((item) => <EvidenceRatingCard key={item.item_id} item={item} onOverride={(status) => overrideSavedApplicantEvidence(applicant.id, item.item_id, status)} />)}</div></details> : <span className="text-xs text-ink-400">No evidence details</span>}</td><td className="px-3 py-3"><ApplicantWorkflowControls review={{ stage: applicant.reviewStage || "new", history: applicant.reviewHistory || [] }} onStageChange={(stage) => updateSavedReviewStage(applicant.id, stage)} onAddNote={(note) => addSavedReviewNote(applicant.id, note)} /></td></tr>)}</tbody>
+                      <tbody>{savedApplicants.map((applicant) => <tr key={applicant.id} className="border-t border-ink-100"><td className="break-all px-3 py-3 text-xs font-medium text-ink-800">{applicant.fileName || "Applicant resume"}</td><td className="px-3 py-3"><Pill tone={applicant.status === "complete" ? "good" : applicant.status === "manual" || applicant.status === "failed" ? "warn" : "neutral"}>{applicant.status || "Saved"}</Pill>{applicant.error && <p className="mt-1 max-w-sm text-xs text-rose-700">{applicant.error}</p>}</td><td className="px-3 py-3 font-semibold tabular-nums">{applicant.result?.scores?.match == null ? "—" : `${applicant.result.scores.match}%`}</td><td className="px-3 py-3 font-mono text-xs text-ink-600">{applicant.result?.applicant_id || "—"}</td><td className="px-3 py-3">{applicant.result?.evidence?.length ? <details><summary className="cursor-pointer text-xs font-semibold text-blue-700 underline">Review {applicant.result.evidence.length} criteria</summary><div className="mt-2 min-w-[320px] space-y-2">{applicant.result.evidence.map((item) => <EvidenceRatingCard key={`${applicant.id}:${item.item_id}`} item={item} reviewerName={calibrationReviewerName} onOverride={(status) => overrideSavedApplicantEvidence(applicant.id, item.item_id, status)} onRecordRating={(status, reviewer) => recordSavedCalibrationRating(applicant.id, item.item_id, status, reviewer)} onResolve={(status, note) => resolveSavedCalibration(applicant.id, item.item_id, status, note)} />)}</div></details> : <span className="text-xs text-ink-400">No evidence details</span>}</td><td className="px-3 py-3"><ApplicantWorkflowControls review={{ stage: applicant.reviewStage || "new", history: applicant.reviewHistory || [] }} onStageChange={(stage) => updateSavedReviewStage(applicant.id, stage)} onAddNote={(note) => addSavedReviewNote(applicant.id, note)} /></td></tr>)}</tbody>
                     </table>
                   </div>
                 </section>
@@ -1373,7 +1497,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                   </div>
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"><strong>Recruiter review required.</strong> This assessment is based on resume-derived evidence; verify any important claim directly and apply the same criteria consistently across applicants.</div>
                   {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
-                  {(candidateCard.evidence || []).map((item) => <EvidenceRatingCard key={item.item_id} item={item} onOverride={(status) => overrideCandidateEvidence(item.item_id, status)} />)}
+                  {(candidateCard.evidence || []).map((item) => <EvidenceRatingCard key={`${activeWorkspaceId}:${item.item_id}`} item={item} reviewerName={calibrationReviewerName} onOverride={(status) => overrideCandidateEvidence(item.item_id, status)} onRecordRating={(status, reviewer) => recordCandidateCalibrationRating(item.item_id, status, reviewer)} onResolve={(status, note) => resolveCandidateCalibration(item.item_id, status, note)} />)}
                   {candidateCard.gaps?.length > 0 && <div className="rounded-lg border border-ink-100 bg-white p-4"><h3 className="text-sm font-semibold text-ink-900">Gaps and items to verify</h3><ul className="mt-3 space-y-2">{candidateCard.gaps.map((gap) => <li key={gap.item_id} className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-100 pb-2 last:border-0"><span className="text-sm text-ink-800">{gap.label}{gap.note && <span className="mt-1 block text-xs leading-5 text-ink-500">{gap.note}</span>}</span><Pill tone={gap.importance === "must" ? "warn" : "neutral"}>{gap.status.replaceAll("_", " ")}</Pill></li>)}</ul></div>}
                   {candidateCard.flags?.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><h3 className="text-sm font-semibold text-amber-950">Review flags</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">{candidateCard.flags.map((flag, index) => <li key={index}>{flag}</li>)}</ul></div>}
                 </section>
