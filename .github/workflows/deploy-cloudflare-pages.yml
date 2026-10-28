@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: cloudflare-pages-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -28,6 +28,14 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
     steps:
+      - name: Validate production branch
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error title=Wrong deployment branch::Run this production workflow from the main branch only. Selected ref: $GITHUB_REF"
+            exit 1
+          fi
+
       - name: Validate Cloudflare credentials
         shell: bash
         run: |
@@ -58,6 +66,7 @@ jobs:
           npm run test:server
           npm run test:bulk-match
           npm run test:jd-match-api
+          npm run test:hiring-workflow
 
       - name: Build frontend
         working-directory: frontend-vite
@@ -65,7 +74,7 @@ jobs:
 
       - name: Deploy frontend and Pages Functions
         working-directory: frontend-vite
-        run: npx --yes wrangler@4 pages deploy dist --project-name=bluepace-ats-frontend --branch=main
+        run: npx --yes wrangler@4 pages deploy dist --project-name=bluepace-ats-frontend --branch=main --commit-hash="$GITHUB_SHA"
 
       - name: Verify production site and model API
         shell: bash
