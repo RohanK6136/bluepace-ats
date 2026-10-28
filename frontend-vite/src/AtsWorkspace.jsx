@@ -17,6 +17,7 @@ const AIHiringStudio = lazy(() => import("./AIHiringStudio.jsx"));
 const JDApplicantMatch = lazy(() => import("./JDApplicantMatch.jsx"));
 const HiringWorkflowPanel = lazy(() => import("./HiringWorkflowPanel.jsx"));
 const HiringControlTower = lazy(() => import("./HiringControlTower.jsx"));
+const HiringFlowSimulator = lazy(() => import("./HiringFlowSimulator.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
@@ -1351,6 +1352,7 @@ export default function AtsWorkspace() {
     { id: "assistant", label: "AI Assistant" },
     { id: "merge-center", label: "Merge Center" },
     { id: "automation", label: "Automation" },
+    { id: "flow-simulator", label: "Flow simulator" },
   ];
 
   return (
@@ -2227,6 +2229,7 @@ export default function AtsWorkspace() {
             </div>}
           </section>}
           {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
+          {view === "flow-simulator" && <HiringFlowSimulator token={token} apiRequest={apiRequest} onError={(requestError) => setError(errorText(requestError))} />}
           {view === "ai-studio" && <AIHiringStudio token={token} apiRequest={apiRequest} jobs={jobs} onSaved={refreshWorkspace} />}
           {view === "jd-match" && <JDApplicantMatch token={token} apiRequest={apiRequest} /> }
           {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab theme={theme} onToggleTheme={toggleTheme} token={token} /></section>}
