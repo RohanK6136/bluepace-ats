@@ -15,6 +15,7 @@ const AutomationPanel = lazy(() => import("./AutomationPanel.jsx"));
 const AIHiringStudio = lazy(() => import("./AIHiringStudio.jsx"));
 const JDApplicantMatch = lazy(() => import("./JDApplicantMatch.jsx"));
 const HiringWorkflowPanel = lazy(() => import("./HiringWorkflowPanel.jsx"));
+const HiringControlTower = lazy(() => import("./HiringControlTower.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
@@ -1333,6 +1334,7 @@ export default function AtsWorkspace() {
   // AI Hiring Studio is a primary workflow, not a hidden advanced tool.
   const navItems = [
     { id: "dashboard", label: "Dashboard" },
+    { id: "control-tower", label: "Hiring Control Tower" },
     { id: "jobs", label: "Jobs", count: jobs.filter((job) => job.status !== "archived").length },
     { id: "candidates", label: "Candidates", count: candidates.length },
     { id: "hiring-workflow", label: "Hiring Workflow" },
@@ -1439,6 +1441,8 @@ export default function AtsWorkspace() {
           {error && <div role="alert" className="mb-4 flex items-center justify-between border-l-2 border-rose-600 bg-white px-4 py-3 text-sm text-rose-800"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
           {loading && <div className="mb-3 text-xs text-ink-500">Loading workspace…</div>}
 
+
+          {view === "control-tower" && <HiringControlTower token={token} apiRequest={apiRequest} onOpenWorkflow={() => setView("hiring-workflow")} onOpenInterviews={() => setView("interviews-2")} onOpenJobs={() => setView("jobs")} />}
 
           {view === "hiring-workflow" && <HiringWorkflowPanel token={token} applications={applications} jobs={jobs} canWrite={Boolean(canWrite)} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onRefresh={refreshWorkspace} />}
 
