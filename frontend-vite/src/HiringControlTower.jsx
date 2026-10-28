@@ -23,6 +23,7 @@ function candidateName(application) {
 }
 
 function Signal({ item, onAction }) {
+  const [copied, setCopied] = useState(false);
   const urgency = item.urgency === "urgent"
     ? "border-rose-200 bg-rose-50 text-rose-800"
     : item.urgency === "watch"
@@ -38,7 +39,18 @@ function Signal({ item, onAction }) {
         <h3 className="mt-2 truncate text-sm font-semibold text-ink-950">{item.title}</h3>
         <p className="mt-1 text-xs leading-5 text-ink-600">{item.reason}</p>
       </div>
-      <button type="button" className={button} onClick={onAction}>{item.action}</button>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={button} onClick={onAction}>{item.action}</button>
+        {item.followUpDraft && <button type="button" className={button} onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(item.followUpDraft);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1800);
+          } catch {
+            setCopied(false);
+          }
+        }}>{copied ? "Draft copied" : "Copy follow-up draft"}</button>}
+      </div>
     </article>
   );
 }
@@ -48,7 +60,7 @@ function Metric({ label, value, detail, tone = "ink" }) {
   return <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{label}</p><p className={`mt-1 text-2xl font-semibold tabular-nums ${valueTone}`}>{value}</p><p className="mt-1 text-xs text-ink-500">{detail}</p></div>;
 }
 
-export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, onOpenInterviews, onOpenJobs }) {
+export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, onOpenInterviews, onOpenJobs, onOpenCandidate }) {
   const [applications, setApplications] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [upcomingInterviews, setUpcomingInterviews] = useState([]);
@@ -92,6 +104,8 @@ export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, 
       if (age === null || age < threshold) continue;
       const stage = getWorkflowStage(application);
       const stageLabel = stage === "Applied" ? "Initial review" : stage;
+      const candidate = application.candidate || {};
+      const firstName = candidate.first_name || "there";
       items.push({
         id: `stalled-${application.id}`,
         label: age >= threshold * 2 ? "Needs attention" : "Stalled",
@@ -99,8 +113,14 @@ export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, 
         context: `${age} days without an update · ${stageLabel}`,
         title: `${candidateName(application)} · ${application.job_title || "Open role"}`,
         reason: `The application has not changed since ${displayDate(lastActivity)}. Consider updating the candidate, recording the next step, or closing the loop.`,
-        action: "Review pipeline",
-        onAction: () => onOpenWorkflow?.(),
+        action: "Open candidate",
+        onAction: () => onOpenCandidate?.(application.candidate_id),
+        followUpDraft: `Hi ${firstName},
+
+I’m checking in about your application for ${application.job_title || "the role"}. Your application is currently at the ${stageLabel} stage. We’ll share an update by [date]. If your availability or interest has changed, please let us know.
+
+Best,
+[Your name]`,
       });
     }
 
@@ -150,7 +170,7 @@ export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, 
     }
 
     return items.sort((a, b) => ({ urgent: 0, watch: 1, normal: 2 }[a.urgency] - ({ urgent: 0, watch: 1, normal: 2 }[b.urgency])));
-  }, [applications, jobs, onOpenInterviews, onOpenJobs, onOpenWorkflow, threshold, upcomingInterviews]);
+  }, [applications, jobs, onOpenCandidate, onOpenInterviews, onOpenJobs, onOpenWorkflow, threshold, upcomingInterviews]);
 
   const urgentCount = queue.filter((item) => item.urgency === "urgent").length;
   const staleCount = queue.filter((item) => item.id.startsWith("stalled-")).length;
