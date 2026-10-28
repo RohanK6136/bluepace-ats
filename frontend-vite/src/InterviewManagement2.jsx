@@ -30,12 +30,13 @@ function localDateTimeValue(timestamp) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
-export default function InterviewManagement2({ token, apiRequest, applications = [], initialApplicationId = "", initialInterviewRoundNumber = null, onNotice, onError, onOpenFeedback, onRescheduled }) {
+export default function InterviewManagement2({ token, apiRequest, applications = [], initialApplicationId = "", initialInterviewRoundNumber = null, initialRescheduleQuestionId = null, onNotice, onError, onOpenFeedback, onRescheduled }) {
   const [availability, setAvailability] = useState([]);
   const [feedbackQueue, setFeedbackQueue] = useState([]);
   const [applicationId, setApplicationId] = useState(applications[0]?.id ? String(applications[0].id) : "");
   const [rounds, setRounds] = useState([]);
   const [reschedulingInterviewId, setReschedulingInterviewId] = useState(null);
+  const [portalReplyOnReschedule, setPortalReplyOnReschedule] = useState(true);
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ starts_at:"", duration_minutes:60, mode:"online", meeting_url:"", location:"", round_name:"Technical Interview", round_type:"technical", round_number:1, feedback_deadline:"", interviewer_ids:[] });
   const [loading, setLoading] = useState(false);
@@ -79,6 +80,7 @@ export default function InterviewManagement2({ token, apiRequest, applications =
     const target = rounds.find((round) => Number(round.round_number) === Number(initialInterviewRoundNumber) && round.status !== "cancelled");
     if (!target) return;
     setReschedulingInterviewId(target.id);
+    setPortalReplyOnReschedule(true);
     setForm((current) => ({ ...current, starts_at: "", duration_minutes: target.duration_minutes || 60, mode: target.mode || "online", meeting_url: target.meeting_url || "", location: target.location || "", round_name: target.round_name || "Interview", round_type: target.round_type || "technical", round_number: target.round_number || 1, feedback_deadline: target.feedback_deadline ? localDateTimeValue(Date.parse(target.feedback_deadline)) : "", interviewer_ids: [] }));
   }, [rounds, initialInterviewRoundNumber]);
 
@@ -91,7 +93,28 @@ export default function InterviewManagement2({ token, apiRequest, applications =
         duration_minutes:Number(form.duration_minutes), round_number:Number(form.round_number),
       };
       if (reschedulingInterviewId) {
-        await apiRequest(token, "patch", "/interviews/"+reschedulingInterviewId+"/reschedule", {data:payload});
+        const response = await apiRequest(token, "patch", "/interviews/"+reschedulingInterviewId+"/reschedule", {data:payload});
+        let portalReplyPosted = false;
+        if (initialRescheduleQuestionId && portalReplyOnReschedule) {
+          const saved = response.data || {};
+          const details = [
+            `Your ${saved.round_name || "interview"} has been rescheduled to ${saved.starts_at ? new Date(saved.starts_at).toLocaleString() : new Date(payload.starts_at).toLocaleString()}.`,
+            saved.mode === "online" && saved.meeting_url ? `Meeting link: ${saved.meeting_url}` : null,
+            saved.mode === "offline" && saved.location ? `Location: ${saved.location}` : null,
+            "Please contact the recruiting team through your portal if you have questions.",
+          ].filter(Boolean).join("\n\n");
+          try {
+            await apiRequest(token, "patch", `/candidate-portal/questions/${initialRescheduleQuestionId}`, { data: { answer: details, status: "answered" } });
+            portalReplyPosted = true;
+          } catch {
+            onError({ message: "Interview rescheduled, but the candidate portal reply could not be saved. Please answer the request manually." });
+          }
+        }
+        if (portalReplyPosted) {
+          onNotice("Interview rescheduled, and the candidate portal was updated. No email was sent.");
+        } else if (!initialRescheduleQuestionId || !portalReplyOnReschedule) {
+          onNotice("Interview rescheduled. The existing panel assignment was retained.");
+        }
         onNotice("Interview rescheduled. The existing panel assignment was retained.");
         setReschedulingInterviewId(null);
         onRescheduled?.();
@@ -130,7 +153,7 @@ export default function InterviewManagement2({ token, apiRequest, applications =
     </section>
     <div className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
       <div className="rounded-xl border border-ink-100 bg-white p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{reschedulingInterviewId ? "Reschedule interview" : "Schedule panel interview"}</h3>{reschedulingInterviewId && <button type="button" className={secondary} onClick={cancelRescheduling}>Cancel edit</button>}</div>{reschedulingInterviewId && <p className="mt-2 text-xs text-amber-900">This updates the existing interview round. Its current interviewer assignments remain in place.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{reschedulingInterviewId ? "Reschedule interview" : "Schedule panel interview"}</h3>{reschedulingInterviewId && <button type="button" className={secondary} onClick={cancelRescheduling}>Cancel edit</button>}</div>{reschedulingInterviewId && <p className="mt-2 text-xs text-amber-900">This updates the existing interview round. Its current interviewer assignments remain in place.</p>{initialRescheduleQuestionId && <label className="mt-2 flex items-start gap-2 text-xs text-ink-700"><input type="checkbox" checked={portalReplyOnReschedule} onChange={(event) => setPortalReplyOnReschedule(event.target.checked)} /><span>Post the updated schedule as a reply in the candidate portal. No email will be sent.</span></label>}
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-semibold">Application<select className={input} value={applicationId} onChange={e=>setApplicationId(e.target.value)}><option value="">Select application</option>{applications.map(a=><option key={a.id} value={a.id}>#{a.id} · {a.job_title} · {a.candidate?.first_name} {a.candidate?.last_name}</option>)}</select></label>
           <label className="text-xs font-semibold">Round type<select className={input} value={form.round_type} onChange={e=>setForm({...form,round_type:e.target.value})}><option value="technical">Technical</option><option value="hr">HR</option><option value="manager">Manager</option><option value="custom">Custom</option></select></label>
