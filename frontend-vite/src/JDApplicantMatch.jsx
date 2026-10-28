@@ -5,6 +5,12 @@ const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md 
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
 const fieldClass = "w-full rounded-md border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-100";
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const REVIEW_STAGES = [
+  ["new", "New"],
+  ["reviewing", "Reviewing"],
+  ["interview", "Interview"],
+  ["decision", "Decision"],
+];
 const WORKSPACE_STORAGE_KEY = "bluepace_jd_match_workspaces_v1";
 const ACTIVE_WORKSPACE_KEY = "bluepace_jd_match_active_workspace_v1";
 
@@ -39,6 +45,8 @@ function savedApplicantRows(batchRows) {
       status: row.status,
       result: row.result || null,
       error: row.error || "",
+      reviewStage: row.reviewStage || "new",
+      reviewHistory: Array.isArray(row.reviewHistory) ? row.reviewHistory : [],
     }));
 }
 function workspaceProgress(workspace) {
@@ -46,6 +54,9 @@ function workspaceProgress(workspace) {
   const hasRubric = Boolean(workspace.rubric?.items?.length);
   const applicantCount = (workspace.applicants || []).filter((row) => row.result).length + (workspace.candidateCard ? 1 : 0);
   return `${hasJD ? "JD ✓" : "JD —"} · ${hasRubric ? "Rubric ✓" : "Rubric —"} · ${applicantCount} applicant${applicantCount === 1 ? "" : "s"}`;
+}
+function appendReviewEvent(history, event) {
+  return [...(Array.isArray(history) ? history : []), { ...event, at: new Date().toISOString() }].slice(-200);
 }
 
 function readSavedRubrics() {
@@ -151,6 +162,42 @@ function EvidenceRatingCard({ item, onOverride }) {
   );
 }
 
+function ApplicantWorkflowControls({ review, onStageChange, onAddNote }) {
+  const [noteDraft, setNoteDraft] = useState("");
+  const history = Array.isArray(review?.history) ? review.history : [];
+  function submitNote(event) {
+    event.preventDefault();
+    const note = noteDraft.trim();
+    if (!note) return;
+    onAddNote(note);
+    setNoteDraft("");
+  }
+  return (
+    <div className="min-w-[240px] space-y-2">
+      <label className="block text-[11px] font-semibold text-ink-600">Review stage
+        <select value={review?.stage || "new"} onChange={(event) => onStageChange(event.target.value)} className="mt-1 w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-xs text-ink-800">
+          {REVIEW_STAGES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </label>
+      <form onSubmit={submitNote} className="flex gap-1.5">
+        <input value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} maxLength={1000} placeholder="Add reviewer note…" aria-label="Reviewer note" className="min-w-0 flex-1 rounded-md border border-ink-200 px-2 py-1.5 text-xs" />
+        <button type="submit" disabled={!noteDraft.trim()} className="rounded-md border border-ink-200 px-2 py-1.5 text-xs font-semibold text-ink-700 disabled:opacity-50">Add</button>
+      </form>
+      <details>
+        <summary className="cursor-pointer text-[11px] font-semibold text-blue-700 underline">Activity history ({history.length})</summary>
+        {history.length ? <ol className="mt-2 max-h-48 space-y-2 overflow-auto border-l border-ink-200 pl-3">
+          {[...history].reverse().map((entry, index) => <li key={`${entry.at || "event"}-${index}`} className="text-[11px] leading-5 text-ink-600">
+            <span className="font-semibold text-ink-800">{entry.type === "stage" ? `Stage: ${REVIEW_STAGES.find(([value]) => value === entry.to)?.[1] || entry.to}` : "Reviewer note"}</span>
+            {entry.type === "stage" && <span> · from {REVIEW_STAGES.find(([value]) => value === entry.from)?.[1] || entry.from}</span>}
+            {entry.type === "note" && <span>: {entry.text}</span>}
+            <time className="block text-ink-400">{entry.at ? new Date(entry.at).toLocaleString() : "Time not recorded"}</time>
+          </li>)}
+        </ol> : <p className="mt-2 text-[11px] text-ink-500">No stage changes or notes yet.</p>}
+      </details>
+    </div>
+  );
+}
+
 function withEvidenceOverride(result, itemId, override) {
   if (!result || !Array.isArray(result.evidence)) return result;
   return {
@@ -216,6 +263,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [resumeFile, setResumeFile] = useState(null);
   const [resumeText, setResumeText] = useState("");
   const [candidateCard, setCandidateCard] = useState(() => initialWorkspace?.candidateCard || null);
+  const [candidateReview, setCandidateReview] = useState(() => initialWorkspace?.candidateReview || { stage: "new", history: [] });
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState("");
   const [batchFiles, setBatchFiles] = useState([]);
@@ -246,6 +294,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       selectedRubricId,
       selectedProfile,
       candidateCard,
+      candidateReview,
       applicants: Array.from(applicantsById.values()).slice(-MAX_BULK_RESUMES),
       notes: workspaceNotes,
       updatedAt: new Date().toISOString(),
@@ -254,7 +303,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     const saved = writeWorkspaces(next);
     setWorkspaceStorageError(!saved);
     if (saved) setWorkspaces(next);
-  }, [activeWorkspaceId, workspaceName, workspaceNotes, jdText, jdMode, jdDetail, jdResult, rubric, rubricNotes, selectedRubricId, selectedProfile, candidateCard, savedApplicants, batchFiles]);
+  }, [activeWorkspaceId, workspaceName, workspaceNotes, jdText, jdMode, jdDetail, jdResult, rubric, rubricNotes, selectedRubricId, selectedProfile, candidateCard, candidateReview, savedApplicants, batchFiles]);
 
   function activateWorkspace(workspace) {
     if (!workspace) return;
@@ -270,6 +319,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     setSelectedRubricId(workspace.selectedRubricId || "");
     setSelectedProfile(workspace.selectedProfile || "");
     setCandidateCard(workspace.candidateCard || null);
+    setCandidateReview(workspace.candidateReview || { stage: "new", history: [] });
     setSavedApplicants(workspace.applicants || []);
     setResumeFile(null);
     setResumeText("");
@@ -304,6 +354,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       selectedRubricId,
       selectedProfile,
       candidateCard,
+      candidateReview,
       applicants: Array.from(applicantsById.values()).slice(-MAX_BULK_RESUMES),
       notes: workspaceNotes,
     };
@@ -334,6 +385,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       selectedRubricId: "",
       selectedProfile: "",
       candidateCard: null,
+      candidateReview: { stage: "new", history: [] },
       applicants: [],
       notes: "",
     };
@@ -364,6 +416,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
       setSelectedRubricId("");
       setSelectedProfile("");
       setCandidateCard(null);
+      setCandidateReview({ stage: "new", history: [] });
       setSavedApplicants([]);
       setResumeFile(null);
       setResumeText("");
@@ -621,6 +674,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     setMatchLoading(true);
     setMatchError("");
     setCandidateCard(null);
+    setCandidateReview({ stage: "new", history: [] });
     setNotice("");
     try {
       const body = new FormData();
@@ -684,6 +738,47 @@ export default function JDApplicantMatch({ token, apiRequest }) {
 
   function overrideCandidateEvidence(itemId, status) {
     setCandidateCard((current) => withEvidenceOverride(current, itemId, status));
+  }
+
+  function updateBatchReviewStage(rowId, stage) {
+    const row = batchFiles.find((item) => item.id === rowId);
+    if (!row || (row.reviewStage || "new") === stage) return;
+    updateBatchRow(rowId, {
+      reviewStage: stage,
+      reviewHistory: appendReviewEvent(row.reviewHistory, { type: "stage", from: row.reviewStage || "new", to: stage }),
+    });
+  }
+
+  function addBatchReviewNote(rowId, text) {
+    const row = batchFiles.find((item) => item.id === rowId);
+    if (!row) return;
+    updateBatchRow(rowId, { reviewHistory: appendReviewEvent(row.reviewHistory, { type: "note", text }) });
+  }
+
+  function updateSavedReviewStage(applicantId, stage) {
+    setSavedApplicants((current) => current.map((applicant) => {
+      const from = applicant.reviewStage || "new";
+      return applicant.id === applicantId && from !== stage
+        ? { ...applicant, reviewStage: stage, reviewHistory: appendReviewEvent(applicant.reviewHistory, { type: "stage", from, to: stage }) }
+        : applicant;
+    }));
+  }
+
+  function addSavedReviewNote(applicantId, text) {
+    setSavedApplicants((current) => current.map((applicant) => applicant.id === applicantId
+      ? { ...applicant, reviewHistory: appendReviewEvent(applicant.reviewHistory, { type: "note", text }) }
+      : applicant));
+  }
+
+  function updateCandidateReviewStage(stage) {
+    setCandidateReview((current) => (current.stage || "new") === stage ? current : {
+      stage,
+      history: appendReviewEvent(current.history, { type: "stage", from: current.stage || "new", to: stage }),
+    });
+  }
+
+  function addCandidateReviewNote(text) {
+    setCandidateReview((current) => ({ ...current, history: appendReviewEvent(current.history, { type: "note", text }) }));
   }
 
   function removeBatchRow(id) {
@@ -1163,6 +1258,11 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                                   {row.status === "failed" && !batchRunning && <button type="button" className="text-xs font-semibold text-blue-700 underline" onClick={() => runBatchMatches(false, [row.id])} disabled={connection !== "connected" || !selectedRubricId}>Retry</button>}
                                   {!batchRunning && <button type="button" className="text-xs font-semibold text-ink-500 underline" onClick={() => removeBatchRow(row.id)}>Remove</button>}
                                 </div>
+                                <ApplicantWorkflowControls
+                                  review={{ stage: row.reviewStage || "new", history: row.reviewHistory || [] }}
+                                  onStageChange={(stage) => updateBatchReviewStage(row.id, stage)}
+                                  onAddNote={(note) => addBatchReviewNote(row.id, note)}
+                                />
                                 {result?.evidence?.length > 0 && <details className="mt-2 min-w-[300px]">
                                   <summary className="cursor-pointer text-xs font-semibold text-blue-700 underline">Review evidence & ratings</summary>
                                   <div className="mt-2 space-y-2">{result.evidence.map((item) => <EvidenceRatingCard key={item.item_id} item={item} onOverride={(status) => overrideBatchEvidence(row.id, item.item_id, status)} />)}</div>
@@ -1184,9 +1284,9 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                 <section className="space-y-3 border-t border-ink-200 pt-6">
                   <SectionHeading eyebrow="Saved in this workspace" title="Applicant review history" detail="Completed batch results are kept with this job on this device. Reopen the workspace to review these summaries; resume files are not retained." />
                   <div className="overflow-x-auto rounded-lg border border-ink-100 bg-white">
-                    <table className="w-full min-w-[860px] border-collapse text-left text-sm">
-                      <thead className="bg-[#fafaf8] text-[11px] uppercase tracking-wide text-ink-500"><tr><th className="px-3 py-3 font-semibold">Resume</th><th className="px-3 py-3 font-semibold">Status</th><th className="px-3 py-3 font-semibold">Match</th><th className="px-3 py-3 font-semibold">Candidate ref</th><th className="px-3 py-3 font-semibold">Evidence review</th></tr></thead>
-                      <tbody>{savedApplicants.map((applicant) => <tr key={applicant.id} className="border-t border-ink-100"><td className="break-all px-3 py-3 text-xs font-medium text-ink-800">{applicant.fileName || "Applicant resume"}</td><td className="px-3 py-3"><Pill tone={applicant.status === "complete" ? "good" : applicant.status === "manual" || applicant.status === "failed" ? "warn" : "neutral"}>{applicant.status || "Saved"}</Pill>{applicant.error && <p className="mt-1 max-w-sm text-xs text-rose-700">{applicant.error}</p>}</td><td className="px-3 py-3 font-semibold tabular-nums">{applicant.result?.scores?.match == null ? "—" : `${applicant.result.scores.match}%`}</td><td className="px-3 py-3 font-mono text-xs text-ink-600">{applicant.result?.applicant_id || "—"}</td><td className="px-3 py-3">{applicant.result?.evidence?.length ? <details><summary className="cursor-pointer text-xs font-semibold text-blue-700 underline">Review {applicant.result.evidence.length} criteria</summary><div className="mt-2 min-w-[320px] space-y-2">{applicant.result.evidence.map((item) => <EvidenceRatingCard key={item.item_id} item={item} onOverride={(status) => overrideSavedApplicantEvidence(applicant.id, item.item_id, status)} />)}</div></details> : <span className="text-xs text-ink-400">No evidence details</span>}</td></tr>)}</tbody>
+                    <table className="w-full min-w-[1160px] border-collapse text-left text-sm">
+                      <thead className="bg-[#fafaf8] text-[11px] uppercase tracking-wide text-ink-500"><tr><th className="px-3 py-3 font-semibold">Resume</th><th className="px-3 py-3 font-semibold">Status</th><th className="px-3 py-3 font-semibold">Match</th><th className="px-3 py-3 font-semibold">Candidate ref</th><th className="px-3 py-3 font-semibold">Evidence review</th><th className="px-3 py-3 font-semibold">Workflow</th></tr></thead>
+                      <tbody>{savedApplicants.map((applicant) => <tr key={applicant.id} className="border-t border-ink-100"><td className="break-all px-3 py-3 text-xs font-medium text-ink-800">{applicant.fileName || "Applicant resume"}</td><td className="px-3 py-3"><Pill tone={applicant.status === "complete" ? "good" : applicant.status === "manual" || applicant.status === "failed" ? "warn" : "neutral"}>{applicant.status || "Saved"}</Pill>{applicant.error && <p className="mt-1 max-w-sm text-xs text-rose-700">{applicant.error}</p>}</td><td className="px-3 py-3 font-semibold tabular-nums">{applicant.result?.scores?.match == null ? "—" : `${applicant.result.scores.match}%`}</td><td className="px-3 py-3 font-mono text-xs text-ink-600">{applicant.result?.applicant_id || "—"}</td><td className="px-3 py-3">{applicant.result?.evidence?.length ? <details><summary className="cursor-pointer text-xs font-semibold text-blue-700 underline">Review {applicant.result.evidence.length} criteria</summary><div className="mt-2 min-w-[320px] space-y-2">{applicant.result.evidence.map((item) => <EvidenceRatingCard key={item.item_id} item={item} onOverride={(status) => overrideSavedApplicantEvidence(applicant.id, item.item_id, status)} />)}</div></details> : <span className="text-xs text-ink-400">No evidence details</span>}</td><td className="px-3 py-3"><ApplicantWorkflowControls review={{ stage: applicant.reviewStage || "new", history: applicant.reviewHistory || [] }} onStageChange={(stage) => updateSavedReviewStage(applicant.id, stage)} onAddNote={(note) => addSavedReviewNote(applicant.id, note)} /></td></tr>)}</tbody>
                     </table>
                   </div>
                 </section>
@@ -1195,6 +1295,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
               {candidateCard && (
                 <section className="space-y-4 border-t border-ink-200 pt-6">
                   <SectionHeading eyebrow="Evidence review" title="Applicant assessment" detail="Review source evidence and missing or unclear information. An absent detail is not proof of a candidate's ability." />
+                  <div className="rounded-lg border border-ink-100 bg-[#fafaf8] p-4"><ApplicantWorkflowControls review={candidateReview} onStageChange={updateCandidateReviewStage} onAddNote={addCandidateReviewNote} /></div>
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <ScoreMetric label="Job match" value={matchScore == null ? "Manual review" : `${matchScore}%`} detail="Evidence-weighted result, not a hiring decision" />
                     <ScoreMetric label="Experience" value={candidateCard.scores?.experience?.pct == null ? "—" : `${candidateCard.scores.experience.pct}%`} detail={candidateCard.profile?.relevant_years == null ? "Relevant years not established" : `${candidateCard.profile.relevant_years} relevant years`} />
