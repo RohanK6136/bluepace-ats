@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 const field = "w-full rounded-md border border-ink-200 bg-white px-3 py-2 text-sm text-ink-800";
 const button = "inline-flex items-center justify-center rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
 
-export default function CandidatePortalQuestions({ token, apiRequest, applications = [], onNotice, onError }) {
+export default function CandidatePortalQuestions({ token, apiRequest, applications = [], onNotice, onError, onOpenScheduling }) {
   const [questions, setQuestions] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [loading, setLoading] = useState(true);
@@ -56,6 +56,7 @@ export default function CandidatePortalQuestions({ token, apiRequest, applicatio
       : questions.length ? <div className="mt-4 grid gap-3">{questions.map((question) => <article key={question.id} className="rounded-lg border border-ink-100 bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold text-ink-900">{question.subject}</p><p className="mt-1 text-[11px] text-ink-500">{question.job_title || `Application #${question.application_id}`} · {question.created_at ? new Date(question.created_at).toLocaleString() : "Date unavailable"}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${question.status === "open" ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800"}`}>{question.status}</span></div>
         <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink-700">{question.question}</p>
+        {String(question.subject || "").toLowerCase().includes("reschedule request") && <button type="button" className={`${button} mt-3`} onClick={() => onOpenScheduling?.(question.application_id)}>Open interview scheduler</button>}
         {question.status === "open" || question.answer ? <div className="mt-3 grid gap-2"><label className="text-xs font-semibold text-ink-700">Reply to candidate<textarea className={`${field} mt-1.5 min-h-24`} maxLength={5000} value={drafts[question.id] ?? question.answer ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [question.id]: event.target.value }))} placeholder="Write a clear, job-related answer…" /></label><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-[11px] text-ink-400">{(drafts[question.id] || "").length}/5000 characters</span><button type="button" className={button} disabled={savingId === question.id || !String(drafts[question.id] || "").trim()} onClick={() => saveAnswer(question)}>{savingId === question.id ? "Publishing…" : question.status === "open" ? "Publish reply" : "Update reply"}</button></div></div> : <p className="mt-3 rounded-md bg-emerald-50 p-3 text-sm text-emerald-900">{question.answer || "This question is closed."}</p>}
       </article>)}</div>
       : <p className="mt-4 rounded-lg border border-ink-100 bg-white p-3 text-sm text-ink-500">No questions have been sent through this candidate’s portal.</p>}
