@@ -164,6 +164,16 @@ class AIHiringRubric(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class AIHiringWorkspace(Base):
+    """Recruiter-created JD match workspaces shared within an organization."""
+    __tablename__ = "ai_hiring_workspaces"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    workspace_data: Mapped[dict] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 class OpenRouterRequest(BaseModel):
     provider: str = Field(default_factory=lambda: os.getenv("AI_PROVIDER", "openrouter"), max_length=40)
     api_key: str | None = Field(default=None, max_length=500)
@@ -186,6 +196,10 @@ class SavedRubricRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     job_title: str = Field(default="", max_length=200)
     rubric: dict[str, Any]
+
+
+class SavedWorkspaceRequest(BaseModel):
+    workspace: dict[str, Any]
 
 
 class AnalyzeResumeRequest(OpenRouterRequest):
@@ -797,6 +811,73 @@ def delete_saved_rubric(
         "Saved rubric versions are retained for assessment auditability. Create a new version instead of deleting a saved snapshot.",
     )
 
+
+@router.get("/workspaces")
+def list_saved_workspaces(
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(
+        select(AIHiringWorkspace)
+        .where(AIHiringWorkspace.organization_id == user.organization_id)
+        .order_by(AIHiringWorkspace.updated_at.desc())
+        .limit(100)
+    ).all()
+    return {"workspaces": [row.workspace_data for row in rows]}
+
+
+@router.put("/workspaces/{workspace_id}")
+def save_workspace_to_team(
+    workspace_id: str,
+    request: SavedWorkspaceRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    workspace = request.workspace
+    if workspace.get("id") != workspace_id:
+        raise HTTPException(422, "Workspace ID does not match the request path.")
+    if len(json.dumps(workspace, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 2_000_000:
+        raise HTTPException(413, "Workspace is too large to sync (2 MB maximum).")
+    title = str(workspace.get("title") or "Untitled workspace").strip()[:120]
+    if not title:
+        title = "Untitled workspace"
+    workspace["title"] = title
+    now = datetime.now(timezone.utc)
+    row = db.get(AIHiringWorkspace, workspace_id)
+    if row is not None and row.organization_id != user.organization_id:
+        raise HTTPException(404, "Workspace not found in this organization.")
+    if row is None:
+        row = AIHiringWorkspace(
+            id=workspace_id,
+            organization_id=user.organization_id,
+            user_id=user.id,
+            workspace_data=workspace,
+            updated_at=now,
+        )
+        db.add(row)
+    else:
+        row.workspace_data = workspace
+        row.updated_at = now
+    db.commit()
+    return {"workspace": workspace, "updated_at": now.isoformat()}
+
+
+@router.delete("/workspaces/{workspace_id}")
+def delete_team_workspace(
+    workspace_id: str,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    row = db.scalar(select(AIHiringWorkspace).where(
+        AIHiringWorkspace.id == workspace_id,
+        AIHiringWorkspace.organization_id == user.organization_id,
+    ))
+    if row is None:
+        raise HTTPException(404, "Workspace not found in this organization.")
+    db.delete(row)
+    db.commit()
+    return {"deleted": True}
+
 @router.get("/history")
 def list_history(limit: int = Query(default=30, ge=1, le=100),
                  user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
@@ -813,3 +894,4 @@ def get_history_detail(request_id: str, user: User = Depends(require_roles(*WRIT
     if run is None:
         raise HTTPException(404, "AI run not found.")
     return _detail(run)
+
