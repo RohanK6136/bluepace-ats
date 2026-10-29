@@ -2,7 +2,7 @@ import enum
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, false, true
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -468,3 +468,46 @@ class Email(Base):
     attachment_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     attachment_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class ApplicationMatchAssessment(Base):
+    """Privacy-minimised Applicant Match result attached to an organisation-owned ATS application."""
+
+    __tablename__ = "applicant_match_assessments"
+    __table_args__ = (
+        Index("ix_app_match_assessments_org_application_created", "organization_id", "application_id", "created_at"),
+        UniqueConstraint("request_id", name="uq_app_match_assessment_request_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"), index=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    request_id: Mapped[str] = mapped_column(String(100), index=True)
+    rubric_id: Mapped[str] = mapped_column(String(100), index=True)
+    rubric_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    rubric_title: Mapped[str] = mapped_column(String(200), default="")
+    status: Mapped[str] = mapped_column(String(20), default="complete", index=True)
+    match_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    assessment_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+class ApplicantMatchRubricLink(Base):
+    """Organisation-scoped link from an existing ATS job to a saved Applicant Match rubric version."""
+
+    __tablename__ = "applicant_match_rubric_links"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "job_id", "rubric_id", name="uq_app_match_rubric_link_org_job_rubric"),
+        Index("ix_app_match_rubric_links_org_job_created", "organization_id", "job_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    rubric_id: Mapped[str] = mapped_column(String(100), index=True)
+    rubric_hash: Mapped[str] = mapped_column(String(64))
+    rubric_title: Mapped[str] = mapped_column(String(200), default="")
+    rubric_items: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
