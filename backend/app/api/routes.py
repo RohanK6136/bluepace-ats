@@ -213,6 +213,19 @@ async def get_run(run_id: str, p: Platform = Depends(platform)) -> RunDetail:
                      trace=_loads(row.get("trace_json")), calls=calls)
 
 
+@api.delete("/runs/{run_id}", status_code=204, tags=["Observability"],
+            summary="Erase a run and its stored prompts, outputs and cache records")
+async def erase_run(run_id: str, p: Platform = Depends(platform)) -> Response:
+    # Deletion must never be anonymously callable, even when normal development auth is disabled.
+    if not p.settings.api_keys:
+        raise HTTPException(status_code=503, detail="Run erasure requires API_KEYS to be configured.")
+    if not p.store.get_run(run_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    if not p.store.delete_run(run_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    return Response(status_code=204)
+
+
 @api.get("/metrics/summary", tags=["Observability"],
          summary="Usage totals for a time window: runs by outcome, tokens, cost, latency percentiles, per model")
 async def metrics_summary(window: Literal["1h", "24h", "7d", "30d", "all"] = "24h", feature: str | None = None,
