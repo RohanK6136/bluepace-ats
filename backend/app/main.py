@@ -475,6 +475,19 @@ def list_ai_model_profiles(p: Platform = Depends(platform)):
         )
     return [profile.model_dump(mode="json") for profile in p.registry.statuses()]
 
+@app.delete("/v1/runs/{run_id}", status_code=204, tags=["AI Feature API"], dependencies=[Depends(require_api_key)])
+def erase_ai_feature_run(run_id: str, p: Platform = Depends(platform)) -> Response:
+    """Delete a feature run and its associated prompts, outputs and cache entries."""
+    # require_api_key intentionally allows empty keys in development; erasure does not.
+    if not p.settings.api_keys:
+        raise HTTPException(status_code=503, detail="Run erasure requires API_KEYS to be configured.")
+    if not p.store.get_run(run_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    if not p.store.delete_run(run_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    return Response(status_code=204)
+
+
 app.include_router(merge_center_router)
 app.include_router(demo_data_router)
 app.include_router(offer_management_router)
