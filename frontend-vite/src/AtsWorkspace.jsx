@@ -2243,7 +2243,7 @@ export default function AtsWorkspace() {
           {view === "automation" && <AutomationPanel token={token} apiRequest={apiRequest} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />}
           {view === "flow-simulator" && <HiringFlowSimulator token={token} apiRequest={apiRequest} onError={(requestError) => setError(errorText(requestError))} />}
           {view === "ai-studio" && <AIHiringStudio token={token} apiRequest={apiRequest} jobs={jobs} onSaved={refreshWorkspace} />}
-          {view === "jd-match" && <JDApplicantMatch token={token} apiRequest={apiRequest} /> }
+          {view === "jd-match" && <JDApplicantMatch token={token} apiRequest={apiRequest} jobs={jobs} applications={applications} /> }
           {view === "resume" && <section className="-mx-4 -my-6 sm:-mx-7 sm:-my-8"><ResumeLab theme={theme} onToggleTheme={toggleTheme} token={token} /></section>}
           </main>
         </Suspense>
