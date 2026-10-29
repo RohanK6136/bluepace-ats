@@ -109,6 +109,75 @@ class Store:
         rows = self._exec("SELECT * FROM runs WHERE id=?", (run_id,))
         return dict(rows[0]) if rows else None
 
+    def delete_run(self, run_id: str) -> bool:
+        """Erase a run and associated stored model payloads, legacy rows and response-cache entries."""
+        with self._lock:
+            cursor = self._conn.cursor()
+            try:
+                cursor.execute("BEGIN IMMEDIATE")
+                cache_keys = [row["cache_key"] for row in cursor.execute(
+                    "SELECT DISTINCT cache_key FROM llm_calls WHERE request_id=?", (run_id,)
+                ).fetchall()]
+                cursor.execute("DELETE FROM llm_calls WHERE request_id=?", (run_id,))
+                cursor.execute("DELETE FROM requests WHERE id=?", (run_id,))
+                cursor.execute("DELETE FROM runs WHERE id=?", (run_id,))
+                deleted = cursor.rowcount > 0
+                for cache_key in cache_keys:
+                    cursor.execute("DELETE FROM llm_cache WHERE cache_key=?", (cache_key,))
+                self._conn.commit()
+                return deleted
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def purge_expired_payloads(self, cutoff: str) -> dict[str, int]:
+        """Redact payload-bearing columns older than cutoff while preserving aggregate run/cost metrics.
+
+        cutoff must be an ISO-8601 UTC timestamp. This intentionally keeps operational counters,
+        model identifiers, hashes, and status fields while removing stored text, prompts and outputs.
+        """
+        with self._lock:
+            cursor = self._conn.cursor()
+            try:
+                cursor.execute("BEGIN IMMEDIATE")
+                cursor.execute(
+                    "UPDATE runs SET input_preview=NULL, input_text=NULL, options_json=NULL, "
+                    "overrides_json=NULL, result_json=NULL, trace_json=NULL, error=NULL "
+                    "WHERE created_at < ? AND (input_preview IS NOT NULL OR input_text IS NOT NULL "
+                    "OR options_json IS NOT NULL OR overrides_json IS NOT NULL OR result_json IS NOT NULL "
+                    "OR trace_json IS NOT NULL OR error IS NOT NULL)",
+                    (cutoff,),
+                )
+                run_payloads = max(0, cursor.rowcount)
+                cursor.execute(
+                    "UPDATE llm_calls SET request_json='{}', response_raw=NULL, parsed_json='{}', error=NULL "
+                    "WHERE (created_at < ? OR (created_at IS NULL AND request_id IN "
+                    "(SELECT id FROM requests WHERE created_at < ?))) "
+                    "AND (request_json <> '{}' OR response_raw IS NOT NULL "
+                    "OR COALESCE(parsed_json, '') <> '{}' OR error IS NOT NULL)",
+                    (cutoff, cutoff),
+                )
+                call_payloads = max(0, cursor.rowcount)
+                cursor.execute(
+                    "UPDATE requests SET options_json='{}', overrides_json='{}', result_json=NULL, trace_json=NULL "
+                    "WHERE created_at < ? AND (options_json <> '{}' OR overrides_json <> '{}' "
+                    "OR result_json IS NOT NULL OR trace_json IS NOT NULL)",
+                    (cutoff,),
+                )
+                legacy_payloads = max(0, cursor.rowcount)
+                cursor.execute("DELETE FROM llm_cache WHERE created_at < ?", (cutoff,))
+                cache_entries = max(0, cursor.rowcount)
+                self._conn.commit()
+                return {
+                    "run_payloads": run_payloads,
+                    "model_call_payloads": call_payloads,
+                    "legacy_request_payloads": legacy_payloads,
+                    "cache_entries": cache_entries,
+                }
+            except Exception:
+                self._conn.rollback()
+                raise
+
     def list_runs(self, *, feature: str | None = None, outcome: str | None = None, profile: str | None = None,
                   status: str | None = None, query: str | None = None, since: str | None = None,
                   before: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
