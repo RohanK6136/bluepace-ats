@@ -1760,6 +1760,24 @@ def _apply_automation_action(
         application.candidate.needs_review = True
     elif rule.action_type == "move_stage":
         target = (rule.action_value or "").strip()
+        if target in {"Offer", "Hired", "Rejected"} and target != stage_name:
+            # Automation may prepare work, but must never make or finalize a
+            # hiring decision. Keep the application in its current stage and
+            # surface the attempted transition for a human recruiter to review.
+            application.candidate.needs_review = True
+            db.add(AuditLog(
+                organization_id=application.organization_id,
+                actor_id=rule.created_by_id,
+                action="automation.stage_move_blocked",
+                entity_type="application",
+                entity_id=application.id,
+                after_data={
+                    "requested_stage": target,
+                    "rule_id": rule.id,
+                    "reason": "human_approval_required",
+                },
+            ))
+            return queued
         if target in PIPELINE_STAGES and target != stage_name and target != "Interview":
             stages = ensure_job_stages(db, application.job)
             stage = stages.get(target)

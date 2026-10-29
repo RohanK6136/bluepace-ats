@@ -1070,7 +1070,7 @@ export default function JDApplicantMatch({ token, apiRequest }) {
         const result = applicant.result || {};
         const stage = REVIEW_STAGES.find(([value]) => value === applicant.reviewStage)?.[1] || "New";
         const evidence = Array.isArray(result.evidence) ? result.evidence : [];
-        const evidenceHtml = evidence.length ? evidence.map((item, evidenceIndex) => {
+        const evidenceHtml = evidence.length ? evidence.map((item) => {
           const anchor = criterionAnchor(item.item_id, item.label);
           const reviewerRatings = latestReviewerRatings(item);
           const ratingsHtml = reviewerRatings.length ? `<p><strong>Independent reviewer ratings:</strong> ${reviewerRatings.map((rating) => `${escapeHtml(rating.reviewer)}: ${escapeHtml(rating.status)}`).join(" · ")}</p>` : "";
@@ -1208,7 +1208,6 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const jdTitle = jdResult?.fields?.title?.value || jdResult?.fields?.title?.raw || jdResult?.title?.text || "Job description review";
   const descriptionOutput = jdResult?.description_markdown || jdResult?.long_description || jdResult?.long_description_annotated || jdResult?.long_description_text || "";
   const matchScore = candidateCard?.scores?.match;
-  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const workspaceProgressState = { jdText, jdResult, rubric, applicants: [...savedApplicants, ...savedApplicantRows(batchFiles)], candidateCard };
   const batchQueuedCount = batchFiles.filter((row) => row.status === "queued").length;
   const batchFailedCount = batchFiles.filter((row) => row.status === "failed").length;

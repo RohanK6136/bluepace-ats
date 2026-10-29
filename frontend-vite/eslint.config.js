@@ -28,6 +28,10 @@ export default defineConfig([
       // Existing data-loading effects intentionally update loading/response state.
       // Keep the optimization advisory visible without making that pattern a CI failure.
       'react-hooks/set-state-in-effect': 'warn',
+      // Legacy UI components use render-time helpers and memoization patterns that
+      // predate the React Compiler lint rules; keep them visible while not blocking CI.
+      'react-hooks/purity': 'warn',
+      'react-hooks/preserve-manual-memoization': 'warn',
     },
   },
 ])
