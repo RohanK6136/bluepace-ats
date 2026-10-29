@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import aiFeatureApiHandler from "./api/v1/[...path].js";
 
 const APP_DIR = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIST_DIR = resolve(APP_DIR, "dist");
@@ -48,6 +49,40 @@ export function createStaticServer({ distDir = DEFAULT_DIST_DIR } = {}) {
   const indexFile = resolve(root, "index.html");
 
   return createHttpServer(async (request, response) => {
+    // Route AI Feature API calls before the static-server method guard. The
+    // same /v1 endpoints run as Vercel/Pages functions elsewhere, but Railway
+    // serves this frontend through server.mjs and does not apply vercel.json
+    // rewrites or invoke serverless functions automatically.
+    let aiPathname;
+    try {
+      aiPathname = new URL(request.url || "/", "http://localhost").pathname;
+    } catch {
+      sendText(response, 400, "Invalid URL path");
+      return;
+    }
+
+    const aiRouteMatch = /^\/v1(?:\/(.*))?$/.exec(aiPathname);
+    if (aiRouteMatch) {
+      let routeParts;
+      try {
+        routeParts = (aiRouteMatch[1] || "")
+          .split("/")
+          .filter(Boolean)
+          .map((part) => decodeURIComponent(part));
+      } catch {
+        sendText(response, 400, "Invalid URL path");
+        return;
+      }
+      request.query = { ...(request.query || {}), path: routeParts };
+      try {
+        await aiFeatureApiHandler(request, response);
+      } catch {
+        if (!response.headersSent) sendText(response, 500, "AI Feature API failed");
+        else response.destroy();
+      }
+      return;
+    }
+
     if (request.method !== "GET" && request.method !== "HEAD") {
       sendText(response, 405, "Method not allowed", { Allow: "GET, HEAD" });
       return;
