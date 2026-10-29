@@ -91,7 +91,7 @@ test("routes AI Feature API POST requests instead of rejecting them with HTTP 40
         "- Build REST APIs using Python",
         "Requirements:",
         "- SQL and 3 years of experience",
-      ].join("\\n"),
+      ].join("\n"),
       options: { profile: "rules", mode: "light" },
     }),
   });
