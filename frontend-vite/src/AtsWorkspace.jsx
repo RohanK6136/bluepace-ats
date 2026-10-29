@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import AtsChatbot from "./AtsChatbot.jsx";
+import PublicCareersChatbot from "./PublicCareersChatbot.jsx";
 const ResumeLab = lazy(() => import("./App.jsx"));
 const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
 const ScorecardPanel = lazy(() => import("./ScorecardPanel.jsx"));
@@ -1289,6 +1290,7 @@ export default function AtsWorkspace() {
             <p className="text-xs">© BluePace Tech</p>
           </div>
         </footer>
+        <PublicCareersChatbot jobs={publicJobs} />
       </main>
     );
   }
