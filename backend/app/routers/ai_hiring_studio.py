@@ -1272,21 +1272,3 @@ def list_applicant_match_assessments(
         ).order_by(ApplicationMatchAssessment.created_at.desc()).limit(20)
     ).all()
     return [_applicant_match_assessment_payload(row) for row in rows]
-
-
-@router.get("/history")
-def list_history(limit: int = Query(default=30, ge=1, le=100),
-                 user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
-    runs = db.scalars(select(AIHiringRun).where(AIHiringRun.organization_id == user.organization_id)
-                      .order_by(AIHiringRun.created_at.desc()).limit(limit)).all()
-    return {"runs": [_summary(run) for run in runs]}
-
-
-@router.get("/history/{request_id}")
-def get_history_detail(request_id: str, user: User = Depends(require_roles(*WRITE_ROLES)),
-                       db: Session = Depends(get_db)):
-    run = db.scalar(select(AIHiringRun).where(AIHiringRun.request_id == request_id,
-                                              AIHiringRun.organization_id == user.organization_id))
-    if run is None:
-        raise HTTPException(404, "AI run not found.")
-    return _detail(run)
