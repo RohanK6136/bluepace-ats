@@ -341,7 +341,7 @@ function EmptyPanel({ title, detail }) {
   return <div className="rounded-lg border border-dashed border-ink-200 bg-white px-5 py-9 text-center"><p className="text-sm font-semibold text-ink-800">{title}</p><p className="mx-auto mt-1 max-w-lg text-sm leading-6 text-ink-500">{detail}</p></div>;
 }
 
-export default function JDApplicantMatch({ token, apiRequest }) {
+export default function JDApplicantMatch({ token, apiRequest, jobs = [], applications = [] }) {
   const initialWorkspace = readActiveWorkspace();
   const [workspaces, setWorkspaces] = useState(readWorkspaces);
   const [teamWorkspaceBusy, setTeamWorkspaceBusy] = useState(false);
@@ -352,6 +352,10 @@ export default function JDApplicantMatch({ token, apiRequest }) {
   const [savedApplicants, setSavedApplicants] = useState(() => initialWorkspace?.applicants || []);
   const [workspaceStorageError, setWorkspaceStorageError] = useState(false);
   const [activeTab, setActiveTab] = useState("jd");
+  const [atsJobId, setAtsJobId] = useState("");
+  const [atsApplicationId, setAtsApplicationId] = useState("");
+  const [assessmentSaving, setAssessmentSaving] = useState(false);
+  const [assessmentSaveMessage, setAssessmentSaveMessage] = useState("");
   const [apiKey, setApiKey] = useState(() => {
     try { return sessionStorage.getItem("bluepace_feature_api_key") || ""; } catch { return ""; }
   });
@@ -665,6 +669,23 @@ export default function JDApplicantMatch({ token, apiRequest }) {
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
   }, [activeTab, connection, refreshSavedRubrics]);
 
+
+  async function saveAssessmentToATS() {
+    const jobId = Number(atsJobId);
+    const applicationId = Number(atsApplicationId);
+    const requestId = String(candidateCard?.request_id || candidateCard?.run_id || "").trim();
+    if (!jobId || !applicationId) { setAssessmentSaveMessage("Choose an ATS job and its application first."); return; }
+    if (!selectedRubricId) { setAssessmentSaveMessage("Select or create a saved rubric before linking this assessment."); return; }
+    if (!requestId) { setAssessmentSaveMessage("This result has no verifiable run ID. Run Applicant Match again before saving."); return; }
+    setAssessmentSaving(true); setAssessmentSaveMessage("");
+    try {
+      await request("post", `/ai-hiring/jobs/${jobId}/applicant-match-rubrics`, { rubric_id: selectedRubricId }, { timeout: 20000 });
+      await request("post", "/ai-hiring/applicant-match/assessments", { application_id: applicationId, job_id: jobId, request_id: requestId }, { timeout: 20000 });
+      setAssessmentSaveMessage("Verified assessment saved to the ATS application. Only minimised scores, criteria states, and review flags are retained.");
+    } catch (error) {
+      setAssessmentSaveMessage(explainError(error));
+    } finally { setAssessmentSaving(false); }
+  }
 
   function applyApiKey() {
     const value = apiKeyDraft.trim();
@@ -1639,6 +1660,16 @@ export default function JDApplicantMatch({ token, apiRequest }) {
                     <ScoreMetric label="Education" value={candidateCard.scores?.education?.pct == null ? "—" : `${candidateCard.scores.education.pct}%`} detail={candidateCard.profile?.education_level || "Not established"} />
                   </div>
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"><strong>Recruiter review required.</strong> This assessment is based on resume-derived evidence; verify any important claim directly and apply the same criteria consistently across applicants.</div>
+                  <div className="rounded-lg border border-ink-200 bg-white p-4 sm:p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-500">Evidence-first workflow</p><h3 className="mt-1 text-sm font-semibold text-ink-950">Save verified assessment to ATS</h3><p className="mt-1 max-w-2xl text-xs leading-5 text-ink-500">Attach this recorded run to the matching application. Rubric versions are linked to the job first; the server verifies the run and stores a privacy-minimised snapshot.</p></div><Pill tone="gold">Human decision required</Pill></div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <label className="grid gap-1.5 text-xs font-semibold text-ink-700">ATS job<select className={fieldClass} value={atsJobId} onChange={(event) => { setAtsJobId(event.target.value); setAtsApplicationId(""); setAssessmentSaveMessage(""); }}><option value="">Choose a job</option>{jobs.filter((job) => job && job.id != null).map((job) => <option key={job.id} value={job.id}>{job.title || job.job_title || `Job #${job.id}`}</option>)}</select></label>
+                      <label className="grid gap-1.5 text-xs font-semibold text-ink-700">Application<select className={fieldClass} value={atsApplicationId} onChange={(event) => { setAtsApplicationId(event.target.value); setAssessmentSaveMessage(""); }} disabled={!atsJobId}><option value="">Choose an application</option>{applications.filter((application) => Number(application.job_id) === Number(atsJobId)).map((application) => <option key={application.id} value={application.id}>{application.candidate_name || application.name || `Candidate #${application.candidate_id || application.id}`} · {application.stage_name || application.status || "Application"}</option>)}</select></label>
+                    </div>
+                    {!selectedRubricId && <p className="mt-2 text-xs text-amber-700">A saved rubric is required. Save a rubric in Applicant Match before linking.</p>}
+                    {assessmentSaveMessage && <p className={`mt-3 rounded-md px-3 py-2 text-xs leading-5 ${assessmentSaveMessage.includes("saved to the ATS") ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`} role="status">{assessmentSaveMessage}</p>}
+                    <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={primaryButton} disabled={assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard.request_id || candidateCard.run_id)} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">No emails are sent by this action.</span></div>
+                  </div>
                   {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
                   {(candidateCard.evidence || []).map((item) => <EvidenceRatingCard key={`${activeWorkspaceId}:${item.item_id}`} item={item} reviewerName={calibrationReviewerName} onOverride={(status) => overrideCandidateEvidence(item.item_id, status)} onRecordRating={(status, reviewer) => recordCandidateCalibrationRating(item.item_id, status, reviewer)} onResolve={(status, note) => resolveCandidateCalibration(item.item_id, status, note)} />)}
                   {candidateCard.gaps?.length > 0 && <div className="rounded-lg border border-ink-100 bg-white p-4"><h3 className="text-sm font-semibold text-ink-900">Gaps and items to verify</h3><ul className="mt-3 space-y-2">{candidateCard.gaps.map((gap) => <li key={gap.item_id} className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-100 pb-2 last:border-0"><span className="text-sm text-ink-800">{gap.label}{gap.note && <span className="mt-1 block text-xs leading-5 text-ink-500">{gap.note}</span>}</span><Pill tone={gap.importance === "must" ? "warn" : "neutral"}>{gap.status.replaceAll("_", " ")}</Pill></li>)}</ul></div>}
