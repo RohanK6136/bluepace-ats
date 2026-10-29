@@ -509,7 +509,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     }
 
     const batchId = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `batch-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const chunkSize = 100;
+    const chunkSize = 120;
     const uploadConcurrency = 12;
     setBulkBatchId(batchId);
     setBulkError("");
