@@ -410,7 +410,16 @@ def test_email_free_hiring_workflow_through_portal_offer(client):
     current_applications = client.get("/applications?limit=100", headers=headers)
     assert current_applications.status_code == 200
     candidate_application = next(item for item in current_applications.json() if item["id"] == application_id)
-    assert candidate_application["stage_name"] == "Offer"
+    # Automation can recommend the next step, but a recruiter must approve Offer.
+    assert candidate_application["stage_name"] == "Interview"
+
+    human_approval = client.post(
+        f"/applications/{application_id}/stage",
+        json={"stage_name": "Offer"},
+        headers=headers,
+    )
+    assert human_approval.status_code == 200
+    assert human_approval.json()["stage_name"] == "Offer"
 
     offer_response = client.post(
         "/offer-management/offers",
