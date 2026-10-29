@@ -72,6 +72,35 @@ test("rejects unsupported HTTP methods", async () => {
   assert.equal(response.headers.get("allow"), "GET, HEAD");
 });
 
+test("serves the AI Feature API model registry instead of the SPA document", async () => {
+  const response = await fetch(`${origin}/v1/models`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") || "", /application\/json/);
+  const models = await response.json();
+  assert.ok(models.some((model) => model.id === "rules" && model.enabled === true));
+});
+
+test("routes AI Feature API POST requests instead of rejecting them with HTTP 405", async () => {
+  const response = await fetch(`${origin}/v1/jd/standardize`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      text: [
+        "Software Engineer",
+        "Responsibilities:",
+        "- Build REST APIs using Python",
+        "Requirements:",
+        "- SQL and 3 years of experience",
+      ].join("\\n"),
+      options: { profile: "rules", mode: "light" },
+    }),
+  });
+  const result = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(result));
+  assert.equal(result.meta.profile, "rules");
+  assert.equal(result.fields.title.value, "Software Engineer");
+});
+
 test("fails healthfully when the production build entry point is missing", async () => {
   const emptyDist = join(temporaryDirectory, "empty-dist");
   await mkdir(emptyDist);
