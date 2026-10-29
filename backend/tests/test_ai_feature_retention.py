@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.store.db import Store
+from app.main import app
 
 
 OLD = "2000-01-01T00:00:00.000+00:00"
@@ -115,3 +116,8 @@ def test_erasing_run_removes_run_legacy_rows_calls_and_cache() -> None:
         assert store.delete_run("erase-me") is False
     finally:
         store.close()
+
+
+def test_ai_run_erasure_endpoint_is_registered_on_ats_app() -> None:
+    paths = {getattr(route, "path", None) for route in app.routes}
+    assert "/v1/runs/{run_id}" in paths
