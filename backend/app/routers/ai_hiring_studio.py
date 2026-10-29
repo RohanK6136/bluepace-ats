@@ -15,8 +15,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, func, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from app.api.deps import Platform, platform, require_api_key
+from app.core.logging import api_key_id
 from app.database import Base, get_db
-from app.models import Role, User
+from app.models import Application, ApplicationMatchAssessment, ApplicantMatchRubricLink, Candidate, Job, Role, User
 from app.security import require_roles
 from app.services.ai_providers import (
     call_ai_provider as _call_ai_provider,
@@ -895,3 +897,395 @@ def get_history_detail(request_id: str, user: User = Depends(require_roles(*WRIT
         raise HTTPException(404, "AI run not found.")
     return _detail(run)
 
+class LinkApplicantMatchRubricRequest(BaseModel):
+    rubric_id: str = Field(min_length=1, max_length=100)
+
+
+class SaveApplicantMatchAssessmentRequest(BaseModel):
+    application_id: int = Field(gt=0)
+    job_id: int = Field(gt=0)
+    request_id: str = Field(min_length=1, max_length=100)
+
+
+def _applicant_match_rubric_link_payload(row: ApplicantMatchRubricLink) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "job_id": row.job_id,
+        "rubric_id": row.rubric_id,
+        "rubric_hash": row.rubric_hash,
+        "rubric_title": row.rubric_title,
+        "rubric_items": row.rubric_items,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _verified_saved_feature_rubric(p: Platform, rubric_id: str) -> dict[str, Any]:
+    row = p.store.get_rubric(rubric_id)
+    if not row:
+        raise HTTPException(404, "Saved Applicant Match rubric not found.")
+    owner_key_id = row.get("created_by")
+    current_key_id = api_key_id.get()
+    if owner_key_id != current_key_id:
+        raise HTTPException(404, "Saved Applicant Match rubric not found for this API key.")
+    try:
+        rubric_data = json.loads(row.get("rubric_json") or "")
+    except (TypeError, ValueError):
+        raise HTTPException(409, "The saved rubric could not be verified. Save the rubric again.") from None
+    if not isinstance(rubric_data, dict):
+        raise HTTPException(409, "The saved rubric could not be verified. Save the rubric again.")
+    if rubric_data.get("rubric_id") != rubric_id or rubric_data.get("rubric_hash") != row.get("hash"):
+        raise HTTPException(409, "The saved rubric metadata does not match its stored snapshot.")
+    return row
+
+
+@router.post("/jobs/{job_id}/applicant-match-rubrics", status_code=201)
+def link_applicant_match_rubric(
+    job_id: int,
+    request: LinkApplicantMatchRubricRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+    p: Platform = Depends(platform),
+    _api_key_check: None = Depends(require_api_key),
+):
+    """Link an immutable saved rubric version to an ATS job inside the authenticated organisation."""
+    job = db.scalar(select(Job).where(Job.id == job_id, Job.organization_id == user.organization_id))
+    if job is None:
+        raise HTTPException(404, "Job not found in this organisation.")
+    saved = _verified_saved_feature_rubric(p, request.rubric_id.strip())
+    row = db.scalar(select(ApplicantMatchRubricLink).where(
+        ApplicantMatchRubricLink.organization_id == user.organization_id,
+        ApplicantMatchRubricLink.job_id == job.id,
+        ApplicantMatchRubricLink.rubric_id == saved["id"],
+    ))
+    if row is not None:
+        if row.rubric_hash != saved["hash"]:
+            raise HTTPException(409, "The saved rubric version hash changed. Review the saved rubric before relinking.")
+        return _applicant_match_rubric_link_payload(row)
+    linked = ApplicantMatchRubricLink(
+        organization_id=user.organization_id,
+        job_id=job.id,
+        created_by_id=user.id,
+        rubric_id=saved["id"],
+        rubric_hash=saved["hash"],
+        rubric_title=str(saved.get("title") or "")[:200],
+        rubric_items=int(saved.get("items") or 0),
+    )
+    db.add(linked)
+    db.commit()
+    db.refresh(linked)
+    return _applicant_match_rubric_link_payload(linked)
+
+
+@router.get("/jobs/{job_id}/applicant-match-rubrics")
+def list_applicant_match_rubric_links(
+    job_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    job = db.scalar(select(Job).where(Job.id == job_id, Job.organization_id == user.organization_id))
+    if job is None:
+        raise HTTPException(404, "Job not found in this organisation.")
+    rows = db.scalars(
+        select(ApplicantMatchRubricLink).where(
+            ApplicantMatchRubricLink.organization_id == user.organization_id,
+            ApplicantMatchRubricLink.job_id == job.id,
+        ).order_by(ApplicantMatchRubricLink.created_at.desc()).limit(50)
+    ).all()
+    return [_applicant_match_rubric_link_payload(row) for row in rows]
+
+
+def _bounded_integer(value: Any, minimum: int = 0, maximum: int = 100) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    number = int(value)
+    return number if minimum <= number <= maximum else None
+
+
+def _bounded_years(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value) if 0 <= value <= 80 else None
+
+
+def _safe_applicant_match_assessment(source: dict[str, Any]) -> dict[str, Any]:
+    """Persist scores/statuses only; never retain resume excerpts, profile data, or generated narrative."""
+    scores = source.get("scores") if isinstance(source.get("scores"), dict) else {}
+
+    def count_score(value: Any) -> dict[str, int | None] | None:
+        if not isinstance(value, dict):
+            return None
+        return {
+            key: _bounded_integer(value.get(key), 0, 100 if key == "pct" else 100000)
+            for key in ("pct", "met", "partial", "total")
+        }
+
+    experience = scores.get("experience") if isinstance(scores.get("experience"), dict) else {}
+    education = scores.get("education") if isinstance(scores.get("education"), dict) else {}
+    safe_groups = []
+    for group in (scores.get("groups") if isinstance(scores.get("groups"), list) else []):
+        if not isinstance(group, dict):
+            continue
+        label = str(group.get("label") or group.get("name") or "").strip()[:120]
+        if not label:
+            continue
+        safe_groups.append({
+            "label": label,
+            "pct": _bounded_integer(group.get("pct")),
+            "met": _bounded_integer(group.get("met"), 0, 100000),
+            "partial": _bounded_integer(group.get("partial"), 0, 100000),
+            "total": _bounded_integer(group.get("total"), 0, 100000),
+        })
+        if len(safe_groups) >= 20:
+            break
+
+    safe_evidence = []
+    for item in (source.get("evidence") if isinstance(source.get("evidence"), list) else []):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()[:120]
+        state = str(item.get("status") or "")
+        if label and state in {"met", "partial", "unclear", "not_evidenced"}:
+            safe_evidence.append({
+                "label": label,
+                "status": state,
+                "importance": item.get("importance") if item.get("importance") in {"must", "nice"} else None,
+                "group": str(item.get("group") or "")[:40],
+            })
+        if len(safe_evidence) >= 100:
+            break
+
+    safe_gaps = []
+    for item in (source.get("gaps") if isinstance(source.get("gaps"), list) else []):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()[:120]
+        state = str(item.get("status") or "")
+        if label and state in {"met", "partial", "unclear", "not_evidenced"}:
+            safe_gaps.append({
+                "label": label,
+                "status": state,
+                "importance": item.get("importance") if item.get("importance") in {"must", "nice"} else None,
+            })
+        if len(safe_gaps) >= 100:
+            break
+
+    raw_flags = source.get("flags") if isinstance(source.get("flags"), list) else []
+    flags = [
+        str(flag).strip()[:120]
+        for flag in raw_flags[:20]
+        if isinstance(flag, str) and flag.strip()
+    ]
+    return {
+        "status": "manual" if source.get("status") == "manual" else "complete",
+        "match_score": _bounded_integer(scores.get("match")),
+        "scores": {
+            "required_skills": count_score(scores.get("required_skills")),
+            "preferred_skills": count_score(scores.get("preferred_skills")),
+            "experience": {
+                "pct": _bounded_integer(experience.get("pct")),
+                "relevant_years": _bounded_years(experience.get("relevant_years")),
+                "total_years": _bounded_years(experience.get("total_years")),
+                "required_years": _bounded_years(experience.get("required_years")),
+            },
+            "education": {
+                "pct": _bounded_integer(education.get("pct")),
+                "level": str(education.get("level") or "")[:30] or None,
+                "required": str(education.get("required") or "")[:30] or None,
+            },
+            "groups": safe_groups,
+        },
+        "evidence": safe_evidence,
+        "gaps": safe_gaps,
+        "flags": flags,
+        "decision_support_only": True,
+    }
+
+
+def _verified_applicant_match_result(p: Platform, request_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load the immutable feature-run result from server storage; never trust scores echoed by a browser."""
+    row = p.store.get_run(request_id)
+    if not row or row.get("feature") != "applicant_match" or row.get("operation") != "analyze":
+        raise HTTPException(404, "Applicant Match run not found. Run the assessment again before saving.")
+    saved_api_key_id = row.get("api_key_id")
+    current_api_key_id = api_key_id.get()
+    if saved_api_key_id != current_api_key_id:
+        raise HTTPException(404, "Applicant Match run not found. Run the assessment again with the configured API key.")
+    if row.get("outcome") not in {"success", "degraded"}:
+        raise HTTPException(409, "This Applicant Match run did not produce a savable assessment.")
+    raw_result = row.get("result_json")
+    if not raw_result:
+        raise HTTPException(409, "This run has no retained result payload, so its score cannot be verified for ATS linking.")
+    try:
+        result = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+    except (TypeError, ValueError):
+        raise HTTPException(409, "The recorded Applicant Match result could not be verified. Run the assessment again.") from None
+    if not isinstance(result, dict) or result.get("request_id") != request_id:
+        raise HTTPException(409, "The recorded Applicant Match result could not be verified. Run the assessment again.")
+    rubric = result.get("rubric")
+    if not isinstance(rubric, dict) or not str(rubric.get("id") or "").strip():
+        raise HTTPException(409, "The recorded assessment has no saved rubric reference.")
+    return result, rubric
+
+
+def _applicant_match_assessment_payload(row: ApplicationMatchAssessment) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "application_id": row.application_id,
+        "job_id": row.job_id,
+        "candidate_id": row.candidate_id,
+        "request_id": row.request_id,
+        "rubric_id": row.rubric_id,
+        "rubric_hash": row.rubric_hash,
+        "rubric_title": row.rubric_title,
+        "status": row.status,
+        "match_score": row.match_score,
+        "assessment_data": row.assessment_data or {},
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.post("/applicant-match/assessments", status_code=201)
+def save_applicant_match_assessment(
+    request: SaveApplicantMatchAssessmentRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+    p: Platform = Depends(platform),
+    _api_key_check: None = Depends(require_api_key),
+):
+    """Attach a verified, privacy-minimised run to an application in the authenticated organisation."""
+    application = db.scalar(select(Application).where(
+        Application.id == request.application_id,
+        Application.organization_id == user.organization_id,
+    ))
+    job = db.scalar(select(Job).where(
+        Job.id == request.job_id,
+        Job.organization_id == user.organization_id,
+    ))
+    if application is None or job is None:
+        raise HTTPException(404, "ATS job or application not found in this organisation.")
+    if application.job_id != job.id:
+        raise HTTPException(409, "The selected application does not belong to the selected ATS job.")
+
+    previous = db.scalar(select(ApplicationMatchAssessment).where(
+        ApplicationMatchAssessment.request_id == request.request_id,
+    ))
+    if previous is not None:
+        if (
+            previous.organization_id == user.organization_id
+            and previous.application_id == application.id
+            and previous.job_id == job.id
+        ):
+            return _applicant_match_assessment_payload(previous)
+        raise HTTPException(409, "This Applicant Match run has already been linked to an application.")
+
+    verified_result, rubric = _verified_applicant_match_result(p, request.request_id)
+    rubric_link = db.scalar(select(ApplicantMatchRubricLink).where(
+        ApplicantMatchRubricLink.organization_id == user.organization_id,
+        ApplicantMatchRubricLink.job_id == job.id,
+        ApplicantMatchRubricLink.rubric_id == str(rubric["id"]),
+        ApplicantMatchRubricLink.rubric_hash == str(rubric.get("hash") or ""),
+    ))
+    if rubric_link is None:
+        raise HTTPException(409, "Link this saved rubric version to the selected ATS job before saving the assessment.")
+    assessment = _safe_applicant_match_assessment(verified_result)
+    row = ApplicationMatchAssessment(
+        organization_id=user.organization_id,
+        application_id=application.id,
+        job_id=job.id,
+        candidate_id=application.candidate_id,
+        created_by_id=user.id,
+        request_id=request.request_id,
+        rubric_id=str(rubric["id"])[:100],
+        rubric_hash=str(rubric.get("hash") or "")[:64] or None,
+        rubric_title=str(rubric.get("title") or "")[:200],
+        status=assessment["status"],
+        match_score=assessment["match_score"],
+        assessment_data=assessment,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _applicant_match_assessment_payload(row)
+
+
+@router.get("/jobs/{job_id}/application-choices")
+def list_applicant_match_application_choices(
+    job_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Return only minimal candidate display fields for tenant-owned applications."""
+    job = db.scalar(select(Job).where(
+        Job.id == job_id,
+        Job.organization_id == user.organization_id,
+    ))
+    if job is None:
+        raise HTTPException(404, "Job not found in this organisation.")
+    rows = db.execute(
+        select(
+            Application.id,
+            Application.candidate_id,
+            Candidate.first_name,
+            Candidate.last_name,
+            Application.stage_id,
+            Application.status,
+        )
+        .join(Candidate, Candidate.id == Application.candidate_id)
+        .where(
+            Application.organization_id == user.organization_id,
+            Application.job_id == job.id,
+        )
+        .order_by(Application.applied_at.desc())
+        .limit(100)
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "candidate_id": row.candidate_id,
+            "candidate_name": " ".join(part for part in (row.first_name, row.last_name) if part).strip(),
+            "stage_id": row.stage_id,
+            "status": row.status,
+        }
+        for row in rows
+    ]
+
+
+@router.get("/applications/{application_id}/applicant-match-assessments")
+def list_applicant_match_assessments(
+    application_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    application = db.scalar(select(Application).where(
+        Application.id == application_id,
+        Application.organization_id == user.organization_id,
+    ))
+    if application is None:
+        raise HTTPException(404, "Application not found in this organisation.")
+    rows = db.scalars(
+        select(ApplicationMatchAssessment).where(
+            ApplicationMatchAssessment.application_id == application.id,
+            ApplicationMatchAssessment.organization_id == user.organization_id,
+        ).order_by(ApplicationMatchAssessment.created_at.desc()).limit(20)
+    ).all()
+    return [_applicant_match_assessment_payload(row) for row in rows]
+
+
+@router.get("/history")
+def list_history(limit: int = Query(default=30, ge=1, le=100),
+                 user: User = Depends(require_roles(*WRITE_ROLES)), db: Session = Depends(get_db)):
+    runs = db.scalars(select(AIHiringRun).where(AIHiringRun.organization_id == user.organization_id)
+                      .order_by(AIHiringRun.created_at.desc()).limit(limit)).all()
+    return {"runs": [_summary(run) for run in runs]}
+
+
+@router.get("/history/{request_id}")
+def get_history_detail(request_id: str, user: User = Depends(require_roles(*WRITE_ROLES)),
+                       db: Session = Depends(get_db)):
+    run = db.scalar(select(AIHiringRun).where(AIHiringRun.request_id == request_id,
+                                              AIHiringRun.organization_id == user.organization_id))
+    if run is None:
+        raise HTTPException(404, "AI run not found.")
+    return _detail(run)
