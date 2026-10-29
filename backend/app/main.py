@@ -380,6 +380,8 @@ async def lifespan(_app: FastAPI):
 
     reminder_task = None  # Candidate email reminders are disabled.
     resume_dispatcher_task = None
+    ai_payload_retention_task = None
+    ai_store = None
     if APP_ENV != "test":
         resume_dispatcher_task = asyncio.create_task(_delayed_resume_dispatcher_start())
 
@@ -395,6 +397,7 @@ async def lifespan(_app: FastAPI):
         import pathlib as _pathlib
         _ai_settings = _get_ai_settings()
         _ai_store = _AIStore(_ai_settings.DB_PATH)
+        ai_store = _ai_store
         _models_path = _pathlib.Path(_ai_settings.MODELS_FILE)
         _registry = _ModelRegistry.from_file(_models_path) if _models_path.is_file() else None
         _llm_client = _LLMGateway(_registry, _ai_settings, store=_ai_store)
@@ -404,6 +407,36 @@ async def lifespan(_app: FastAPI):
             registry=_registry, jd=_jd_deps
         )
         print("[ai-platform] JD Standardizer + Applicant Match platform initialised.", flush=True)
+
+        _retention_days = max(0, int(_ai_settings.PAYLOAD_RETENTION_DAYS))
+        if _retention_days > 0:
+            def _purge_ai_payloads():
+                _cutoff = (datetime.now(timezone.utc) - timedelta(days=_retention_days)).isoformat(timespec="milliseconds")
+                _counts = _ai_store.purge_expired_payloads(_cutoff)
+                _total = sum(_counts.values())
+                if _total:
+                    print(
+                        f"[ai-platform] retention purge removed payloads/entries={_total}; "
+                        f"retention_days={_retention_days}.",
+                        flush=True,
+                    )
+
+            try:
+                _purge_ai_payloads()
+            except Exception as _purge_error:
+                print(f"[ai-platform] retention purge warning ({type(_purge_error).__name__}).", flush=True)
+
+            async def _ai_payload_retention_loop():
+                while True:
+                    await asyncio.sleep(24 * 60 * 60)
+                    try:
+                        _purge_ai_payloads()
+                    except Exception as _purge_error:
+                        print(f"[ai-platform] retention purge warning ({type(_purge_error).__name__}).", flush=True)
+
+            ai_payload_retention_task = asyncio.create_task(_ai_payload_retention_loop())
+        else:
+            print("[ai-platform] automatic payload retention is disabled (PAYLOAD_RETENTION_DAYS=0).", flush=True)
     except Exception as _ai_init_err:
         print(
             f"[ai-platform] WARNING: AI feature platform failed to initialise"
@@ -415,13 +448,18 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
-        for task in (reminder_task, resume_dispatcher_task):
+        for task in (reminder_task, resume_dispatcher_task, ai_payload_retention_task):
             if task is not None:
                 task.cancel()
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
+        if ai_store is not None:
+            try:
+                ai_store.close()
+            except Exception:
+                pass
 
 
 app = FastAPI(title="BluePace Tech ATS API", version="0.4.0", lifespan=lifespan)
@@ -436,6 +474,19 @@ def list_ai_model_profiles(p: Platform = Depends(platform)):
             detail="AI model registry is unavailable. Check backend model configuration and startup logs.",
         )
     return [profile.model_dump(mode="json") for profile in p.registry.statuses()]
+
+@app.delete("/v1/runs/{run_id}", status_code=204, tags=["AI Feature API"], dependencies=[Depends(require_api_key)])
+def erase_ai_feature_run(run_id: str, p: Platform = Depends(platform)) -> Response:
+    """Delete a feature run and its associated prompts, outputs and cache entries."""
+    # require_api_key intentionally allows empty keys in development; erasure does not.
+    if not p.settings.api_keys:
+        raise HTTPException(status_code=503, detail="Run erasure requires API_KEYS to be configured.")
+    if not p.store.get_run(run_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    if not p.store.delete_run(run_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    return Response(status_code=204)
+
 
 app.include_router(merge_center_router)
 app.include_router(demo_data_router)

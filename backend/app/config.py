@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     API_KEYS: str = ""  # comma-separated; empty disables auth (development only)
     DB_PATH: str = "./data/app.sqlite"
     STORE_PAYLOADS: bool = True  # keep full inputs/outputs/prompts for runs (turn off for sensitive data)
+    # 0 disables automatic payload expiry; choose a retention period only after policy/legal approval.
+    PAYLOAD_RETENTION_DAYS: int = 0
     REQUEST_TIMEOUT_S: float = 300.0
 
     # ---- LLM gateway
