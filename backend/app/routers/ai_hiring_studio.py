@@ -1,6 +1,7 @@
 """Protected AI Hiring Studio endpoints with multiple AI providers."""
 import hashlib
 import json
+import math
 import os
 import re
 import urllib.error
