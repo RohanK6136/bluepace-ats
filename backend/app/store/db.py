@@ -89,7 +89,7 @@ class Store:
         return dict(rows[0]) if rows else None
 
     def list_rubrics(self, limit: int = 50) -> list[dict[str, Any]]:
-        rows = self._exec("SELECT id, hash, created_at, title, job_ref, items FROM match_rubrics "
+        rows = self._exec("SELECT id, hash, created_at, title, job_ref, items, created_by FROM match_rubrics "
                           "ORDER BY created_at DESC LIMIT ?", (limit,))
         return [dict(r) for r in rows]
 
