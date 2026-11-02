@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
+import useCurrentTime from "./useCurrentTime.js";
 
 const input = "w-full rounded-md border border-ink-100 bg-white px-3 py-2 text-sm";
 const primary = "rounded-md bg-[#1769d3] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50";
 const secondary = "rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-800";
 
-function findSharedSlots(slots, interviewerIds, durationMinutes) {
-  if (!interviewerIds.length) return [];
-  const now = Date.now();
+function findSharedSlots(slots, interviewerIds, durationMinutes, now) {
+  if (!interviewerIds.length || now === null) return [];
   let windows = slots
     .filter((slot) => Number(slot.user_id) === interviewerIds[0] && slot.status === "available")
     .map((slot) => ({ start: Date.parse(slot.starts_at), end: Date.parse(slot.ends_at) }))
@@ -32,6 +32,7 @@ function localDateTimeValue(timestamp) {
 
 export default function InterviewManagement2({ token, apiRequest, applications = [], initialApplicationId = "", initialInterviewRoundNumber = null, initialRescheduleQuestionId = null, onNotice, onError, onOpenFeedback, onRescheduled }) {
   const [availability, setAvailability] = useState([]);
+  const now = useCurrentTime();
   const [feedbackQueue, setFeedbackQueue] = useState([]);
   const [applicationId, setApplicationId] = useState(applications[0]?.id ? String(applications[0].id) : "");
   const [rounds, setRounds] = useState([]);
@@ -139,14 +140,14 @@ export default function InterviewManagement2({ token, apiRequest, applications =
   }
 
   const selected = applications.find(a=>a.id===Number(applicationId));
-  const suggestedSlots = findSharedSlots(availability, form.interviewer_ids, form.duration_minutes);
+  const suggestedSlots = findSharedSlots(availability, form.interviewer_ids, form.duration_minutes, now);
 
   return <section className="space-y-5">
     <div><p className="text-sm text-ink-500">Scheduling & feedback</p><h2 className="mt-1 text-2xl font-semibold">Interviews</h2></div>
     <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 sm:p-5" aria-labelledby="feedback-queue-title">
       <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Interviewer follow-through</p><h3 id="feedback-queue-title" className="mt-1 font-semibold text-ink-950">Outstanding interview feedback</h3><p className="mt-1 text-xs leading-5 text-ink-600">Completed interviews assigned to you that still need a submitted scorecard.</p></div><span className="rounded-full bg-white px-3 py-1 text-sm font-semibold tabular-nums text-amber-900">{feedbackQueue.length} pending</span></div>
       {feedbackQueue.length > 0 ? <div className="mt-3 grid gap-2">{feedbackQueue.map((row) => {
-        const late = row.feedback_deadline && Date.parse(row.feedback_deadline) < Date.now();
+        const late = row.feedback_deadline && now !== null && Date.parse(row.feedback_deadline) < now;
         return <div key={row.interview_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-white p-3"><div><p className="text-sm font-semibold text-ink-900">{row.candidate_name} · {row.job_title}</p><p className="mt-1 text-xs text-ink-500">{row.round_name || "Interview"}{row.feedback_deadline ? ` · Due ${new Date(row.feedback_deadline).toLocaleString()}` : " · No deadline set"}</p>{late && <p className="mt-1 text-xs font-semibold text-rose-700">Feedback deadline has passed</p>}</div><button type="button" className={secondary} onClick={() => onOpenFeedback?.(row.application_id)}>Open scorecard</button></div>;
       })}</div> : <p className="mt-3 rounded-lg border border-amber-100 bg-white p-3 text-sm text-emerald-800">No completed interviews are waiting on your feedback.</p>}
     </section>
