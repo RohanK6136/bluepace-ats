@@ -12,6 +12,15 @@ from app.features.resume_authorship.analysis import assess_resume_text
 
 MAX_REVIEW_TEXT_CHARACTERS = 60_000
 MIN_REVIEW_TEXT_CHARACTERS = 100
+ALLOWED_REVIEW_SOURCES = {
+    "recruiter_review",
+    "resume_lab",
+    "admin_resume_upload",
+    "resume_ingestion",
+    "public_portal",
+    "bulk_resume_upload",
+    "zoho_recruit",
+}
 
 
 def build_resume_text_review(text: str, source: str) -> dict[str, Any]:
@@ -46,10 +55,13 @@ def build_resume_text_review(text: str, source: str) -> dict[str, Any]:
         report = assess_resume_text(cleaned)
 
     # No resume text, PII, file bytes, or prompt is persisted in the candidate JSON.
+    source_label = str(source or "recruiter_review").strip().lower()
+    if source_label not in ALLOWED_REVIEW_SOURCES:
+        source_label = "recruiter_review"
     return {
         **report,
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
-        "source": str(source or "recruiter_review")[:40],
+        "source": source_label,
         "decision_support_only": True,
         "not_used_for_matching": True,
     }
@@ -62,6 +74,8 @@ def attach_resume_text_review(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return a copied candidate profile with a payload-free review summary."""
     updated = dict(profile or {})
+    # Remove any legacy raw extraction field before writing candidate JSON.
+    updated.pop("raw_text", None)
     review = build_resume_text_review(text, source)
     updated["resume_text_quality_review"] = review
     return updated, review
