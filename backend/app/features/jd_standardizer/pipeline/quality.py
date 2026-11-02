@@ -17,7 +17,7 @@ HEADING_ALIASES = {
         "what you'll do", "duties", "role and responsibilities",
     },
     "requirements": {
-        "requirements", "qualifications", "what you will bring",
+        "requirements", "qualifications", "required qualifications", "essential qualifications", "what you will bring",
         "what we're looking for", "what we are looking for",
         "must have", "essential skills", "required skills",
     },
