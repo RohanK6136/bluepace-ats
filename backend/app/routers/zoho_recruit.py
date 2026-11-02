@@ -3,7 +3,7 @@ import asyncio
 import os
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote, urlencode
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
@@ -161,8 +161,26 @@ def _access_token():
     if not token:
         raise HTTPException(502, "Zoho token refresh failed. Check credentials and Zoho data centre.")
     api_domain = payload.get("api_domain")
-    if api_domain and str(api_domain).startswith("https://") and "zoho" in str(api_domain).lower():
-        api_base = str(api_domain).rstrip("/") + "/recruit/v2"
+    if api_domain:
+        parsed_domain = urlparse(str(api_domain).strip())
+        api_host = (parsed_domain.hostname or "").lower()
+        approved_suffixes = (
+            ".zohoapis.com", ".zohoapis.in", ".zohoapis.eu", ".zohoapis.com.au",
+            ".zohoapis.jp", ".zohoapis.ca", ".zohoapis.com.cn", ".zohoapis.sa",
+        )
+        approved_exact = {"recruit.zoho.in", "recruit.zoho.com"}
+        if (
+            parsed_domain.scheme != "https"
+            or not (api_host in approved_exact or api_host.endswith(approved_suffixes))
+            or parsed_domain.username is not None
+            or parsed_domain.password is not None
+            or parsed_domain.port not in (None, 443)
+            or parsed_domain.path not in ("", "/")
+            or parsed_domain.query
+            or parsed_domain.fragment
+        ):
+            raise HTTPException(502, "Zoho token response contained an unapproved API domain.")
+        api_base = f"https://{api_host}/recruit/v2"
     return token, api_base
 
 
