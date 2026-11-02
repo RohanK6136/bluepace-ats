@@ -137,3 +137,12 @@ def test_upload_rejects_files_over_five_megabytes() -> None:
         files={"file": ("large.txt", b"x" * (5 * 1024 * 1024 + 1), "text/plain")},
     )
     assert response.status_code == 413
+
+
+def test_resume_authorship_endpoints_are_exposed_in_openapi() -> None:
+    schema = make_client().get("/openapi.json").json()
+    paths = schema["paths"]
+    assert "post" in paths["/v1/resume-authorship/assess"]
+    assert "post" in paths["/v1/resume-authorship/assess/upload"]
+    response_schema = paths["/v1/resume-authorship/assess"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert response_schema["$ref"].endswith("ResumeAuthorshipResponse")
