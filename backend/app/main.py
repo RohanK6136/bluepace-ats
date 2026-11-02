@@ -4591,8 +4591,8 @@ def create_candidate_resume_text_review(
     text_value = str(request.text or "").strip()
     if len(text_value) < 100:
         raise HTTPException(status_code=422, detail="At least 100 characters of resume text are required.")
-    if len(text_value) > 120_000:
-        raise HTTPException(status_code=413, detail="Resume text exceeds the 120000 character request limit.")
+    if len(text_value) > 60_000:
+        raise HTTPException(status_code=413, detail="Resume text exceeds the 60000 character review limit.")
 
     candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
     profile, review = attach_resume_text_review(
