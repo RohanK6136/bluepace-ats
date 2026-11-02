@@ -372,8 +372,20 @@ export default function AtsWorkspace() {
 
       apiRequest(null, "get", "/public/jobs", { params })
         .then((response) => {
-          if (!Array.isArray(response.data)) {
-            throw new Error("The ATS jobs feed returned an unexpected response. Please retry.");
+          const isValidPublicJob = (job) => Boolean(
+            job
+            && Number.isInteger(job.id)
+            && typeof job.title === "string"
+            && job.title.trim()
+            && typeof job.description === "string"
+            && Array.isArray(job.required_skills)
+            && job.required_skills.every((skill) => typeof skill === "string")
+            && ["remote", "hybrid", "onsite"].includes(job.work_mode)
+          );
+          if (!Array.isArray(response.data) || !response.data.every(isValidPublicJob)) {
+            throw new Error(
+              "The ATS jobs feed returned an invalid vacancy response. No vacancy list has been displayed. Please retry or contact the careers team."
+            );
           }
           if (!active) return;
           const page = response.data;
