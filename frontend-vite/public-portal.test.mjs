@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const workspace = await readFile(new URL("./src/AtsWorkspace.jsx", import.meta.url), "utf8");
 const brandStyles = await readFile(new URL("./src/brand.css", import.meta.url), "utf8");
 const helpCenter = await readFile(new URL("./src/PublicHelpCenter.jsx", import.meta.url), "utf8");
+const statusPage = await readFile(new URL("./src/PublicStatusPage.jsx", import.meta.url), "utf8");
 
 test("public careers portal exposes the persisted accessible light/dark theme toggle", () => {
   assert.match(workspace, /<ThemeToggle theme=\{theme\} onToggle=\{toggleTheme\} \/>/);
@@ -74,4 +75,13 @@ test("production HTML exposes the source commit for live release verification", 
   assert.match(viteConfig, /GITHUB_SHA/);
   assert.match(viteConfig, /name="bluepace-build-commit"/);
   assert.match(viteConfig, /"unknown"/);
+});
+
+test("public status route is wired for production verification", () => {
+  assert.match(workspace, /import PublicStatusPage from "\.\/PublicStatusPage\.jsx"/);
+  assert.match(workspace, /pathname\.replace\(\/\\\/+\$\/, ""\) === "\/status"/);
+  assert.match(workspace, /<PublicStatusPage apiUrl=\{API_URL\} theme=\{theme\} onToggleTheme=\{toggleTheme\} \/>/);
+  assert.match(statusPage, /\/public\/jobs\?limit=1&offset=0/);
+  assert.match(statusPage, /bluepace-build-commit/);
+  assert.match(statusPage, /An empty array is valid when no genuine open roles are published/);
 });
