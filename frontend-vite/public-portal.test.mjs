@@ -67,3 +67,11 @@ test("public help copy matches the enforced 5 MB PDF/DOCX resume limit", () => {
   assert.match(helpCenter, /PDF and DOCX resumes up to 5 MB/);
   assert.doesNotMatch(helpCenter, /10\s?MB/i);
 });
+
+test("production HTML exposes the source commit for live release verification", async () => {
+  const viteConfig = await readFile(new URL("./vite.config.js", import.meta.url), "utf8");
+  assert.match(viteConfig, /VERCEL_GIT_COMMIT_SHA/);
+  assert.match(viteConfig, /GITHUB_SHA/);
+  assert.match(viteConfig, /name="bluepace-build-commit"/);
+  assert.match(viteConfig, /"unknown"/);
+});
