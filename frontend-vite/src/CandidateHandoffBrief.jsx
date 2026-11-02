@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import TextQualityReviewBadge from "./TextQualityReviewBadge.jsx";
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -12,6 +13,10 @@ export default function CandidateHandoffBrief({ candidate, profile = {}, applica
     const recentEvents = [...events].slice(0, 4);
     const gaps = (fitAnalysis?.missing_skills || fitAnalysis?.skill_gaps || []).filter(Boolean).slice(0, 8);
     const reviewSignals = (profile.resume_quality?.missing_fields || []).map((field) => `Confirm ${field}`).slice(0, 5);
+    const textQuality = profile.text_quality_review;
+    const textQualityLine = textQuality
+      ? `Text-quality review: ${textQuality.status || "unknown"}${(textQuality.signals || []).length ? ` (${(textQuality.signals || []).map((s) => s.label).filter(Boolean).slice(0, 3).join("; ")})` : ""} — assessment undetermined, human review only`
+      : "Text-quality review: Not run on this profile yet";
     const lines = [
       `CANDIDATE HANDOFF · ${name}`,
       `Role: ${application?.job_title || "Select an application to add role context"}`,
@@ -23,6 +28,7 @@ export default function CandidateHandoffBrief({ candidate, profile = {}, applica
       fitAnalysis ? `Role-fit evidence: ${fitAnalysis.summary || fitAnalysis.fit || fitAnalysis.alignment || "Review the role-fit panel"}` : "Role-fit evidence: Not generated for this session",
       gaps.length ? `Requirements to verify: ${gaps.join(", ")}` : "Requirements to verify: Use the job description and interview kit",
       reviewSignals.length ? `Profile checks: ${reviewSignals.join("; ")}` : "Profile checks: No missing required fields flagged by the parser",
+      textQualityLine,
       "Recent ATS activity:",
       ...(recentEvents.length ? recentEvents.map((event) => `- ${event.title || event.type}${event.created_at ? ` (${new Date(event.created_at).toLocaleDateString()})` : ""}`) : ["- No recent activity recorded"]),
       "Use job-related evidence and the structured interview scorecard. Verify details with the candidate; this brief is a navigation aid, not a recommendation.",
@@ -50,8 +56,10 @@ export default function CandidateHandoffBrief({ candidate, profile = {}, applica
         </div>
         <button type="button" className="inline-flex items-center justify-center rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 hover:bg-ink-50" onClick={copyBrief}>{copied ? "Copied" : "Copy brief"}</button>
       </div>
+      <div className="mt-3 max-w-lg">
+        <TextQualityReviewBadge profile={profile} />
+      </div>
       <pre className="mt-4 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-100 bg-white p-3 text-xs leading-5 text-ink-700">{brief}</pre>
     </section>
   );
 }
-
