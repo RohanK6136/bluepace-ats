@@ -65,9 +65,11 @@ def assess_resume_text(text: str) -> dict:
                 detail="Bullet lengths are unusually consistent. This is a formatting observation only and is common in both human-edited and AI-assisted resumes.",
             ))
 
+    review_signal_present = any(signal.code != "limited_text_sample" for signal in signals)
+
     return {
         "assessment": "undetermined",
-        "status": "insufficient_evidence" if len(cleaned) < 500 else ("review_recommended" if duplicates else "no_text_quality_alerts"),
+        "status": "insufficient_evidence" if len(cleaned) < 500 else ("review_recommended" if review_signal_present else "no_text_quality_alerts"),
         "confidence": "not_assessed",
         "text_characters": len(cleaned),
         "signals": [asdict(signal) for signal in signals],
