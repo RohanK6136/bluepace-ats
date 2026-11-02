@@ -84,6 +84,7 @@ jobs:
           import sys
           from pathlib import Path
           header_path, expected_origin = sys.argv[1:]
+          header_path = Path(header_path)
           values = {}
           for line in header_path.read_text(encoding="iso-8859-1").splitlines():
               if ":" in line:
