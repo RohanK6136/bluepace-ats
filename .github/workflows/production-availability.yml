@@ -10,10 +10,11 @@ on:
       - ".github/workflows/production-availability.yml"
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "30 3 * * *"
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: production-availability-check
@@ -112,6 +113,34 @@ jobs:
           fi
           echo "ATS authentication guard passed: unauthenticated GET /jobs is rejected."
 
+          # Public vacancy data must be reachable at runtime. An empty array is
+          # valid (no current openings); 4xx/5xx or malformed JSON is not.
+          public_body="$(mktemp)"
+          trap 'rm -f "$public_body"' EXIT
+          if ! public_status="$(curl --silent --show-error --location \
+            --connect-timeout 10 --max-time 35 \
+            --output "$public_body" --write-out '%{http_code}' \
+            "$base_url/public/jobs?limit=1&offset=0")"; then
+            echo "::error title=Public vacancies endpoint unavailable::Could not reach GET /public/jobs."
+            exit 1
+          fi
+          if [[ "$public_status" != "200" ]]; then
+            cat "$public_body"
+            echo "::error title=Public vacancies endpoint failed::GET /public/jobs returned HTTP $public_status."
+            exit 1
+          fi
+          python3 - "$public_body" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not isinstance(payload, list):
+              raise SystemExit("GET /public/jobs did not return a JSON array")
+          print(f"Public vacancies endpoint passed; first page returned {len(payload)} real records (zero is valid).")
+          PY
+          rm -f "$public_body"
+          trap - EXIT
+
   frontend:
     name: Verify Vercel production frontend
     runs-on: ubuntu-latest
@@ -185,6 +214,44 @@ jobs:
           print("Production check passed: HTTP 200, expected page title and React root, and all required security headers on the final response.")
           PY
 
+      - name: Verify live frontend commit matches main
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://bluepace-ats-frontend.vercel.app/"
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          if ! status="$(curl --silent --show-error --location --max-time 25 \
+            --header 'Cache-Control: no-cache' \
+            --output "$body" --write-out '%{http_code}' \
+            "${url}?build-check=${GITHUB_SHA}")"; then
+            echo "::error title=Production build identity unavailable::Could not fetch the cache-bypassed production HTML."
+            exit 1
+          fi
+          if [[ "$status" != "200" ]]; then
+            echo "::error title=Production build identity failed::Production HTML returned HTTP $status."
+            exit 1
+          fi
+          actual="$(python3 - "$body" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          html = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          match = re.search(
+              r'<meta\\s+name=["\\']bluepace-build-commit["\\']\\s+content=["\\']([a-f0-9]{40}|unknown)["\\']',
+              html,
+              re.IGNORECASE,
+          )
+          print(match.group(1).lower() if match else "missing")
+          PY
+          )"
+          if [[ "$actual" != "$GITHUB_SHA" ]]; then
+            echo "::error title=Production commit mismatch::main is $GITHUB_SHA but the live site reports $actual. The new release is not live."
+            exit 1
+          fi
+          echo "Production commit matches main: $actual"
+
       - name: Check JD & Applicant Match model registry
         shell: bash
         run: |
@@ -213,3 +280,78 @@ jobs:
           echo "::error title=JD & Applicant Match API missing::The live /v1/models endpoint did not return the expected model registry."
           exit 1
 
+
+  notify:
+    name: Notify on production health failure
+    if: always() && github.event_name != 'pull_request'
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Create or resolve the single production health alert
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="[Production Alert] BluePace public careers and ATS health"
+          issues_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100"
+          issues="$(curl --silent --show-error --fail \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "$issues_url")"
+          issue_number="$(node -e '
+            const rows = JSON.parse(process.argv[1]);
+            const title = process.argv[2];
+            const issue = rows.find((row) => !row.pull_request && row.title === title);
+            process.stdout.write(issue ? String(issue.number) : "");
+          ' "$issues" "$title")"
+          body="Backend availability: $BACKEND_RESULT
+          Frontend availability: $FRONTEND_RESULT
+          Commit: $GITHUB_SHA
+          Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          This issue is maintained by the scheduled production health check. It is automatically closed after a successful recovery check."
+          payload="$(node -e '
+            process.stdout.write(JSON.stringify({
+              title: process.argv[1],
+              body: process.argv[2],
+              state: process.argv[3]
+            }));
+          ' "$title" "$body" "$([[ "$BACKEND_RESULT" == "success" && "$FRONTEND_RESULT" == "success" ]] && echo closed || echo open)")"
+
+          if [[ "$BACKEND_RESULT" == "success" && "$FRONTEND_RESULT" == "success" ]]; then
+            if [[ -n "$issue_number" ]]; then
+              curl --silent --show-error --fail --request PATCH \
+                --header "Authorization: Bearer $GH_TOKEN" \
+                --header "Accept: application/vnd.github+json" \
+                --header "Content-Type: application/json" \
+                --data "$payload" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number" >/dev/null
+              echo "Closed the existing production alert after a successful health check."
+            else
+              echo "Production health checks passed; there is no open alert to resolve."
+            fi
+          else
+            if [[ -n "$issue_number" ]]; then
+              curl --silent --show-error --fail --request PATCH \
+                --header "Authorization: Bearer $GH_TOKEN" \
+                --header "Accept: application/vnd.github+json" \
+                --header "Content-Type: application/json" \
+                --data "$payload" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number" >/dev/null
+              echo "Updated the existing production alert."
+            else
+              payload="$(node -e 'process.stdout.write(JSON.stringify({title: process.argv[1], body: process.argv[2]}))' "$title" "$body")"
+              curl --silent --show-error --fail --request POST \
+                --header "Authorization: Bearer $GH_TOKEN" \
+                --header "Accept: application/vnd.github+json" \
+                --header "Content-Type: application/json" \
+                --data "$payload" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/issues" >/dev/null
+              echo "Created a production health alert issue."
+            fi
+            echo "::error title=Production alert created::One or more production health checks failed. See the single tracked production alert issue."
+          fi
