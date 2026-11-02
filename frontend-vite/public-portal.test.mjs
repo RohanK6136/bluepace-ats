@@ -6,6 +6,7 @@ const workspace = await readFile(new URL("./src/AtsWorkspace.jsx", import.meta.u
 const brandStyles = await readFile(new URL("./src/brand.css", import.meta.url), "utf8");
 const helpCenter = await readFile(new URL("./src/PublicHelpCenter.jsx", import.meta.url), "utf8");
 const statusPage = await readFile(new URL("./src/PublicStatusPage.jsx", import.meta.url), "utf8");
+const statusPage = await readFile(new URL("./src/PublicStatusPage.jsx", import.meta.url), "utf8");
 
 test("public careers portal exposes the persisted accessible light/dark theme toggle", () => {
   assert.match(workspace, /<ThemeToggle theme=\{theme\} onToggle=\{toggleTheme\} \/>/);
@@ -84,4 +85,16 @@ test("public status route is wired for production verification", () => {
   assert.match(statusPage, /\/public\/jobs\?limit=1&offset=0/);
   assert.match(statusPage, /bluepace-build-commit/);
   assert.match(statusPage, /An empty array is valid when no genuine open roles are published/);
+});
+
+test("public status page checks frontend, API, database and the real vacancies feed", () => {
+  assert.match(workspace, /window\.location\.pathname === "\/status"/);
+  for (const endpoint of ["/healthz", "/readyz", "/version", "/public/jobs?limit=1&offset=0"]) {
+    assert.ok(statusPage.includes(endpoint), "missing live status check: " + endpoint);
+  }
+  assert.match(statusPage, /An empty array is valid/);
+  assert.match(statusPage, /Backend commit/);
+  assert.match(statusPage, /aria-live="polite"/);
+  assert.match(statusPage, /Refresh checks/);
+  assert.doesNotMatch(statusPage, /91 real jobs|Greenhouse demo/i);
 });
