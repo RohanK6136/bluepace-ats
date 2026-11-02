@@ -49,6 +49,7 @@ FEATURES: list[FeatureInfo] = [
         description="Reports explainable text-quality observations only. It does not claim to detect AI authorship, "
                     "estimate authorship probability, or influence hiring decisions.",
         status="beta",
+        ui_route="#/ai-studio?tab=text-quality",
         api_prefix="/v1/resume-authorship",
         capabilities=[
             "PDF / DOCX / TXT / MD upload",
@@ -56,6 +57,7 @@ FEATURES: list[FeatureInfo] = [
             "No LLM call",
             "No file or text persistence",
             "Human review required",
+            "OpenAPI under Resume Authorship Review",
         ],
     ),
 ]
