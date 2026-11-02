@@ -21,15 +21,15 @@ class ReviewSignal:
 
 
 def _normalise_line(line: str) -> str:
-    line = re.sub(r"^\\s*(?:[-*•]|\\d+[.)])\\s*", "", line)
-    return re.sub(r"\\s+", " ", line).strip().casefold()
+    line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line)
+    return re.sub(r"\s+", " ", line).strip().casefold()
 
 
 def assess_resume_text(text: str) -> dict:
     """Return observable text-quality signals, never an authorship verdict."""
     if not isinstance(text, str):
         raise TypeError("text must be a string")
-    cleaned = text.replace("\\x00", " ").strip()
+    cleaned = text.replace("\x00", " ").strip()
     if len(cleaned) > 60_000:
         raise ValueError("resume text exceeds the 60000 character limit")
 
@@ -54,7 +54,7 @@ def assess_resume_text(text: str) -> dict:
             detail=f"Found {total_repeated} repeated long line(s). This may reflect duplicated sections, formatting, or copied content; it does not establish AI authorship.",
         ))
 
-    bullets = [line for line in cleaned.splitlines() if re.match(r"^\\s*(?:[-*•]|\\d+[.)])\\s+", line)]
+    bullets = [line for line in cleaned.splitlines() if re.match(r"^\s*(?:[-*•]|\d+[.)])\s+", line)]
     if len(bullets) >= 8:
         lengths = [len(_normalise_line(line)) for line in bullets]
         mean = sum(lengths) / len(lengths)
