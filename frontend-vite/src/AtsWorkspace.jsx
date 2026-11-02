@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import AtsChatbot from "./AtsChatbot.jsx";
 import PublicCareersChatbot from "./PublicCareersChatbot.jsx";
+import PublicStatusPage from "./PublicStatusPage.jsx";
 const ResumeLab = lazy(() => import("./App.jsx"));
 const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
 const ScorecardPanel = lazy(() => import("./ScorecardPanel.jsx"));
@@ -1134,6 +1135,10 @@ export default function AtsWorkspace() {
   }
 
   if (portalToken) return <CandidatePortal token={portalToken} theme={theme} onToggleTheme={toggleTheme} />;
+
+  if (!token && window.location.pathname.replace(/\\/+$/, "") === "/status") {
+    return <PublicStatusPage apiUrl={API_URL} theme={theme} onToggleTheme={toggleTheme} />;
+  }
 
   if (!token && accessMode === "public") {
     return (
