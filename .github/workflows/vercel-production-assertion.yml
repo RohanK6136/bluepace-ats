@@ -24,6 +24,7 @@ jobs:
       VERCEL_PROJECT_ID: prj_DpQbpA1dF1LtdcPyxBMAHEiZU1fy
       EXPECTED_COMMIT: ${{ github.sha }}
       PRODUCTION_URL: https://bluepace-ats-frontend.vercel.app/
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Wait for a READY production deployment of this exact commit
         id: deployment
@@ -155,8 +156,6 @@ jobs:
 
       - name: Send optional Slack alert
         if: failure() && env.SLACK_WEBHOOK_URL != ''
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         shell: bash
         run: |
           set -euo pipefail
