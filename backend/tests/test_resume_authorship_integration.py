@@ -9,10 +9,11 @@ def sample_resume() -> str:
 
 
 def test_candidate_profile_integration_persists_only_derived_report():
-    source_profile = {"skills": ["Python"], "years_of_experience": 4}
+    source_profile = {"skills": ["Python"], "years_of_experience": 4, "raw_text": "legacy raw resume text"}
     updated, review = attach_resume_text_review(source_profile, sample_resume(), "resume_lab")
 
-    assert source_profile == {"skills": ["Python"], "years_of_experience": 4}
+    assert source_profile["raw_text"] == "legacy raw resume text"
+    assert "raw_text" not in updated
     assert updated["skills"] == ["Python"]
     assert updated["resume_text_quality_review"] == review
     assert review["assessment"] == "undetermined"
@@ -40,3 +41,8 @@ def test_over_limit_text_is_not_partially_classified():
     assert review["status"] == "insufficient_evidence"
     assert review["confidence"] == "not_assessed"
     assert review["signals"][0]["code"] == "text_sample_too_large"
+
+
+def test_unknown_review_source_is_replaced_with_safe_default():
+    review = build_resume_text_review(sample_resume(), "arbitrary-user-supplied-label-with-pii")
+    assert review["source"] == "recruiter_review"
