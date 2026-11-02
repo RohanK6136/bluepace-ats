@@ -569,18 +569,18 @@ async def add_process_time_header(request, call_next):
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEPLOYED_FRONTEND_ORIGINS = (
     "https://bluepace-ats-frontend.vercel.app",
-    "https://bluepace-frontend-production.up.railway.app",
-    "https://bluepace-ats-frontend.onrender.com",
+    "https://bluepace-ats-live.vercel.app",
 )
-# Candidate-facing email and portal links should use the active public frontend.
-# Allow deployments to override this when their canonical public URL changes.
+# Candidate-facing portal links use the canonical Vercel frontend, while
+# calendar downloads point to the active Render API service.
+# Environment variables remain available for an intentional future hostname change.
 DEPLOYED_FRONTEND_ORIGIN = os.getenv(
     "FRONTEND_PUBLIC_ORIGIN",
-    "https://bluepace-frontend-production.up.railway.app",
+    "https://bluepace-ats-frontend.vercel.app",
 ).rstrip("/")
 DEPLOYED_BACKEND_ORIGIN = os.getenv(
     "BACKEND_PUBLIC_ORIGIN",
-    "https://bluepace-ats-production.up.railway.app",
+    "https://bluepace-ats-11.onrender.com",
 ).rstrip("/")
 MAX_RESUME_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES
 

@@ -17,7 +17,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
           cache-dependency-path: frontend-vite/package-lock.json
       - name: Install
@@ -26,7 +26,7 @@ jobs:
       - name: Build
         working-directory: frontend-vite
         env:
-          VITE_API_URL: https://bluepace-ats-9.onrender.com
+          VITE_API_URL: https://bluepace-ats-11.onrender.com
           GITHUB_PAGES: "false"
         run: npm run build
       - name: Upload dist

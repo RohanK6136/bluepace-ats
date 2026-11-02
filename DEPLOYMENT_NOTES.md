@@ -39,7 +39,7 @@ Resume Lab bulk intake uses Backblaze B2 presigned PUT URLs so the browser uploa
 
 Backblaze B2's S3-compatible API supports presigned upload URLs. For browser uploads, the B2 bucket must also allow CORS for the deployed frontend origin and the PUT method. Configure the private bucket's S3-compatible CORS rules for:
 
-- Origin: `https://bluepace-ats-frontend.onrender.com`
+- Origin: `https://bluepace-ats-frontend.vercel.app`
 - Method: `PUT`
 - Allowed headers: `*`
 - Max age: `3600`
