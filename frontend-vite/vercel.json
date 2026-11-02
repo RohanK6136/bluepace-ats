@@ -36,6 +36,15 @@
       ]
     },
     {
+      "source": "/status",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
       "source": "/assets/(.*)",
       "headers": [
         {
@@ -49,6 +58,18 @@
     {
       "source": "/v1/:path*",
       "destination": "/api/v1/[...path]"
+    },
+    {
+      "source": "/status",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/status/",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/((?!api/|assets/|v1/).*)",
+      "destination": "/index.html"
     }
   ],
   "git": {
