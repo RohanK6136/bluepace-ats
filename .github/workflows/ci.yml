@@ -95,3 +95,7 @@ jobs:
       - name: Test smart hiring workflow stages and filters
         working-directory: frontend-vite
         run: npm run test:hiring-workflow
+
+      - name: Test public careers portal content, filters and themes
+        working-directory: frontend-vite
+        run: npm run test:public-portal
