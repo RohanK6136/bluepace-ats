@@ -2023,6 +2023,43 @@ export default function AtsWorkspace() {
                       {!profile.resume_quality?.missing_fields?.length && !profile.resume_quality?.suspicious_fields?.length && <p className="mt-2 text-sm text-emerald-700">No review signals detected by the parser.</p>}
                     </div>
                   </div>
+                  <div className="mt-4 rounded-lg border border-ink-100 bg-white p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold uppercase text-ink-500">Resume text-quality review</p>
+                      <span className="rounded-full border border-ink-200 bg-[#fafaf8] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-600">Not an AI detector</span>
+                    </div>
+                    {profile.resume_text_quality_review ? (
+                      <>
+                        <p className="mt-2 text-sm font-semibold text-ink-900">
+                          {profile.resume_text_quality_review.status === "review_recommended"
+                            ? "Some text patterns may need a closer look"
+                            : profile.resume_text_quality_review.status === "insufficient_evidence"
+                              ? "Insufficient text for a useful review"
+                              : "No text-quality alerts"}
+                        </p>
+                        <p className="mt-1 text-xs text-ink-500">
+                          Reviewed {profile.resume_text_quality_review.reviewed_at ? new Date(profile.resume_text_quality_review.reviewed_at).toLocaleString() : "without a timestamp"}
+                          {profile.resume_text_quality_review.source ? ` · Source: ${profile.resume_text_quality_review.source.replaceAll("_", " ")}` : ""}
+                          {profile.resume_text_quality_review.text_characters != null ? ` · ${Number(profile.resume_text_quality_review.text_characters).toLocaleString()} characters` : ""}
+                        </p>
+                        {profile.resume_text_quality_review.signals?.length > 0 ? (
+                          <div className="mt-3 grid gap-2">
+                            {profile.resume_text_quality_review.signals.map((signal) => (
+                              <div key={signal.code} className="rounded-md border border-ink-100 bg-[#fafaf8] p-2">
+                                <p className="text-xs font-semibold text-ink-800">{signal.label}</p>
+                                <p className="mt-1 text-xs leading-5 text-ink-600">{signal.detail}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : <p className="mt-2 text-xs text-ink-500">No repeated-content or uniform-formatting signals were found.</p>}
+                        <p className="mt-3 border-t border-ink-100 pt-2 text-[11px] leading-5 text-ink-500">
+                          This is an advisory text-quality review, not proof of AI authorship. It is excluded from Applicant Match scores and must not influence shortlist or hiring decisions.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="mt-2 text-xs leading-5 text-ink-500">No text-quality review has been saved for this resume yet. New supported resume uploads are reviewed during processing where enough readable text is available.</p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-6 border-t border-ink-100 pt-5">
