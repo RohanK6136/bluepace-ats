@@ -26,6 +26,7 @@ const CandidateHandoffBrief = lazy(() => import("./CandidateHandoffBrief.jsx"));
 
 const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DOCUMENT_SIZE_LABEL = "5 MB";
+const PUBLIC_JOBS_PAGE_SIZE = 24;
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = (
@@ -260,6 +261,9 @@ export default function AtsWorkspace() {
   const [publicError, setPublicError] = useState("");
   const [publicSuccess, setPublicSuccess] = useState("");
   const [publicFilters, setPublicFilters] = useState({ search: "", department: "", location: "", work_mode: "" });
+  const [publicOffset, setPublicOffset] = useState(0);
+  const [publicHasMore, setPublicHasMore] = useState(false);
+  const [publicRefreshKey, setPublicRefreshKey] = useState(0);
     const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [authError, setAuthError] = useState("");
   const [view, setView] = useState("dashboard");
@@ -362,12 +366,28 @@ export default function AtsWorkspace() {
     // Wait briefly before requesting results while the candidate is typing.
     const requestTimer = window.setTimeout(() => {
       const params = Object.fromEntries(Object.entries(publicFilters).filter(([, value]) => value));
+      params.limit = PUBLIC_JOBS_PAGE_SIZE;
+      params.offset = publicOffset;
+
       apiRequest(null, "get", "/public/jobs", { params })
         .then((response) => {
-          if (active) setPublicJobs(Array.isArray(response.data) ? response.data : []);
+          if (!Array.isArray(response.data)) {
+            throw new Error("The ATS jobs feed returned an unexpected response. Please retry.");
+          }
+          if (!active) return;
+          const page = response.data;
+          setPublicJobs((current) => {
+            if (publicOffset === 0) return page;
+            const existingIds = new Set(current.map((job) => job.id));
+            return [...current, ...page.filter((job) => !existingIds.has(job.id))];
+          });
+          setPublicHasMore(page.length === PUBLIC_JOBS_PAGE_SIZE);
         })
         .catch((requestError) => {
-          if (active) setPublicError(errorText(requestError));
+          if (!active) return;
+          if (publicOffset === 0) setPublicJobs([]);
+          setPublicHasMore(false);
+          setPublicError(errorText(requestError));
         })
         .finally(() => {
           if (active) setPublicLoading(false);
@@ -378,7 +398,32 @@ export default function AtsWorkspace() {
       active = false;
       window.clearTimeout(requestTimer);
     };
-  }, [token, accessMode, publicFilters.search, publicFilters.department, publicFilters.location, publicFilters.work_mode]);
+  }, [
+    token,
+    accessMode,
+    publicFilters.search,
+    publicFilters.department,
+    publicFilters.location,
+    publicFilters.work_mode,
+    publicOffset,
+    publicRefreshKey,
+  ]);
+
+  function updatePublicFilter(field, value) {
+    setPublicFilters((current) => ({ ...current, [field]: value }));
+    setPublicOffset(0);
+    setPublicJobs([]);
+    setPublicHasMore(false);
+    setPublicError("");
+  }
+
+  function clearPublicFilters() {
+    setPublicFilters({ search: "", department: "", location: "", work_mode: "" });
+    setPublicOffset(0);
+    setPublicJobs([]);
+    setPublicHasMore(false);
+    setPublicError("");
+  }
 
   useEffect(() => {
     if (!token) return undefined;
@@ -1124,7 +1169,7 @@ export default function AtsWorkspace() {
                 id="public-role-search"
                 placeholder="Search by job title, skill or department"
                 value={publicFilters.search}
-                onChange={(event) => setPublicFilters({ ...publicFilters, search: event.target.value })}
+                onChange={(event) => updatePublicFilter("search", event.target.value)}
               />
               <label className="sr-only" htmlFor="public-work-mode">Work mode</label>
               <label className="sr-only" htmlFor="public-department">Filter by department</label>
@@ -1132,17 +1177,17 @@ export default function AtsWorkspace() {
                 id="public-department"
                 placeholder="Department"
                 value={publicFilters.department}
-                onChange={(event) => setPublicFilters({ ...publicFilters, department: event.target.value })}
+                onChange={(event) => updatePublicFilter("department", event.target.value)}
               />
               <label className="sr-only" htmlFor="public-location">Filter by location</label>
               <input
                 id="public-location"
                 placeholder="Location"
                 value={publicFilters.location}
-                onChange={(event) => setPublicFilters({ ...publicFilters, location: event.target.value })}
+                onChange={(event) => updatePublicFilter("location", event.target.value)}
               />
               <label className="sr-only" htmlFor="public-work-mode">Work mode</label>
-              <select id="public-work-mode" value={publicFilters.work_mode} onChange={(event) => setPublicFilters({ ...publicFilters, work_mode: event.target.value })}>
+              <select id="public-work-mode" value={publicFilters.work_mode} onChange={(event) => updatePublicFilter("work_mode", event.target.value)}>
                 <option value="">All work modes</option>
                 <option value="remote">Remote</option>
                 <option value="hybrid">Hybrid</option>
@@ -1151,7 +1196,7 @@ export default function AtsWorkspace() {
               <button type="submit">Search roles</button>
             </form>
             <div className="bp-careers-stats" aria-live="polite" aria-label="Current role search summary">
-              <div><strong>{publicJobs.length}</strong><span>Matching roles</span></div>
+              <div><strong>{publicJobs.length}</strong><span>Roles displayed</span></div>
               <div><strong>{new Set(publicJobs.map((job) => job.work_mode).filter(Boolean)).size}</strong><span>Work arrangements</span></div>
               <div><strong>{new Set(publicJobs.map((job) => job.department).filter(Boolean)).size}</strong><span>Teams represented</span></div>
             </div>
@@ -1164,7 +1209,7 @@ export default function AtsWorkspace() {
               <span className="text-sm text-ink-500" aria-live="polite">{publicLoading ? "Updating roles…" : publicJobs.length + " matching " + (publicJobs.length === 1 ? "role" : "roles")}</span>
             </div>
 
-            {publicLoading && !publicApplyJob && (
+            {publicLoading && publicJobs.length === 0 && !publicApplyJob && (
               <div className="mt-5 space-y-3" aria-hidden="true">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className="bp-skeleton-row">
@@ -1180,8 +1225,13 @@ export default function AtsWorkspace() {
             )}
 
             {publicError && !publicApplyJob && (
-              <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
-                {publicError}
+              <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700" role="alert">
+                <p className="font-semibold">We could not load current vacancies.</p>
+                <p className="mt-1">{publicError}</p>
+                <div className="mt-4 flex flex-wrap items-center gap-4">
+                  <button type="button" className="text-sm font-semibold underline" onClick={() => setPublicRefreshKey((value) => value + 1)}>Retry loading vacancies</button>
+                  <a className="text-sm font-semibold underline" href="mailto:hello@blupacetech.com">Contact the careers team</a>
+                </div>
               </div>
             )}
 
@@ -1194,7 +1244,7 @@ export default function AtsWorkspace() {
                     <button
                       type="button"
                       className="mt-4 text-sm font-semibold text-blue-700 hover:underline"
-                      onClick={() => setPublicFilters({ search: "", department: "", location: "", work_mode: "" })}
+                      onClick={clearPublicFilters}
                     >
                       Clear search
                     </button>
@@ -1256,6 +1306,18 @@ export default function AtsWorkspace() {
                 </article>
               ))}
             </div>
+            {publicHasMore && !publicError && (
+              <div className="mt-7 flex justify-center">
+                <button
+                  type="button"
+                  className="bp-public-signin"
+                  disabled={publicLoading}
+                  onClick={() => setPublicOffset((offset) => offset + PUBLIC_JOBS_PAGE_SIZE)}
+                >
+                  {publicLoading ? "Loading more roles…" : "Load more roles"}
+                </button>
+              </div>
+            )}
         </section>
 
         <section className="bp-public-journey mx-auto max-w-7xl px-5 py-14" aria-labelledby="bp-application-journey-title">
