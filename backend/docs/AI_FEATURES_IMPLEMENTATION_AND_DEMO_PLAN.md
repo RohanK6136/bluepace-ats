@@ -11,9 +11,9 @@ Deployment target: Railway project `melodious-expression`, backend service `blue
 | JD Standardization | Existing `backend/app/features/jd_standardizer/routes.py`; router is imported and mounted in `backend/app/main.py`; ZIP contains the JD Standardizer pipeline and fixtures. | Implemented in code; live end-to-end use not verified |
 | AI Assistance / Applicant Match | Existing `backend/app/features/applicant_match/routes.py`; router is imported and mounted; ZIP documents rubric drafting, resume redaction, evidence extraction and deterministic weighted scoring. | Implemented in code; live end-to-end use not verified |
 | AI-generated resume detection | A conservative text-quality review foundation now exists, but it explicitly does not identify AI authorship or produce an authorship probability. | Review foundation implemented; actual detector not implemented |
-| ATS integration | Existing FastAPI application mounts JD, Match and resume-review routes. Resume Lab now has an optional recruiter-triggered text-quality review panel. | Code/UI integration in PR; live workflow needs verification |
+| ATS integration | JD & Applicant Match UI calls the frontend same-origin `/v1` handler (`frontend-vite/api/v1/[...path].js`); Resume Lab and the new resume-review API call the Railway FastAPI backend. Resume Lab has an optional recruiter-triggered text-quality panel. | UI/code paths connected; end-to-end live workflow still needs verification |
 | Model integrations | `backend/config/models.yaml` defines OpenRouter profiles for Gemini, DeepSeek and other providers, plus OpenAI-compatible and Anthropic profiles. Railway backend service variable names did not include `OPENROUTER_API_KEY` at review time. | Provider profiles configured; hosted inference not verified and default OpenRouter credential appears absent |
-| OpenAPI | Backend creates a FastAPI application with title `BluePace Tech ATS API` and version `0.4.0`; default FastAPI docs/schema routes have not been disabled in the app constructor. | Schema/docs generation is expected from code; public deployment access not verified |
+| OpenAPI | Railway FastAPI app creates `BluePace Tech ATS API` v0.4.0 and serves its generated schema/docs by default. The frontend same-origin Node `/v1` handler is a separate API surface and is not described by the FastAPI schema. | FastAPI schema/docs generated in code; Node API contract and public endpoint access still need verification |
 | Current PR | PR #108 includes Applicant Match hardening, the resume-review API and file extraction, a Resume Lab review panel, tests, documentation, and a frontend lockfile security fix. | Open; not merged or deployed |
 | CI | Backend dependency installation and `pytest backend` passed in run 41400002288. The lockfile was then updated from `follow-redirects` 1.16.1 to patched 1.16.2; CI for that new head (run 41400192809) was still in progress at the time of this update. | Backend pass; full CI pending |
 | Railway | Production backend service is configured to deploy from `main`, root directory `backend`. Latest deployment metadata reported FAILED; public HTTP checks could not be completed from this environment. | Deployment health not verified |
@@ -63,13 +63,13 @@ Build a recruiter-facing **authorship risk indicators** feature:
 4. Define stable internal contracts, idempotency, timeouts, retries, rate limits, audit logs and data-retention rules.
 5. Only add external HRIS/job-board/calendar integrations when the business owner confirms the required systems and access scopes.
 
-### Phase D — OpenAPI
+### Phase D — OpenAPI and API contract alignment
 
-1. Verify the deployed `/openapi.json` and `/docs` endpoints.
-2. Ensure JD, Match, resume-authorship assessment and integration endpoints have tags, summaries, request/response schemas and error models.
-3. Document authentication, upload formats/limits, pagination, rate limits and examples.
-4. Add contract tests that validate representative success and failure responses against the schema.
-5. Publish a versioned API contract and a short integration guide for external developers.
+1. Verify the deployed FastAPI `/openapi.json` and `/docs` endpoints.
+2. Keep the API execution paths explicit: JD & Applicant Match currently run through the frontend same-origin Node handler under `frontend-vite/api/v1/`; Resume Lab and Resume Text Quality Review use the Railway FastAPI backend.
+3. Publish a contract for the Node handler as well (or consolidate the route surface deliberately in a separately tested change); do not imply the FastAPI schema describes the Node handler.
+4. Ensure both surfaces document authentication, upload formats/limits, model-provider headers, error responses, rate limits and examples.
+5. Add contract tests for representative success and failure responses, and publish a versioned developer integration guide.
 
 ## 3. Demo script (8–10 minutes)
 
