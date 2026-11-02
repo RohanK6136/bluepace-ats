@@ -6,7 +6,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode
 from urllib.request import Request as URLRequest, urlopen
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import DateTime, Integer, String, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 import hmac
