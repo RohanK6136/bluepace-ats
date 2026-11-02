@@ -116,6 +116,53 @@ PUBLIC_OPENING_SEEDS = [
         "fresher_allowed": False,
     },
     {
+        "title": "Frontend Engineer (React)",
+        "description": (
+            "Build polished recruiter and candidate experiences in React. Focus areas include the careers portal, "
+            "application flows, dashboards, and accessible UI. Requirements: React, modern CSS, API integration, "
+            "and attention to performance and accessibility."
+        ),
+        "department": "Engineering",
+        "location": "Remote — India",
+        "employment_type": "full-time",
+        "work_mode": "remote",
+        "required_skills": ["React", "JavaScript", "CSS", "Accessibility"],
+        "minimum_experience_years": 2.0,
+        "fresher_allowed": False,
+    },
+    {
+        "title": "DevOps / Platform Engineer",
+        "description": (
+            "Build and maintain the infrastructure and deployment pipelines that keep BluePace running reliably at scale. "
+            "You will manage CI/CD, cloud infrastructure, observability, and developer tooling. "
+            "Requirements: experience with AWS or Azure, Docker, Kubernetes or similar, Infrastructure as Code, "
+            "and monitoring tools such as Grafana or Prometheus."
+        ),
+        "department": "Engineering",
+        "location": "Bengaluru, India",
+        "employment_type": "full-time",
+        "work_mode": "hybrid",
+        "required_skills": ["AWS", "Docker", "CI/CD", "Terraform", "Kubernetes"],
+        "minimum_experience_years": 4.0,
+        "fresher_allowed": False,
+    },
+    {
+        "title": "QA Automation Engineer",
+        "description": (
+            "Ensure the quality and reliability of BluePace products through automated testing and quality processes. "
+            "Design and maintain UI and API test suites, integrate tests into CI pipelines, and partner with developers "
+            "on testability. Requirements: experience with Playwright or Cypress, API testing, JavaScript/TypeScript, "
+            "and CI/CD integration of automated tests."
+        ),
+        "department": "Engineering",
+        "location": "Remote — India",
+        "employment_type": "full-time",
+        "work_mode": "remote",
+        "required_skills": ["Playwright", "Cypress", "API testing", "TypeScript", "CI/CD"],
+        "minimum_experience_years": 3.0,
+        "fresher_allowed": False,
+    },
+    {
         "title": "Technical Recruiter",
         "description": (
             "BluePace Tech seeks a Technical Recruiter to run end-to-end hiring for engineering and product roles. "
@@ -131,19 +178,100 @@ PUBLIC_OPENING_SEEDS = [
         "fresher_allowed": False,
     },
     {
-        "title": "Frontend Engineer (React)",
+        "title": "HR Business Partner",
         "description": (
-            "Build polished recruiter and candidate experiences in React. Focus areas include the careers portal, "
-            "application flows, dashboards, and accessible UI. Requirements: React, modern CSS, API integration, "
-            "and attention to performance and accessibility."
+            "Act as a strategic partner to business leaders, aligning people practices with organizational goals. "
+            "You will coach managers on performance and employee relations, drive engagement initiatives, "
+            "support workforce planning, and ensure consistent application of HR policies. "
+            "Requirements: proven HRBP experience, knowledge of employment law, strong coaching and stakeholder skills."
         ),
-        "department": "Engineering",
+        "department": "People",
+        "location": "Hyderabad, India",
+        "employment_type": "full-time",
+        "work_mode": "hybrid",
+        "required_skills": ["HRBP", "Employee relations", "Workforce planning", "Coaching", "Employment law"],
+        "minimum_experience_years": 5.0,
+        "fresher_allowed": False,
+    },
+    {
+        "title": "HR Generalist",
+        "description": (
+            "Support day-to-day HR operations including employee lifecycle, policies, and employee relations. "
+            "Handle onboarding and offboarding, maintain HR records, assist with performance management, "
+            "and coordinate with payroll and benefits vendors. Requirements: solid HR operations experience, "
+            "working knowledge of Indian labour laws, and strong organizational skills."
+        ),
+        "department": "People",
+        "location": "Hyderabad, India",
+        "employment_type": "full-time",
+        "work_mode": "onsite",
+        "required_skills": ["HR operations", "Onboarding", "Labour compliance", "HRIS"],
+        "minimum_experience_years": 3.0,
+        "fresher_allowed": False,
+    },
+    {
+        "title": "Learning & Development Specialist",
+        "description": (
+            "Design and deliver learning programs that build capability and support career growth at BluePace. "
+            "Identify learning needs, facilitate leadership and soft-skills programs, manage learning platforms, "
+            "and measure training effectiveness. Requirements: L&D or instructional design experience, "
+            "strong facilitation skills, and familiarity with LMS tools."
+        ),
+        "department": "People",
         "location": "Remote — India",
         "employment_type": "full-time",
-        "work_mode": "remote",
-        "required_skills": ["React", "JavaScript", "CSS", "Accessibility"],
-        "minimum_experience_years": 2.0,
+        "work_mode": "hybrid",
+        "required_skills": ["Learning design", "Facilitation", "LMS", "Organizational development"],
+        "minimum_experience_years": 4.0,
         "fresher_allowed": False,
+    },
+    {
+        "title": "Compensation & Benefits Analyst",
+        "description": (
+            "Support competitive and fair compensation structures, benefits programs, and reward strategies. "
+            "Conduct salary benchmarking, support annual compensation reviews, administer benefits, "
+            "and maintain job architecture. Requirements: experience in compensation or HR analytics, "
+            "strong Excel skills, and understanding of Indian compensation practices."
+        ),
+        "department": "People",
+        "location": "Bengaluru, India",
+        "employment_type": "full-time",
+        "work_mode": "hybrid",
+        "required_skills": ["Compensation", "Benefits", "Salary benchmarking", "Excel", "HR analytics"],
+        "minimum_experience_years": 3.0,
+        "fresher_allowed": False,
+    },
+    {
+        "title": "Employee Relations Specialist",
+        "description": (
+            "Handle sensitive employee relations matters with fairness and care. Investigate complaints, "
+            "advise managers on disciplinary and performance processes, support conflict resolution, "
+            "and ensure compliance with policies and labour laws. Requirements: experience in employee or "
+            "industrial relations, strong knowledge of Indian employment laws, and excellent judgment."
+        ),
+        "department": "People",
+        "location": "Hyderabad, India",
+        "employment_type": "full-time",
+        "work_mode": "hybrid",
+        "required_skills": ["Employee relations", "Investigations", "Labour law", "Conflict resolution"],
+        "minimum_experience_years": 4.0,
+        "fresher_allowed": False,
+    },
+    {
+        "title": "HR Operations Executive",
+        "description": (
+            "Support core HR operations and ensure smooth day-to-day people processes. Manage employee "
+            "documentation and HRIS data, coordinate joining formalities, support attendance and leave queries, "
+            "and assist with engagement activities. Requirements: graduate degree preferably in HR, "
+            "basic understanding of HR processes, strong attention to detail, and willingness to learn HR systems."
+        ),
+        "department": "People",
+        "location": "Hyderabad, India",
+        "employment_type": "full-time",
+        "work_mode": "onsite",
+        "required_skills": ["HR administration", "Documentation", "HRIS", "Employee support"],
+        "minimum_experience_years": 1.0,
+        "fresher_allowed": True,
     },
 ]
 
