@@ -1610,15 +1610,20 @@ def public_jobs(
     department: str | None = None,
     location: str | None = None,
     work_mode: str | None = Query(default=None, pattern="^(remote|hybrid|onsite)$"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100000),
     db: Session = Depends(get_db),
 ):
+    """Return only genuine, published vacancies with bounded server-side pagination."""
     organization = _public_organization(db)
     statement = select(Job).where(
         Job.organization_id == organization.id,
         Job.status == "open",
+        Job.archived.is_(False),
         ~Job.title.ilike("%[demo]%"),
         ~Job.description.ilike("DEMO DATA%"),
         ~Job.description.ilike("%this synthetic job remains in draft and is not publicly advertised%"),
+        or_(Job.tags.is_(None), ~cast(Job.tags, String).ilike("%demo data%")),
     )
     if department:
         statement = statement.where(Job.department.ilike("%" + department.strip() + "%"))
@@ -1626,10 +1631,24 @@ def public_jobs(
         statement = statement.where(Job.location.ilike("%" + location.strip() + "%"))
     if work_mode:
         statement = statement.where(Job.work_mode == work_mode)
-    jobs = [job for job in db.scalars(statement.order_by(Job.created_at.desc()).limit(100)).all() if not _is_demo_job(job)]
-    if search:
-        needle = search.casefold().strip()
-        jobs = [job for job in jobs if needle in " ".join([job.title, job.description, job.department or "", job.location or "", " ".join(job.required_skills or [])]).casefold()]
+    if search and search.strip():
+        pattern = "%" + search.strip() + "%"
+        statement = statement.where(or_(
+            Job.title.ilike(pattern),
+            Job.description.ilike(pattern),
+            Job.department.ilike(pattern),
+            Job.location.ilike(pattern),
+            cast(Job.required_skills, String).ilike(pattern),
+        ))
+
+    # Count and filter in SQL before slicing so a search result on page 2 is
+    # not silently missed by a fixed first-100-record query.
+    jobs = db.scalars(
+        statement.order_by(Job.created_at.desc(), Job.id.desc()).offset(offset).limit(limit)
+    ).all()
+
+    # Keep the Python guard as a final defence for legacy synthetic fixtures
+    # whose demo marker may not match the SQL exclusions above.
     return [
         {
             "id": job.id,
@@ -1645,6 +1664,7 @@ def public_jobs(
             "source_url": (job.jd_analysis or {}).get("source_url"),
         }
         for job in jobs
+        if not _is_demo_job(job)
     ]
 
 
