@@ -64,6 +64,13 @@ test("a public ATS API failure is never presented as a genuine empty vacancy lis
   assert.match(workspace, /!publicLoading && !publicError && publicJobs\.length === 0/);
 });
 
+test("malformed vacancy records are treated as API errors, never as an empty result", () => {
+  assert.match(workspace, /response\.data\.every\(isValidPublicJob\)/);
+  assert.match(workspace, /Number\.isInteger\(job\.id\)/);
+  assert.match(workspace, /Array\.isArray\(job\.required_skills\)/);
+  assert.match(workspace, /invalid vacancy response\. No vacancy list has been displayed/);
+});
+
 test("public help copy matches the enforced 5 MB PDF/DOCX resume limit", () => {
   assert.match(helpCenter, /PDF and DOCX resumes up to 5 MB/);
   assert.doesNotMatch(helpCenter, /10\s?MB/i);
