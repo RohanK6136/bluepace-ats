@@ -1,3 +1,4 @@
+import PublicJobPostForm from "./PublicJobPostForm.jsx";
 import { useMemo, useState } from "react";
 
 const quickQuestions = [
@@ -40,7 +41,7 @@ function answerQuestion(input, jobs) {
   return "I can help with finding open roles, applying, resume file requirements, candidate portal access, and application-status questions. Try one of the suggested questions below. For personal application records, please contact the recruiting team.";
 }
 
-export default function PublicCareersChatbot({ jobs = [] }) {
+function PublicCareersChatbotPanel({ jobs = [] }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,7 +56,6 @@ export default function PublicCareersChatbot({ jobs = [] }) {
     setDraft("");
     setMessages((current) => [...current, { role: "user", text: question }]);
     setBusy(true);
-    // A local FAQ assistant keeps public help available without exposing candidate data or depending on an AI key.
     const reply = answerQuestion(question, visibleJobs);
     setMessages((current) => [...current, { role: "assistant", text: reply }]);
     setBusy(false);
@@ -110,6 +110,15 @@ export default function PublicCareersChatbot({ jobs = [] }) {
       <button type="button" onClick={() => setOpen((value) => !value)} className="fixed bottom-5 right-4 z-[60] inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#1769d3] text-white shadow-xl ring-4 ring-white hover:bg-[#0b4ea2] sm:right-6" aria-label={open ? "Close careers help chat" : "Open careers help chat"} title="Careers help">
         {open ? <span aria-hidden="true">×</span> : <span aria-hidden="true" className="text-xl">✦</span>}
       </button>
+    </>
+  );
+}
+
+export default function PublicCareersChatbot({ jobs = [] }) {
+  return (
+    <>
+      <PublicJobPostForm />
+      <PublicCareersChatbotPanel jobs={jobs} />
     </>
   );
 }
