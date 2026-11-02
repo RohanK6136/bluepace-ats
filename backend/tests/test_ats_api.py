@@ -91,14 +91,14 @@ def test_render_frontend_origin_is_allowed_by_cors(client):
     response = client.options(
         "/auth/register",
         headers={
-            "Origin": "https://bluepace-ats-frontend.onrender.com",
+            "Origin": "https://bluepace-ats-live.vercel.app",
             "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "content-type",
         },
     )
 
     assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "https://bluepace-ats-frontend.onrender.com"
+    assert response.headers["access-control-allow-origin"] == "https://bluepace-ats-live.vercel.app"
 
 
 
@@ -106,7 +106,7 @@ def test_render_frontend_origin_is_allowed_by_cors(client):
     "origin",
     [
         "https://bluepace-ats-frontend.vercel.app",
-        "https://bluepace-frontend-production.up.railway.app",
+        "https://bluepace-ats-live.vercel.app",
     ],
 )
 def test_current_production_frontend_origins_are_allowed_by_cors(client, origin):
@@ -130,8 +130,7 @@ def test_cors_keeps_configured_deployment_origins():
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "https://bluepace-ats-frontend.vercel.app",
-        "https://bluepace-frontend-production.up.railway.app",
-        "https://bluepace-ats-frontend.onrender.com",
+        "https://bluepace-ats-live.vercel.app",
         "https://bluepace.example.com",
         "https://preview.example.com",
     ]
