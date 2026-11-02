@@ -100,3 +100,16 @@ Build a recruiter-facing **authorship risk indicators** feature:
 - Test command and pass/fail summary.
 - Sample input and expected output.
 - Known limitations and manual review steps.
+
+
+## 6. Resume authorship review foundation added to the PR
+
+A conservative API foundation is now present at `POST /v1/resume-authorship/assess`.
+
+- Accepts extracted resume text as JSON (1–60,000 characters; at least 100 characters).
+- Returns observable text-quality signals such as repeated long lines and highly uniform bullet formatting.
+- Always returns `assessment: "undetermined"` and `confidence: "not_assessed"`; it does not claim to identify AI-written content.
+- Requires the existing ATS API-key dependency and does not persist the submitted text.
+- Includes unit tests for short samples, repeated content, clean text and size limits.
+
+This is **not the completed AI-generated resume detector**. It is a safe, testable API starting point. A calibrated authorship classifier must not be added until a labelled, representative dataset and false-positive evaluation are available. The API must remain advisory and must not affect candidate ranking or hiring decisions.
