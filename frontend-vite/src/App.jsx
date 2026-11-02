@@ -478,7 +478,12 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     setAuthorshipReview(null);
     setAuthorshipReviewError("");
     try {
-      const response = await postToApi("/v1/resume-authorship/assess", { text: resumeText });
+      const featureApiKey = sessionStorage.getItem("bluepace_feature_api_key") || "";
+      const response = await postToApi(
+        "/v1/resume-authorship/assess",
+        { text: resumeText },
+        { headers: featureApiKey ? { "X-API-Key": featureApiKey } : {} },
+      );
       setAuthorshipReview(response.data || null);
     } catch (error) {
       setAuthorshipReviewError(apiErrorMessage(error, "Resume text-quality review is unavailable."));
