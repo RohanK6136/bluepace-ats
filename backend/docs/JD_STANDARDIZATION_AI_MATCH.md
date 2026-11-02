@@ -29,3 +29,17 @@ Applicant Match list endpoints cap requested history sizes to 1–100 records. T
 ## Known limitations to validate before production claims
 
 The source experiment describes itself as a prototype. In particular, OCR for scanned resumes and durable background queueing for very large bulk batches are not guaranteed by these two features alone. Do not promise thousands of resumes at 1–100 ms per resume without a measured load test and a separately verified asynchronous processing design.
+
+
+## JD Quality Review (first improvement)
+
+The authenticated POST /v1/jd/quality endpoint runs deterministic text checks without invoking an LLM. It returns a score out of 100, six weighted categories, an assessment band, actionable findings, word count, and a rubric version.
+
+- Role clarity: 15 points
+- Responsibilities: 20 points
+- Required and preferred criteria: 25 points
+- Experience expectations: 15 points
+- Work context: 15 points
+- Structure and readability: 10 points
+
+This is a completeness and structure indicator, not a legal-compliance rating, job-attractiveness score, candidate score, or publication gate. Findings are suggestions for recruiter review. The endpoint observes the configured MAX_INPUT_CHARS limit and does not require a configured AI provider.
