@@ -58,6 +58,7 @@ function ThemeToggle({ theme, onToggle }) {
       onClick={onToggle}
       className="inline-flex h-10 items-center gap-2 rounded-md border border-ink-100 bg-white px-3 text-sm font-semibold text-ink-700 shadow-xs hover:bg-ink-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
       aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      aria-pressed={theme === "dark"}
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
     >
       <svg
@@ -1101,8 +1102,9 @@ export default function AtsWorkspace() {
                 <span className="block text-[10px] font-medium tracking-wide">Careers</span>
               </span>
             </a>
-            <nav className="flex items-center gap-6 text-sm font-medium" aria-label="Careers navigation">
+            <nav className="bp-public-nav flex items-center gap-4 text-sm font-medium" aria-label="Careers navigation">
               <a className="bp-public-nav-link" href="#jobs">Open roles</a>
+              <span className="bp-public-theme-control"><ThemeToggle theme={theme} onToggle={toggleTheme} /></span>
               <button type="button" className="bp-public-signin" onClick={() => switchAccessMode("admin")}>Recruiter sign in</button>
             </nav>
           </div>
@@ -1125,6 +1127,21 @@ export default function AtsWorkspace() {
                 onChange={(event) => setPublicFilters({ ...publicFilters, search: event.target.value })}
               />
               <label className="sr-only" htmlFor="public-work-mode">Work mode</label>
+              <label className="sr-only" htmlFor="public-department">Filter by department</label>
+              <input
+                id="public-department"
+                placeholder="Department"
+                value={publicFilters.department}
+                onChange={(event) => setPublicFilters({ ...publicFilters, department: event.target.value })}
+              />
+              <label className="sr-only" htmlFor="public-location">Filter by location</label>
+              <input
+                id="public-location"
+                placeholder="Location"
+                value={publicFilters.location}
+                onChange={(event) => setPublicFilters({ ...publicFilters, location: event.target.value })}
+              />
+              <label className="sr-only" htmlFor="public-work-mode">Work mode</label>
               <select id="public-work-mode" value={publicFilters.work_mode} onChange={(event) => setPublicFilters({ ...publicFilters, work_mode: event.target.value })}>
                 <option value="">All work modes</option>
                 <option value="remote">Remote</option>
@@ -1133,13 +1150,18 @@ export default function AtsWorkspace() {
               </select>
               <button type="submit">Search roles</button>
             </form>
+            <div className="bp-careers-stats" aria-live="polite" aria-label="Current role search summary">
+              <div><strong>{publicJobs.length}</strong><span>Matching roles</span></div>
+              <div><strong>{new Set(publicJobs.map((job) => job.work_mode).filter(Boolean)).size}</strong><span>Work arrangements</span></div>
+              <div><strong>{new Set(publicJobs.map((job) => job.department).filter(Boolean)).size}</strong><span>Teams represented</span></div>
+            </div>
           </div>
         </section>
 
         <section id="jobs" className="bp-public-jobs mx-auto max-w-7xl px-5 py-12">
             <div className="bp-public-jobs-heading flex items-end justify-between gap-3">
-              <div><p className="bp-section-eyebrow">OPPORTUNITIES</p><h2 className="mt-1 text-2xl font-semibold">Open roles</h2><p className="mt-2 text-sm text-ink-500">Explore our current opportunities.</p></div>
-              {publicJobs.length > 0 && <span className="text-sm text-ink-500">{publicJobs.length} position(s)</span>}
+              <div><p className="bp-section-eyebrow">OPPORTUNITIES</p><h2 className="mt-1 text-2xl font-semibold">Open roles</h2><p className="mt-2 text-sm text-ink-500">Explore current openings published by the recruiting team.</p></div>
+              <span className="text-sm text-ink-500" aria-live="polite">{publicLoading ? "Updating roles…" : publicJobs.length + " matching " + (publicJobs.length === 1 ? "role" : "roles")}</span>
             </div>
 
             {publicLoading && !publicApplyJob && (
@@ -1180,7 +1202,8 @@ export default function AtsWorkspace() {
                 ) : (
                   <>
                     <p className="font-medium">No open positions are available right now.</p>
-                    <p className="mt-1 text-sm text-ink-500">Please check again later.</p>
+                    <p className="mt-1 text-sm text-ink-500">New positions will appear here when the recruiting team publishes them. You can also contact the team about future opportunities.</p>
+                    <a className="bp-public-contact-link mt-4 inline-flex text-sm font-semibold" href="mailto:hello@blupacetech.com">Contact the careers team</a>
                   </>
                 )}
               </div>
@@ -1200,12 +1223,24 @@ export default function AtsWorkspace() {
                       <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Fresher friendly</span>
                     )}
                   </div>
-                  <p className="mt-4 line-clamp-3 whitespace-pre-line text-sm leading-6 text-ink-600">{job.description}</p>
+                  <div className="bp-job-meta mt-3 flex flex-wrap gap-2">
+                    {Number.isFinite(Number(job.minimum_experience_years)) && (
+                      <span>{Number(job.minimum_experience_years) === 0 ? "Entry level" : String(job.minimum_experience_years) + "+ years experience"}</span>
+                    )}
+                    {job.fresher_allowed && <span>Freshers may apply</span>}
+                  </div>
+                  {job.description && (
+                    <details className="bp-job-description mt-4">
+                      <summary>View full role description</summary>
+                      <p className="mt-2 whitespace-pre-line text-sm leading-6 text-ink-600">{job.description}</p>
+                    </details>
+                  )}
                   {job.required_skills?.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {job.required_skills.slice(0, 4).map((skill) => (
+                      {job.required_skills.slice(0, 6).map((skill) => (
                         <span key={skill} className="bp-job-skill rounded-md border border-ink-100 bg-white px-2 py-1 text-[11px] text-ink-600">{skill}</span>
                       ))}
+                      {job.required_skills.length > 6 && <span className="bp-job-skill rounded-md border border-ink-100 bg-white px-2 py-1 text-[11px] text-ink-500">+{job.required_skills.length - 6} more</span>}
                     </div>
                   )}
                   <button
@@ -1221,6 +1256,59 @@ export default function AtsWorkspace() {
                 </article>
               ))}
             </div>
+        </section>
+
+        <section className="bp-public-journey mx-auto max-w-7xl px-5 py-14" aria-labelledby="bp-application-journey-title">
+          <div className="bp-public-section-heading">
+            <p className="bp-section-eyebrow">THE PROCESS</p>
+            <h2 id="bp-application-journey-title">A clear path from application to outcome.</h2>
+            <p>Here is what to expect when you apply through the BluePace careers portal. The exact stages and timing can vary by role.</p>
+          </div>
+          <div className="bp-application-steps mt-7">
+            <article className="bp-application-step">
+              <span className="bp-step-number">01</span>
+              <h3>Explore roles</h3>
+              <p>Search current openings by title, department, location or work arrangement. Review the requirements before applying.</p>
+            </article>
+            <article className="bp-application-step">
+              <span className="bp-step-number">02</span>
+              <h3>Submit your application</h3>
+              <p>Share your contact details and upload a clear, up-to-date resume in PDF or DOCX format.</p>
+            </article>
+            <article className="bp-application-step">
+              <span className="bp-step-number">03</span>
+              <h3>Recruiter review</h3>
+              <p>The recruiting team reviews applications against the role requirements and shares next steps with relevant applicants.</p>
+            </article>
+            <article className="bp-application-step">
+              <span className="bp-step-number">04</span>
+              <h3>Interviews and decision</h3>
+              <p>Where applicable, interview details and updates are shared with you through the recruiting team and your candidate portal.</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="bp-public-checklist">
+          <div className="mx-auto grid max-w-7xl gap-8 px-5 py-12 lg:grid-cols-[1fr_1fr] lg:items-center">
+            <div>
+              <p className="bp-section-eyebrow">BEFORE YOU APPLY</p>
+              <h2>Make your application easy to review.</h2>
+              <p className="mt-3 text-sm leading-6">A few simple checks help ensure your application reaches the recruiting team with the information needed for an initial review.</p>
+              <a href="#jobs" className="bp-public-checklist-link mt-5 inline-flex items-center gap-2 text-sm font-semibold">Browse current roles <span aria-hidden="true">→</span></a>
+            </div>
+            <div className="bp-checklist-items">
+              <div><span aria-hidden="true">✓</span><p><strong>Use a supported resume format</strong><small>PDF or DOCX files up to 5 MB are accepted.</small></p></div>
+              <div><span aria-hidden="true">✓</span><p><strong>Check your contact details</strong><small>Your full name and email address are required to submit.</small></p></div>
+              <div><span aria-hidden="true">✓</span><p><strong>Match your resume to the role</strong><small>Make relevant skills, projects and experience easy to find.</small></p></div>
+            </div>
+          </div>
+        </section>
+
+        <section className="bp-public-help-strip">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-8 sm:flex-row sm:items-center sm:justify-between">
+            <div><h2>Need help with your application?</h2><p className="mt-1 text-sm">Use the careers assistant or contact the recruiting team for application-specific support.</p></div>
+            <a href="mailto:hello@blupacetech.com" className="bp-public-contact-link inline-flex shrink-0 items-center font-semibold">Contact the team</a>
+          </div>
         </section>
 
         {publicApplyJob && (
