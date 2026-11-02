@@ -1,16 +1,86 @@
-"""Seed real open roles for the public careers portal (not DEMO DATA)."""
+"""Public careers: seed + public job posting."""
 
-from fastapi import APIRouter, Depends
+from __future__ import annotations
+
+import os
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Job, Role, User
+from app.models import Job, Organization, Role, User
 from app.security import require_roles
 from app.services.workflow import ensure_job_stages, record_audit
 
 router = APIRouter()
 WRITE_ROLES = (Role.admin, Role.recruiter)
+
+
+class PublicJobCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    description: str = Field(min_length=40, max_length=20000)
+    department: str | None = Field(default=None, max_length=200)
+    location: str | None = Field(default=None, max_length=200)
+    employment_type: str | None = Field(default=None, max_length=50)
+    work_mode: str = Field(default="onsite", pattern="^(remote|hybrid|onsite)$")
+    required_skills: list[str] = Field(default_factory=list, max_length=40)
+    minimum_experience_years: float | None = Field(default=None, ge=0, le=60)
+    fresher_allowed: bool = False
+    contact_email: EmailStr | None = None
+    posted_by_name: str | None = Field(default=None, max_length=120)
+
+
+def _public_organization(db: Session) -> Organization:
+    configured_id = os.getenv("PUBLIC_ORGANIZATION_ID", "").strip()
+    if configured_id:
+        try:
+            org_id = int(configured_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail="PUBLIC_ORGANIZATION_ID must be an integer") from exc
+        org = db.get(Organization, org_id)
+        if org is None:
+            raise HTTPException(status_code=503, detail="PUBLIC_ORGANIZATION_ID does not match an organisation")
+        return org
+    organizations = db.scalars(select(Organization).order_by(Organization.id.asc()).limit(2)).all()
+    if len(organizations) == 1:
+        return organizations[0]
+    if not organizations:
+        raise HTTPException(status_code=503, detail="Create an organization before enabling the public portal")
+    raise HTTPException(
+        status_code=503,
+        detail="Multiple organizations exist. Set PUBLIC_ORGANIZATION_ID for the public portal.",
+    )
+
+
+def _portal_actor(db: Session, organization_id: int) -> User:
+    admin = db.scalar(
+        select(User)
+        .where(
+            User.organization_id == organization_id,
+            User.role == Role.admin,
+            User.is_active.is_(True),
+        )
+        .order_by(User.id.asc())
+        .limit(1)
+    )
+    if admin is not None:
+        return admin
+    any_user = db.scalar(
+        select(User)
+        .where(User.organization_id == organization_id, User.is_active.is_(True))
+        .order_by(User.id.asc())
+        .limit(1)
+    )
+    if any_user is None:
+        raise HTTPException(
+            status_code=503,
+            detail="No active user is available to own a public job posting for this organisation.",
+        )
+    return any_user
+
 
 PUBLIC_OPENING_SEEDS = [
     {
@@ -78,12 +148,81 @@ PUBLIC_OPENING_SEEDS = [
 ]
 
 
+@router.post("/public/jobs", status_code=status.HTTP_201_CREATED)
+def create_public_job(payload: PublicJobCreate, db: Session = Depends(get_db)):
+    """Public careers form: publish an open role without recruiter login."""
+    title = " ".join(payload.title.split()).strip()
+    description = payload.description.strip()
+    if re.search(r"\[demo\]|demo data", title, flags=re.I) or description.lower().startswith("demo data"):
+        raise HTTPException(status_code=400, detail="Demo titles or DEMO DATA descriptions are not allowed on the public form.")
+
+    organization = _public_organization(db)
+    actor = _portal_actor(db, organization.id)
+
+    skills: list[str] = []
+    for raw in payload.required_skills or []:
+        skill = " ".join(str(raw).split()).strip()
+        if skill and skill not in skills:
+            skills.append(skill[:80])
+        if len(skills) >= 40:
+            break
+
+    job = Job(
+        organization_id=organization.id,
+        created_by_id=actor.id,
+        owner_id=actor.id,
+        title=title[:200],
+        description=description[:20000],
+        department=(payload.department or "").strip()[:200] or None,
+        location=(payload.location or "").strip()[:200] or None,
+        employment_type=(payload.employment_type or "").strip()[:50] or None,
+        work_mode=payload.work_mode,
+        status="open",
+        required_skills=skills,
+        minimum_experience_years=payload.minimum_experience_years,
+        fresher_allowed=bool(payload.fresher_allowed),
+        tags=["careers-portal", "public-form"],
+        jd_analysis={
+            "source": "public_job_form",
+            "contact_email": str(payload.contact_email) if payload.contact_email else None,
+            "posted_by_name": (payload.posted_by_name or "").strip()[:120] or None,
+        },
+    )
+    db.add(job)
+    db.flush()
+    ensure_job_stages(db, job)
+    record_audit(
+        db,
+        actor,
+        "job.public_form_created",
+        "job",
+        job.id,
+        after={"title": job.title, "status": job.status, "source": "public_job_form"},
+    )
+    db.commit()
+    db.refresh(job)
+    return {
+        "id": job.id,
+        "title": job.title,
+        "description": job.description,
+        "department": job.department,
+        "location": job.location,
+        "employment_type": job.employment_type,
+        "work_mode": job.work_mode,
+        "required_skills": job.required_skills or [],
+        "minimum_experience_years": job.minimum_experience_years,
+        "fresher_allowed": job.fresher_allowed,
+        "status": job.status,
+        "source_url": None,
+    }
+
+
 @router.post("/jobs/seed-public-openings")
 def seed_public_openings(
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
-    """Create real open roles for GET /public/jobs (idempotent by title)."""
+    """Create sample open roles for GET /public/jobs (idempotent by title)."""
     org_id = user.organization_id
     created = []
     skipped = []
