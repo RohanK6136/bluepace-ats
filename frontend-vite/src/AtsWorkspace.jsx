@@ -1136,7 +1136,7 @@ export default function AtsWorkspace() {
 
   if (portalToken) return <CandidatePortal token={portalToken} theme={theme} onToggleTheme={toggleTheme} />;
 
-  if (!token && window.location.pathname.replace(/\\/+$/, "") === "/status") {
+  if (!token && (window.location.pathname === "/status" || window.location.pathname === "/status/")) {
     return <PublicStatusPage apiUrl={API_URL} theme={theme} onToggleTheme={toggleTheme} />;
   }
 
