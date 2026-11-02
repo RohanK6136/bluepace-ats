@@ -3,7 +3,7 @@ import asyncio
 import os
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, quote, urlencode
 from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
@@ -487,7 +487,7 @@ def _mapped_zoho_candidate(db: Session, organization_id: int, zoho_candidate_id:
 
 
 def _list_zoho_candidate_attachments(token: str, api_base: str, zoho_candidate_id: str) -> list[dict]:
-    encoded_candidate_id = urllib.parse.quote(zoho_candidate_id, safe="")
+    encoded_candidate_id = quote(zoho_candidate_id, safe="")
     payload = _http_json(
         f"{api_base}/Candidates/{encoded_candidate_id}/Attachments",
         headers={"Authorization": f"Zoho-oauthtoken {token}"},
@@ -544,8 +544,8 @@ def review_zoho_candidate_resume_attachment(
         raise HTTPException(413, "Zoho resume attachment exceeds the 5 MB review limit.")
 
     download_url = (
-        f"{api_base}/Candidates/{urllib.parse.quote(external_id, safe='')}/Attachments/"
-        f"{urllib.parse.quote(external_attachment_id, safe='')}"
+        f"{api_base}/Candidates/{quote(external_id, safe='')}/Attachments/"
+        f"{quote(external_attachment_id, safe='')}"
     )
     content = _http_bytes(download_url, token, MAX_DOCUMENT_SIZE_BYTES)
     if not content:
