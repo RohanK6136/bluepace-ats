@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/production-availability.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/production-availability.yml"
   workflow_dispatch:
   schedule:
     - cron: "*/30 * * * *"
