@@ -61,7 +61,7 @@ function Metric({ label, value, detail, tone = "ink" }) {
   return <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{label}</p><p className={`mt-1 text-2xl font-semibold tabular-nums ${valueTone}`}>{value}</p><p className="mt-1 text-xs text-ink-500">{detail}</p></div>;
 }
 
-export default function HiringControlTower({ token, apiRequest, onOpenWorkflow, onOpenInterviews, onOpenJobs, onOpenCandidate, onNotice }) {
+export default function HiringControlTower({ token, apiRequest, onOpenInterviews, onOpenJobs, onOpenCandidate, onNotice }) {
   const [applications, setApplications] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [candidates, setCandidates] = useState([]);
