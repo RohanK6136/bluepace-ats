@@ -184,3 +184,55 @@ def test_execute_sync_persists_sanitized_failure(monkeypatch):
     assert run.error_type == "RuntimeError"
     assert run.completed_at is not None
     assert not hasattr(run, "error_message")
+
+
+
+def test_zoho_resume_attachment_filter_limits_extensions_and_sizes():
+    attachments = zoho_recruit._resume_attachment_metadata([
+        {"id": "a1", "File_Name": "resume.pdf", "Size": "1024"},
+        {"id": "a2", "File_Name": "resume.docx", "Size": str(5 * 1024 * 1024 + 1)},
+        {"id": "a3", "File_Name": "notes.exe", "Size": "12"},
+        {"id": "a4", "File_Name": "resume.txt"},
+    ])
+    by_id = {item["id"]: item for item in attachments}
+    assert by_id["a1"]["eligible"] is True
+    assert by_id["a2"]["supported"] is True
+    assert by_id["a2"]["within_limit"] is False
+    assert by_id["a2"]["eligible"] is False
+    assert by_id["a3"]["supported"] is False
+    assert by_id["a4"]["eligible"] is True
+
+
+def test_zoho_candidate_and_attachment_ids_are_validated():
+    assert zoho_recruit._validated_zoho_id("753000001", "candidate ID") == "753000001"
+    with pytest.raises(HTTPException) as error:
+        zoho_recruit._validated_zoho_id("../other-record", "candidate ID")
+    assert error.value.status_code == 422
+
+
+def test_zoho_http_json_uses_urllib_request_not_fastapi_request(monkeypatch):
+    from urllib.request import Request as URLRequest
+
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"data": []}'
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(zoho_recruit, "urlopen", fake_urlopen)
+    payload = zoho_recruit._http_json("https://recruit.zoho.in/recruit/v2/Candidates")
+    assert payload == {"data": []}
+    assert isinstance(captured["request"], URLRequest)
+    assert captured["request"].method == "GET"
+    assert captured["timeout"] == 25
