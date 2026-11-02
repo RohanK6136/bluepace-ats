@@ -49,7 +49,7 @@ def assert_non_verdict_response(payload: dict) -> None:
     assert payload["assessment"] == "undetermined"
     assert payload["confidence"] == "not_assessed"
     assert payload["human_review_required"] is True
-    assert payload["detector_version"] == "text-quality-signals-0.1.0"
+    assert payload["detector_version"] == "text-quality-signals-0.2.0"
     assert any("cannot reliably determine" in item for item in payload["limitations"])
 
 

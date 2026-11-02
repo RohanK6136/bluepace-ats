@@ -375,6 +375,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [jdResult, setJdResult] = useState(() => initialWorkspace?.jdResult || null);
   const [jdLoading, setJdLoading] = useState(false);
   const [jdError, setJdError] = useState("");
+  const [jdQuality, setJdQuality] = useState(null);
+  const [jdQualityLoading, setJdQualityLoading] = useState(false);
+  const [jdQualityError, setJdQualityError] = useState("");
   const [rubric, setRubric] = useState(() => initialWorkspace?.rubric || null);
   const [rubricNotes, setRubricNotes] = useState(() => initialWorkspace?.rubricNotes || []);
   const [savedRubrics, setSavedRubrics] = useState([]);
@@ -437,6 +440,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setJdMode(workspace.jdMode || "light");
     setJdDetail(workspace.jdDetail || "detailed");
     setJdResult(workspace.jdResult || null);
+    setJdQuality(null);
+    setJdQualityError("");
     setRubric(workspace.rubric || null);
     setRubricNotes(workspace.rubricNotes || []);
     setSelectedRubricId(workspace.selectedRubricId || "");
@@ -749,6 +754,25 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
 
+  async function runJDQuality(sourceText = jdText) {
+    const text = String(sourceText || "").trim();
+    if (!text) {
+      setJdQualityError("Add a job description before checking its quality.");
+      return;
+    }
+    setJdQualityLoading(true);
+    setJdQualityError("");
+    try {
+      const response = await request("post", "/v1/jd/quality", { text }, { timeout: 10000 });
+      setJdQuality(response.data);
+    } catch (error) {
+      setJdQuality(null);
+      setJdQualityError(explainError(error));
+    } finally {
+      setJdQualityLoading(false);
+    }
+  }
+
   async function runJD(mode) {
     if (!jdText.trim()) {
       setJdError("Paste a job description or a role brief before running the standardizer.");
@@ -756,17 +780,22 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
     setJdLoading(true);
     setJdError("");
+    setJdQuality(null);
+    setJdQualityError("");
     setNotice("");
     setJdResult(null);
     try {
+      const sourceText = jdText.trim();
       const payload = {
-        text: jdText.trim(),
+        text: sourceText,
         options: { mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) },
         overrides: {},
       };
       const response = await request("post", mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
       setJdResult(response.data);
       if (response.data?.request_id) setNotice(`Run completed · ${response.data.request_id}`);
+      // Quality checks are deterministic and separate: a review failure must not invalidate a successful JD run.
+      await runJDQuality(sourceText);
     } catch (error) {
       setJdError(explainError(error));
     } finally {
@@ -1366,7 +1395,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               <div className="space-y-4">
                 <SectionHeading eyebrow="Step 01" title="Job description input" detail="Paste the recruiter brief or current job description. The API supports strict standardization and a faster draft mode." />
                 <Field label="Job description or brief" hint={`${jdText.length.toLocaleString()} characters · API input limit is deployment-configured`}>
-                  <textarea value={jdText} onChange={(event) => setJdText(event.target.value)} rows={13} maxLength={60000} placeholder={"Example: Senior Data Engineer\nLocation: Hyderabad / Hybrid\nRequired: Python, SQL, Airflow, cloud data platforms\nResponsibilities: Build reliable data pipelines, own data quality, and partner with analytics teams."} className={`${fieldClass} resize-y leading-6`} />
+                  <textarea value={jdText} onChange={(event) => { setJdText(event.target.value); setJdQuality(null); setJdQualityError(""); }} rows={13} maxLength={60000} placeholder={"Example: Senior Data Engineer\nLocation: Hyderabad / Hybrid\nRequired: Python, SQL, Airflow, cloud data platforms\nResponsibilities: Build reliable data pipelines, own data quality, and partner with analytics teams."} className={`${fieldClass} resize-y leading-6`} />
                 </Field>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Writing mode">
@@ -1387,11 +1416,41 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 <div className="flex flex-wrap gap-2">
                   <button type="button" className={primaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()}>{jdLoading ? "Processing…" : "Standardize JD"}</button>
                   <button type="button" className={secondaryButton} onClick={() => runJD("fast")} disabled={jdLoading || connection !== "connected" || !jdText.trim()}>{jdLoading ? "Processing…" : "Generate fast draft"}</button>
-                  <button type="button" className={secondaryButton} onClick={() => { setJdText(""); setJdResult(null); setJdError(""); setNotice(""); }}>Clear</button>
+                  <button type="button" className={secondaryButton} onClick={() => { setJdText(""); setJdResult(null); setJdQuality(null); setJdQualityError(""); setJdError(""); setNotice(""); }}>Clear</button>
                 </div>
               </div>
               <div className="space-y-4">
                 <SectionHeading eyebrow="Step 02" title="Standardized output" detail="Review flags and missing details before using the content in a live requisition." />
+                <section className="rounded-lg border border-ink-100 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-ink-950">JD Quality Review</p>
+                      <p className="mt-1 text-xs leading-5 text-ink-500">Checks completeness and structure using deterministic rules. It does not judge job attractiveness or candidate suitability.</p>
+                    </div>
+                    <button type="button" className={secondaryButton} onClick={() => void runJDQuality()} disabled={jdQualityLoading || !jdText.trim()}>{jdQualityLoading ? "Checking…" : jdQuality ? "Recheck quality" : "Check JD quality"}</button>
+                  </div>
+                  {jdQualityError && <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900" role="alert">{jdQualityError}</p>}
+                  {jdQuality && (
+                    <div className="mt-4 space-y-4">
+                      <div className="flex flex-wrap items-end justify-between gap-3">
+                        <div><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Quality score</p><p className="mt-1 text-3xl font-semibold tabular-nums text-ink-950">{jdQuality.score}<span className="text-base text-ink-400">/100</span></p></div>
+                        <Pill tone={jdQuality.band === "strong" ? "good" : jdQuality.band === "good" ? "gold" : jdQuality.band === "needs_improvement" ? "warn" : "bad"}>{String(jdQuality.band || "").replaceAll("_", " ")}</Pill>
+                        <p className="text-xs text-ink-500">{jdQuality.word_count} words · rubric {jdQuality.rubric_version}</p>
+                      </div>
+                      <div className="space-y-3">
+                        {(jdQuality.categories || []).map((category) => (
+                          <div key={category.id}>
+                            <div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium text-ink-800">{category.label}</span><span className="tabular-nums text-ink-500">{category.score}/{category.max_score}</span></div>
+                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-ink-100"><div className="h-full rounded-full bg-[#c49a4a]" style={{ width: `${category.max_score ? Math.round(category.score / category.max_score * 100) : 0}%` }} /></div>
+                            <p className="mt-1 text-[11px] text-ink-500">{category.detail}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {(jdQuality.findings || []).length > 0 && <div className="border-t border-ink-100 pt-3"><p className="text-xs font-semibold uppercase tracking-wide text-ink-600">Suggested improvements</p><ul className="mt-2 space-y-2">{jdQuality.findings.map((finding) => <li key={finding.code} className="rounded-md bg-[#fafaf8] p-3"><p className="text-xs font-semibold text-ink-900">{finding.message}</p><p className="mt-1 text-xs leading-5 text-ink-600">{finding.suggestion}</p></li>)}</ul></div>}
+                      <p className="text-[11px] leading-5 text-ink-500">{jdQuality.disclaimer}</p>
+                    </div>
+                  )}
+                </section>
                 {!jdResult && <EmptyPanel title="Your result will appear here" detail="Run either workflow to see the pipeline status, publication blockers, extracted facts, and standardized description." />}
                 {jdResult && (
                   <div className="space-y-4">

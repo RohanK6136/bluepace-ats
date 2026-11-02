@@ -17,6 +17,7 @@ from app.core.ids import new_request_id
 from app.core.ingest import ALLOWED_EXTS
 from app.features.jd_standardizer.pipeline.generate import GenerateResult, generate_events
 from app.features.jd_standardizer.pipeline.models import Options, Overrides, Result
+from app.features.jd_standardizer.pipeline.quality import assess_jd_quality
 from app.features.jd_standardizer.pipeline.runner import PipelineInput, run_pipeline
 
 router = APIRouter(prefix="/v1/jd", tags=["JD Standardizer"], dependencies=[Depends(require_api_key)])
@@ -33,6 +34,12 @@ class JDRequest(BaseModel):
     text: str = Field(..., description="Pasted job description, partial JD, or short brief")
     options: Options = Field(default_factory=Options)
     overrides: Overrides = Field(default_factory=Overrides)
+
+
+class JDQualityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(..., min_length=1, description="Source job description text to assess")
 
 
 # ------------------------------------------------------------------ helpers
@@ -102,6 +109,19 @@ async def _generate(inp: PipelineInput, options: Options, overrides: Overrides, 
 
     return StreamingResponse(ndjson(), media_type="application/x-ndjson",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ------------------------------------------------------------- quality review
+@router.post("/quality", summary="Deterministic JD quality review (no model call)")
+async def assess_jd(body: JDQualityRequest, p: Platform = Depends(platform)) -> dict[str, Any]:
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="job description text is required")
+    _check_text(p, text)
+    try:
+        return assess_jd_quality(text)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
 
 
 # ------------------------------------------------------------------ fast mode
