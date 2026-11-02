@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import useCurrentTime from "./useCurrentTime.js";
 
 const input = "w-full rounded-md border border-ink-200 bg-white px-3 py-2 text-sm text-ink-800";
 const button = "inline-flex items-center justify-center rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -12,6 +13,7 @@ export default function CandidateDocumentRequests({ token, apiRequest, applicati
   const [openingDocumentId, setOpeningDocumentId] = useState(null);
   const [portalLink, setPortalLink] = useState("");
   const [linkLoading, setLinkLoading] = useState(false);
+  const now = useCurrentTime();
   const applicationKey = useMemo(() => applications.map((item) => item.id).join(","), [applications]);
 
   useEffect(() => {
@@ -101,7 +103,7 @@ export default function CandidateDocumentRequests({ token, apiRequest, applicati
     </form>
     {loading ? <p className="mt-3 rounded-lg border border-ink-100 bg-white p-3 text-sm text-ink-500">Loading document requests…</p>
       : requests.length ? <div className="mt-3 grid gap-2">{requests.map((request) => {
-        const overdue = request.status !== "fulfilled" && request.due_at && Date.parse(request.due_at) < Date.now();
+        const overdue = request.status !== "fulfilled" && request.due_at && now !== null && Date.parse(request.due_at) < now;
         return <article key={request.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-100 bg-white p-3"><div><p className="text-sm font-semibold text-ink-900">{request.name}{request.required && <span className="ml-2 text-[10px] font-semibold uppercase text-rose-700">Required</span>}</p><p className="mt-1 text-xs text-ink-500">{request.job_title || `Application #${request.application_id}`}{request.due_at ? ` · Due ${new Date(request.due_at).toLocaleDateString()}` : " · No due date"}{overdue ? " · Overdue" : ""}</p>{request.description && <p className="mt-1 text-xs text-ink-600">{request.description}</p>}</div><div className="flex items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${request.status === "fulfilled" ? "bg-emerald-50 text-emerald-800" : overdue ? "bg-rose-50 text-rose-800" : "bg-amber-50 text-amber-900"}`}>{request.status}</span>{request.status === "fulfilled" && request.document_id && <button type="button" className={button} disabled={openingDocumentId === request.id} onClick={() => openUploadedDocument(request)}>{openingDocumentId === request.id ? "Opening…" : "Review upload"}</button>}</div></article>;
       })}</div> : <p className="mt-3 rounded-lg border border-ink-100 bg-white p-3 text-sm text-ink-500">No documents have been requested for this candidate.</p>}
   </section>;
