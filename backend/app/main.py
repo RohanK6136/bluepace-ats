@@ -386,7 +386,7 @@ async def lifespan(_app: FastAPI):
     if APP_ENV != "test":
         resume_dispatcher_task = asyncio.create_task(_delayed_resume_dispatcher_start())
 
-    # --- AI Feature Platform (JD Standardizer + Applicant Match) ---
+    # --- AI Feature Platform (JD Standardizer + Applicant Match + Resume Text Quality Review) ---
     try:
         from app.config import get_settings as _get_ai_settings
         from app.store.db import Store as _AIStore
