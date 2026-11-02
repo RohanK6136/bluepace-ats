@@ -62,6 +62,47 @@ jobs:
             trap - EXIT
           done
 
+          # A healthy API is not enough: browser requests originate from Vercel.
+          # Validate the preflight response for both currently configured domains.
+          for origin in \
+            "https://bluepace-ats-frontend.vercel.app" \
+            "https://bluepace-ats-live.vercel.app"; do
+            headers="$(mktemp)"
+            trap 'rm -f "$headers"' EXIT
+            status="$(curl --silent --show-error --request OPTIONS \
+              --connect-timeout 10 --max-time 20 \
+              --header "Origin: $origin" \
+              --header "Access-Control-Request-Method: POST" \
+              --header "Access-Control-Request-Headers: authorization,content-type" \
+              --dump-header "$headers" --output /dev/null \
+              --write-out '%{http_code}' "$base_url/auth/token")"
+            if [[ "$status" != "200" ]]; then
+              echo "::error title=Render CORS preflight failed::$origin received HTTP $status."
+              exit 1
+            fi
+            python3 - "$headers" "$origin" <<'PY'
+          import sys
+          from pathlib import Path
+          header_path, expected_origin = sys.argv[1:]
+          values = {}
+          for line in header_path.read_text(encoding="iso-8859-1").splitlines():
+              if ":" in line:
+                  name, value = line.split(":", 1)
+                  values[name.strip().lower()] = value.strip()
+          if values.get("access-control-allow-origin") != expected_origin:
+              raise SystemExit(f"CORS allow-origin mismatch for {expected_origin}")
+          methods = values.get("access-control-allow-methods", "").upper()
+          headers = values.get("access-control-allow-headers", "").lower()
+          if "POST" not in methods:
+              raise SystemExit("CORS preflight does not allow POST")
+          if "authorization" not in headers or "content-type" not in headers:
+              raise SystemExit("CORS preflight does not allow Authorization and Content-Type")
+          print(f"Render CORS preflight passed for {expected_origin}")
+          PY
+            rm -f "$headers"
+            trap - EXIT
+          done
+
   frontend:
     name: Verify Vercel production frontend
     runs-on: ubuntu-latest
