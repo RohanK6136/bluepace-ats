@@ -87,7 +87,7 @@ def test_loopback_vite_origin_is_allowed_by_cors(client):
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
 
 
-def test_render_frontend_origin_is_allowed_by_cors(client):
+def test_secondary_vercel_origin_is_allowed_by_cors(client):
     response = client.options(
         "/auth/register",
         headers={
@@ -134,6 +134,20 @@ def test_cors_keeps_configured_deployment_origins():
         "https://bluepace.example.com",
         "https://preview.example.com",
     ]
+
+
+def test_candidate_portal_and_calendar_defaults_use_active_hosts():
+    assert api.DEPLOYED_FRONTEND_ORIGIN == "https://bluepace-ats-frontend.vercel.app"
+    assert api.DEPLOYED_BACKEND_ORIGIN == "https://bluepace-ats-11.onrender.com"
+
+
+def test_cors_allowlist_does_not_include_retired_hosts():
+    origins = api.get_allowed_origins("")
+
+    assert "https://bluepace-ats-frontend.vercel.app" in origins
+    assert "https://bluepace-ats-live.vercel.app" in origins
+    assert not any("railway.app" in origin for origin in origins)
+    assert "https://bluepace-ats-frontend.onrender.com" not in origins
 
 
 def test_health_endpoint(client):
