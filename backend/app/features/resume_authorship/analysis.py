@@ -129,3 +129,50 @@ def assess_resume_text(text: str) -> dict:
         "human_review_required": True,
         "detector_version": DETECTOR_VERSION,
     }
+
+
+def build_text_quality_review(raw_text: str | None) -> dict | None:
+    """Run text-quality signals for intake pipelines. Never blocks application acceptance.
+
+    Returns None when there is no usable text. Always keeps assessment undetermined.
+    """
+    if not raw_text or not str(raw_text).strip():
+        return None
+    text = str(raw_text).strip()
+    if len(text) < 100:
+        return {
+            "assessment": "undetermined",
+            "status": "insufficient_evidence",
+            "confidence": "not_assessed",
+            "text_characters": len(text),
+            "signals": [
+                {
+                    "code": "limited_text_sample",
+                    "label": "Limited text sample",
+                    "detail": "Extracted resume text was too short for a meaningful text-quality review.",
+                    "severity": "low",
+                }
+            ],
+            "limitations": [
+                "Text-only heuristics cannot reliably determine whether a resume was written by a person or an AI system.",
+                "No AI-authorship probability or binary verdict is produced.",
+            ],
+            "human_review_required": True,
+            "detector_version": DETECTOR_VERSION,
+            "source": "application_intake",
+        }
+    try:
+        result = assess_resume_text(text)
+    except (TypeError, ValueError):
+        return None
+    result["source"] = "application_intake"
+    return result
+
+
+def attach_text_quality_review(resume_data: dict, raw_text: str | None) -> dict:
+    """Copy resume_data and attach text_quality_review when signals can be computed."""
+    payload = dict(resume_data or {})
+    review = build_text_quality_review(raw_text)
+    if review is not None:
+        payload["text_quality_review"] = review
+    return payload
