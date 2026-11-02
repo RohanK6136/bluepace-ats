@@ -10,7 +10,7 @@ import json
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import Field, model_validator
 
 from app.api.deps import Platform, ensure_profile, platform, require_api_key
@@ -73,7 +73,7 @@ def _llm_http_error(e: LLMError) -> HTTPException:
 
 # ------------------------------------------------------------------ jobs and rubrics
 @router.get("/jobs", response_model=list[JobChoice], summary="JD Standardizer results that can be used as jobs")
-async def list_jobs(limit: int = 30, p: Platform = Depends(platform)) -> list[JobChoice]:
+async def list_jobs(limit: int = Query(default=30, ge=1, le=100), p: Platform = Depends(platform)) -> list[JobChoice]:
     rows = p.store.list_runs(feature="jd_standardizer", outcome="success", limit=limit)
     return [JobChoice(run_id=r["id"], title=r.get("title"), created_at=r["created_at"], operation=r["operation"])
             for r in rows]
@@ -119,7 +119,7 @@ async def rubrics(body: RubricRequest, p: Platform = Depends(platform)) -> Rubri
 
 
 @router.get("/rubrics", response_model=list[RubricSummary], summary="Saved rubric versions, newest first")
-async def list_rubrics(limit: int = 50, p: Platform = Depends(platform)) -> list[RubricSummary]:
+async def list_rubrics(limit: int = Query(default=50, ge=1, le=100), p: Platform = Depends(platform)) -> list[RubricSummary]:
     current_key_id = api_key_id.get()
     rows = p.store.list_rubrics(limit)
     return [
