@@ -23,7 +23,7 @@ const EMPTY = {
 
 /** Public careers form: posts an open role without recruiter login. */
 export default function PublicJobPostForm({ onCreated }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -75,7 +75,23 @@ export default function PublicJobPostForm({ onCreated }) {
       else window.setTimeout(() => window.location.reload(), 900);
     } catch (err) {
       const detail = err?.response?.data?.detail;
-      setError(typeof detail === "string" ? detail : err?.message || "Could not publish this role.");
+      let message = err?.message || "Could not publish this role.";
+      if (typeof detail === "string") message = detail;
+      else if (Array.isArray(detail)) {
+        message = detail
+          .map((item) => (typeof item === "string" ? item : item?.msg || JSON.stringify(item)))
+          .filter(Boolean)
+          .join(" ");
+      } else if (detail && typeof detail === "object" && detail.message) {
+        message = detail.message;
+      }
+      if (err?.response?.status === 405) {
+        message = "Public job posting is not enabled on the API yet. Redeploy the backend, then try again.";
+      }
+      if (err?.code === "ERR_NETWORK") {
+        message = "Could not reach the API. Check that the backend is awake and CORS allows this site.";
+      }
+      setError(message);
     } finally {
       setBusy(false);
     }
