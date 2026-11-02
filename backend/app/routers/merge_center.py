@@ -140,10 +140,3 @@ def merge_history(user=Depends(require_roles(*READ_ROLES)), db: Session = Depend
         actor = db.get(User, row.actor_id)
         result.append(CandidateMergeAuditRead(id=row.id, actor_id=row.actor_id, actor_name=actor.full_name if actor else "Unknown", survivor_candidate_id=row.survivor_candidate_id, merged_candidate_id=row.merged_candidate_id, field_choices=row.field_choices or {}, merge_summary=row.merge_summary or {}, created_at=row.created_at))
     return result
-
-
-# Public careers job form + open-role seed (mounted with this already-included router).
-from app.routers.public_openings_seed import router as _public_openings_seed_router
-
-for _route in _public_openings_seed_router.routes:
-    router.routes.append(_route)
