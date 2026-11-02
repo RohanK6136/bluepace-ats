@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-11-02
 Repository: RohanK6136/bluepace-ats
-Deployment target: Railway project `melodious-expression`, backend service `bluepace-ats`
+Deployment target: Render backend service `bluepace-ats-11` (`https://bluepace-ats-11.onrender.com`); Vercel frontend project `bluepace-ats-frontend`
 
 ## 1. Evidence-based baseline
 
@@ -10,13 +10,13 @@ Deployment target: Railway project `melodious-expression`, backend service `blue
 |---|---|---|
 | JD Standardization | Existing `backend/app/features/jd_standardizer/routes.py`; router is imported and mounted in `backend/app/main.py`; ZIP contains the JD Standardizer pipeline and fixtures. | Implemented in code; live end-to-end use not verified |
 | AI Assistance / Applicant Match | Existing `backend/app/features/applicant_match/routes.py`; router is imported and mounted; ZIP documents rubric drafting, resume redaction, evidence extraction and deterministic weighted scoring. | Implemented in code; live end-to-end use not verified |
-| AI-generated resume detection | A conservative text-quality review foundation now exists, but it explicitly does not identify AI authorship or produce an authorship probability. | Review foundation implemented; actual detector not implemented |
-| ATS integration | JD & Applicant Match UI calls the frontend same-origin `/v1` handler (`frontend-vite/api/v1/[...path].js`); Resume Lab and the new resume-review API call the Railway FastAPI backend. Resume Lab has an optional recruiter-triggered text-quality panel. | UI/code paths connected; end-to-end live workflow still needs verification |
-| Model integrations | `backend/config/models.yaml` defines OpenRouter profiles for Gemini, DeepSeek and other providers, plus OpenAI-compatible and Anthropic profiles. Railway backend service variable names did not include `OPENROUTER_API_KEY` at review time. | Provider profiles configured; hosted inference not verified and default OpenRouter credential appears absent |
+| Resume AI-authorship review | Candidate-level advisory text-quality report now runs from Resume Lab, queued/public resume ingestion, explicit candidate review APIs, and recruiter-selected Zoho Recruit attachments. It stores derived signals and provenance only; no binary verdict or authorship probability is returned. | Integrated reviewer support implemented; calibrated AI-authorship detector is not implemented and must not be claimed |
+| ATS integration | Resume Lab stores a payload-free `resume_text_quality_review` on the existing Candidate record after resume sync; queue processing also attaches the derived report. Zoho Recruit exposes attachment listing and explicit per-attachment review, mapped back to the existing tenant candidate. | Code and UI integration added; Zoho tenant authorization and live attachment review still require credentials and an end-to-end test |
+| Model integrations | Resume text-quality review is deterministic and does not call an LLM. JD Standardization and Applicant Match remain separate model-backed workflows. | Review feature does not require provider credentials; hosted JD/Match inference must be verified independently |
 | OpenAPI | Railway FastAPI app creates `BluePace Tech ATS API` v0.4.0 and serves its generated schema/docs by default. The frontend same-origin Node `/v1` handler is a separate API surface and is not described by the FastAPI schema. | FastAPI schema/docs generated in code; Node API contract and public endpoint access still need verification |
-| Current PR | PR #108 includes Applicant Match hardening, the resume-review API and file extraction, a Resume Lab review panel, tests, documentation, and a frontend lockfile security fix. | Open; not merged or deployed |
-| CI | Backend dependency installation and `pytest backend` passed in run 41400002288. The lockfile was then updated from `follow-redirects` 1.16.1 to patched 1.16.2; CI for that new head (run 41400192809) was still in progress at the time of this update. | Backend pass; full CI pending |
-| Railway | Production backend service is configured to deploy from `main`, root directory `backend`. Latest deployment metadata reported FAILED; public HTTP checks could not be completed from this environment. | Deployment health not verified |
+| Current work | Branch `feat/zoho-resume-authorship-review` adds candidate-level review persistence, public/queued intake integration, recruiter candidate-profile display, Zoho attachment listing/review, API documentation and regression tests. | Feature branch; CI and live Zoho verification pending |
+| CI | The new candidate-review and Zoho attachment integration tests are included in the feature branch. | Awaiting current-branch GitHub Actions results |
+| Backend hosting | The configured active backend is Render `bluepace-ats-11`, with the latest main commit deployed as live. | Backend process startup and deployment verified; direct full workflow smoke test remains required |
 
 ## 2. Delivery plan
 
@@ -77,7 +77,7 @@ Build a recruiter-facing **authorship risk indicators** feature:
 2. Paste/upload a rough JD; generate and review the standardized JD.
 3. Save the reviewed JD and create a candidate assessment rubric.
 4. Upload two synthetic/consented resumes; show extracted evidence, missing requirements, parse warnings and explainable match scores.
-5. Open the optional Resume Lab text-quality review panel. Explain that its observations are not an AI-authorship detector and must not influence hiring.
+5. In Resume Lab, open the text-quality review. Confirm it is saved on the synced candidate record and remains independent of match scoring. For Zoho, enter a synced Zoho Candidate ID, list attachments, select one supported file, and review its derived signals.
 6. Show the configured provider readiness and one successful model request.
 7. Open Swagger UI and the OpenAPI JSON; show one JD endpoint and one Match endpoint.
 8. Finish by showing test evidence and stating any remaining limitations.
@@ -102,15 +102,30 @@ Build a recruiter-facing **authorship risk indicators** feature:
 - Known limitations and manual review steps.
 
 
-## 6. Resume authorship review foundation added to the PR
+## 6. Resume authorship review integration
 
-The existing ZIP's conservative `resume_authorship` module has been carried into the ATS backend and extended.
+This feature is an **advisory resume text-quality review**, not a calibrated AI-authorship detector.
 
-- `POST /v1/resume-authorship/assess` accepts extracted text.
-- `POST /v1/resume-authorship/assess/upload` accepts PDF, DOCX, TXT or Markdown files, or a multipart text field. File text is extracted in memory; scanned/image-only PDFs are rejected with OCR guidance.
-- The implementation uses deterministic text-quality signals (repeated long lines and unusually uniform bullet formatting); it does not call an LLM, persist file contents, or return an authorship probability.
-- The API always returns `assessment: "undetermined"` and `confidence: "not_assessed"`.
-- The feature is registered as beta and an optional recruiter-triggered review panel is connected to Resume Lab. The panel clearly states that the result is not an AI detector and is excluded from candidate matching.
-- API tests cover text, PDF, DOCX, minimum length, unsupported extensions, scanned PDF handling, source validation and the 5 MB upload cap.
+### Recruiter workflow and ATS storage
 
-This remains **a resume text-quality review, not the completed AI-generated resume detector**. A calibrated detector needs a representative labelled dataset, reproducible evaluation and false-positive/false-negative reporting before any production claim. The signal must not affect candidate ranking or hiring decisions.
+- Resume Lab extraction is followed by `/resume-processing/sync`. The backend analyses the in-memory extracted text and saves only `resume_text_quality_review` metadata in the existing Candidate `resume_data`; the source text is removed before profile persistence.
+- Public and queued/bulk resume ingestion use the same deterministic review helper and attach derived review metadata to the existing Candidate profile.
+- `POST /candidates/{candidate_id}/resume-text-review` lets an authorized recruiter explicitly review text and save the result against the tenant-scoped candidate. `GET /candidates/{candidate_id}/resume-text-review` retrieves the latest report.
+- The report contains signal codes, plain-language observations, sample length, source, review timestamp, review version, limitations and explicit `decision_support_only` / `not_used_for_matching` flags. Audit logs store only status, signal codes, source and sample length—not resume contents.
+- Reports are not used in Applicant Match, candidate ranking, shortlisting, rejection or hiring decisions.
+
+### Zoho Recruit attachment workflow
+
+- `GET /integrations/zoho/candidates/{zoho_candidate_id}/attachments` lists file metadata for an already-synced Zoho candidate. It does not download content.
+- `POST /integrations/zoho/candidates/{zoho_candidate_id}/attachments/{attachment_id}/resume-review` reviews only the attachment explicitly selected by the recruiter and stores the derived report on the linked BluePace Candidate.
+- Allowed extensions: PDF, DOCX, TXT and Markdown. File download is in memory and hard-limited to 5 MB; raw attachment bytes and extracted text are not persisted.
+- The Zoho OAuth grant needs permission to read candidate attachments. Use the attachment scope documented for Recruit, `ZohoRecruit.modules.attachments.all`, or the broader `ZohoRecruit.modules.all`; the existing candidate-sync grant must also be able to read Candidates. Re-consent and issue a new refresh token when the existing grant lacks the required scope. Never expose Zoho OAuth credentials in the frontend.
+
+### API behavior and evaluation limits
+
+- `POST /v1/resume-authorship/assess` accepts extracted text; `POST /v1/resume-authorship/assess/upload` accepts PDF, DOCX, TXT or Markdown.
+- Observable signals include repeated long lines and unusually uniform bullet formatting. They can appear in both human-written and AI-assisted resumes and are not evidence of misconduct.
+- The API always returns `assessment: "undetermined"` and `confidence: "not_assessed"`; it does not return an AI probability or binary AI/human label.
+- Tests cover file parsing, minimum length, unsupported extensions, scanned PDF OCR guidance, 5 MB limits, candidate-profile payload minimization, Zoho attachment eligibility and identifier validation.
+
+**Do not describe this as “AI-generated resume detection” or claim that it decides whether a resume was written by AI.** A calibrated detector would require a representative labelled dataset covering human-written, AI-generated and hybrid/edited examples; independent evaluation; false-positive/false-negative rates; subgroup analysis; and HR/legal approval before any production claim.

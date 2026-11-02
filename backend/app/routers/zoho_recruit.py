@@ -3,17 +3,23 @@ import asyncio
 import os
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import parse_qs, quote, urlencode, urlparse
+from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import DateTime, Integer, String, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 import hmac
+import re
+from pathlib import Path
 
 from app.database import Base, SessionLocal, get_db
 from app.models import Candidate, Job, Organization, Role, User
 from app.security import get_current_user
+from app.features.resume_authorship.integration import attach_resume_text_review
+from app.features.resume_authorship.routes import _extract_resume_text
+from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES
+from app.services.workflow import record_audit
 
 router = APIRouter(prefix="/integrations/zoho", tags=["Zoho Recruit"])
 ACCOUNTS = {
@@ -127,7 +133,7 @@ def _settings():
 
 
 def _http_json(url: str, data: bytes | None = None, headers: dict | None = None) -> dict:
-    request = Request(url, data=data, headers=headers or {}, method="POST" if data is not None else "GET")
+    request = URLRequest(url, data=data, headers=headers or {}, method="POST" if data is not None else "GET")
     try:
         with urlopen(request, timeout=25) as response:
             import json
@@ -155,8 +161,26 @@ def _access_token():
     if not token:
         raise HTTPException(502, "Zoho token refresh failed. Check credentials and Zoho data centre.")
     api_domain = payload.get("api_domain")
-    if api_domain and str(api_domain).startswith("https://") and "zoho" in str(api_domain).lower():
-        api_base = str(api_domain).rstrip("/") + "/recruit/v2"
+    if api_domain:
+        parsed_domain = urlparse(str(api_domain).strip())
+        api_host = (parsed_domain.hostname or "").lower()
+        approved_suffixes = (
+            ".zohoapis.com", ".zohoapis.in", ".zohoapis.eu", ".zohoapis.com.au",
+            ".zohoapis.jp", ".zohoapis.ca", ".zohoapis.com.cn", ".zohoapis.sa",
+        )
+        approved_exact = {"recruit.zoho.in", "recruit.zoho.com"}
+        if (
+            parsed_domain.scheme != "https"
+            or not (api_host in approved_exact or api_host.endswith(approved_suffixes))
+            or parsed_domain.username is not None
+            or parsed_domain.password is not None
+            or parsed_domain.port not in (None, 443)
+            or parsed_domain.path not in ("", "/")
+            or parsed_domain.query
+            or parsed_domain.fragment
+        ):
+            raise HTTPException(502, "Zoho token response contained an unapproved API domain.")
+        api_base = f"https://{api_host}/recruit/v2"
     return token, api_base
 
 
@@ -395,3 +419,189 @@ async def _stop_zoho_sync():
             await _task
         except asyncio.CancelledError:
             pass
+
+RESUME_ATTACHMENT_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+
+
+def _validated_zoho_id(value: str, label: str) -> str:
+    cleaned = str(value or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", cleaned):
+        raise HTTPException(422, f"Invalid Zoho {label}.")
+    return cleaned
+
+
+def _resume_attachment_metadata(records: list[dict]) -> list[dict]:
+    """Return safe, supported attachment metadata without downloading file data."""
+    attachments = []
+    for item in records:
+        attachment_id = _text(item.get("id"))
+        filename = _text(item.get("File_Name"))
+        if not attachment_id or not filename:
+            continue
+        suffix = Path(filename).suffix.casefold()
+        try:
+            size_bytes = int(item.get("Size")) if item.get("Size") not in (None, "") else None
+        except (TypeError, ValueError):
+            size_bytes = None
+        supported = suffix in RESUME_ATTACHMENT_EXTENSIONS
+        within_limit = size_bytes is None or size_bytes <= MAX_DOCUMENT_SIZE_BYTES
+        attachments.append({
+            "id": attachment_id,
+            "filename": filename,
+            "file_type": suffix.lstrip("."),
+            "size_bytes": size_bytes,
+            "supported": supported,
+            "within_limit": within_limit,
+            "eligible": supported and within_limit,
+            "created_at": _text(item.get("Created_Time")) or None,
+        })
+    return attachments
+
+
+def _http_bytes(url: str, token: str, max_bytes: int) -> bytes:
+    """Download one Zoho attachment in memory with a hard byte ceiling."""
+    request = URLRequest(
+        url,
+        headers={"Authorization": f"Zoho-oauthtoken {token}"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=25) as response:
+            content_length = response.headers.get("Content-Length")
+            if content_length:
+                try:
+                    if int(content_length) > max_bytes:
+                        raise HTTPException(413, "Zoho resume attachment exceeds the 5 MB review limit.")
+                except ValueError:
+                    pass
+            content = response.read(max_bytes + 1)
+            if len(content) > max_bytes:
+                raise HTTPException(413, "Zoho resume attachment exceeds the 5 MB review limit.")
+            return content
+    except HTTPException:
+        raise
+    except HTTPError as exc:
+        if exc.code in (401, 403):
+            raise HTTPException(502, "Zoho rejected the attachment-read permission.") from exc
+        if exc.code == 429:
+            raise HTTPException(503, "Zoho API rate limit reached while downloading the resume.") from exc
+        raise HTTPException(502, f"Zoho attachment download failed with HTTP {exc.code}.") from exc
+    except (URLError, TimeoutError) as exc:
+        raise HTTPException(502, "Could not reach Zoho Recruit to download the resume attachment.") from exc
+
+
+def _mapped_zoho_candidate(db: Session, organization_id: int, zoho_candidate_id: str) -> Candidate:
+    mapping = db.scalar(select(ZohoSyncRecord).where(
+        ZohoSyncRecord.organization_id == organization_id,
+        ZohoSyncRecord.module == "Candidates",
+        ZohoSyncRecord.zoho_id == zoho_candidate_id,
+    ))
+    if mapping is None:
+        raise HTTPException(404, "Zoho candidate has not been synchronized to this organization.")
+    candidate = db.get(Candidate, mapping.local_id)
+    if candidate is None or candidate.organization_id != organization_id:
+        raise HTTPException(404, "Linked BluePace candidate was not found.")
+    return candidate
+
+
+def _list_zoho_candidate_attachments(token: str, api_base: str, zoho_candidate_id: str) -> list[dict]:
+    encoded_candidate_id = quote(zoho_candidate_id, safe="")
+    payload = _http_json(
+        f"{api_base}/Candidates/{encoded_candidate_id}/Attachments",
+        headers={"Authorization": f"Zoho-oauthtoken {token}"},
+    )
+    records = payload.get("data") or []
+    if not isinstance(records, list):
+        raise HTTPException(502, "Unexpected Zoho attachment-list response.")
+    return _resume_attachment_metadata([item for item in records if isinstance(item, dict)])
+
+
+@router.get("/candidates/{zoho_candidate_id}/attachments")
+def zoho_candidate_resume_attachments(
+    zoho_candidate_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(_authorized_user),
+):
+    """List supported resume attachments for a synced Zoho candidate.
+
+    Resume contents are not downloaded by this endpoint. Only the selected
+    attachment is downloaded by the explicit review action.
+    """
+    external_id = _validated_zoho_id(zoho_candidate_id, "candidate ID")
+    candidate = _mapped_zoho_candidate(db, user.organization_id, external_id)
+    token, api_base = _access_token()
+    attachments = _list_zoho_candidate_attachments(token, api_base, external_id)
+    return {
+        "candidate_id": candidate.id,
+        "zoho_candidate_id": external_id,
+        "attachments": attachments,
+        "review_limit_bytes": MAX_DOCUMENT_SIZE_BYTES,
+    }
+
+
+@router.post("/candidates/{zoho_candidate_id}/attachments/{attachment_id}/resume-review")
+def review_zoho_candidate_resume_attachment(
+    zoho_candidate_id: str,
+    attachment_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(_authorized_user),
+):
+    """Download one recruiter-selected Zoho resume and save a payload-free review."""
+    external_id = _validated_zoho_id(zoho_candidate_id, "candidate ID")
+    external_attachment_id = _validated_zoho_id(attachment_id, "attachment ID")
+    candidate = _mapped_zoho_candidate(db, user.organization_id, external_id)
+    token, api_base = _access_token()
+
+    attachments = _list_zoho_candidate_attachments(token, api_base, external_id)
+    attachment = next((item for item in attachments if item["id"] == external_attachment_id), None)
+    if attachment is None:
+        raise HTTPException(404, "Resume attachment was not found on this Zoho candidate.")
+    if not attachment["supported"]:
+        raise HTTPException(400, "Only PDF, DOCX, TXT and Markdown resume attachments can be reviewed.")
+    if not attachment["within_limit"]:
+        raise HTTPException(413, "Zoho resume attachment exceeds the 5 MB review limit.")
+
+    download_url = (
+        f"{api_base}/Candidates/{quote(external_id, safe='')}/Attachments/"
+        f"{quote(external_attachment_id, safe='')}"
+    )
+    content = _http_bytes(download_url, token, MAX_DOCUMENT_SIZE_BYTES)
+    if not content:
+        raise HTTPException(422, "The selected Zoho resume attachment is empty.")
+    text = _extract_resume_text(content, attachment["filename"])
+    profile, review = attach_resume_text_review(
+        candidate.resume_data or {},
+        text,
+        "zoho_recruit",
+    )
+    review["attachment"] = {
+        "id": external_attachment_id,
+        "file_type": attachment["file_type"],
+        "size_bytes": len(content),
+    }
+    candidate.resume_data = profile
+    record_audit(
+        db,
+        user,
+        "candidate.resume_text_quality_reviewed",
+        "candidate",
+        candidate.id,
+        after={
+            "source": "zoho_recruit",
+            "file_type": attachment["file_type"],
+            "status": review.get("status"),
+            "signal_codes": [item.get("code") for item in review.get("signals", [])],
+            "decision_support_only": True,
+            "not_used_for_matching": True,
+        },
+    )
+    db.commit()
+    return {
+        "candidate_id": candidate.id,
+        "zoho_candidate_id": external_id,
+        "attachment_id": external_attachment_id,
+        "review": review,
+        "decision_support_only": True,
+        "not_used_for_matching": True,
+    }
+

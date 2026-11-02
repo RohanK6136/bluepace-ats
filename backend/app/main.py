@@ -128,6 +128,7 @@ from app.routers.next_features import router as next_features_router, run_scorec
 from app.features.jd_standardizer.routes import router as jd_router
 from app.features.applicant_match.routes import router as match_router
 from app.features.resume_authorship.routes import router as resume_authorship_router
+from app.features.resume_authorship.integration import attach_resume_text_review
 from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
@@ -2769,6 +2770,11 @@ def delete_job(
     db.commit()
 
 
+class CandidateResumeTextReviewRequest(BaseModel):
+    text: str
+    source: str = "recruiter_review"
+
+
 @app.post("/resume-processing/sync", response_class=JSONResponse)
 def sync_resume_lab_candidate(
     request: ResumeLabSyncRequest,
@@ -2778,6 +2784,7 @@ def sync_resume_lab_candidate(
 ):
     """Synchronize the complete Resume Lab profile into the ATS candidate record."""
     resume = dict(request.resume_json or {})
+    raw_resume_text = str(resume.get("raw_text") or "").strip()
     resume.pop("raw_text", None)
 
     candidate_email = str(resume.get("email") or "").strip().lower()
@@ -2872,6 +2879,13 @@ def sync_resume_lab_candidate(
 
     merged_profile["synced_from"] = "Resume Lab"
     merged_profile["synced_at"] = datetime.now(timezone.utc).isoformat()
+    resume_text_quality_review = merged_profile.get("resume_text_quality_review")
+    if raw_resume_text:
+        merged_profile, resume_text_quality_review = attach_resume_text_review(
+            merged_profile,
+            raw_resume_text,
+            "resume_lab",
+        )
     candidate.resume_data = merged_profile
 
     cv_summary = []
@@ -2985,6 +2999,7 @@ def sync_resume_lab_candidate(
         "candidate_id": candidate.id,
         "created": created,
         "application_id": application_id,
+        "resume_text_quality_review": resume_text_quality_review,
         "match": match_payload,
         "synced_fields": sorted(merged_profile.keys()),
         "profile": merged_profile,
@@ -3044,9 +3059,17 @@ async def create_candidate_from_resume(
         candidate.linkedin_url = parsed.get("linkedin") or candidate.linkedin_url
         candidate.source = candidate.source or "Admin Resume Upload"
 
-    candidate.resume_data = {
+    candidate_profile = {
         key: value for key, value in parsed.items() if key != "raw_text"
     }
+    resume_text_quality_review = None
+    if parsed.get("raw_text"):
+        candidate_profile, resume_text_quality_review = attach_resume_text_review(
+            candidate_profile,
+            str(parsed.get("raw_text") or ""),
+            "admin_resume_upload",
+        )
+    candidate.resume_data = candidate_profile
 
     storage_key = f"{user.organization_id}/{candidate.id}/{os.urandom(16).hex()}{suffix}"
     storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
@@ -4532,6 +4555,75 @@ def get_candidate(
     db: Session = Depends(get_db),
 ):
     return _get_org_record(db, Candidate, candidate_id, user.organization_id)
+
+
+@app.get("/candidates/{candidate_id}/resume-text-review")
+def get_candidate_resume_text_review(
+    candidate_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Return the latest advisory resume text-quality review for this tenant's candidate."""
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    review = (candidate.resume_data or {}).get("resume_text_quality_review")
+    if not isinstance(review, dict):
+        raise HTTPException(status_code=404, detail="No resume text-quality review is available for this candidate.")
+    return {
+        "candidate_id": candidate.id,
+        "review": review,
+        "decision_support_only": True,
+        "not_used_for_matching": True,
+    }
+
+
+@app.post("/candidates/{candidate_id}/resume-text-review")
+def create_candidate_resume_text_review(
+    candidate_id: int,
+    request: CandidateResumeTextReviewRequest,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Attach a payload-free text-quality report to an existing candidate.
+
+    The submitted text is analysed in memory and is never stored. Only derived
+    signals and provenance metadata are retained in the candidate JSON profile.
+    """
+    text_value = str(request.text or "").strip()
+    if len(text_value) < 100:
+        raise HTTPException(status_code=422, detail="At least 100 characters of resume text are required.")
+    if len(text_value) > 60_000:
+        raise HTTPException(status_code=413, detail="Resume text exceeds the 60000 character review limit.")
+
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    profile, review = attach_resume_text_review(
+        candidate.resume_data or {},
+        text_value,
+        request.source,
+    )
+    candidate.resume_data = profile
+    record_audit(
+        db,
+        user,
+        "candidate.resume_text_quality_reviewed",
+        "candidate",
+        candidate.id,
+        after={
+            "review_version": review.get("detector_version"),
+            "status": review.get("status"),
+            "signal_codes": [item.get("code") for item in review.get("signals", [])],
+            "source": review.get("source"),
+            "text_characters": review.get("text_characters"),
+            "decision_support_only": True,
+            "not_used_for_matching": True,
+        },
+    )
+    db.commit()
+    return {
+        "candidate_id": candidate.id,
+        "review": review,
+        "decision_support_only": True,
+        "not_used_for_matching": True,
+    }
 
 
 @app.get("/candidates/{candidate_id}/collaboration", response_model=CandidateCollaborationRead)

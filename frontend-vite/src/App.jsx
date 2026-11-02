@@ -181,6 +181,8 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [authorshipReview, setAuthorshipReview] = useState(null);
   const [authorshipReviewLoading, setAuthorshipReviewLoading] = useState(false);
   const [authorshipReviewError, setAuthorshipReviewError] = useState("");
+  const [resumeLabCandidateId, setResumeLabCandidateId] = useState("");
+  const [resumeLabApplicationId, setResumeLabApplicationId] = useState(null);
   const [showJson, setShowJson] = useState(false);
   const [showRawText, setShowRawText] = useState(false);
   const [bulkFiles, setBulkFiles] = useState([]);
@@ -197,6 +199,12 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [zohoStatusError, setZohoStatusError] = useState("");
   const [zohoSyncResult, setZohoSyncResult] = useState(null);
   const [zohoSyncing, setZohoSyncing] = useState(false);
+  const [zohoCandidateId, setZohoCandidateId] = useState("");
+  const [zohoCandidateAttachments, setZohoCandidateAttachments] = useState([]);
+  const [zohoAttachmentsLoading, setZohoAttachmentsLoading] = useState(false);
+  const [zohoAttachmentsError, setZohoAttachmentsError] = useState("");
+  const [zohoReviewLoadingId, setZohoReviewLoadingId] = useState("");
+  const [zohoResumeReview, setZohoResumeReview] = useState(null);
 
   const quality = jsonData?.resume_quality || {};
   const evidence = jsonData?.extraction_evidence || [];
@@ -367,6 +375,8 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     setAuthorshipReview(null);
     setAuthorshipReviewError("");
     setAuthorshipReviewLoading(false);
+    setResumeLabCandidateId("");
+    setResumeLabApplicationId(null);
     setUploadTiming(null);
     if (!selected) { setFile(null); setUploadError(""); return; }
     if (!/\.(pdf|docx)$/i.test(selected.name)) {
@@ -392,6 +402,8 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     setAuthorshipReview(null);
     setAuthorshipReviewError("");
     setAuthorshipReviewLoading(false);
+    setResumeLabCandidateId("");
+    setResumeLabApplicationId(null);
     setUploadTiming(null);
 
     const started = performance.now();
@@ -443,10 +455,16 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
           job_fit: null,
         }, {}, token)
           .then((syncResponse) => {
+            const savedCandidateId = syncResponse.data?.candidate_id;
+            setResumeLabCandidateId(savedCandidateId ? String(savedCandidateId) : "");
+            setResumeLabApplicationId(syncResponse.data?.application_id || null);
+            if (syncResponse.data?.resume_text_quality_review) {
+              setAuthorshipReview(syncResponse.data.resume_text_quality_review);
+            }
             setResumeLabSyncStatus(
               syncResponse.data?.application_id
-                ? "Resume extracted and synced to Candidates, Applications, and matching."
-                : "Resume extracted and synced to the ATS Candidate record.",
+                ? "Resume extracted, reviewed and synced to the ATS candidate and application."
+                : "Resume extracted, reviewed and synced to the ATS candidate record.",
             );
           })
           .catch((syncError) => {
@@ -478,13 +496,23 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     setAuthorshipReview(null);
     setAuthorshipReviewError("");
     try {
-      const featureApiKey = sessionStorage.getItem("bluepace_feature_api_key") || "";
-      const response = await postToApi(
-        "/v1/resume-authorship/assess",
-        { text: resumeText },
-        { headers: featureApiKey ? { "X-API-Key": featureApiKey } : {} },
-      );
-      setAuthorshipReview(response.data || null);
+      let response;
+      if (resumeLabCandidateId) {
+        response = await postToApi(
+          `/candidates/${encodeURIComponent(resumeLabCandidateId)}/resume-text-review`,
+          { text: resumeText, source: "resume_lab" },
+          {},
+          token,
+        );
+      } else {
+        const featureApiKey = sessionStorage.getItem("bluepace_feature_api_key") || "";
+        response = await postToApi(
+          "/v1/resume-authorship/assess",
+          { text: resumeText },
+          { headers: featureApiKey ? { "X-API-Key": featureApiKey } : {} },
+        );
+      }
+      setAuthorshipReview(response.data?.review || response.data || null);
     } catch (error) {
       setAuthorshipReviewError(apiErrorMessage(error, "Resume text-quality review is unavailable."));
     } finally {
@@ -814,6 +842,52 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     }
   }
 
+  async function loadZohoCandidateAttachments() {
+    const externalId = zohoCandidateId.trim();
+    if (!externalId) {
+      setZohoAttachmentsError("Enter the Zoho Recruit candidate ID first.");
+      return;
+    }
+    setZohoAttachmentsLoading(true);
+    setZohoAttachmentsError("");
+    setZohoCandidateAttachments([]);
+    setZohoResumeReview(null);
+    try {
+      const currentToken = sessionStorage.getItem("bluepace_token") || token;
+      if (!currentToken) throw new Error("Sign in as an admin or recruiter first.");
+      const response = await axios.get(
+        `${API_URL}/integrations/zoho/candidates/${encodeURIComponent(externalId)}/attachments`,
+        { timeout: 25000, headers: { Authorization: `Bearer ${currentToken}` } },
+      );
+      setZohoCandidateAttachments(Array.isArray(response.data?.attachments) ? response.data.attachments : []);
+    } catch (error) {
+      setZohoAttachmentsError(apiErrorMessage(error, "Could not list this Zoho candidate's resume attachments."));
+    } finally {
+      setZohoAttachmentsLoading(false);
+    }
+  }
+
+  async function reviewZohoCandidateAttachment(attachment) {
+    const externalId = zohoCandidateId.trim();
+    if (!externalId || !attachment?.id || !attachment.eligible) return;
+    setZohoReviewLoadingId(String(attachment.id));
+    setZohoAttachmentsError("");
+    setZohoResumeReview(null);
+    try {
+      const response = await postToApi(
+        `/integrations/zoho/candidates/${encodeURIComponent(externalId)}/attachments/${encodeURIComponent(attachment.id)}/resume-review`,
+        {},
+        {},
+        token,
+      );
+      setZohoResumeReview(response.data?.review || null);
+    } catch (error) {
+      setZohoAttachmentsError(apiErrorMessage(error, "Could not review the selected Zoho resume."));
+    } finally {
+      setZohoReviewLoadingId("");
+    }
+  }
+
   const candidateRows = [
     ["name", jsonData?.name], ["email", jsonData?.email], ["phone", jsonData?.phone],
     ["current_location", jsonData?.current_location], ["preferred_location", jsonData?.preferred_location],
@@ -892,6 +966,59 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
               </div>
             )}
             {zohoStatusError && <p role="alert" className="mt-3 text-xs text-rose-700">{zohoStatusError}</p>}
+            <div className="mt-5 border-t border-ink-100 pt-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Resume review integration</p>
+                <h3 className="mt-1 text-sm font-semibold text-ink-900">Review a synced Zoho candidate's resume</h3>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-600">Enter the Zoho Recruit candidate ID to list supported attachments. Only the attachment you select is downloaded in memory (PDF, DOCX, TXT or MD, maximum 5 MB). The stored report contains derived signals, not the resume text.</p>
+              </div>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={zohoCandidateId}
+                  onChange={(event) => { setZohoCandidateId(event.target.value); setZohoCandidateAttachments([]); setZohoResumeReview(null); setZohoAttachmentsError(""); }}
+                  placeholder="Zoho Recruit candidate ID"
+                  aria-label="Zoho Recruit candidate ID"
+                  className="min-w-0 flex-1 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs"
+                />
+                <button type="button" onClick={loadZohoCandidateAttachments} disabled={!zohoCandidateId.trim() || zohoAttachmentsLoading} className="rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">{zohoAttachmentsLoading ? "Loading…" : "List attachments"}</button>
+              </div>
+              {zohoAttachmentsError && <p role="alert" className="mt-2 text-xs text-rose-700">{zohoAttachmentsError}</p>}
+              {zohoCandidateAttachments.length > 0 && (
+                <div className="mt-3 divide-y divide-ink-100 border-y border-ink-100">
+                  {zohoCandidateAttachments.map((attachment) => (
+                    <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-ink-800">{attachment.filename}</p>
+                        <p className="mt-0.5 text-[11px] text-ink-500">
+                          {(attachment.file_type || "file").toUpperCase()}
+                          {attachment.size_bytes != null ? ` · ${(attachment.size_bytes / 1024).toFixed(0)} KB` : " · size not supplied by Zoho"}
+                          {!attachment.supported ? " · unsupported format" : !attachment.within_limit ? " · over 5 MB limit" : " · eligible"}
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => reviewZohoCandidateAttachment(attachment)} disabled={!attachment.eligible || Boolean(zohoReviewLoadingId)} className="shrink-0 rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-40">
+                        {zohoReviewLoadingId === String(attachment.id) ? "Reviewing…" : "Review text quality"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {zohoResumeReview && (
+                <div className="mt-3 border border-ink-100 bg-[#fafaf8] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-ink-900">
+                      {zohoResumeReview.status === "review_recommended" ? "Text-quality observations need review" : zohoResumeReview.status === "insufficient_evidence" ? "Insufficient evidence" : "No text-quality alerts"}
+                    </p>
+                    <span className="rounded-full border border-ink-200 bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-600">Not an AI detector</span>
+                  </div>
+                  {zohoResumeReview.signals?.length > 0 ? (
+                    <ul className="mt-2 space-y-2">
+                      {zohoResumeReview.signals.map((signal) => <li key={signal.code} className="border-l-2 border-amber-400 pl-3"><p className="text-xs font-semibold">{signal.label}</p><p className="mt-0.5 text-xs leading-5 text-ink-600">{signal.detail}</p></li>)}
+                    </ul>
+                  ) : <p className="mt-2 text-xs text-ink-600">No text-quality alerts were found in the selected attachment.</p>}
+                  <p className="mt-3 border-t border-ink-200 pt-2 text-[11px] leading-5 text-ink-500">Saved to the linked BluePace candidate. No AI probability is produced, and the review is not used for Applicant Match scores, ranking or hiring decisions.</p>
+                </div>
+              )}
+            </div>
             <p className="mt-3 text-[11px] leading-5 text-ink-500">Configure OAuth credentials, webhook secret, organization ID and sync schedule on the backend. Never put Zoho secrets in this frontend.</p>
           </section>
         )}
@@ -1131,6 +1258,7 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                     )}
                     <p className="mt-3 border-t border-ink-200 pt-2 text-[11px] leading-5 text-ink-500">
                       {authorshipReview.text_characters?.toLocaleString?.() || authorshipReview.text_characters} characters reviewed. This result is not proof of AI use, is not included in candidate matching, and must not affect hiring decisions.
+                      {resumeLabCandidateId && <> Saved to ATS candidate #{resumeLabCandidateId}{resumeLabApplicationId ? ` · application #${resumeLabApplicationId}` : ""}.</>}
                     </p>
                   </div>
                 )}
