@@ -1615,6 +1615,42 @@ def _is_demo_job(job: Job) -> bool:
     )
 
 
+def _public_source_date(value) -> date | None:
+    """Parse source posting/expiry dates; timezone-aware timestamps normalize to UTC."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        return value
+    else:
+        raw = str(value).strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                return date.fromisoformat(raw[:10])
+            except ValueError:
+                return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).date()
+
+
+def _public_job_date_is_current(job: Job, today: date) -> bool:
+    """Exclude source imports not yet posted or already past their valid-through date."""
+    analysis = job.jd_analysis if isinstance(job.jd_analysis, dict) else {}
+    posted = _public_source_date(analysis.get("date_posted"))
+    valid_through = _public_source_date(analysis.get("valid_through"))
+    if posted and posted > today:
+        return False
+    if valid_through and valid_through < today:
+        return False
+    return True
+
+
 @app.get("/public/jobs")
 def public_jobs(
     search: str | None = None,
@@ -1652,31 +1688,50 @@ def public_jobs(
             cast(Job.required_skills, String).ilike(pattern),
         ))
 
-    # Count and filter in SQL before slicing so a search result on page 2 is
-    # not silently missed by a fixed first-100-record query.
-    jobs = db.scalars(
-        statement.order_by(Job.created_at.desc(), Job.id.desc()).offset(offset).limit(limit)
-    ).all()
+    # Scan bounded batches until the requested page of *visible* jobs is full.
+    # Date metadata for URL imports lives in jd_analysis and is normalized in
+    # Python because the source may contain date-only values or timezone offsets.
+    today = datetime.now(timezone.utc).date()
+    visible_skip = offset
+    public_jobs_page = []
+    database_offset = 0
+    batch_size = 100
+    order = statement.order_by(Job.created_at.desc(), Job.id.desc())
 
-    # Keep the Python guard as a final defence for legacy synthetic fixtures
-    # whose demo marker may not match the SQL exclusions above.
-    return [
-        {
-            "id": job.id,
-            "title": job.title,
-            "description": job.description,
-            "department": job.department,
-            "location": job.location,
-            "employment_type": job.employment_type,
-            "work_mode": job.work_mode,
-            "required_skills": job.required_skills or [],
-            "minimum_experience_years": job.minimum_experience_years,
-            "fresher_allowed": job.fresher_allowed,
-            "source_url": (job.jd_analysis or {}).get("source_url"),
-        }
-        for job in jobs
-        if not _is_demo_job(job)
-    ]
+    while len(public_jobs_page) < limit + 1:
+        batch = db.scalars(order.offset(database_offset).limit(batch_size)).all()
+        if not batch:
+            break
+        database_offset += len(batch)
+        for job in batch:
+            if _is_demo_job(job) or not _public_job_date_is_current(job, today):
+                continue
+            if visible_skip:
+                visible_skip -= 1
+                continue
+            public_jobs_page.append({
+                "id": job.id,
+                "title": job.title,
+                "description": job.description,
+                "department": job.department,
+                "location": job.location,
+                "employment_type": job.employment_type,
+                "work_mode": job.work_mode,
+                "required_skills": job.required_skills or [],
+                "minimum_experience_years": job.minimum_experience_years,
+                "fresher_allowed": job.fresher_allowed,
+                "source_url": (job.jd_analysis or {}).get("source_url"),
+                "date_posted": (job.jd_analysis or {}).get("date_posted"),
+                "valid_through": (job.jd_analysis or {}).get("valid_through"),
+            })
+            if len(public_jobs_page) >= limit + 1:
+                break
+        if len(batch) < batch_size:
+            break
+
+    # Return at most the requested page size. The frontend already uses a
+    # full page as its "load more" hint and tolerates the final empty request.
+    return public_jobs_page[:limit]
 
 
 @app.post("/public/jobs/{job_id}/apply")
