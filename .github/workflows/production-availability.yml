@@ -102,6 +102,16 @@ jobs:
             trap - EXIT
           done
 
+          # Recruiter-only data must not be returned without an access token.
+          auth_status="$(curl --silent --show-error --request GET \
+            --connect-timeout 10 --max-time 20 \
+            --output /dev/null --write-out '%{http_code}' "$base_url/jobs")"
+          if [[ "$auth_status" != "401" && "$auth_status" != "403" ]]; then
+            echo "::error title=ATS authentication guard failed::Unauthenticated GET /jobs returned HTTP $auth_status instead of 401/403."
+            exit 1
+          fi
+          echo "ATS authentication guard passed: unauthenticated GET /jobs is rejected."
+
   frontend:
     name: Verify Vercel production frontend
     runs-on: ubuntu-latest
