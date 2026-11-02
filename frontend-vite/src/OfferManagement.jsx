@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import useCurrentTime from "./useCurrentTime.js";
 
 const stages = ["draft", "internal_review", "approved", "sent", "viewed", "accepted", "declined", "expired"];
 const label = (value) => value === "sent" ? "Published" : String(value || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -8,6 +9,7 @@ export default function OfferManagement({ token, apiRequest, applications = [], 
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ application_id: "", position_title: "", annual_ctc: "", currency: "INR", joining_date: "", probation_period: "6 months", benefits: "", ctc_breakdown: "{}", notes: "", expires_at: "" });
+  const now = useCurrentTime();
 
   async function loadOffers() {
     setLoading(true);
@@ -77,7 +79,7 @@ export default function OfferManagement({ token, apiRequest, applications = [], 
     .map((offer) => {
       const application = applications.find((item) => item.id === offer.application_id);
       const expiresAt = offer.expires_at ? Date.parse(offer.expires_at) : null;
-      const daysLeft = Number.isFinite(expiresAt) ? Math.ceil((expiresAt - Date.now()) / 86_400_000) : null;
+      const daysLeft = now !== null && Number.isFinite(expiresAt) ? Math.ceil((expiresAt - now) / 86_400_000) : null;
       return { ...offer, application, daysLeft };
     })
     .sort((a, b) => (a.daysLeft ?? Number.POSITIVE_INFINITY) - (b.daysLeft ?? Number.POSITIVE_INFINITY));
