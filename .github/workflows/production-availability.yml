@@ -63,10 +63,8 @@ jobs:
           done
 
           # A healthy API is not enough: browser requests originate from Vercel.
-          # Validate the preflight response for both currently configured domains.
-          for origin in \
-            "https://bluepace-ats-frontend.vercel.app" \
-            "https://bluepace-ats-live.vercel.app"; do
+          # Validate the preflight response for the canonical production frontend.
+          for origin in "https://bluepace-ats-frontend.vercel.app"; do
             headers="$(mktemp)"
             trap 'rm -f "$headers"' EXIT
             status="$(curl --silent --show-error --request OPTIONS \
