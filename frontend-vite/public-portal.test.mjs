@@ -46,6 +46,23 @@ test("public portal light and dark styles cover the added content sections", () 
   }
 });
 
+test("public vacancy results are paginated from the runtime ATS API", () => {
+  assert.match(workspace, /params\.limit = PUBLIC_JOBS_PAGE_SIZE/);
+  assert.match(workspace, /params\.offset = publicOffset/);
+  assert.match(workspace, /Load more roles/);
+  assert.match(workspace, /setPublicJobs\(\(current\) =>/);
+  assert.match(workspace, /page\.length === PUBLIC_JOBS_PAGE_SIZE/);
+});
+
+test("a public ATS API failure is never presented as a genuine empty vacancy list", () => {
+  assert.match(workspace, /if \(!Array\.isArray\(response\.data\)\)/);
+  assert.match(workspace, /We could not load current vacancies/);
+  assert.match(workspace, /Retry loading vacancies/);
+  assert.match(workspace, /setPublicError\(errorText\(requestError\)\)/);
+  assert.match(workspace, /No open positions are available right now/);
+  assert.match(workspace, /!publicLoading && !publicError && publicJobs\.length === 0/);
+});
+
 test("public help copy matches the enforced 5 MB PDF/DOCX resume limit", () => {
   assert.match(helpCenter, /PDF and DOCX resumes up to 5 MB/);
   assert.doesNotMatch(helpCenter, /10\s?MB/i);
