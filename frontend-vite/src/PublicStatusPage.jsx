@@ -97,8 +97,8 @@ export default function PublicStatusPage({ apiUrl, theme = "light", onToggleThem
               <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">BluePace service status</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">Live checks for the frontend, ATS API, database readiness and genuine public vacancies.</p>
             </div>
-            <span className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${failed ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200" : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"}`}>
-              {passed}/4 checks passed
+            <span className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${overallState === "error" ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200" : overallState === "checking" ? "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"}`}>
+              {overallState === "error" ? `${passed}/4 checks passed — Needs attention` : overallState === "checking" ? "Checking services…" : "All systems operational"}
             </span>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
