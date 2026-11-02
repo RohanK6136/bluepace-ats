@@ -122,6 +122,17 @@ test("fails healthfully when the production build entry point is missing", async
 });
 
 
+
+test("production frontend defaults and Vercel artifact workflow use the active Render API", async () => {
+  const productionEnv = await readFile(new URL("./.env.production", import.meta.url), "utf8");
+  assert.match(productionEnv, /^VITE_API_URL=https:\/\/bluepace-ats-11\.onrender\.com$/m);
+  assert.doesNotMatch(productionEnv, /railway\.app|bluepace-ats-9\.onrender\.com/i);
+
+  const workflow = await readFile(new URL("../.github/workflows/build-vercel-artifact.yml", import.meta.url), "utf8");
+  assert.match(workflow, /VITE_API_URL:\s*https:\/\/bluepace-ats-11\.onrender\.com/);
+  assert.doesNotMatch(workflow, /railway\.app|bluepace-ats-9\.onrender\.com/i);
+});
+
 test("Vercel config sets security headers and safe cache policies", async () => {
   const configText = await readFile(new URL("./vercel.json", import.meta.url), "utf8");
   const config = JSON.parse(configText);
