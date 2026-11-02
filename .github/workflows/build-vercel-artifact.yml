@@ -26,7 +26,7 @@ jobs:
       - name: Build
         working-directory: frontend-vite
         env:
-          VITE_API_URL: https://bluepace-ats-9.onrender.com
+          VITE_API_URL: https://bluepace-ats-11.onrender.com
           GITHUB_PAGES: "false"
         run: npm run build
       - name: Upload dist
