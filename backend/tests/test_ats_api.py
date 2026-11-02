@@ -54,6 +54,27 @@ def client(monkeypatch):
     engine.dispose()
 
 
+def test_health_and_version_routes_report_deployment_identity(client, monkeypatch):
+    commit = "a" * 40
+    monkeypatch.setenv("RENDER_GIT_COMMIT", commit)
+    monkeypatch.setenv("RENDER_GIT_BRANCH", "main")
+
+    health = client.get("/healthz")
+    ready = client.get("/readyz")
+    version = client.get("/version")
+
+    assert health.status_code == 200
+    assert health.json() == {"status": "ok", "service": "bluepace-ats"}
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ready"}
+    assert version.status_code == 200
+    assert version.json() == {
+        "service": "bluepace-ats",
+        "commit": commit,
+        "branch": "main",
+    }
+
+
 def register_and_login(client, email="owner@example.com", organization="Acme Recruiting"):
     response = client.post(
         "/auth/register",
