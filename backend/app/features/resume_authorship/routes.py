@@ -184,3 +184,33 @@ async def assess_resume_authorship_upload(
             raise HTTPException(status_code=413, detail="Resume text exceeds the 60000 character limit.")
 
     return _assess(extracted)
+
+
+def _install_extractor_text_quality_hook() -> None:
+    """Ensure every extract_to_json result carries text_quality_review for intake paths."""
+    try:
+        from app.services.extractor import extractor_service
+        from app.features.resume_authorship.analysis import build_text_quality_review
+    except Exception:
+        return
+    if getattr(extractor_service.extract_to_json, "_text_quality_hook", False):
+        return
+    original = extractor_service.extract_to_json
+
+    def wrapped(file_content: bytes, filename: str):
+        parsed = original(file_content, filename)
+        if isinstance(parsed, dict) and "text_quality_review" not in parsed:
+            try:
+                review = build_text_quality_review(parsed.get("raw_text"))
+                if review is not None:
+                    parsed = dict(parsed)
+                    parsed["text_quality_review"] = review
+            except Exception:
+                pass
+        return parsed
+
+    wrapped._text_quality_hook = True  # type: ignore[attr-defined]
+    extractor_service.extract_to_json = wrapped  # type: ignore[method-assign]
+
+
+_install_extractor_text_quality_hook()
