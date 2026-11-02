@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
 import pytest
@@ -22,7 +22,7 @@ from app.database import (
     upgrade_phase2_columns,
     upgrade_phase3_columns,
 )
-from app.models import Candidate, Email, Interview, User
+from app.models import Candidate, Email, Interview, Job, User
 from app.services.extractor import extractor_service
 
 
@@ -638,6 +638,50 @@ def test_demo_jobs_are_never_public_or_accept_applications(client, monkeypatch):
     )
     assert rejected.status_code == 404
     assert rejected.json()["detail"] == "Open job not found"
+
+
+def test_public_jobs_exclude_expired_and_future_dated_imports(client, monkeypatch):
+    headers = register_and_login(
+        client, email="public-dates@example.com", organization="Public Dates ATS"
+    )
+    today = datetime.now(timezone.utc).date()
+    job_ids = {}
+    for title in ["Expired imported role", "Future imported role", "Current imported role"]:
+        response = client.post(
+            "/jobs",
+            json={"title": title, "description": "A genuine public vacancy", "status": "open"},
+            headers=headers,
+        )
+        assert response.status_code == 201, response.text
+        job_ids[title] = response.json()["id"]
+
+    with client.app.state.test_session() as db:
+        expired = db.get(Job, job_ids["Expired imported role"])
+        expired.jd_analysis = {
+            "date_posted": (today - timedelta(days=30)).isoformat(),
+            "valid_through": (today - timedelta(days=1)).isoformat(),
+        }
+        future = db.get(Job, job_ids["Future imported role"])
+        future.jd_analysis = {
+            "date_posted": (today + timedelta(days=1)).isoformat(),
+            "valid_through": (today + timedelta(days=30)).isoformat(),
+        }
+        current = db.get(Job, job_ids["Current imported role"])
+        current.jd_analysis = {
+            "date_posted": (today - timedelta(days=1)).isoformat(),
+            "valid_through": today.isoformat(),
+        }
+        db.commit()
+
+    response = client.get("/public/jobs?limit=10&offset=0")
+    assert response.status_code == 200
+    assert [job["title"] for job in response.json()] == ["Current imported role"]
+
+
+def test_public_source_dates_normalize_timezone_offsets_to_utc_date():
+    assert api._public_source_date("2026-11-02T00:30:00+05:30") == date(2026, 11, 1)
+    assert api._public_source_date("2026-11-02") == date(2026, 11, 2)
+    assert api._public_source_date("not-a-date") is None
 
 
 def test_public_jobs_support_server_side_pagination_and_search(client, monkeypatch):
