@@ -10,6 +10,7 @@ from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.llm_validator import llm_validator
 from app.services.slm_service import slm_service
 from app.services.private_storage import private_storage
+from app.features.resume_authorship.analysis import attach_text_quality_review
 
 
 def validate_resume_structure(extracted: dict) -> dict:
@@ -64,8 +65,6 @@ def enrich_resume_slm_task(resume_json: dict):
     return {"status": "success", "slm_enrichment": enrichment}
 
 
-
-
 @celery_app.task(name="ats.process_resume_ingest_job", bind=True, autoretry_for=(Exception,), dont_autoretry_for=(DocumentExtractionError,), retry_backoff=True, retry_kwargs={"max_retries": 3})
 def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None = None):
     with SessionLocal() as db:
@@ -87,6 +86,7 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
             # available at storage_path; raw_text is intentionally not duplicated
             # into the jobs table.
             result_data = {key: value for key, value in extracted.items() if key != "raw_text"}
+            result_data = attach_text_quality_review(result_data, extracted.get("raw_text"))
             result_data["structure_validation"] = validate_resume_structure(extracted)
 
             requested_jd = None
@@ -133,7 +133,10 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
                     candidate.resume_data = result_data
                     candidate.phone = str(extracted.get("phone") or candidate.phone or "")[:50] or None
                     candidate.linkedin_url = str(extracted.get("linkedin") or candidate.linkedin_url or "")[:500] or None
-                    candidate.needs_review = result_data["structure_validation"]["status"] != "valid"
+                    structure_needs_review = result_data.get("structure_validation", {}).get("status") != "valid"
+                    review_status = (result_data.get("text_quality_review") or {}).get("status")
+                    text_needs_review = review_status == "review_recommended"
+                    candidate.needs_review = structure_needs_review or text_needs_review
 
                     if requested_job_id:
                         target_job = db.get(Job, int(requested_job_id))
@@ -175,6 +178,9 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
                         candidate.phone = str(extracted["phone"])[:50]
                     if not candidate.linkedin_url and extracted.get("linkedin"):
                         candidate.linkedin_url = str(extracted["linkedin"])[:500]
+                    review_status = (result_data.get("text_quality_review") or {}).get("status")
+                    if review_status == "review_recommended":
+                        candidate.needs_review = True
 
                     if job.application_id:
                         application = db.get(Application, job.application_id)
