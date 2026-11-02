@@ -119,7 +119,7 @@ This feature is an **advisory resume text-quality review**, not a calibrated AI-
 - `GET /integrations/zoho/candidates/{zoho_candidate_id}/attachments` lists file metadata for an already-synced Zoho candidate. It does not download content.
 - `POST /integrations/zoho/candidates/{zoho_candidate_id}/attachments/{attachment_id}/resume-review` reviews only the attachment explicitly selected by the recruiter and stores the derived report on the linked BluePace Candidate.
 - Allowed extensions: PDF, DOCX, TXT and Markdown. File download is in memory and hard-limited to 5 MB; raw attachment bytes and extracted text are not persisted.
-- The Zoho OAuth grant needs attachment read access, for example `ZohoRecruit.modules.attachments.READ` (or the broader `ZohoRecruit.modules.all`). Never expose Zoho OAuth credentials in the frontend.
+- The Zoho OAuth grant needs permission to read candidate attachments. Use the attachment scope documented for Recruit, `ZohoRecruit.modules.attachments.all`, or the broader `ZohoRecruit.modules.all`; the existing candidate-sync grant must also be able to read Candidates. Re-consent and issue a new refresh token when the existing grant lacks the required scope. Never expose Zoho OAuth credentials in the frontend.
 
 ### API behavior and evaluation limits
 
