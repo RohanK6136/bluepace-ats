@@ -681,6 +681,57 @@ def test_public_jobs_support_server_side_pagination_and_search(client, monkeypat
     assert too_many.status_code == 422
 
 
+def test_public_jobs_support_server_side_pagination_and_search(client, monkeypatch):
+    monkeypatch.setenv("PUBLIC_ORGANIZATION_ID", "1")
+    headers = register_and_login(
+        client, email="public-pagination@example.com", organization="Public Pagination ATS"
+    )
+    created_ids = []
+    for title, description, skills in [
+        ("Python Developer", "Build Python APIs", ["Python", "FastAPI"]),
+        ("Frontend Engineer", "Build React interfaces", ["React", "JavaScript"]),
+        ("Data Analyst", "Analyse business data", ["SQL", "Python"]),
+    ]:
+        response = client.post(
+            "/jobs",
+            json={
+                "title": title,
+                "description": description,
+                "required_skills": skills,
+                "status": "open",
+            },
+            headers=headers,
+        )
+        assert response.status_code == 201, response.text
+        created_ids.append(response.json()["id"])
+
+    draft = client.post(
+        "/jobs",
+        json={"title": "Private Draft", "description": "Not published", "status": "draft"},
+        headers=headers,
+    )
+    assert draft.status_code == 201
+
+    first_page = client.get("/public/jobs?limit=2&offset=0")
+    second_page = client.get("/public/jobs?limit=2&offset=2")
+    assert first_page.status_code == 200
+    assert second_page.status_code == 200
+    first_ids = [job["id"] for job in first_page.json()]
+    second_ids = [job["id"] for job in second_page.json()]
+    assert len(first_ids) == 2
+    assert len(second_ids) == 1
+    assert set(first_ids + second_ids) == set(created_ids)
+    assert len(set(first_ids + second_ids)) == 3
+    assert all(job["title"] != "Private Draft" for job in first_page.json() + second_page.json())
+
+    matching = client.get("/public/jobs?search=Data&limit=1&offset=0")
+    assert matching.status_code == 200
+    assert [job["title"] for job in matching.json()] == ["Data Analyst"]
+
+    too_many = client.get("/public/jobs?limit=101")
+    assert too_many.status_code == 422
+
+
 def test_job_crud_requires_auth_and_round_trips(client):
     assert client.get("/jobs").status_code == 401
     headers = register_and_login(client)
