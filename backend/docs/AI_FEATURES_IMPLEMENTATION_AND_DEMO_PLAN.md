@@ -10,12 +10,12 @@ Deployment target: Railway project `melodious-expression`, backend service `blue
 |---|---|---|
 | JD Standardization | Existing `backend/app/features/jd_standardizer/routes.py`; router is imported and mounted in `backend/app/main.py`; ZIP contains the JD Standardizer pipeline and fixtures. | Implemented in code; live end-to-end use not verified |
 | AI Assistance / Applicant Match | Existing `backend/app/features/applicant_match/routes.py`; router is imported and mounted; ZIP documents rubric drafting, resume redaction, evidence extraction and deterministic weighted scoring. | Implemented in code; live end-to-end use not verified |
-| AI-generated resume detection | No detector implementation or tests were found in the supplied experiment source. No matching detector implementation was found in the repository search during this review. | Not implemented / not verified |
-| ATS integration | Existing FastAPI application mounts the JD and Match routers. The ATS remains the system of record. | Code integration exists; live workflow needs verification |
+| AI-generated resume detection | A conservative text-quality review foundation now exists, but it explicitly does not identify AI authorship or produce an authorship probability. | Review foundation implemented; actual detector not implemented |
+| ATS integration | Existing FastAPI application mounts JD, Match and resume-review routes. Resume Lab now has an optional recruiter-triggered text-quality review panel. | Code/UI integration in PR; live workflow needs verification |
 | Model integrations | `backend/config/models.yaml` defines OpenRouter profiles for Gemini, DeepSeek and other providers, plus OpenAI-compatible and Anthropic profiles. Railway backend service variable names did not include `OPENROUTER_API_KEY` at review time. | Provider profiles configured; hosted inference not verified and default OpenRouter credential appears absent |
 | OpenAPI | Backend creates a FastAPI application with title `BluePace Tech ATS API` and version `0.4.0`; default FastAPI docs/schema routes have not been disabled in the app constructor. | Schema/docs generation is expected from code; public deployment access not verified |
-| Current PR | PR #108 has three commits and three changed files: Applicant Match list-limit validation, regression tests, and integration notes. | Open; not merged or deployed |
-| CI | Backend dependency installation and `pytest backend` passed. Frontend job failed at production dependency audit because `follow-redirects` 1.16.0–1.16.1 has a high-severity advisory; lint/build/feature tests were skipped after that gate. | Partial CI pass; release gate not green |
+| Current PR | PR #108 includes Applicant Match hardening, the resume-review API and file extraction, a Resume Lab review panel, tests, documentation, and a frontend lockfile security fix. | Open; not merged or deployed |
+| CI | Backend dependency installation and `pytest backend` passed in run 41400002288. The lockfile was then updated from `follow-redirects` 1.16.1 to patched 1.16.2; CI for that new head (run 41400192809) was still in progress at the time of this update. | Backend pass; full CI pending |
 | Railway | Production backend service is configured to deploy from `main`, root directory `backend`. Latest deployment metadata reported FAILED; public HTTP checks could not be completed from this environment. | Deployment health not verified |
 
 ## 2. Delivery plan
@@ -77,7 +77,7 @@ Build a recruiter-facing **authorship risk indicators** feature:
 2. Paste/upload a rough JD; generate and review the standardized JD.
 3. Save the reviewed JD and create a candidate assessment rubric.
 4. Upload two synthetic/consented resumes; show extracted evidence, missing requirements, parse warnings and explainable match scores.
-5. Open the authorship-risk panel only when its calibrated implementation is available; explain that it is an indicator, not proof.
+5. Open the optional Resume Lab text-quality review panel. Explain that its observations are not an AI-authorship detector and must not influence hiring.
 6. Show the configured provider readiness and one successful model request.
 7. Open Swagger UI and the OpenAPI JSON; show one JD endpoint and one Match endpoint.
 8. Finish by showing test evidence and stating any remaining limitations.
@@ -104,12 +104,13 @@ Build a recruiter-facing **authorship risk indicators** feature:
 
 ## 6. Resume authorship review foundation added to the PR
 
-A conservative API foundation is now present at `POST /v1/resume-authorship/assess`.
+The existing ZIP's conservative `resume_authorship` module has been carried into the ATS backend and extended.
 
-- Accepts extracted resume text as JSON (1–60,000 characters; at least 100 characters).
-- Returns observable text-quality signals such as repeated long lines and highly uniform bullet formatting.
-- Always returns `assessment: "undetermined"` and `confidence: "not_assessed"`; it does not claim to identify AI-written content.
-- Requires the existing ATS API-key dependency and does not persist the submitted text.
-- Includes unit tests for short samples, repeated content, clean text and size limits.
+- `POST /v1/resume-authorship/assess` accepts extracted text.
+- `POST /v1/resume-authorship/assess/upload` accepts PDF, DOCX, TXT or Markdown files, or a multipart text field. File text is extracted in memory; scanned/image-only PDFs are rejected with OCR guidance.
+- The implementation uses deterministic text-quality signals (repeated long lines and unusually uniform bullet formatting); it does not call an LLM, persist file contents, or return an authorship probability.
+- The API always returns `assessment: "undetermined"` and `confidence: "not_assessed"`.
+- The feature is registered as beta and an optional recruiter-triggered review panel is connected to Resume Lab. The panel clearly states that the result is not an AI detector and is excluded from candidate matching.
+- API tests cover text, PDF, DOCX, minimum length, unsupported extensions, scanned PDF handling, source validation and the 5 MB upload cap.
 
-This is **not the completed AI-generated resume detector**. It is a safe, testable API starting point. A calibrated authorship classifier must not be added until a labelled, representative dataset and false-positive evaluation are available. The API must remain advisory and must not affect candidate ranking or hiring decisions.
+This remains **a resume text-quality review, not the completed AI-generated resume detector**. A calibrated detector needs a representative labelled dataset, reproducible evaluation and false-positive/false-negative reporting before any production claim. The signal must not affect candidate ranking or hiring decisions.
