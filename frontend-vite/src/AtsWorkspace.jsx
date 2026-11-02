@@ -1224,7 +1224,7 @@ export default function AtsWorkspace() {
                     )}
                   </div>
                   <div className="bp-job-meta mt-3 flex flex-wrap gap-2">
-                    {Number.isFinite(Number(job.minimum_experience_years)) && (
+                    {job.minimum_experience_years !== null && job.minimum_experience_years !== undefined && job.minimum_experience_years !== "" && Number.isFinite(Number(job.minimum_experience_years)) && (
                       <span>{Number(job.minimum_experience_years) === 0 ? "Entry level" : String(job.minimum_experience_years) + "+ years experience"}</span>
                     )}
                     {job.fresher_allowed && <span>Freshers may apply</span>}
