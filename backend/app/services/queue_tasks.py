@@ -10,6 +10,7 @@ from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.llm_validator import llm_validator
 from app.services.slm_service import slm_service
 from app.services.private_storage import private_storage
+from app.features.resume_authorship.integration import attach_resume_text_review
 
 
 def validate_resume_structure(extracted: dict) -> dict:
@@ -87,6 +88,12 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
             # available at storage_path; raw_text is intentionally not duplicated
             # into the jobs table.
             result_data = {key: value for key, value in extracted.items() if key != "raw_text"}
+            if extracted.get("raw_text"):
+                result_data, _resume_review = attach_resume_text_review(
+                    result_data,
+                    str(extracted.get("raw_text") or ""),
+                    "resume_ingestion",
+                )
             result_data["structure_validation"] = validate_resume_structure(extracted)
 
             requested_jd = None
