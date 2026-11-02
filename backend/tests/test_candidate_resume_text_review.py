@@ -83,3 +83,12 @@ def test_candidate_review_endpoint_scopes_candidate_to_requesting_org(monkeypatc
         )
     assert error.value.status_code == 404
     assert requested_organizations == [(71, 99)]
+
+
+def test_resume_review_candidate_and_zoho_routes_are_in_openapi():
+    paths = main.app.openapi()["paths"]
+    assert "/candidates/{candidate_id}/resume-text-review" in paths
+    assert "get" in paths["/candidates/{candidate_id}/resume-text-review"]
+    assert "post" in paths["/candidates/{candidate_id}/resume-text-review"]
+    assert "/integrations/zoho/candidates/{zoho_candidate_id}/attachments" in paths
+    assert "/integrations/zoho/candidates/{zoho_candidate_id}/attachments/{attachment_id}/resume-review" in paths
