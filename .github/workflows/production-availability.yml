@@ -17,6 +17,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  backend:
+    name: Verify Render ATS API and database readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check active Render API liveness and database readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_url="https://bluepace-ats-11.onrender.com"
+          for endpoint in healthz readyz; do
+            body="$(mktemp)"
+            trap 'rm -f "$body"' EXIT
+            if ! status="$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 75 \
+              --retry 2 --retry-delay 5 --retry-connrefused \
+              --output "$body" --write-out '%{http_code}' \
+              "$base_url/$endpoint")"; then
+              echo "::error title=Render ATS API unavailable::$endpoint request failed."
+              exit 1
+            fi
+            if [[ "$status" != "200" ]]; then
+              cat "$body"
+              echo "::error title=Render ATS API unhealthy::$endpoint returned HTTP $status."
+              exit 1
+            fi
+            python3 -c '
+          import json, sys
+          endpoint, filename = sys.argv[1:]
+          with open(filename, encoding="utf-8") as handle:
+              payload = json.load(handle)
+          expected = "ready" if endpoint == "readyz" else "ok"
+          if payload.get("status") != expected:
+              raise SystemExit(f"{endpoint} returned an unexpected status payload")
+          if endpoint == "healthz" and payload.get("service") != "bluepace-ats":
+              raise SystemExit("healthz returned an unexpected service identity")
+          print(f"Render {endpoint} check passed")
+          ' "$endpoint" "$body"
+            rm -f "$body"
+            trap - EXIT
+          done
+
   frontend:
     name: Verify Vercel production frontend
     runs-on: ubuntu-latest
