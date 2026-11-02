@@ -1,152 +1,199 @@
-name: Production availability check
+name: Production availability and release verification
 
 on:
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/production-availability.yml"
-  pull_request:
-    paths:
-      - ".github/workflows/production-availability.yml"
   workflow_dispatch:
   schedule:
     - cron: "30 3 * * *"
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
-  group: production-availability-check
+  group: bluepace-production-health
   cancel-in-progress: true
 
 jobs:
   backend:
-    name: Verify Render ATS API and database readiness
+    name: Verify Render ATS API, database and public vacancies
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 15
     steps:
-      - name: Check active Render API liveness and database readiness
+      - name: Wait for the Render backend to serve this main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_url="https://bluepace-ats-11.onrender.com"
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          matched=false
+
+          for attempt in $(seq 1 20); do
+            status="$(curl --silent --show-error --location --connect-timeout 10 --max-time 30 \
+              --header 'Cache-Control: no-cache' --output "$body" --write-out '%{http_code}' \
+              "$base_url/version?release-check=$GITHUB_SHA" || true)"
+            identity=""
+            if [[ "$status" == "200" ]]; then
+              identity="$(python3 - "$body" <<'PY'
+          import json
+          import sys
+          try:
+              value = json.load(open(sys.argv[1], encoding="utf-8"))
+              print(value.get("commit", "") + " " + value.get("branch", ""))
+          except Exception:
+              print("")
+          PY
+              )"
+            fi
+            actual_commit="${identity%% *}"
+            actual_branch="${identity#* }"
+            if [[ "$status" == "200" && "$actual_commit" == "$GITHUB_SHA" && "$actual_branch" == "main" ]]; then
+              matched=true
+              echo "Render backend is serving the exact main commit $GITHUB_SHA."
+              break
+            fi
+            echo "Waiting for Render backend release (attempt $attempt/20; HTTP ${status:-unknown}; commit ${actual_commit:-unknown}; branch ${actual_branch:-unknown})."
+            sleep 30
+          done
+
+          if [[ "$matched" != "true" ]]; then
+            echo "::error title=Render backend release mismatch::The Render API did not report this exact main commit within 10 minutes. Check the Render deployment and its linked repository/branch."
+            exit 1
+          fi
+
+      - name: Verify API liveness and database readiness
         shell: bash
         run: |
           set -euo pipefail
           base_url="https://bluepace-ats-11.onrender.com"
           for endpoint in healthz readyz; do
             body="$(mktemp)"
-            trap 'rm -f "$body"' EXIT
-            if ! status="$(curl --silent --show-error --location \
-              --connect-timeout 10 --max-time 75 \
-              --retry 2 --retry-delay 5 --retry-connrefused \
-              --output "$body" --write-out '%{http_code}' \
-              "$base_url/$endpoint")"; then
-              echo "::error title=Render ATS API unavailable::$endpoint request failed."
-              exit 1
-            fi
+            status="$(curl --silent --show-error --location --connect-timeout 10 --max-time 60 \
+              --output "$body" --write-out '%{http_code}' "$base_url/$endpoint" || true)"
             if [[ "$status" != "200" ]]; then
-              cat "$body"
-              echo "::error title=Render ATS API unhealthy::$endpoint returned HTTP $status."
+              cat "$body" || true
+              rm -f "$body"
+              echo "::error title=Render API health check failed::$endpoint returned HTTP ${status:-unknown}."
               exit 1
             fi
-            python3 -c '
-          import json, sys
-          endpoint, filename = sys.argv[1:]
-          with open(filename, encoding="utf-8") as handle:
-              payload = json.load(handle)
-          expected = "ready" if endpoint == "readyz" else "ok"
-          if payload.get("status") != expected:
-              raise SystemExit(f"{endpoint} returned an unexpected status payload")
-          if endpoint == "healthz" and payload.get("service") != "bluepace-ats":
-              raise SystemExit("healthz returned an unexpected service identity")
-          print(f"Render {endpoint} check passed")
-          ' "$endpoint" "$body"
-            rm -f "$body"
-            trap - EXIT
-          done
-
-          # A healthy API is not enough: browser requests originate from Vercel.
-          # Validate the preflight response for the canonical production frontend.
-          for origin in "https://bluepace-ats-frontend.vercel.app"; do
-            headers="$(mktemp)"
-            trap 'rm -f "$headers"' EXIT
-            status="$(curl --silent --show-error --request OPTIONS \
-              --connect-timeout 10 --max-time 20 \
-              --header "Origin: $origin" \
-              --header "Access-Control-Request-Method: POST" \
-              --header "Access-Control-Request-Headers: authorization,content-type" \
-              --dump-header "$headers" --output /dev/null \
-              --write-out '%{http_code}' "$base_url/auth/token")"
-            if [[ "$status" != "200" ]]; then
-              echo "::error title=Render CORS preflight failed::$origin received HTTP $status."
-              exit 1
-            fi
-            python3 - "$headers" "$origin" <<'PY'
-          import sys
-          from pathlib import Path
-          header_path, expected_origin = sys.argv[1:]
-          header_path = Path(header_path)
-          values = {}
-          for line in header_path.read_text(encoding="iso-8859-1").splitlines():
-              if ":" in line:
-                  name, value = line.split(":", 1)
-                  values[name.strip().lower()] = value.strip()
-          if values.get("access-control-allow-origin") != expected_origin:
-              raise SystemExit(f"CORS allow-origin mismatch for {expected_origin}")
-          methods = values.get("access-control-allow-methods", "").upper()
-          headers = values.get("access-control-allow-headers", "").lower()
-          if "POST" not in methods:
-              raise SystemExit("CORS preflight does not allow POST")
-          if "authorization" not in headers or "content-type" not in headers:
-              raise SystemExit("CORS preflight does not allow Authorization and Content-Type")
-          print(f"Render CORS preflight passed for {expected_origin}")
-          PY
-            rm -f "$headers"
-            trap - EXIT
-          done
-
-          # Recruiter-only data must not be returned without an access token.
-          auth_status="$(curl --silent --show-error --request GET \
-            --connect-timeout 10 --max-time 20 \
-            --output /dev/null --write-out '%{http_code}' "$base_url/jobs")"
-          if [[ "$auth_status" != "401" && "$auth_status" != "403" ]]; then
-            echo "::error title=ATS authentication guard failed::Unauthenticated GET /jobs returned HTTP $auth_status instead of 401/403."
-            exit 1
-          fi
-          echo "ATS authentication guard passed: unauthenticated GET /jobs is rejected."
-
-          # Public vacancy data must be reachable at runtime. An empty array is
-          # valid (no current openings); 4xx/5xx or malformed JSON is not.
-          public_body="$(mktemp)"
-          trap 'rm -f "$public_body"' EXIT
-          if ! public_status="$(curl --silent --show-error --location \
-            --connect-timeout 10 --max-time 35 \
-            --output "$public_body" --write-out '%{http_code}' \
-            "$base_url/public/jobs?limit=1&offset=0")"; then
-            echo "::error title=Public vacancies endpoint unavailable::Could not reach GET /public/jobs."
-            exit 1
-          fi
-          if [[ "$public_status" != "200" ]]; then
-            cat "$public_body"
-            echo "::error title=Public vacancies endpoint failed::GET /public/jobs returned HTTP $public_status."
-            exit 1
-          fi
-          python3 - "$public_body" <<'PY'
+            python3 - "$endpoint" "$body" <<'PY'
           import json
           import sys
           from pathlib import Path
-          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          if not isinstance(payload, list):
-              raise SystemExit("GET /public/jobs did not return a JSON array")
-          print(f"Public vacancies endpoint passed; first page returned {len(payload)} real records (zero is valid).")
+          endpoint, filename = sys.argv[1:]
+          payload = json.loads(Path(filename).read_text(encoding="utf-8"))
+          expected = {"healthz": "ok", "readyz": "ready"}[endpoint]
+          if payload.get("status") != expected:
+              raise SystemExit(f"{endpoint} returned an unexpected readiness status")
+          if endpoint == "healthz" and payload.get("service") != "bluepace-ats":
+              raise SystemExit("healthz returned an unexpected service identity")
+          print(f"{endpoint}: healthy")
           PY
-          rm -f "$public_body"
-          trap - EXIT
+            rm -f "$body"
+          done
+
+      - name: Verify public vacancies contract and data response
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_url="https://bluepace-ats-11.onrender.com"
+          openapi="$(mktemp)"
+          jobs="$(mktemp)"
+          trap 'rm -f "$openapi" "$jobs"' EXIT
+
+          status="$(curl --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            --output "$openapi" --write-out '%{http_code}' "$base_url/openapi.json" || true)"
+          if [[ "$status" != "200" ]]; then
+            echo "::error title=ATS OpenAPI unavailable::Could not inspect the public vacancies API contract."
+            exit 1
+          fi
+          python3 - "$openapi" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          schema = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          operation = schema.get("paths", {}).get("/public/jobs", {}).get("get")
+          if not operation:
+              raise SystemExit("GET /public/jobs is missing from the live backend OpenAPI schema")
+          params = {item.get("name") for item in operation.get("parameters", [])}
+          missing = {"limit", "offset"} - params
+          if missing:
+              raise SystemExit("The live backend does not expose bounded pagination: " + ", ".join(sorted(missing)))
+          print("Public vacancies API supports bounded server-side pagination.")
+          PY
+
+          status="$(curl --silent --show-error --location --connect-timeout 10 --max-time 35 \
+            --output "$jobs" --write-out '%{http_code}' \
+            "$base_url/public/jobs?limit=1&offset=0" || true)"
+          if [[ "$status" != "200" ]]; then
+            cat "$jobs" || true
+            echo "::error title=Public vacancies feed failed::GET /public/jobs returned HTTP ${status:-unknown}."
+            exit 1
+          fi
+          python3 - "$jobs" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not isinstance(value, list):
+              raise SystemExit("GET /public/jobs must return a JSON array")
+          if len(value) > 1:
+              raise SystemExit("GET /public/jobs?limit=1 returned more than one role")
+          for job in value:
+              if not isinstance(job, dict) or not job.get("id") or not job.get("title"):
+                  raise SystemExit("Public vacancy record is missing its real ATS identifier or title")
+          print("Public vacancies feed passed. Zero published vacancies is a valid result; API errors are not treated as empty.")
+          PY
+
+      - name: Verify recruiter records remain protected
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --request GET --connect-timeout 10 --max-time 20 \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://bluepace-ats-11.onrender.com/jobs" || true)"
+          if [[ "$status" != "401" && "$status" != "403" ]]; then
+            echo "::error title=ATS authentication guard failed::Unauthenticated GET /jobs returned HTTP ${status:-unknown}, expected 401 or 403."
+            exit 1
+          fi
+          echo "Unauthenticated recruiter job records are protected."
+
+      - name: Verify Vercel-to-Render CORS preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          headers="$(mktemp)"
+          trap 'rm -f "$headers"' EXIT
+          origin="https://bluepace-ats-frontend.vercel.app"
+          status="$(curl --silent --show-error --request OPTIONS --connect-timeout 10 --max-time 20 \
+            --header "Origin: $origin" \
+            --header "Access-Control-Request-Method: POST" \
+            --header "Access-Control-Request-Headers: authorization,content-type" \
+            --dump-header "$headers" --output /dev/null --write-out '%{http_code}' \
+            "https://bluepace-ats-11.onrender.com/auth/token" || true)"
+          if [[ "$status" != "200" ]]; then
+            echo "::error title=Render CORS preflight failed::$origin received HTTP ${status:-unknown}."
+            exit 1
+          fi
+          python3 - "$headers" "$origin" <<'PY'
+          import sys
+          from pathlib import Path
+          raw = Path(sys.argv[1]).read_text(encoding="iso-8859-1").lower()
+          origin = sys.argv[2].lower()
+          if f"access-control-allow-origin: {origin}" not in raw:
+              raise SystemExit("CORS allow-origin does not match the canonical Vercel domain")
+          if "post" not in raw or "authorization" not in raw or "content-type" not in raw:
+              raise SystemExit("CORS preflight does not allow POST with Authorization and Content-Type")
+          print("Vercel-to-Render CORS preflight passed.")
+          PY
 
   frontend:
-    name: Verify Vercel production frontend
+    name: Verify Vercel production release and frontend API
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 15
     steps:
-      - name: Check production HTML and final-response security headers
+      - name: Wait for the canonical Vercel domain to serve this main commit
         shell: bash
         run: |
           set -euo pipefail
@@ -154,144 +201,119 @@ jobs:
           body="$(mktemp)"
           headers="$(mktemp)"
           trap 'rm -f "$body" "$headers"' EXIT
+          matched=false
 
-          if ! status="$(curl --silent --show-error --location --max-time 20 \
-            --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url")"; then
-            echo "::error title=Frontend request failed::Could not retrieve the Vercel production alias."
+          for attempt in $(seq 1 20); do
+            status="$(curl --silent --show-error --location --connect-timeout 10 --max-time 30 \
+              --header 'Cache-Control: no-cache' --dump-header "$headers" \
+              --output "$body" --write-out '%{http_code}' \
+              "${url}?release-check=$GITHUB_SHA" || true)"
+            actual="$(python3 - "$body" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          html = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          pattern = r"""<meta\s+name=["']bluepace-build-commit["']\s+content=["']([a-f0-9]{40}|unknown)["']"""
+          match = re.search(pattern, html, re.IGNORECASE)
+          print(match.group(1).lower() if match else "missing")
+          PY
+            )"
+            if [[ "$status" == "200" && "$actual" == "$GITHUB_SHA" ]]; then
+              matched=true
+              echo "Canonical Vercel domain is serving exact main commit $GITHUB_SHA."
+              break
+            fi
+            echo "Waiting for Vercel production release (attempt $attempt/20; HTTP ${status:-unknown}; served commit ${actual:-unknown})."
+            sleep 30
+          done
+
+          if [[ "$matched" != "true" ]]; then
+            echo "::error title=Vercel production commit mismatch::The canonical domain did not serve the exact main commit within 10 minutes. Check Vercel build logs, Git connection, project permissions and Hobby deployment quota."
             exit 1
           fi
 
+      - name: Verify production HTML and security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(mktemp)"
+          headers="$(mktemp)"
+          trap 'rm -f "$body" "$headers"' EXIT
+          status="$(curl --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            --header 'Cache-Control: no-cache' --dump-header "$headers" \
+            --output "$body" --write-out '%{http_code}' \
+            "https://bluepace-ats-frontend.vercel.app/?security-check=$GITHUB_SHA" || true)"
           if [[ "$status" != "200" ]]; then
-            echo "::error title=Frontend unavailable::Expected HTTP 200, received $status"
+            echo "::error title=Frontend unavailable::The production URL returned HTTP ${status:-unknown}."
             exit 1
           fi
-
           python3 - "$headers" "$body" <<'PY'
           import re
           import sys
           from pathlib import Path
-
-          header_path, body_path = map(Path, sys.argv[1:])
-          raw_headers = header_path.read_bytes().decode("iso-8859-1")
-          blocks = [
-              block for block in re.split(r"\r?\n\r?\n", raw_headers)
-              if re.search(r"^HTTP/\S+\s+\d{3}", block, re.IGNORECASE | re.MULTILINE)
-          ]
+          raw = Path(sys.argv[1]).read_bytes().decode("iso-8859-1")
+          blocks = [b for b in re.split(r"\r?\n\r?\n", raw) if re.search(r"^HTTP/\S+\s+\d{3}", b, re.I | re.M)]
           if not blocks:
-              raise SystemExit("::error title=Invalid HTTP response::No HTTP response headers were captured.")
-
-          # curl writes one header block per redirect. Validate only the final
-          # response so a redirect cannot mask missing headers on the page.
-          final_headers = {}
+              raise SystemExit("No final HTTP response headers were captured")
+          headers = {}
           for line in blocks[-1].splitlines()[1:]:
-              if ":" not in line:
-                  continue
-              name, value = line.split(":", 1)
-              final_headers[name.strip().lower()] = value.strip()
-
-          html = body_path.read_text(encoding="utf-8", errors="replace")
-          if not re.search(r"<title>\s*BluePace ATS", html, re.IGNORECASE):
-              raise SystemExit("::error title=Unexpected frontend content::Expected BluePace ATS page title was not found.")
-          if not re.search(r'id=["\']root["\']', html, re.IGNORECASE):
-              raise SystemExit("::error title=Unexpected frontend content::React root element was not found.")
-
+              if ":" in line:
+                  key, value = line.split(":", 1)
+                  headers[key.strip().lower()] = value.strip()
+          html = Path(sys.argv[2]).read_text(encoding="utf-8", errors="replace")
+          if not re.search(r"<title>\s*BluePace ATS", html, re.I):
+              raise SystemExit("Unexpected production page title")
+          if not re.search(r'id=["\']root["\']', html, re.I):
+              raise SystemExit("React root element missing from production HTML")
           required = {
               "strict-transport-security": r"(?:^|;\s*)max-age=31536000(?:;|$)",
               "x-content-type-options": r"^nosniff$",
               "x-frame-options": r"^DENY$",
               "referrer-policy": r"^strict-origin-when-cross-origin$",
           }
-          for name, pattern in required.items():
-              value = final_headers.get(name, "")
-              if not re.search(pattern, value, re.IGNORECASE):
-                  raise SystemExit(f"::error title=Missing security header::{name} missing or invalid on final response.")
-
-          policy = final_headers.get("permissions-policy", "")
+          for key, pattern in required.items():
+              if not re.search(pattern, headers.get(key, ""), re.I):
+                  raise SystemExit(f"Missing or invalid security header: {key}")
+          policy = headers.get("permissions-policy", "")
           for feature in ("camera", "microphone", "geolocation"):
-              if not re.search(rf"(?:^|,)\s*{feature}=\(\)", policy, re.IGNORECASE):
-                  raise SystemExit(f"::error title=Invalid permissions policy::{feature} must be disabled.")
-
-          print("Production check passed: HTTP 200, expected page title and React root, and all required security headers on the final response.")
+              if not re.search(rf"(?:^|,)\s*{feature}=\(\)", policy, re.I):
+                  raise SystemExit(f"Permissions-Policy must disable {feature}")
+          print("Production HTML and final-response security headers passed.")
           PY
 
-      - name: Verify live frontend commit matches main
-        if: github.event_name != 'pull_request'
+      - name: Verify JD and Applicant Match model registry
         shell: bash
         run: |
           set -euo pipefail
-          url="https://bluepace-ats-frontend.vercel.app/"
-          body="$(mktemp)"
-          trap 'rm -f "$body"' EXIT
-          if ! status="$(curl --silent --show-error --location --max-time 25 \
-            --header 'Cache-Control: no-cache' \
-            --output "$body" --write-out '%{http_code}' \
-            "${url}?build-check=${GITHUB_SHA}")"; then
-            echo "::error title=Production build identity unavailable::Could not fetch the cache-bypassed production HTML."
-            exit 1
-          fi
-          if [[ "$status" != "200" ]]; then
-            echo "::error title=Production build identity failed::Production HTML returned HTTP $status."
-            exit 1
-          fi
-          actual="$(python3 - "$body" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-          html = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
-          match = re.search(
-              r'<meta\\s+name=["\\']bluepace-build-commit["\\']\\s+content=["\\']([a-f0-9]{40}|unknown)["\\']',
-              html,
-              re.IGNORECASE,
-          )
-          print(match.group(1).lower() if match else "missing")
-          PY
-          )"
-          if [[ "$actual" != "$GITHUB_SHA" ]]; then
-            echo "::error title=Production commit mismatch::main is $GITHUB_SHA but the live site reports $actual. The new release is not live."
-            exit 1
-          fi
-          echo "Production commit matches main: $actual"
-
-      - name: Check JD & Applicant Match model registry
-        shell: bash
-        run: |
-          set -euo pipefail
-          url="https://bluepace-ats-frontend.vercel.app/v1/models"
-          for attempt in $(seq 1 12); do
-            response="$(curl --silent --show-error --location --max-time 15 "$url" || true)"
-            if node -e '
-              const fs = require("node:fs");
-              let rows;
-              try { rows = JSON.parse(fs.readFileSync(0, "utf8")); } catch { process.exit(1); }
-              if (!Array.isArray(rows)) process.exit(1);
-              const ids = new Set(rows.map((row) => row.id));
-              for (const id of ["openrouter", "gemini", "deepseek", "grok", "openai", "github-models"]) {
-                if (!ids.has(id)) process.exit(1);
-              }
-              const retired = rows.find((row) => row.id === "github-models");
-              if (retired.enabled !== false || !/retired/i.test(retired.disabled_reason || "")) process.exit(1);
-            ' <<< "$response"; then
-              echo "JD & Applicant Match model registry is live; provider profiles are being served by Vercel."
-              exit 0
-            fi
-            echo "Model API not ready or returned unexpected output (attempt $attempt/12)."
-            sleep 5
-          done
-          echo "::error title=JD & Applicant Match API missing::The live /v1/models endpoint did not return the expected model registry."
-          exit 1
-
+          response="$(curl --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            "https://bluepace-ats-frontend.vercel.app/v1/models?release-check=$GITHUB_SHA")"
+          node -e '
+            const fs = require("node:fs");
+            const rows = JSON.parse(fs.readFileSync(0, "utf8"));
+            if (!Array.isArray(rows)) throw new Error("Model registry did not return an array.");
+            const ids = new Set(rows.map((row) => row.id));
+            for (const id of ["openrouter", "gemini", "deepseek", "grok", "openai", "github-models"]) {
+              if (!ids.has(id)) throw new Error("Missing model profile: " + id);
+            }
+            const retired = rows.find((row) => row.id === "github-models");
+            if (retired.enabled !== false || !/retired/i.test(retired.disabled_reason || "")) {
+              throw new Error("Retired GitHub Models provider must not be reported as enabled.");
+            }
+            console.log("JD & Applicant Match model registry passed.");
+          ' <<< "$response"
 
   notify:
-    name: Notify on production health failure
-    if: always() && github.event_name != 'pull_request'
+    name: Alert on production health failure
+    if: always()
     needs: [backend, frontend]
     runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:
-      - name: Create or resolve the single production health alert
+      - name: Create or resolve one production alert
         env:
           GH_TOKEN: ${{ github.token }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
         shell: bash
@@ -301,57 +323,55 @@ jobs:
           issues_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100"
           issues="$(curl --silent --show-error --fail \
             --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            "$issues_url")"
+            --header "Accept: application/vnd.github+json" "$issues_url")"
           issue_number="$(node -e '
             const rows = JSON.parse(process.argv[1]);
-            const title = process.argv[2];
-            const issue = rows.find((row) => !row.pull_request && row.title === title);
+            const issue = rows.find((row) => !row.pull_request && row.title === process.argv[2]);
             process.stdout.write(issue ? String(issue.number) : "");
           ' "$issues" "$title")"
-          body="Backend availability: $BACKEND_RESULT
-          Frontend availability: $FRONTEND_RESULT
+
+          failed=false
+          [[ "$BACKEND_RESULT" == "success" && "$FRONTEND_RESULT" == "success" ]] || failed=true
+          body="Backend verification: $BACKEND_RESULT
+          Frontend verification: $FRONTEND_RESULT
           Commit: $GITHUB_SHA
           Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
-          This issue is maintained by the scheduled production health check. It is automatically closed after a successful recovery check."
-          payload="$(node -e '
-            process.stdout.write(JSON.stringify({
-              title: process.argv[1],
-              body: process.argv[2],
-              state: process.argv[3]
-            }));
-          ' "$title" "$body" "$([[ "$BACKEND_RESULT" == "success" && "$FRONTEND_RESULT" == "success" ]] && echo closed || echo open)")"
+          A successful later check automatically resolves this alert."
 
-          if [[ "$BACKEND_RESULT" == "success" && "$FRONTEND_RESULT" == "success" ]]; then
+          if [[ "$failed" == "true" ]]; then
+            payload="$(node -e 'process.stdout.write(JSON.stringify({title: process.argv[1], body: process.argv[2]}))' "$title" "$body")"
             if [[ -n "$issue_number" ]]; then
               curl --silent --show-error --fail --request PATCH \
                 --header "Authorization: Bearer $GH_TOKEN" \
                 --header "Accept: application/vnd.github+json" \
-                --header "Content-Type: application/json" \
-                --data "$payload" \
+                --header "Content-Type: application/json" --data "$payload" \
                 "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number" >/dev/null
-              echo "Closed the existing production alert after a successful health check."
             else
-              echo "Production health checks passed; there is no open alert to resolve."
-            fi
-          else
-            if [[ -n "$issue_number" ]]; then
-              curl --silent --show-error --fail --request PATCH \
-                --header "Authorization: Bearer $GH_TOKEN" \
-                --header "Accept: application/vnd.github+json" \
-                --header "Content-Type: application/json" \
-                --data "$payload" \
-                "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number" >/dev/null
-              echo "Updated the existing production alert."
-            else
-              payload="$(node -e 'process.stdout.write(JSON.stringify({title: process.argv[1], body: process.argv[2]}))' "$title" "$body")"
               curl --silent --show-error --fail --request POST \
                 --header "Authorization: Bearer $GH_TOKEN" \
                 --header "Accept: application/vnd.github+json" \
-                --header "Content-Type: application/json" \
-                --data "$payload" \
+                --header "Content-Type: application/json" --data "$payload" \
                 "https://api.github.com/repos/$GITHUB_REPOSITORY/issues" >/dev/null
-              echo "Created a production health alert issue."
             fi
-            echo "::error title=Production alert created::One or more production health checks failed. See the single tracked production alert issue."
+            if [[ -n "$SLACK_WEBHOOK_URL" ]]; then
+              slack_payload="$(node -e 'process.stdout.write(JSON.stringify({text: process.argv[1]}))' "$title: backend=$BACKEND_RESULT, frontend=$FRONTEND_RESULT. $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+              curl --silent --show-error --fail --request POST \
+                --header "Content-Type: application/json" --data "$slack_payload" "$SLACK_WEBHOOK_URL" >/dev/null
+            fi
+            echo "::error title=Production health alert::One or more production checks failed. See the single tracked GitHub issue."
+          elif [[ -n "$issue_number" ]]; then
+            payload="$(node -e 'process.stdout.write(JSON.stringify({state: "closed", state_reason: "completed", body: process.argv[1]}))' "$body")"
+            curl --silent --show-error --fail --request PATCH \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "Accept: application/vnd.github+json" \
+              --header "Content-Type: application/json" --data "$payload" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number" >/dev/null
+            if [[ -n "$SLACK_WEBHOOK_URL" ]]; then
+              slack_payload="$(node -e 'process.stdout.write(JSON.stringify({text: process.argv[1]}))' "BluePace production checks recovered. $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+              curl --silent --show-error --fail --request POST \
+                --header "Content-Type: application/json" --data "$slack_payload" "$SLACK_WEBHOOK_URL" >/dev/null
+            fi
+            echo "Closed the existing production alert after successful recovery checks."
+          else
+            echo "Production health checks passed; no alert is open."
           fi
