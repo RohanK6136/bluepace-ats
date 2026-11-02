@@ -71,6 +71,8 @@ export default function PublicStatusPage({ apiUrl, theme = "light", onToggleThem
   const commit = frontendCommit();
   const passed = Object.values(checks).filter((v) => v.state === "ok").length;
   const failed = Object.values(checks).some((v) => v.state === "error");
+  const allChecked = Object.values(checks).every((v) => v.state !== "checking");
+  const overallState = failed ? "error" : allChecked && passed === 4 ? "ok" : "checking";
 
   return (
     <main className="min-h-screen bg-slate-50 px-5 py-8 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:py-12">
