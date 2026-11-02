@@ -127,6 +127,7 @@ from app.routers.zoho_recruit import router as zoho_recruit_router
 from app.routers.next_features import router as next_features_router, run_scorecard_automations, run_stage_automations, stage_email_automation_enabled, scorecards_complete, _interview_ics
 from app.features.jd_standardizer.routes import router as jd_router
 from app.features.applicant_match.routes import router as match_router
+from app.features.resume_authorship.routes import router as resume_authorship_router
 from app.services.workflow import (
     PIPELINE_STAGES,
     TERMINAL_STAGES,
@@ -385,7 +386,7 @@ async def lifespan(_app: FastAPI):
     if APP_ENV != "test":
         resume_dispatcher_task = asyncio.create_task(_delayed_resume_dispatcher_start())
 
-    # --- AI Feature Platform (JD Standardizer + Applicant Match) ---
+    # --- AI Feature Platform (JD Standardizer + Applicant Match + Resume Text Quality Review) ---
     try:
         from app.config import get_settings as _get_ai_settings
         from app.store.db import Store as _AIStore
@@ -496,6 +497,7 @@ app.include_router(ai_hiring_studio_router)
 app.include_router(zoho_recruit_router)
 app.include_router(jd_router)
 app.include_router(match_router)
+app.include_router(resume_authorship_router)
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")

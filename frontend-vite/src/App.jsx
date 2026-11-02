@@ -178,6 +178,9 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
   const [validationError, setValidationError] = useState("");
   const [uploadTiming, setUploadTiming] = useState(null);
   const [validationTiming, setValidationTiming] = useState(null);
+  const [authorshipReview, setAuthorshipReview] = useState(null);
+  const [authorshipReviewLoading, setAuthorshipReviewLoading] = useState(false);
+  const [authorshipReviewError, setAuthorshipReviewError] = useState("");
   const [showJson, setShowJson] = useState(false);
   const [showRawText, setShowRawText] = useState(false);
   const [bulkFiles, setBulkFiles] = useState([]);
@@ -361,6 +364,9 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     setUploadValidation(null);
     setValidationResult(null);
     setValidationError("");
+    setAuthorshipReview(null);
+    setAuthorshipReviewError("");
+    setAuthorshipReviewLoading(false);
     setUploadTiming(null);
     if (!selected) { setFile(null); setUploadError(""); return; }
     if (!/\.(pdf|docx)$/i.test(selected.name)) {
@@ -383,6 +389,9 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
     setValidationError("");
     setUploadError("");
     setResumeLabSyncStatus("");
+    setAuthorshipReview(null);
+    setAuthorshipReviewError("");
+    setAuthorshipReviewLoading(false);
     setUploadTiming(null);
 
     const started = performance.now();
@@ -456,6 +465,30 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
       setUploadError(apiErrorMessage(error, "Extraction failed. Please retry."));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runResumeAuthorshipReview() {
+    const resumeText = String(jsonData?.raw_text || "").trim();
+    if (!resumeText) {
+      setAuthorshipReviewError("No extracted resume text is available for review.");
+      return;
+    }
+    setAuthorshipReviewLoading(true);
+    setAuthorshipReview(null);
+    setAuthorshipReviewError("");
+    try {
+      const featureApiKey = sessionStorage.getItem("bluepace_feature_api_key") || "";
+      const response = await postToApi(
+        "/v1/resume-authorship/assess",
+        { text: resumeText },
+        { headers: featureApiKey ? { "X-API-Key": featureApiKey } : {} },
+      );
+      setAuthorshipReview(response.data || null);
+    } catch (error) {
+      setAuthorshipReviewError(apiErrorMessage(error, "Resume text-quality review is unavailable."));
+    } finally {
+      setAuthorshipReviewLoading(false);
     }
   }
 
@@ -1050,6 +1083,57 @@ export default function App({ theme = "light", onToggleTheme = () => {}, token =
                 <div className="mt-4 h-1.5 bg-ink-100"><div className="h-full bg-gold-500" style={{ width: `${Math.round((extractedCount / requiredFields.length) * 100)}%` }} /></div>
                 {quality.missing_fields?.length > 0 && <p className="mt-3 text-xs text-ink-500">Missing: {quality.missing_fields.map((field) => labelMap[field] || field).join(", ")}</p>}
                 {quality.suspicious_fields?.length > 0 && <div className="mt-3 border-l-2 border-amber-500 bg-amber-50 p-3 text-xs text-amber-900">{quality.suspicious_fields.map((item, i) => <p key={i}>{item.field}: {item.reason}</p>)}</div>}
+              </div>
+            )}
+            {jsonData && (
+              <div className="mt-5 border-t border-ink-100 pt-5" aria-live="polite">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Optional beta review</p>
+                    <h4 className="mt-1 text-sm font-semibold text-ink-900">Resume text-quality indicators</h4>
+                    <p className="mt-1 max-w-xl text-xs leading-5 text-ink-500">
+                      Looks for repeated content and unusually uniform bullet formatting. It cannot determine whether a resume was written by AI or a person.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={runResumeAuthorshipReview}
+                    disabled={authorshipReviewLoading || !jsonData.raw_text}
+                    className="inline-flex shrink-0 items-center justify-center rounded-md border border-ink-200 bg-white px-3 py-2 text-xs font-semibold text-ink-800 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {authorshipReviewLoading ? "Reviewing…" : authorshipReview ? "Run again" : "Review text quality"}
+                  </button>
+                </div>
+                {authorshipReviewError && <p role="alert" className="mt-3 text-xs text-rose-700">{authorshipReviewError}</p>}
+                {authorshipReview && (
+                  <div className="mt-3 rounded-md border border-ink-100 bg-[#fafaf8] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-ink-900">
+                        {authorshipReview.status === "review_recommended"
+                          ? "Text-quality observations need review"
+                          : authorshipReview.status === "insufficient_evidence"
+                            ? "Insufficient extracted text"
+                            : "No text-quality alerts"}
+                      </p>
+                      <span className="rounded-full border border-ink-200 bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-600">Not an AI detector</span>
+                    </div>
+                    {authorshipReview.signals?.length > 0 ? (
+                      <ul className="mt-3 space-y-2">
+                        {authorshipReview.signals.map((signal) => (
+                          <li key={signal.code} className="border-l-2 border-amber-400 pl-3">
+                            <p className="text-xs font-semibold text-ink-800">{signal.label}</p>
+                            <p className="mt-0.5 text-xs leading-5 text-ink-600">{signal.detail}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-xs text-ink-600">No repeated-content or uniform-formatting signals were found in the extracted text.</p>
+                    )}
+                    <p className="mt-3 border-t border-ink-200 pt-2 text-[11px] leading-5 text-ink-500">
+                      {authorshipReview.text_characters?.toLocaleString?.() || authorshipReview.text_characters} characters reviewed. This result is not proof of AI use, is not included in candidate matching, and must not affect hiring decisions.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </section>

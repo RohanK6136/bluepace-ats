@@ -35,12 +35,28 @@ FEATURES: list[FeatureInfo] = [
         name="Application Assessment",
         tagline="Check resumes against a job's requirements, with the evidence for every number",
         description="Builds a reviewable rubric from a JD, redacts personal details, finds evidence for each "
-                    "requirement in the resume and computes a transparent match score in code. Decision support "
-                    "only: recruiters make every decision.",
+                    "requirement and computes a transparent match score in code. Decision support only: "
+                    "recruiters make every decision.",
         status="available",
         ui_route="#/features/application-assessment",
         api_prefix="/v1/match",
         capabilities=["PDF / DOCX resumes", "Editable rubric", "Evidence per requirement", "Redaction first"],
+    ),
+    FeatureInfo(
+        id="resume_authorship_review",
+        name="Resume Text Quality Review",
+        tagline="Surface repeated or unusually uniform resume text for a recruiter's review",
+        description="Reports explainable text-quality observations only. It does not claim to detect AI authorship, "
+                    "estimate authorship probability, or influence hiring decisions.",
+        status="beta",
+        api_prefix="/v1/resume-authorship",
+        capabilities=[
+            "PDF / DOCX / TXT / MD upload",
+            "Local text extraction",
+            "No LLM call",
+            "No file or text persistence",
+            "Human review required",
+        ],
     ),
 ]
 
