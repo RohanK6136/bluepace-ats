@@ -68,13 +68,16 @@ jobs:
             );
             if (ready) return { ready };
 
-            const failed = matches.find((deployment) =>
-              ["ERROR", "CANCELED", "CANCELLED"].includes(deployment.readyState || deployment.state)
+            const active = matches.find((deployment) =>
+              ["INITIALIZING", "QUEUED", "BUILDING"].includes(deployment.readyState || deployment.state)
             );
-            if (failed) {
-              throw new Error(`Vercel deployment ${failed.uid || failed.id || "for this commit"} finished as ${failed.readyState || failed.state}. Inspect its build logs before retrying.`);
+            if (active) return { retry: true, reason: "Matching production deployment is still building" };
+
+            const latest = matches[0];
+            if (latest && ["ERROR", "CANCELED", "CANCELLED"].includes(latest.readyState || latest.state)) {
+              throw new Error(`Latest Vercel deployment ${latest.uid || latest.id || "for this commit"} finished as ${latest.readyState || latest.state}. Inspect its build logs before retrying.`);
             }
-            return { retry: true, reason: "Matching production deployment is still building" };
+            return { retry: true, reason: "Waiting for the matching deployment to become READY" };
           }
 
           const deadline = Date.now() + 15 * 60 * 1000;
@@ -91,17 +94,25 @@ jobs:
 
               const pageUrl = new URL(process.env.PRODUCTION_URL);
               pageUrl.searchParams.set("release-check", expectedSha);
-              const page = await fetch(pageUrl, {
-                headers: { "Cache-Control": "no-cache" },
-                redirect: "follow",
-                signal: AbortSignal.timeout(30000),
-              });
-              if (!page.ok) throw new Error(`Canonical production URL returned HTTP ${page.status}`);
-              const html = await page.text();
-              const marker = html.match(/<meta\s+name=["']bluepace-build-commit["']\s+content=["']([a-f0-9]{40}|unknown)["']/i);
-              const servedSha = marker?.[1]?.toLowerCase() || "missing";
+              let servedSha = "missing";
+              let pageStatus = "not checked";
+              for (let aliasAttempt = 1; aliasAttempt <= 12; aliasAttempt += 1) {
+                const page = await fetch(pageUrl, {
+                  headers: { "Cache-Control": "no-cache" },
+                  redirect: "follow",
+                  signal: AbortSignal.timeout(30000),
+                });
+                pageStatus = String(page.status);
+                if (page.ok) {
+                  const html = await page.text();
+                  const marker = html.match(/<meta\s+name=["']bluepace-build-commit["']\s+content=["']([a-f0-9]{40}|unknown)["']/i);
+                  servedSha = marker?.[1]?.toLowerCase() || "missing";
+                  if (servedSha === expectedSha) break;
+                }
+                if (aliasAttempt < 12) await sleep(10000);
+              }
               if (servedSha !== expectedSha) {
-                throw new Error(`Vercel has a READY deployment for this commit, but the canonical production domain serves ${servedSha}; expected ${expectedSha}. Domain promotion/alias is not complete.`);
+                throw new Error(\`Vercel has a READY deployment for this commit, but the canonical production domain still returns HTTP \${pageStatus} with build marker \${servedSha}; expected \${expectedSha}. Domain alias is not complete.\`);
               }
 
               const summary = [
@@ -150,7 +161,7 @@ jobs:
               await github.rest.issues.update({ owner, repo, issue_number: existing.number, body });
               core.notice(`Updated existing production alert #${existing.number}.`);
             } else {
-              const created = await github.rest.issues.create({ owner, repo, title, body, labels: ["production", "deployment"] });
+              const created = await github.rest.issues.create({ owner, repo, title, body });
               core.notice(`Created production alert #${created.data.number}.`);
             }
 
