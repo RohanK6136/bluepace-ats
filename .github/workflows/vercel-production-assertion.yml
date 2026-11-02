@@ -1,0 +1,166 @@
+name: Assert Vercel production deployment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: vercel-production-assertion-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  assert-production:
+    name: Wait for exact Vercel production commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: team_Rjt1DblVvXgrkIwTZ9t91a9L
+      VERCEL_PROJECT_ID: prj_DpQbpA1dF1LtdcPyxBMAHEiZU1fy
+      EXPECTED_COMMIT: ${{ github.sha }}
+      PRODUCTION_URL: https://bluepace-ats-frontend.vercel.app/
+    steps:
+      - name: Wait for a READY production deployment of this exact commit
+        id: deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$VERCEL_TOKEN" ]]; then
+            echo "::error title=Vercel deployment assertion is not configured::Add repository secret VERCEL_TOKEN. Use a Vercel access token that can read deployments for team team_Rjt1DblVvXgrkIwTZ9t91a9L. This workflow is read-only and does not create deployments."
+            exit 1
+          fi
+
+          node <<'NODE'
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const expectedSha = process.env.EXPECTED_COMMIT.toLowerCase();
+          const apiUrl = new URL("https://api.vercel.com/v6/deployments");
+          apiUrl.searchParams.set("projectId", process.env.VERCEL_PROJECT_ID);
+          apiUrl.searchParams.set("teamId", process.env.VERCEL_TEAM_ID);
+          apiUrl.searchParams.set("target", "production");
+          apiUrl.searchParams.set("limit", "100");
+
+          async function checkDeployment() {
+            const response = await fetch(apiUrl, {
+              headers: { Authorization: `Bearer ${process.env.VERCEL_TOKEN}` },
+              signal: AbortSignal.timeout(20000),
+            });
+            if (response.status === 401 || response.status === 403) {
+              throw new Error(`Vercel API authorization failed (HTTP ${response.status}). Re-authorize the Vercel Git integration/team access and check that VERCEL_TOKEN can read this project.`);
+            }
+            if (response.status === 429) return { retry: true, reason: "Vercel API rate limit" };
+            if (!response.ok) throw new Error(`Vercel deployments API returned HTTP ${response.status}`);
+            const payload = await response.json();
+            const deployments = Array.isArray(payload.deployments) ? payload.deployments : [];
+            const matches = deployments.filter((deployment) =>
+              deployment?.meta?.githubCommitSha?.toLowerCase() === expectedSha
+              && deployment?.target === "production"
+            );
+            if (!matches.length) return { retry: true, reason: "No production deployment for this commit yet" };
+
+            const ready = matches.find((deployment) =>
+              deployment.readyState === "READY" || deployment.state === "READY"
+            );
+            if (ready) return { ready };
+
+            const failed = matches.find((deployment) =>
+              ["ERROR", "CANCELED", "CANCELLED"].includes(deployment.readyState || deployment.state)
+            );
+            if (failed) {
+              throw new Error(`Vercel deployment ${failed.uid || failed.id || "for this commit"} finished as ${failed.readyState || failed.state}. Inspect its build logs before retrying.`);
+            }
+            return { retry: true, reason: "Matching production deployment is still building" };
+          }
+
+          const deadline = Date.now() + 15 * 60 * 1000;
+          let lastReason = "No deployment checked";
+          while (Date.now() < deadline) {
+            const result = await checkDeployment();
+            if (result.ready) {
+              const deployment = result.ready;
+              const deploymentId = deployment.uid || deployment.id || "";
+              const deploymentUrl = deployment.url || "";
+              if (!deploymentId || !deploymentUrl) {
+                throw new Error("Vercel returned a READY deployment without its deployment ID or URL.");
+              }
+
+              const pageUrl = new URL(process.env.PRODUCTION_URL);
+              pageUrl.searchParams.set("release-check", expectedSha);
+              const page = await fetch(pageUrl, {
+                headers: { "Cache-Control": "no-cache" },
+                redirect: "follow",
+                signal: AbortSignal.timeout(30000),
+              });
+              if (!page.ok) throw new Error(`Canonical production URL returned HTTP ${page.status}`);
+              const html = await page.text();
+              const marker = html.match(/<meta\s+name=["']bluepace-build-commit["']\s+content=["']([a-f0-9]{40}|unknown)["']/i);
+              const servedSha = marker?.[1]?.toLowerCase() || "missing";
+              if (servedSha !== expectedSha) {
+                throw new Error(`Vercel has a READY deployment for this commit, but the canonical production domain serves ${servedSha}; expected ${expectedSha}. Domain promotion/alias is not complete.`);
+              }
+
+              const summary = [
+                "### Vercel production release verified",
+                "",
+                `- Commit: \`${expectedSha}\``,
+                `- Deployment: ${deploymentUrl}`,
+                `- Canonical URL: ${process.env.PRODUCTION_URL}`,
+                "- HTTP response: 200",
+                "- Embedded build identity: exact commit match",
+              ].join("\n");
+              await import("node:fs/promises").then(({ appendFile }) =>
+                appendFile(process.env.GITHUB_STEP_SUMMARY, summary + "\n")
+              );
+              console.log(`Vercel production release verified for ${expectedSha} (${deploymentUrl}).`);
+              process.exit(0);
+            }
+            lastReason = result.reason || lastReason;
+            console.log(`${lastReason}; retrying in 30 seconds.`);
+            await sleep(30000);
+          }
+          throw new Error(`No READY Vercel production release for commit ${expectedSha} appeared within 15 minutes. Last status: ${lastReason}. Check Git integration permissions, branch/root settings and Hobby build/deployment quotas.`);
+          NODE
+
+      - name: Create or update one actionable production alert
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "[Production Alert] Vercel release did not reach the canonical domain";
+            const body = [
+              "The Vercel production deployment assertion failed.",
+              "",
+              `Expected commit: \`${context.sha}\``,
+              `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              "",
+              "Check the VERCEL_TOKEN repository secret, Vercel Git Integration permissions, project root directory, Hobby deployment/build quotas, and canonical domain alias.",
+              "The workflow only reads the Vercel deployment API; it does not trigger or retry builds.",
+            ].join("\n");
+            const { owner, repo } = context.repo;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner, repo, state: "open", per_page: 100,
+            });
+            const existing = issues.find((issue) => !issue.pull_request && issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, body });
+              core.notice(`Updated existing production alert #${existing.number}.`);
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title, body, labels: ["production", "deployment"] });
+              core.notice(`Created production alert #${created.data.number}.`);
+            }
+
+      - name: Send optional Slack alert
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(node -e 'process.stdout.write(JSON.stringify({text: "BluePace Vercel release assertion failed for commit " + process.env.GITHUB_SHA + ". Check GitHub Actions: " + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID}))')"
+          curl --silent --show-error --fail --request POST \
+            --header "Content-Type: application/json" \
+            --data "$payload" "$SLACK_WEBHOOK_URL"
