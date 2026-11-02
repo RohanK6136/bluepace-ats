@@ -506,6 +506,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 def healthz():
     return {"status": "ok", "service": "bluepace-ats"}
 
+
+@app.get("/version")
+def version():
+    """Expose safe deployment identity for production release verification."""
+    return {
+        "service": "bluepace-ats",
+        "commit": os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT_SHA") or "unknown",
+        "branch": os.getenv("RENDER_GIT_BRANCH") or "unknown",
+    }
+
+
 @app.get("/readyz")
 def readyz(db: Session = Depends(get_db)):
     db.execute(select(1))
