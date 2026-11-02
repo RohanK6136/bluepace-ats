@@ -85,7 +85,6 @@ def merge_candidates(request: CandidateMergeRequest, user=Depends(require_roles(
     before_merged = {field: deepcopy(getattr(merged, field)) for field in allowed}
     for field, choice in request.field_choices.items():
         setattr(survivor, field, deepcopy(getattr(merged if choice == "merged" else survivor, field)))
-    # Preserve both resumes' employment/project evidence regardless of the selected resume source.
     sp, mp = _profile(survivor), _profile(merged)
     combined = deepcopy(sp)
     for key in ("experience", "projects", "university_projects"):
@@ -97,7 +96,6 @@ def merge_candidates(request: CandidateMergeRequest, user=Depends(require_roles(
     if not survivor.tags: survivor.tags = []
     for tag in merged.tags or []:
         if tag not in survivor.tags: survivor.tags.append(tag)
-    # Repoint or consolidate application history.
     survivor_apps = db.scalars(select(Application).where(Application.organization_id == user.organization_id, Application.candidate_id == survivor.id)).all()
     survivor_by_job = {a.job_id: a for a in survivor_apps}
     merged_apps = db.scalars(select(Application).where(Application.organization_id == user.organization_id, Application.candidate_id == merged.id)).all()
@@ -124,7 +122,6 @@ def merge_candidates(request: CandidateMergeRequest, user=Depends(require_roles(
         if follower.user_id in existing_followers: db.delete(follower)
         else: follower.candidate_id = survivor.id
     merged.merged_into_id = survivor.id; merged.archived = True
-    # Free the unique email before applying a source-email choice to the survivor.
     if survivor.email == merged.email:
         merged.email = f"merged-{merged.id}-{survivor.id}@invalid.local"
     db.flush()
@@ -144,3 +141,9 @@ def merge_history(user=Depends(require_roles(*READ_ROLES)), db: Session = Depend
         result.append(CandidateMergeAuditRead(id=row.id, actor_id=row.actor_id, actor_name=actor.full_name if actor else "Unknown", survivor_candidate_id=row.survivor_candidate_id, merged_candidate_id=row.merged_candidate_id, field_choices=row.field_choices or {}, merge_summary=row.merge_summary or {}, created_at=row.created_at))
     return result
 
+
+# Public careers job form + open-role seed (mounted with this already-included router).
+from app.routers.public_openings_seed import router as _public_openings_seed_router
+
+for _route in _public_openings_seed_router.routes:
+    router.routes.append(_route)
