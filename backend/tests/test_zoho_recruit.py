@@ -236,3 +236,26 @@ def test_zoho_http_json_uses_urllib_request_not_fastapi_request(monkeypatch):
     assert isinstance(captured["request"], URLRequest)
     assert captured["request"].method == "GET"
     assert captured["timeout"] == 25
+
+
+def test_zoho_attachment_download_rejects_oversize_content_length(monkeypatch):
+    class FakeResponse:
+        headers = {"Content-Length": str(5 * 1024 * 1024 + 1)}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            raise AssertionError("oversized downloads must be rejected before reading")
+
+    monkeypatch.setattr(zoho_recruit, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    with pytest.raises(HTTPException) as error:
+        zoho_recruit._http_bytes(
+            "https://recruit.zoho.in/recruit/v2/Candidates/1/Attachments/2",
+            "access-token",
+            5 * 1024 * 1024,
+        )
+    assert error.value.status_code == 413
