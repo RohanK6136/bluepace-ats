@@ -5,12 +5,12 @@ const PUBLIC_FAQS = [
     category: "Applying",
     question: "How do I apply for a job?",
     answer:
-      "Choose an open position, select “Apply for this position,” enter your name and email, add your phone if needed, and upload a PDF or DOCX resume up to 10MB.",
+      "Choose an open position, select “Apply for this position,” enter your name and email, add your phone if needed, and upload a PDF or DOCX resume up to 5 MB.",
   },
   {
     category: "Applying",
     question: "What resume formats are accepted?",
-    answer: "The public application form accepts PDF and DOCX resumes up to 10MB.",
+    answer: "The public application form accepts PDF and DOCX resumes up to 5 MB.",
   },
   {
     category: "Application status",
