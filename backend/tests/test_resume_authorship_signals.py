@@ -33,3 +33,23 @@ def test_text_size_limit_is_enforced():
         assert "60000" in str(error)
     else:
         raise AssertionError("expected size validation")
+
+
+def test_generic_corporate_phrases_flag_without_ai_verdict():
+    body = "\n".join([
+        "Results-driven professional with a proven track record of success.",
+        "I leverage cross-functional teams to drive impactful outcomes.",
+        "Passionate about leveraging technology in a dynamic and fast-paced environment.",
+        "Delivered Python services for recruiting workflows and public careers pages.",
+        "Built FastAPI endpoints, Postgres queries, and React recruiter dashboards.",
+        "Owned CI pipelines and reduced deployment failures across staging and production.",
+        "Collaborated with hiring managers on structured interview loops and scorecards.",
+        "Documented runbooks for on-call rotation covering ATS API and batch jobs.",
+        "Mentored juniors on code review standards and API design conventions.",
+        "Improved applicant matching latency with indexing and caching strategies.",
+    ])
+    result = assess_resume_text(body)
+    assert result["assessment"] == "undetermined"
+    assert result["confidence"] == "not_assessed"
+    assert any(s["code"] == "generic_corporate_phrases" for s in result["signals"])
+    assert result["status"] == "review_recommended"
