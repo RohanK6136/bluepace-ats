@@ -50,17 +50,66 @@ def populate_demo_data(
     user: User = Depends(require_roles(*WRITE_ROLES)),
     db: Session = Depends(get_db),
 ):
-    """Populate was temporarily reduced; full fixtures remain available via seed endpoints.
+    """Create idempotent synthetic open vacancies for a careers-portal demo."""
+    from app.routers.public_openings_seed import PUBLIC_OPENING_SEEDS
 
-    Returns a no-op success so startup and UI buttons do not break while the
-    public careers job form routes are mounted.
-    """
+    created = []
+    skipped = []
+    try:
+        # Ten varied roles are sufficient for the public careers demonstration.
+        for seed in PUBLIC_OPENING_SEEDS[:10]:
+            existing = db.scalar(
+                select(Job)
+                .where(
+                    Job.organization_id == user.organization_id,
+                    Job.title == seed["title"],
+                )
+                .limit(1)
+            )
+            if existing is not None:
+                skipped.append({"id": existing.id, "title": existing.title})
+                continue
+            job = Job(
+                organization_id=user.organization_id,
+                created_by_id=user.id,
+                owner_id=user.id,
+                title=seed["title"],
+                description=seed["description"],
+                department=seed["department"],
+                location=seed["location"],
+                employment_type=seed["employment_type"],
+                work_mode=seed["work_mode"],
+                status="open",
+                required_skills=seed["required_skills"],
+                minimum_experience_years=seed["minimum_experience_years"],
+                fresher_allowed=seed["fresher_allowed"],
+                tags=["careers-portal", "demo", seed["department"]],
+            )
+            db.add(job)
+            db.flush()
+            ensure_job_stages(db, job)
+            record_audit(
+                db,
+                user,
+                "job.demo_opening_created",
+                "job",
+                job.id,
+                after={"title": job.title, "status": job.status, "demo": True},
+            )
+            created.append({"id": job.id, "title": job.title})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     return {
         "status": "ready",
-        "message": "Demo fixtures endpoint is available. Public job form routes are mounted.",
-        "created": {},
-        "total_created": 0,
-        "already_populated": True,
+        "message": "Ten synthetic demo vacancies are available. They are marked with the demo tag.",
+        "created": created,
+        "skipped": skipped,
+        "total_created": len(created),
+        "total_available": len(created) + len(skipped),
+        "already_populated": not bool(created),
     }
 
 
