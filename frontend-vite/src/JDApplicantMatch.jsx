@@ -410,6 +410,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
     const description = [
       selectedJob.description,
+      selectedJob.description_text,
+      selectedJob.description_markdown,
       selectedJob.job_description,
       selectedJob.jobDescription,
       selectedJob.jd,
@@ -422,12 +424,14 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       return;
     }
     setJdText(description.trim());
+    setAtsJobId(String(selectedJob.id));
+    setAtsApplicationId((currentId) => applications.some((application) => String(application.id) === String(currentId) && Number(application.job_id) === Number(selectedJob.id)) ? currentId : "");
     setJdResult(null);
     setJdError("");
     setRubricError("");
     setJdSourceMessage(`Loaded the description from ${selectedJob.title || selectedJob.job_title || `Job #${selectedJob.id}`}. Run Standardize JD to prepare the structured version.`);
     setActiveTab("jd");
-  }, [jdSourceJobId, jobs]);
+  }, [jdSourceJobId, jobs, applications]);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -906,8 +910,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setActiveTab("match");
     } catch (error) {
       const message = explainError(error);
-      if (!jdResult) setJdError(message);
-      else setRubricError(message);
+      setJdError(message);
+      setRubricError(message);
     } finally {
       setJdPrepareLoading(false);
     }
