@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from local_ai_server import app
 
 
@@ -43,6 +45,6 @@ def test_local_model_catalog_exposes_only_the_started_profile() -> None:
         default_id="local-ollama",
         statuses=lambda: [FakeProfile("local-qwen"), FakeProfile("local-ollama")],
     )
-    payload = list_models(SimpleNamespace(registry=registry))
+    payload = asyncio.run(list_models(SimpleNamespace(registry=registry)))
 
     assert payload == [{"id": "local-ollama"}]
