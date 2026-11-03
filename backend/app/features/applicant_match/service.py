@@ -235,8 +235,9 @@ async def _analyze(rubric: Rubric, inp: ResumeInput, as_of: date, deps: MatchDep
                 request_id=rid,
                 applicant_id=applicant_id,
                 status="complete",
-                reason=("AI provider unavailable. This score uses directly matched resume text only; "
-                        "experience dates and unverified requirements need recruiter review."),
+                reason=(f"AI provider unavailable: {str(prof_res)[:220]}. "
+                        "This score uses directly matched resume text only; experience dates and "
+                        "unverified requirements need recruiter review."),
                 rubric={"id": rubric.rubric_id, "hash": rubric.rubric_hash, "title": rubric.title},
                 file=file,
                 profile=profile,
