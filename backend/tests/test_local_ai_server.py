@@ -25,3 +25,24 @@ def test_local_ai_service_cors_allows_supported_bluepace_frontends() -> None:
     assert "https://bluepace-ats-frontend.vercel.app" in origins
     assert "https://bluepace-ats-frontend.onrender.com" in origins
     assert "http://localhost:5173" in origins
+
+
+def test_local_model_catalog_exposes_only_the_started_profile() -> None:
+    from types import SimpleNamespace
+
+    from local_ai_server import list_models
+
+    class FakeProfile:
+        def __init__(self, profile_id: str):
+            self.id = profile_id
+
+        def model_dump(self, mode: str) -> dict[str, str]:
+            return {"id": self.id}
+
+    registry = SimpleNamespace(
+        default_id="local-ollama",
+        statuses=lambda: [FakeProfile("local-qwen"), FakeProfile("local-ollama")],
+    )
+    payload = list_models(SimpleNamespace(registry=registry))
+
+    assert payload == [{"id": "local-ollama"}]
