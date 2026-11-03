@@ -25,13 +25,16 @@ from app.features.applicant_match.models import (
     Role,
     Rubric,
     RubricDraft,
+    Summary,
 )
-from app.features.applicant_match.policy import PIPELINE_VERSION, MatchPolicy, load_match_policy, prompt_versions
+from app.features.applicant_match.policy import (
+    PIPELINE_VERSION, MatchPolicy, education_levels_in, load_match_policy, prompt_versions,
+)
 from app.features.applicant_match.profile import VProfile, extract_profile, resume_prompt_text
 from app.features.applicant_match.resume import ResumeText, looks_like_resume, prepare_resume
 from app.features.applicant_match.rubric import JobSource, compile_rubric
 from app.features.applicant_match.scoring import evaluate, judged_items
-from app.features.applicant_match.summary import summary_facts, write_summary
+from app.features.applicant_match.summary import summary_facts, template as summary_template, write_summary
 from app.features.jd_standardizer.pipeline.policy import Policy
 from app.llm.client import CallContext, ChatLLM
 from app.observability.runs import RunRecorder
@@ -116,6 +119,28 @@ def _profile_model(prof: VProfile, resume: ResumeText, total: float | None, rele
         education=prof.education, certifications=prof.certifications, languages=prof.languages)
 
 
+def _rules_profile(resume: ResumeText, mp: MatchPolicy) -> VProfile:
+    """Extract only education facts that can be read directly from resume lines.
+
+    No role titles, employers, dates or experience durations are inferred here.
+    Those require the model's cited profile extraction and remain unassessed.
+    """
+    levels: list[str] = mp.settings["education_levels"]
+    education: list[dict[str, Any]] = []
+    found_levels: list[str] = []
+    for line in resume.lines:
+        if line.redacted:
+            continue
+        found = education_levels_in(line.text)
+        if not found:
+            continue
+        level = max(found, key=levels.index)
+        found_levels.append(level)
+        education.append({"line": line.id, "text": line.text, "level": level})
+    highest = max(found_levels, key=levels.index) if found_levels else None
+    return VProfile(education=education, education_level=highest)
+
+
 def _manual(rid: str, applicant_id: str, rubric: Rubric, file: dict[str, Any], flags: list[str], reason: str,
             as_of: date, versions: dict[str, Any], usage: dict[str, Any]) -> Card:
     return Card(request_id=rid, applicant_id=applicant_id, status="manual", reason=reason,
@@ -184,8 +209,48 @@ async def _analyze(rubric: Rubric, inp: ResumeInput, as_of: date, deps: MatchDep
     if isinstance(prof_res, BaseException):
         if not isinstance(prof_res, LLMError):
             raise prof_res
-        reason = ("the model is unavailable" if isinstance(prof_res, LLMUnavailable)
-                  else "the model's answer was still invalid after a retry")
+        if isinstance(prof_res, LLMUnavailable):
+            # Credit exhaustion/provider outage: keep a limited, transparent assessment
+            # using only exact resume evidence. Never invent roles or experience dates.
+            prof = _rules_profile(resume, mp)
+            rules_rubric = rubric.model_copy(update={"required_years": None})
+            ev = evaluate(rules_rubric, resume, prof, mp, judgments=None)
+            exp_score = ev.scores.experience.model_copy(update={"required_years": rubric.required_years})
+            ev.scores = ev.scores.model_copy(update={"experience": exp_score})
+            profile = _profile_model(prof, resume, total=None, relevant=None)
+            facts = summary_facts(ev, (None, None), rubric.required_years, prof.education_level)
+            summary = Summary(
+                value=summary_template(facts),
+                status="fallback",
+                reason="Rules-only summary; AI provider unavailable.",
+            )
+            flags.extend([
+                "rules_only_assessment",
+                "ai_profile_unavailable",
+                "experience_not_assessed",
+                *ev.flags,
+            ])
+            versions["assessment_mode"] = "rules_only"
+            card = Card(
+                request_id=rid,
+                applicant_id=applicant_id,
+                status="complete",
+                reason=("AI provider unavailable. This score uses directly matched resume text only; "
+                        "experience dates and unverified requirements need recruiter review."),
+                rubric={"id": rubric.rubric_id, "hash": rubric.rubric_hash, "title": rubric.title},
+                file=file,
+                profile=profile,
+                scores=ev.scores,
+                evidence=ev.evidence,
+                gaps=ev.gaps,
+                flags=list(dict.fromkeys(flags)),
+                summary=summary,
+                as_of=as_of.isoformat(),
+                versions=versions,
+                usage={},
+            )
+            return done(card, "degraded")
+        reason = "the model's answer was still invalid after a retry"
         flags.append("profile_failed")
         return done(_manual(rid, applicant_id, rubric, file, flags, f"{reason}; read the resume directly",
                             as_of, versions, {}), "degraded")
