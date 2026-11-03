@@ -376,6 +376,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [jdText, setJdText] = useState(() => initialWorkspace?.jdText || "");
   const [jdSourceJobId, setJdSourceJobId] = useState("");
   const [jdSourceMessage, setJdSourceMessage] = useState("");
+  const [jdUploadBusy, setJdUploadBusy] = useState(false);
+  const [jdLink, setJdLink] = useState("");
+  const [jdLinkBusy, setJdLinkBusy] = useState(false);
+  const [jdAssistantOpen, setJdAssistantOpen] = useState(false);
+  const [jdAssistantInput, setJdAssistantInput] = useState("");
+  const [jdAssistantMessages, setJdAssistantMessages] = useState([{ role: "assistant", text: "Hi! I can guide you through importing a JD, standardizing it, building a match rubric, and reviewing applicant evidence. What would you like help with?" }]);
+  const [jdAssistantBusy, setJdAssistantBusy] = useState(false);
   const [jdMode, setJdMode] = useState(() => initialWorkspace?.jdMode || "light");
   const [jdDetail, setJdDetail] = useState(() => initialWorkspace?.jdDetail || "detailed");
   const [jdResult, setJdResult] = useState(() => initialWorkspace?.jdResult || null);
@@ -860,6 +867,67 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     } finally {
       setJdLoading(false);
     }
+  }
+
+
+  async function uploadJobDescription(file) {
+    if (!file) return;
+    if (!/\\.(pdf|docx|doc|txt|md)$/i.test(file.name)) { setJdError("Upload a PDF, DOCX, DOC, TXT, or Markdown job description."); return; }
+    if (file.size > 10 * 1024 * 1024) { setJdError("The JD file must be 10 MB or smaller."); return; }
+    setJdUploadBusy(true); setJdError(""); setJdSourceMessage("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("options", JSON.stringify({ mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) }));
+      form.append("overrides", JSON.stringify({}));
+      const response = await request("post", "/v1/jd/generate/upload", form, { timeout: 120000 });
+      const result = response.data;
+      if (!result || !Array.isArray(result.sections) || !result.sections.length) throw new Error("The uploaded file did not produce structured JD sections. Try a text-based PDF or DOCX.");
+      setJdResult(result);
+      const extracted = [result.title, ...(result.sections || []).flatMap((section) => [section.title || section.name, section.content || section.text, ...(Array.isArray(section.items) ? section.items : [])])].filter(Boolean).join("\\n");
+      setJdText(extracted || result.summary || "");
+      setJdSourceMessage(`Imported ${file.name}. Review the extracted content and standardized output.`);
+      setNotice("JD file uploaded and processed. Review the output, then generate and link the match rubric.");
+    } catch (error) { setJdError(explainError(error)); }
+    finally { setJdUploadBusy(false); }
+  }
+
+  async function importJobLink() {
+    const value = jdLink.trim();
+    if (!/^https?:\\/\\//i.test(value)) { setJdError("Enter a complete public job-posting URL starting with https://."); return; }
+    setJdLinkBusy(true); setJdError(""); setJdSourceMessage("");
+    try {
+      const form = new FormData(); form.append("url", value);
+      const response = await apiRequest(token, "post", "/jobs/preview-url", form, { timeout: 30000 });
+      const data = response.data || {};
+      if (!String(data.description || "").trim()) throw new Error("No usable job description was found at that link. Upload the JD document or paste the text instead.");
+      setJdText(data.description); setJdResult(null); setJdSourceJobId("");
+      setJdSourceMessage(`Imported ${data.title || "job posting"} from ${data.source_url || value}. Preview only; no ATS job was created.`);
+      setNotice("Job description imported from link. Standardize it and choose the ATS job to attach the match rubric to.");
+    } catch (error) { setJdError(explainError(error)); }
+    finally { setJdLinkBusy(false); }
+  }
+
+  async function sendJdAssistant(value = jdAssistantInput) {
+    const question = String(value || "").trim();
+    if (!question || jdAssistantBusy) return;
+    const context = [
+      "You are the BluePace JD & Applicant Match workflow assistant. Give concise practical recruiter guidance.",
+      "Help import job descriptions, standardize requirements, create match rubrics, and interpret evidence-based applicant matches.",
+      "Never make hiring or rejection decisions. A recruiter must decide. Do not invent missing JD details; flag them for recruiter confirmation.",
+      "Current JD text: " + (jdText.slice(0, 7000) || "Not provided yet."),
+      "Workflow: JD result " + (jdResult ? "available" : "not generated") + "; rubric " + (selectedRubricId ? "selected" : "not selected") + ".",
+      "Question: " + question,
+    ].join("\\n");
+    setJdAssistantInput("");
+    setJdAssistantMessages((rows) => [...rows, { role: "user", text: question }]);
+    setJdAssistantBusy(true);
+    try {
+      const response = await apiRequest(token, "post", "/chatbot", { data: { message: context } });
+      setJdAssistantMessages((rows) => [...rows, { role: "assistant", text: response.data?.answer || "I could not generate a reply. Please try again." }]);
+    } catch {
+      setJdAssistantMessages((rows) => [...rows, { role: "assistant", text: "The ATS assistant service is unavailable right now. Retry in a moment; JD upload and standardization remain available." }]);
+    } finally { setJdAssistantBusy(false); }
   }
 
   async function prepareSelectedJobForMatching() {
@@ -1524,6 +1592,17 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                   </select>
                 </Field>
                 {jdSourceMessage && <p role="status" className="rounded-md border border-ink-100 bg-ink-50 px-3 py-2 text-xs leading-5 text-ink-700">{jdSourceMessage}</p>}
+                <div className="grid gap-3 rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-ink-800">Import a job description</p><Pill>PDF · DOCX · DOC · TXT · URL</Pill></div>
+                  <Field label="Upload JD file" hint="Maximum 10 MB. Text-based PDF and DOCX files work best.">
+                    <input type="file" accept=".pdf,.docx,.doc,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadJobDescription(file); event.target.value = ""; }} className={fieldClass} disabled={jdUploadBusy || jdLinkBusy} />
+                  </Field>
+                  {jdUploadBusy && <p className="text-xs text-ink-500">Uploading and extracting JD content…</p>}
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <Field label="Import from public job link" hint="Preview only; this does not create an ATS job."><input type="url" value={jdLink} onChange={(event) => setJdLink(event.target.value)} placeholder="https://company.com/careers/job-title" className={fieldClass} /></Field>
+                    <button type="button" className={secondaryButton} onClick={importJobLink} disabled={jdLinkBusy || jdUploadBusy || !jdLink.trim()}>{jdLinkBusy ? "Importing…" : "Import link"}</button>
+                  </div>
+                </div>
                 <Field label="Job description or brief" hint={`${jdText.length.toLocaleString()} characters · API input limit is deployment-configured`}>
                   <textarea value={jdText} onChange={(event) => { setJdText(event.target.value); setJdResult(null); setJdError(""); setRubricError(""); }} rows={13} maxLength={60000} placeholder={"Example: Senior Data Engineer\nLocation: Hyderabad / Hybrid\nRequired: Python, SQL, Airflow, cloud data platforms\nResponsibilities: Build reliable data pipelines, own data quality, and partner with analytics teams."} className={`${fieldClass} resize-y leading-6`} />
                 </Field>
@@ -1551,6 +1630,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 </div>
               </div>
               <div className="space-y-4">
+                <div className="rounded-lg border border-ink-200 bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-semibold text-ink-900">JD workflow AI assistant</p><p className="mt-1 text-[11px] text-ink-500">Guidance for importing, standardizing and matching</p></div><button type="button" className={secondaryButton} onClick={() => setJdAssistantOpen((open) => !open)}>{jdAssistantOpen ? "Hide assistant" : "Ask AI assistant"}</button></div>
+                  {jdAssistantOpen && <div className="mt-3 space-y-3">
+                    <div className="max-h-56 space-y-2 overflow-y-auto rounded-md bg-[#fafaf8] p-3" aria-live="polite">{jdAssistantMessages.map((item, index) => <div key={index} className={item.role === "user" ? "ml-6 rounded-lg bg-blue-50 p-2.5 text-xs leading-5 text-blue-950" : "mr-4 rounded-lg border border-ink-100 bg-white p-2.5 text-xs leading-5 text-ink-700"}><p className="whitespace-pre-wrap">{item.text}</p></div>)}{jdAssistantBusy && <p className="text-xs text-ink-500">Assistant is thinking…</p>}</div>
+                    <div className="flex flex-wrap gap-1.5">{["What is missing from this JD?", "How do I create a fair match rubric?", "Explain an applicant match result"].map((prompt) => <button key={prompt} type="button" className="rounded-full border border-ink-200 px-2.5 py-1.5 text-[11px] text-ink-600 hover:bg-ink-50" disabled={jdAssistantBusy} onClick={() => sendJdAssistant(prompt)}>{prompt}</button>)}</div>
+                    <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); sendJdAssistant(); }}><input value={jdAssistantInput} onChange={(event) => setJdAssistantInput(event.target.value)} placeholder="Ask how to complete this step…" className={fieldClass} disabled={jdAssistantBusy} /><button type="submit" className={primaryButton} disabled={jdAssistantBusy || !jdAssistantInput.trim()}>Send</button></form>
+                    <p className="text-[10px] leading-4 text-ink-500">AI provides guidance only. Recruiters verify requirements and make every hiring decision.</p>
+                  </div>}
+                </div>
                 <SectionHeading eyebrow="Step 02" title="Standardized output" detail="Review flags and missing details before using the content in a live requisition." />
                 {!jdResult && <EmptyPanel title="Your result will appear here" detail="Run either workflow to see the pipeline status, publication blockers, extracted facts, and standardized description." />}
                 {jdResult && (
