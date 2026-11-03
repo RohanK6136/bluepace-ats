@@ -792,7 +792,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       if (!profile || !profile.enabled) {
         throw new Error(profile?.disabled_reason || "Local AI API is online, but its local-ollama model profile is not enabled.");
       }
-      const health = await apiRequest(null, "get", "/v1/models/local-ollama/health", { baseURL, timeout: 30000, skipAuth: true });
+      const health = await apiRequest(null, "get", "/v1/models/local-ollama/health", { baseURL, timeout: 200000, skipAuth: true });
       if (!health.data?.ok) throw new Error(health.data?.detail || "Ollama did not answer the inference health check.");
       try { localStorage.setItem(LOCAL_AI_API_STORAGE_KEY, baseURL); } catch { /* Keep the selected URL in memory for this tab. */ }
       setLocalAiApiUrl(baseURL);
