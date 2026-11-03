@@ -76,6 +76,13 @@ class OpenAICompatibleProvider:
             raise LLMConfigError(f"model or endpoint not found ({detail})")
         if code == 429:
             raise LLMRateLimited(detail)
+        if code == 402:
+            # OpenRouter 402 can mean insufficient balance or an in-flight credit limit.
+            # Do not retry paid requests; feature pipelines should degrade to rules.
+            raise LLMUnavailable(
+                "OpenRouter credits are unavailable for this request (HTTP 402). "
+                "Wait for in-flight requests to finish or add credits; using rules-only fallback."
+            )
         if code in (502, 503, 504):
             raise LLMUnavailable(detail)
         if code < 500:
