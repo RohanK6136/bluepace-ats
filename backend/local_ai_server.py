@@ -12,16 +12,22 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from app.api.deps import Platform, platform, require_api_key
 from app.config import get_settings
+from app.core.ids import new_request_id
 from app.features.applicant_match.routes import router as applicant_match_router
 from app.features.jd_standardizer.pipeline.policy import load_policy
 from app.features.jd_standardizer.pipeline.runner import PipelineDeps
 from app.features.jd_standardizer.routes import router as jd_router
-from app.llm.client import LLMGateway
+from app.llm.client import CallContext, LLMGateway
 from app.llm.registry import ModelRegistry
 from app.store.db import Store
+
+
+class AssistantRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=15000)
 
 
 LOCAL_FRONTEND_ORIGINS = (
@@ -100,7 +106,14 @@ async def healthz() -> dict[str, str]:
 async def list_models(p: Platform = Depends(platform)) -> list[dict]:
     if p.registry is None:
         raise HTTPException(status_code=503, detail="Local AI model registry is unavailable.")
-    return [profile.model_dump(mode="json") for profile in p.registry.statuses()]
+    # This companion starts exactly one local model profile. Do not expose
+    # other locally configured endpoints (for example LM Studio on port 1235)
+    # as selectable when this process only starts Ollama.
+    return [
+        profile.model_dump(mode="json")
+        for profile in p.registry.statuses()
+        if profile.id == p.registry.default_id
+    ]
 
 
 @app.get(
@@ -109,10 +122,43 @@ async def list_models(p: Platform = Depends(platform)) -> list[dict]:
     dependencies=[Depends(require_api_key)],
 )
 async def model_health(profile_id: str, p: Platform = Depends(platform)) -> dict[str, object]:
-    if p.registry is None or profile_id not in p.registry.ids():
-        raise HTTPException(status_code=404, detail=f"Unknown model profile: {profile_id}")
+    if p.registry is None or profile_id != p.registry.default_id:
+        raise HTTPException(status_code=404, detail=f"Unknown local model profile: {profile_id}")
     problem = await p.llm.probe(profile_id)
     return {"profile": profile_id, "ok": problem is None, "detail": problem}
+
+
+@app.post("/v1/assistant", tags=["Local AI"], dependencies=[Depends(require_api_key)])
+async def jd_match_assistant(body: AssistantRequest, p: Platform = Depends(platform)) -> dict[str, object]:
+    """Answer JD & Applicant Match workflow questions through the configured local model."""
+    profile_id = p.registry.default_id if p.registry is not None else None
+    ctx = CallContext(
+        request_id=new_request_id(),
+        profile_id=profile_id,
+        feature="jd_applicant_match_assistant",
+    )
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+    result = await p.llm.chat_json(
+        step="jd_match_assistant",
+        prompt_version=1,
+        system=(
+            "You are the BluePace JD & Applicant Match workflow assistant. "
+            "Give concise, practical recruiter guidance about job description standardization, "
+            "requirements, rubrics and evidence-based applicant review. Never make hiring or rejection "
+            "decisions. Never invent missing job facts; flag them for recruiter confirmation."
+        ),
+        user=body.message,
+        schema=schema,
+        max_tokens=700,
+        ctx=ctx,
+    )
+    info = p.llm.describe(profile_id)
+    return {"answer": result.parsed.get("answer", ""), "model": info.model, "local": bool(p.registry and p.registry.get(profile_id).local)}
 
 
 app.include_router(jd_router)

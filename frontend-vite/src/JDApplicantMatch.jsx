@@ -1054,10 +1054,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setJdAssistantMessages((rows) => [...rows, { role: "user", text: question }]);
     setJdAssistantBusy(true);
     try {
-      const response = await apiRequest(token, "post", "/chatbot", { data: { message: context } });
+      const response = localAiApiUrl
+        ? await request("post", "/v1/assistant", { message: context }, { timeout: 300000 })
+        : await apiRequest(token, "post", "/chatbot", { data: { message: context } });
       setJdAssistantMessages((rows) => [...rows, { role: "assistant", text: response.data?.answer || "I could not generate a reply. Please try again." }]);
-    } catch {
-      setJdAssistantMessages((rows) => [...rows, { role: "assistant", text: "The ATS assistant service is unavailable right now. Retry in a moment; JD upload and standardization remain available." }]);
+    } catch (error) {
+      const fallback = localAiApiUrl
+        ? `Local Ollama assistant request failed: ${explainError(error)}`
+        : "The ATS assistant service is unavailable right now. Retry in a moment; JD upload and standardization remain available.";
+      setJdAssistantMessages((rows) => [...rows, { role: "assistant", text: fallback }]);
     } finally { setJdAssistantBusy(false); }
   }
 
@@ -1099,13 +1104,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setRubric(saved);
       setSelectedRubricId(saved.rubric_id);
       setRubricNotes(rubricResponse.data?.notes || []);
-      if (jobId) {
+      if (jobId && !localAiApiUrl) {
         await request("post", `/ai-hiring/jobs/${jobId}/applicant-match-rubrics`, { rubric_id: saved.rubric_id }, { timeout: 20000 });
       }
       await refreshSavedRubrics();
-      setNotice(jobId
-        ? "JD standardized, match rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
-        : "JD standardized and match rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
+      setNotice(localAiApiUrl
+        ? "JD standardized and match rubric generated with local Ollama. The rubric is saved in this local workspace; shared ATS job linking is not available in local mode. Continue with resume-file matching."
+        : jobId
+          ? "JD standardized, match rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
+          : "JD standardized and match rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
       setActiveTab("match");
     } catch (error) {
       const message = explainError(error);
