@@ -704,6 +704,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     const featureApiBase = options.baseURL || localAiApiUrl || window.location.origin;
     const requestOptions = {
       ...options,
+      ...(usingLocalAi ? { timeout: Math.max(Number(options.timeout) || 0, 300000) } : {}),
       headers,
       ...(isFeatureRoute ? { baseURL: featureApiBase } : {}),
       ...(usingLocalAi ? { skipAuth: true } : {}),
