@@ -1372,6 +1372,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setBatchProgress({ done: 0, total: queue.length });
     let complete = 0;
     let manual = 0;
+    let rulesOnly = 0;
     let failed = 0;
 
     for (let index = 0; index < queue.length; index += 1) {
@@ -1387,9 +1388,12 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       try {
         const response = await request("post", "/v1/match/analyze", body, { timeout: 120000 });
         const result = response.data;
-        const status = result?.status === "manual" ? "manual" : "complete";
+        const rulesOnlyResult = result?.versions?.assessment_mode === "rules_only"
+          || result?.flags?.includes("rules_only_assessment");
+        const status = rulesOnlyResult ? "rules_only" : result?.status === "manual" ? "manual" : "complete";
         updateBatchRow(row.id, { status, result, error: "" });
-        if (status === "manual") manual += 1;
+        if (status === "rules_only") rulesOnly += 1;
+        else if (status === "manual") manual += 1;
         else complete += 1;
       } catch (error) {
         const message = explainError(error);
@@ -1414,7 +1418,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
     setBatchCurrentName("");
     setBatchRunning(false);
-    setNotice(`Bulk match finished: ${complete} completed, ${manual} needing manual review, ${failed} failed. Review each result before making any recruiting decision.`);
+    setNotice(`Bulk match finished: ${complete} complete, ${rulesOnly} rules-only, ${manual} requiring manual review, ${failed} failed. Rules-only results use direct text evidence and do not assess experience dates or fuzzy criteria. Review every result before making a recruiting decision.`);
   }
 
   function updateRubricItem(index, patch) {
@@ -1447,7 +1451,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const workspaceProgressState = { jdText, jdResult, rubric, applicants: [...savedApplicants, ...savedApplicantRows(batchFiles)], candidateCard };
   const batchQueuedCount = batchFiles.filter((row) => row.status === "queued").length;
   const batchFailedCount = batchFiles.filter((row) => row.status === "failed").length;
-  const batchTerminalCount = batchFiles.filter((row) => ["complete", "manual", "failed"].includes(row.status)).length;
+  const batchTerminalCount = batchFiles.filter((row) => ["complete", "rules_only", "manual", "failed"].includes(row.status)).length;
   const calibrationEvidence = [
     ...[...savedApplicants, ...savedApplicantRows(batchFiles)].flatMap((applicant) => (applicant.result?.evidence || []).map((item) => ({ item, applicant: applicant.fileName || "Applicant" }))),
     ...(candidateCard?.evidence || []).map((item) => ({ item, applicant: "Individual applicant" })),
@@ -1800,6 +1804,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     <div className="mt-4 flex flex-wrap gap-2 text-xs">
                       <Pill>{batchFiles.length}/{MAX_BULK_RESUMES} queued</Pill>
                       <Pill tone="good">{batchFiles.filter((row) => row.status === "complete").length} complete</Pill>
+                      <Pill tone="warn">{batchFiles.filter((row) => row.status === "rules_only").length} rules-only</Pill>
                       <Pill tone="warn">{batchFiles.filter((row) => row.status === "manual").length} manual review</Pill>
                       <Pill tone="bad">{batchFailedCount} failed</Pill>
                       {batchTerminalCount > 0 && <span className="self-center text-ink-500">{batchTerminalCount} attempted</span>}
@@ -1831,10 +1836,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                             queued: "Queued",
                             processing: "Processing",
                             complete: "Complete",
+                            rules_only: "Rules-only review",
                             manual: "Manual review",
                             failed: "Failed",
                           }[row.status] || row.status;
-                          const tone = row.status === "complete" ? "good" : row.status === "manual" || row.status === "failed" ? "warn" : "neutral";
+                          const tone = row.status === "complete" ? "good" : row.status === "rules_only" || row.status === "manual" || row.status === "failed" ? "warn" : "neutral";
                           const gaps = (result?.gaps || []).filter((gap) => gap.importance === "must" || gap.status !== "met");
                           return (
                             <tr id={`follow-up-${reportAnchor(row.id)}`} key={row.id} className="border-t border-ink-100 align-top">
@@ -1845,7 +1851,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                               <td className="px-3 py-3">
                                 <Pill tone={tone}>{statusLabel}</Pill>
                                 {row.error && <p className="mt-2 max-w-[260px] text-xs leading-5 text-rose-700">{row.error}</p>}
-                                {result?.status === "manual" && <p className="mt-2 max-w-[260px] text-xs leading-5 text-amber-800">{result.reason || "Review the resume manually."}</p>}
+                                {(row.status === "rules_only" || result?.status === "manual") && <p className="mt-2 max-w-[260px] text-xs leading-5 text-amber-800">{result.reason || "Review the resume manually."}</p>}
                               </td>
                               <td className="px-3 py-3 font-mono text-xs text-ink-600">{result?.applicant_id || "—"}</td>
                               <td className="px-3 py-3 font-semibold tabular-nums">{result?.scores?.match == null ? "—" : `${result.scores.match}%`}</td>
@@ -1920,6 +1926,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     </div>}
                     <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={secondaryButton} disabled={atsResumeMatchLoading || !atsApplicationId || !selectedRubricId} onClick={matchExistingAtsResume}>{atsResumeMatchLoading ? "Matching stored resume…" : "Match existing ATS resume"}</button><button type="button" className={primaryButton} disabled={assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard?.request_id || candidateCard?.run_id)} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">Uses the private resume already stored on the candidate profile. No email is sent.</span></div>
                   </div>
+                  {candidateCard.versions?.assessment_mode === "rules_only" && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><p className="text-sm font-semibold text-amber-950">Rules-only assessment</p><p className="mt-1 text-xs leading-5 text-amber-900">{candidateCard.reason || "AI is unavailable. Only direct resume text matches are scored; experience dates and fuzzy criteria need recruiter review."}</p></div>}
                   {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
                   {(candidateCard.evidence || []).map((item) => <EvidenceRatingCard key={`${activeWorkspaceId}:${item.item_id}`} item={item} reviewerName={calibrationReviewerName} onOverride={(status) => overrideCandidateEvidence(item.item_id, status)} onRecordRating={(status, reviewer) => recordCandidateCalibrationRating(item.item_id, status, reviewer)} onResolve={(status, note) => resolveCandidateCalibration(item.item_id, status, note)} />)}
                   {candidateCard.gaps?.length > 0 && <div className="rounded-lg border border-ink-100 bg-white p-4"><h3 className="text-sm font-semibold text-ink-900">Gaps and items to verify</h3><ul className="mt-3 space-y-2">{candidateCard.gaps.map((gap) => <li key={gap.item_id} className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-100 pb-2 last:border-0"><span className="text-sm text-ink-800">{gap.label}{gap.note && <span className="mt-1 block text-xs leading-5 text-ink-500">{gap.note}</span>}</span><Pill tone={gap.importance === "must" ? "warn" : "neutral"}>{gap.status.replaceAll("_", " ")}</Pill></li>)}</ul></div>}
