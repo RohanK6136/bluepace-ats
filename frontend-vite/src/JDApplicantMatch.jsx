@@ -356,6 +356,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [atsApplicationId, setAtsApplicationId] = useState("");
   const [assessmentSaving, setAssessmentSaving] = useState(false);
   const [assessmentSaveMessage, setAssessmentSaveMessage] = useState("");
+  const [savedAtsAssessments, setSavedAtsAssessments] = useState([]);
+  const [savedAtsAssessmentsLoading, setSavedAtsAssessmentsLoading] = useState(false);
+  const [savedAtsAssessmentsError, setSavedAtsAssessmentsError] = useState("");
   const [apiKey, setApiKey] = useState(() => {
     try { return sessionStorage.getItem("bluepace_feature_api_key") || ""; } catch { return ""; }
   });
@@ -625,6 +628,29 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     if (data !== undefined) requestOptions.data = data;
     return apiRequest(token, method, path, requestOptions);
   }, [apiKey, apiRequest, openRouterKey, token]);
+
+  useEffect(() => {
+    if (!atsApplicationId || !token) {
+      setSavedAtsAssessments([]);
+      setSavedAtsAssessmentsError("");
+      return undefined;
+    }
+    let active = true;
+    setSavedAtsAssessmentsLoading(true);
+    setSavedAtsAssessmentsError("");
+    request("get", `/ai-hiring/applications/${Number(atsApplicationId)}/applicant-match-assessments`, undefined, { timeout: 15000 })
+      .then((response) => {
+        if (active) setSavedAtsAssessments(Array.isArray(response.data) ? response.data : []);
+      })
+      .catch((error) => {
+        if (active) {
+          setSavedAtsAssessments([]);
+          setSavedAtsAssessmentsError(explainError(error));
+        }
+      })
+      .finally(() => { if (active) setSavedAtsAssessmentsLoading(false); });
+    return () => { active = false; };
+  }, [atsApplicationId, token, request]);
 
   const refreshConnection = useCallback(async () => {
     setConnection("checking");
@@ -1677,6 +1703,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     </div>
                     {!selectedRubricId && <p className="mt-2 text-xs text-amber-700">A saved rubric is required. Save a rubric in Applicant Match before linking.</p>}
                     {assessmentSaveMessage && <p className={`mt-3 rounded-md px-3 py-2 text-xs leading-5 ${assessmentSaveMessage.includes("saved to the ATS") ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`} role="status">{assessmentSaveMessage}</p>}
+                    {atsApplicationId && <div className="mt-3 rounded-md border border-ink-100 bg-[#fafaf8] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-ink-800">Saved assessments for this application</p><span className="text-[11px] text-ink-500">{savedAtsAssessments.length} record(s)</span></div>
+                      {savedAtsAssessmentsLoading ? <p className="mt-2 text-xs text-ink-500">Loading assessment history…</p>
+                        : savedAtsAssessmentsError ? <p className="mt-2 text-xs text-amber-800">{savedAtsAssessmentsError}</p>
+                          : savedAtsAssessments.length ? <div className="mt-2 space-y-2">{savedAtsAssessments.map((item) => <div key={item.id || item.request_id} className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-2"><div><p className="text-xs font-semibold text-ink-800">{item.rubric_title || "Applicant Match assessment"}</p><p className="text-[11px] text-ink-500">{item.created_at ? new Date(item.created_at).toLocaleString() : "Date unavailable"} · {item.status || "recorded"}</p></div><Pill tone={item.match_score == null ? "warn" : item.match_score >= 75 ? "good" : "neutral"}>{item.match_score == null ? "Manual review" : `${item.match_score}% match`}</Pill></div>)}</div>
+                            : <p className="mt-2 text-xs text-ink-500">No saved Applicant Match assessments for this application yet.</p>}
+                    </div>}
                     <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={primaryButton} disabled={assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard.request_id || candidateCard.run_id)} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">No emails are sent by this action.</span></div>
                   </div>
                   {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
