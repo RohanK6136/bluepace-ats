@@ -55,7 +55,7 @@ function formatProviderMessageForDisplay(message) {
   return text;
 }
 
-function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
+function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed", fallbackReason = "no AI provider key is configured") {
   const source = String(sourceText || "").trim();
   const lines = source.split(/\r?\n/).map((line) => line.trim().replace(/^(?:#{1,6}\s+|[-*•]|\d+[.)])\s*/, "")).filter(Boolean);
   const titleMatch = source.match(/(?:job\s*title|position(?:\s*title)?|role)\s*[:-]\s*([^\r\n]{3,100})/i);
@@ -94,7 +94,7 @@ function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
     "# " + title,
     "",
     "## Draft status",
-    mode === "concise" ? "Local template draft from the supplied notes; AI provider key is not configured. Not AI-rewritten. Verify details before publishing." : "This is a local template draft assembled from the supplied notes because an AI provider key is not configured. It has not been AI-rewritten. Review and complete all details before saving or publishing.",
+    mode === "concise" ? "Local template draft from the supplied notes because " + fallbackReason + ". Not AI-rewritten. Verify details before publishing." : "This is a local template draft assembled from the supplied notes because " + fallbackReason + ". It has not been AI-rewritten. Review and complete all details before saving or publishing.",
     "",
     "## Role details",
     ...detailRows,
@@ -318,8 +318,8 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     }
   }
 
-  function applyLocalJDFallback(chosenDetails) {
-    const fallback = buildLocalJDFallback(sourceText, chosenDetails, mode);
+  function applyLocalJDFallback(chosenDetails, fallbackReason = "no AI provider key is configured") {
+    const fallback = buildLocalJDFallback(sourceText, chosenDetails, mode, fallbackReason);
     const details = fallback.details || {};
     setJobDescription(String(fallback.job_description || ""));
     setJobDetails({
@@ -346,7 +346,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       status: item.resumeData ? "ready" : item.status, error: "",
     })));
     setError("");
-    setNotice("No AI provider key is configured. A local template draft was created from your notes; this is not AI-generated. Add a provider key in Settings to enable AI rewriting.");
+    setNotice("AI generation was unavailable because " + fallbackReason + ". A local template draft was created from your notes; it is not AI-generated. Connect a funded provider in Settings and retry for AI-generated content.");
   }
 
   async function generateJD(overrides = null) {
@@ -416,8 +416,11 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       const message = explainError(requestError);
       const missingProviderKey = /^Add an? .+ API key in settings\b/i.test(message)
         || /API key is not configured/i.test(message);
+      const insufficientCredits = /insufficient credits|account balance|(?:HTTP\s*)?402/i.test(message);
       if (missingProviderKey) {
         applyLocalJDFallback(chosenDetails);
+      } else if (insufficientCredits) {
+        applyLocalJDFallback(chosenDetails, selectedProvider.label + " reports insufficient credits or account balance");
       } else {
         setError(message);
       }
@@ -905,7 +908,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
         <div className="flex gap-1 overflow-x-auto border-b border-slate-200 px-3 py-2 sm:px-5" role="tablist" aria-label="AI Hiring Studio sections">
           {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => { setTab(item.id); setError(""); }} className={"whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition " + (tab === item.id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100")}>{item.label}</button>)}
         </div>
-        {(error || notice) && <div className="px-5 pt-4 sm:px-7">{error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : <div role="status" className={"rounded-lg border px-4 py-3 text-sm " + (notice.startsWith("No AI provider key is configured") ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>{notice}</div>}</div>}
+        {(error || notice) && <div className="px-5 pt-4 sm:px-7">{error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : <div role="status" className={"rounded-lg border px-4 py-3 text-sm " + ((notice.startsWith("No AI provider key is configured") || notice.startsWith("AI generation was unavailable")) ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>{notice}</div>}</div>}
         {providerSetupMissing && <div className="px-5 pt-4 sm:px-7"><div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><p><strong>AI connection needs setup.</strong>{" "}{cloudflareAccountMissing && <>Cloudflare Workers AI requires an Account ID. Enter it in AI settings or configure <code>CLOUDFLARE_ACCOUNT_ID</code> on the backend.</>}</p><button type="button" className="shrink-0 font-semibold underline underline-offset-2" onClick={() => setTab("settings")}>Open AI settings</button></div></div>}
 
         <div className="p-5 sm:p-7">
