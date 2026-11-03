@@ -4,7 +4,9 @@ from local_ai_server import app
 
 
 def test_local_ai_service_exposes_jd_and_applicant_match_routes() -> None:
-    paths = {getattr(route, "path", None) for route in app.routes}
+    # OpenAPI resolves nested FastAPI routers; newer FastAPI versions may keep
+    # included routers as lazy route entries with no direct .path attribute.
+    paths = set(app.openapi()["paths"])
 
     assert "/healthz" in paths
     assert "/v1/models" in paths
