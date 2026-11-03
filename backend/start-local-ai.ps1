@@ -50,6 +50,7 @@ try {
     $env:LLM_PROFILE = "local-ollama"
     $env:OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1"
     $env:OLLAMA_MODEL = $ModelName
+    $env:READYZ_PROBE_TIMEOUT_S = "180"
     $env:DB_PATH = ":memory:"
     $env:STORE_PAYLOADS = "false"
     $env:API_KEYS = ""
