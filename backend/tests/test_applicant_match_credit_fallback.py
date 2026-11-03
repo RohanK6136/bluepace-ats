@@ -9,6 +9,7 @@ from app.core.errors import LLMUnavailable
 from app.features.applicant_match.models import (
     EducationRequirement,
     JobLine,
+    MatchOptions,
     Rubric,
     RubricItem,
 )
@@ -121,9 +122,8 @@ Documented API behaviour and supported production releases.
     )
 
     card = asyncio.run(
-        analyze(rubric, ResumeInput(text=resume_text), options=__import__(
-            "app.features.applicant_match.models", fromlist=["MatchOptions"]
-        ).MatchOptions(), as_of=date(2026, 11, 3), deps=deps)
+        analyze(rubric, ResumeInput(text=resume_text), options=MatchOptions(),
+                as_of=date(2026, 11, 3), deps=deps)
     )
 
     assert card.status == "complete"
