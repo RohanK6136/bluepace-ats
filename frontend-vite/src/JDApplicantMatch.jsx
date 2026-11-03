@@ -707,6 +707,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setAssessmentSaveMessage("");
     setMatchError("");
     try {
+      await request("post", `/ai-hiring/jobs/${Number(atsJobId)}/applicant-match-rubrics`, { rubric_id: selectedRubricId }, { timeout: 20000 });
       const response = await request("post", `/ai-hiring/applications/${applicationId}/applicant-match`, {}, { timeout: 120000 });
       const card = response.data;
       if (!card || !(card.request_id || card.run_id)) {
