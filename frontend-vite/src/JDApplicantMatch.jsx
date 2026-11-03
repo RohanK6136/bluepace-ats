@@ -679,7 +679,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
-    if (apiKey.trim()) headers["X-API-Key"] = apiKey.trim();
+    const isFeatureRoute = String(path || "").startsWith("/v1/");
+    const usingLocalAi = Boolean(localAiApiUrl && isFeatureRoute);
+    if (apiKey.trim() && !usingLocalAi) headers["X-API-Key"] = apiKey.trim();
     // Model credentials are entered in AI Hiring Studio Settings and remain in this browser tab.
     // Only JD & Applicant Match calls the same-origin Vercel function with these headers.
     const keys = [
@@ -699,9 +701,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         if (value) headers[header] = value;
       }
     }
-    const isFeatureRoute = String(path || "").startsWith("/v1/");
     const featureApiBase = options.baseURL || localAiApiUrl || window.location.origin;
-    const requestOptions = { ...options, headers, ...(isFeatureRoute ? { baseURL: featureApiBase } : {}) };
+    const requestOptions = {
+      ...options,
+      headers,
+      ...(isFeatureRoute ? { baseURL: featureApiBase } : {}),
+      ...(usingLocalAi ? { skipAuth: true } : {}),
+    };
     if (data !== undefined) requestOptions.data = data;
     return apiRequest(token, method, path, requestOptions);
   }, [apiKey, apiRequest, localAiApiUrl, openRouterKey, token]);
@@ -779,13 +785,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
     setLocalAiApiTest({ status: "checking", message: "Checking the local API and Ollama inference…" });
     try {
-      const response = await apiRequest(token, "get", "/v1/models", { baseURL, timeout: 10000 });
+      const response = await apiRequest(null, "get", "/v1/models", { baseURL, timeout: 10000, skipAuth: true });
       const rows = Array.isArray(response.data) ? response.data : [];
       const profile = rows.find((model) => model.id === "local-ollama");
       if (!profile || !profile.enabled) {
         throw new Error(profile?.disabled_reason || "Local AI API is online, but its local-ollama model profile is not enabled.");
       }
-      const health = await apiRequest(token, "get", "/v1/models/local-ollama/health", { baseURL, timeout: 30000 });
+      const health = await apiRequest(null, "get", "/v1/models/local-ollama/health", { baseURL, timeout: 30000, skipAuth: true });
       if (!health.data?.ok) throw new Error(health.data?.detail || "Ollama did not answer the inference health check.");
       try { localStorage.setItem(LOCAL_AI_API_STORAGE_KEY, baseURL); } catch { /* Keep the selected URL in memory for this tab. */ }
       setLocalAiApiUrl(baseURL);
@@ -816,7 +822,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setSelectedProfile("");
     setConnection("checking");
     setConnectionMessage("Switching JD & Applicant Match back to the hosted AI API…");
-    void refreshConnection(window.location.origin);
+    // The connection effect will refresh the hosted model list after local mode is cleared.
   }
 
   const refreshSavedRubrics = useCallback(async () => {
