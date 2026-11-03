@@ -56,3 +56,9 @@ Local inference removes model-provider charges, but it still uses your computer'
 Open the BluePace ATS website over its normal HTTPS address. The first time you press **Connect local model**, Chrome may display a Loopback network / local-network permission prompt because the hosted site is connecting to a service on your computer. Choose **Allow**. The app intentionally does not probe the local service automatically during page load; use **Connect local model** or **Reconnect local model** to perform the check from a user action. Current Chrome versions gate public-site requests to loopback addresses behind this permission.
 
 The local API is bound to `127.0.0.1` and is not exposed to other devices on your network. Keep the PowerShell window running while you use local inference. If you close it or stop Ollama, local AI requests will fail until you start the service again.
+
+## Local-mode feature boundary
+
+JD text standardization, rubric drafting and resume-file analysis in the JD & Applicant Match workspace are routed to local Ollama after connection. The separate action that reads a resume already stored privately on an ATS candidate profile still uses the hosted ATS backend, so that action is disabled while local mode is active. Upload the resume in Applicant Match to process it locally instead.
+
+Likewise, a run created by the local companion service is not yet a verified run in the hosted ATS database. In local mode, assessment results remain in the browser workspace; linking that local run to a shared ATS application is disabled rather than sending it to a hosted inference path or pretending it was verified by the server.
