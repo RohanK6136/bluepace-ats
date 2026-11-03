@@ -898,7 +898,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setJdLinkBusy(true); setJdError(""); setJdSourceMessage("");
     try {
       const form = new FormData(); form.append("url", value);
-      const response = await apiRequest(token, "post", "/jobs/preview-url", form, { timeout: 30000 });
+      const response = await request("post", "/jobs/preview-url", form, { timeout: 30000 });
       const data = response.data || {};
       if (!String(data.description || "").trim()) throw new Error("No usable job description was found at that link. Upload the JD document or paste the text instead.");
       setJdText(data.description); setJdResult(null); setJdSourceJobId("");
