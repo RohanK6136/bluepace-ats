@@ -986,8 +986,12 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
   async function compileRubric() {
-    if (!jdText.trim()) {
-      setRubricError("Add a job description on the JD Standardizer tab first, or paste it into the field below.");
+    // Always compile from the text currently visible in the JD editor. A
+    // previously standardized result can be stale or belong to another job,
+    // and must never override the recruiter's latest pasted description.
+    const currentJD = String(jdText ?? "").trim();
+    if (currentJD.length < 15) {
+      setRubricError("Paste a job description with at least 15 characters to build a rubric.");
       return;
     }
     setRubricLoading(true);
@@ -995,17 +999,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("");
     setCandidateCard(null);
     try {
-      // Use the reviewed JD Standardizer result as the source of truth when one
-      // exists. Fall back to the pasted text only when no standardized result is
-      // available, so edits to the JD cannot silently use stale standardized data.
-      const hasStandardizedJob = Boolean(
-        jdResult && Array.isArray(jdResult.sections) && jdResult.sections.length
-      );
-      const rubricSource = hasStandardizedJob
-        ? { job: jdResult }
-        : { jd_text: jdText.trim() };
       const response = await request("post", "/v1/match/rubrics", {
-        ...rubricSource,
+        jd_text: currentJD,
         options: selectedProfile ? { profile: selectedProfile } : {},
       }, { timeout: 120000 });
       const nextRubric = response.data?.rubric || response.data;
