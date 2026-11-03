@@ -50,7 +50,7 @@ try {
     $env:LLM_PROFILE = "local-ollama"
     $env:OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1"
     $env:OLLAMA_MODEL = $ModelName
-    $env:DB_PATH = "./data/local-ai.sqlite"
+    $env:DB_PATH = ":memory:"
     $env:STORE_PAYLOADS = "false"
     $env:API_KEYS = ""
 
