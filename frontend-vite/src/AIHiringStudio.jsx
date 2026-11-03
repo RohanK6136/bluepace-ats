@@ -416,7 +416,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       const message = explainError(requestError);
       const missingProviderKey = /^Add an? .+ API key in settings\b/i.test(message)
         || /API key is not configured/i.test(message);
-      const insufficientCredits = /insufficient credits|account balance|(?:HTTP\\s*)?402/i.test(message);
+      const insufficientCredits = /insufficient credits|account balance|(?:HTTP\s*)?402/i.test(message);
       if (missingProviderKey) {
         applyLocalJDFallback(chosenDetails);
       } else if (insufficientCredits) {
