@@ -2085,6 +2085,25 @@ def create_job(
     return job
 
 
+@app.post("/jobs/preview-url")
+async def preview_job_from_url(
+    url: str = Form(...),
+    user: User = Depends(require_roles(*READ_ROLES)),
+):
+    """Extract a public job posting for JD Standardizer without creating an ATS job."""
+    input_url, markdown_title = _clean_job_link(url)
+    source_url, page_title, page = await asyncio.to_thread(_fetch_job_page, input_url or url)
+    return {
+        "source_url": source_url,
+        "title": (markdown_title or page_title or "").strip(),
+        "description": page.get("description") or "",
+        "location": page.get("location"),
+        "employment_type": page.get("employment_type"),
+        "work_mode": page.get("work_mode"),
+        "company_name": page.get("company_name"),
+    }
+
+
 @app.post("/jobs/from-url", response_model=JobRead, status_code=status.HTTP_201_CREATED)
 async def create_job_from_url(
     url: str = Form(...),
