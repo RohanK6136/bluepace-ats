@@ -397,6 +397,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [localAiApiUrl, setLocalAiApiUrl] = useState(readSavedLocalAiApiUrl);
   const [localAiApiDraft, setLocalAiApiDraft] = useState(readSavedLocalAiApiUrl);
   const [localAiApiTest, setLocalAiApiTest] = useState({ status: "", message: "" });
+  const [localAiApiVerified, setLocalAiApiVerified] = useState(false);
   const [models, setModels] = useState([]);
   const [selectedProfile, setSelectedProfile] = useState(() => initialWorkspace?.selectedProfile || "");
   const [connection, setConnection] = useState("checking");
@@ -789,6 +790,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       try { localStorage.setItem(LOCAL_AI_API_STORAGE_KEY, baseURL); } catch { /* Keep the selected URL in memory for this tab. */ }
       setLocalAiApiUrl(baseURL);
       setLocalAiApiDraft(baseURL);
+      setLocalAiApiVerified(true);
       setLocalAiApiTest({ status: "success", message: `Local inference verified · ${profile.model}` });
       setInferenceTest({ status: "", message: "" });
       setModels(rows);
@@ -797,7 +799,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setConnectionMessage(`Local inference ready · ${profile.model}. JD & Applicant Match runs on this computer.`);
       setNotice("Local Ollama connected. No OpenRouter credits or provider API key are used for JD & Applicant Match.");
     } catch (error) {
-      setLocalAiApiTest({ status: "error", message: explainError(error) });
+      setLocalAiApiVerified(false);
+      const detail = error?.request || /failed to fetch|load failed|networkerror/i.test(String(error?.message || ""))
+        ? "The browser could not reach the local AI service. Keep the local PowerShell window open and approve the browser's Loopback network access prompt for BluePace ATS, then reconnect."
+        : explainError(error);
+      setLocalAiApiTest({ status: "error", message: detail });
     }
   }
 
@@ -805,6 +811,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try { localStorage.removeItem(LOCAL_AI_API_STORAGE_KEY); } catch { /* Ignore unavailable storage. */ }
     setLocalAiApiUrl("");
     setLocalAiApiDraft("");
+    setLocalAiApiVerified(false);
     setLocalAiApiTest({ status: "", message: "" });
     setSelectedProfile("");
     setConnection("checking");
@@ -828,8 +835,20 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }, [request]);
 
   useEffect(() => {
+    if (localAiApiUrl) {
+      if (!localAiApiVerified) {
+        setConnection("unavailable");
+        setConnectionMessage("A local AI endpoint is saved. Select Reconnect local model to approve browser access and verify Ollama.");
+        setLocalAiApiTest((current) => current.message ? current : {
+          status: "",
+          message: "Saved local endpoint. Select Reconnect local model to let the browser connect after the Loopback network permission prompt.",
+        });
+      }
+      return undefined;
+    }
     refreshConnection();
-  }, [refreshConnection]);
+    return undefined;
+  }, [localAiApiUrl, localAiApiVerified, refreshConnection]);
 
   useEffect(() => {
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
@@ -1643,7 +1662,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               {localAiApiUrl && <Pill tone="good">Local mode active</Pill>}
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
-              <Field label="Local AI API URL" hint="Start the local service with backend/start-local-ai.ps1, then use http://127.0.0.1:8000.">
+              <Field label="Local AI API URL" hint="Start backend/start-local-ai.ps1 first. On connect, Chrome may ask to allow this site to access your local network; choose Allow.">
                 <input value={localAiApiDraft} onChange={(event) => setLocalAiApiDraft(event.target.value)} placeholder="http://127.0.0.1:8000" className={fieldClass} />
               </Field>
               <button type="button" className={primaryButton} onClick={() => void connectLocalAiApi()} disabled={localAiApiTest.status === "checking"}>
@@ -1652,7 +1671,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               {localAiApiUrl && <button type="button" className={secondaryButton} onClick={useHostedAiApi}>Use hosted AI</button>}
             </div>
             {localAiApiTest.message && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${localAiApiTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : localAiApiTest.status === "success" ? "border-emerald-200 bg-white text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{localAiApiTest.message}</p>}
-            <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. The local service is loopback-only; keep it running while you use local inference.</p>
+            <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. Chrome may request Loopback network access on your first click; allow it. Keep the local service running while using local inference.</p>
           </div>
         </div>
         {!localAiApiUrl && <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
