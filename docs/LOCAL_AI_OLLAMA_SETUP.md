@@ -50,3 +50,9 @@ The local endpoint is saved in this browser's local storage. To return to hosted
 **Local model not listed:** reconnect after the local service starts. The service uses the `local-ollama` profile from `backend/config/models.yaml`.
 
 Local inference removes model-provider charges, but it still uses your computer's memory, processor/GPU, electricity and disk space.
+
+## Browser permission for local access
+
+Open the BluePace ATS website over its normal HTTPS address. The first time you press **Connect local model**, Chrome may display a Loopback network / local-network permission prompt because the hosted site is connecting to a service on your computer. Choose **Allow**. The app intentionally does not probe the local service automatically during page load; use **Connect local model** or **Reconnect local model** to perform the check from a user action. Current Chrome versions gate public-site requests to loopback addresses behind this permission.
+
+The local API is bound to `127.0.0.1` and is not exposed to other devices on your network. Keep the PowerShell window running while you use local inference. If you close it or stop Ollama, local AI requests will fail until you start the service again.
