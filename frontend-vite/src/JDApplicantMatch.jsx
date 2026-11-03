@@ -784,8 +784,17 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("");
     setCandidateCard(null);
     try {
+      // Use the reviewed JD Standardizer result as the source of truth when one
+      // exists. Fall back to the pasted text only when no standardized result is
+      // available, so edits to the JD cannot silently use stale standardized data.
+      const hasStandardizedJob = Boolean(
+        jdResult && Array.isArray(jdResult.sections) && jdResult.sections.length
+      );
+      const rubricSource = hasStandardizedJob
+        ? { job: jdResult }
+        : { jd_text: jdText.trim() };
       const response = await request("post", "/v1/match/rubrics", {
-        jd_text: jdText.trim(),
+        ...rubricSource,
         options: selectedProfile ? { profile: selectedProfile } : {},
       }, { timeout: 120000 });
       const nextRubric = response.data?.rubric || response.data;
@@ -1366,7 +1375,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               <div className="space-y-4">
                 <SectionHeading eyebrow="Step 01" title="Job description input" detail="Paste the recruiter brief or current job description. The API supports strict standardization and a faster draft mode." />
                 <Field label="Job description or brief" hint={`${jdText.length.toLocaleString()} characters · API input limit is deployment-configured`}>
-                  <textarea value={jdText} onChange={(event) => setJdText(event.target.value)} rows={13} maxLength={60000} placeholder={"Example: Senior Data Engineer\nLocation: Hyderabad / Hybrid\nRequired: Python, SQL, Airflow, cloud data platforms\nResponsibilities: Build reliable data pipelines, own data quality, and partner with analytics teams."} className={`${fieldClass} resize-y leading-6`} />
+                  <textarea value={jdText} onChange={(event) => { setJdText(event.target.value); setJdResult(null); setJdError(""); setRubricError(""); }} rows={13} maxLength={60000} placeholder={"Example: Senior Data Engineer\nLocation: Hyderabad / Hybrid\nRequired: Python, SQL, Airflow, cloud data platforms\nResponsibilities: Build reliable data pipelines, own data quality, and partner with analytics teams."} className={`${fieldClass} resize-y leading-6`} />
                 </Field>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Writing mode">
@@ -1445,7 +1454,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     </select>
                   </Field>
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" className={primaryButton} onClick={compileRubric} disabled={rubricLoading || connection !== "connected" || !jdText.trim()}>{rubricLoading ? "Building…" : "Build rubric from JD text"}</button>
+                    <button type="button" className={primaryButton} onClick={compileRubric} disabled={rubricLoading || connection !== "connected" || !jdText.trim()}>{rubricLoading ? "Building…" : "Build rubric from current JD"}</button>
                     <button type="button" className={secondaryButton} onClick={refreshSavedRubrics} disabled={connection !== "connected" || rubricLoading}>Refresh saved rubrics</button>
                   </div>
                   <ErrorNotice>{rubricError}</ErrorNotice>
