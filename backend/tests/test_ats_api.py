@@ -44,7 +44,11 @@ def client(monkeypatch):
             db.close()
 
     api.app.dependency_overrides[get_db] = override_get_db
+    # These tests use an isolated in-memory database. Startup bootstrap uses
+    # the process-wide SessionLocal, so keep it from touching an uninitialized
+    # application database while the test client starts.
     monkeypatch.setattr(api, "initialize_database", lambda: None)
+    monkeypatch.setattr(api, "ensure_bootstrap_account", lambda: None)
     monkeypatch.setattr(api, "disable_pending_email_records", lambda: 0)
     monkeypatch.setattr(api, "deliver_outbox_email", lambda _email_id: None)
     with TestClient(api.app) as test_client:
