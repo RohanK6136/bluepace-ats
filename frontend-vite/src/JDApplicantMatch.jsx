@@ -380,6 +380,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [jdDetail, setJdDetail] = useState(() => initialWorkspace?.jdDetail || "detailed");
   const [jdResult, setJdResult] = useState(() => initialWorkspace?.jdResult || null);
   const [jdLoading, setJdLoading] = useState(false);
+  const [jdPrepareLoading, setJdPrepareLoading] = useState(false);
   const [jdError, setJdError] = useState("");
   const [rubric, setRubric] = useState(() => initialWorkspace?.rubric || null);
   const [rubricNotes, setRubricNotes] = useState(() => initialWorkspace?.rubricNotes || []);
@@ -854,6 +855,61 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setJdError(explainError(error));
     } finally {
       setJdLoading(false);
+    }
+  }
+
+  async function prepareSelectedJobForMatching() {
+    const jobId = Number(jdSourceJobId);
+    if (!jobId) {
+      setJdError("Choose an existing ATS job to automate JD preparation.");
+      return;
+    }
+    if (!jdText.trim()) {
+      setJdError("The selected ATS job does not contain a description. Add one to the job record first.");
+      return;
+    }
+    setJdPrepareLoading(true);
+    setJdError("");
+    setRubricError("");
+    setNotice("");
+    setCandidateCard(null);
+    try {
+      const jdResponse = await request("post", "/v1/jd/generate", {
+        text: jdText.trim(),
+        options: { mode: jdMode === "verbatim" ? "verbatim" : jdMode === "rewrite" ? "rewrite" : "light", detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) },
+        overrides: {},
+      }, { timeout: 120000 });
+      const standardized = jdResponse.data;
+      if (!standardized || !Array.isArray(standardized.sections) || !standardized.sections.length) {
+        throw new Error("JD Standardizer returned no structured sections. Review the job description and try again.");
+      }
+      setJdResult(standardized);
+      const rubricResponse = await request("post", "/v1/match/rubrics", {
+        job: standardized,
+        options: selectedProfile ? { profile: selectedProfile } : {},
+      }, { timeout: 120000 });
+      const draft = rubricResponse.data?.rubric || rubricResponse.data;
+      if (!draft?.rubric_id || !Array.isArray(draft.items) || !draft.items.length) {
+        throw new Error("The match rubric could not be generated. Check that the JD includes clear requirements and qualifications.");
+      }
+      const saveResponse = await request("post", "/v1/match/rubrics", { rubric: draft }, { timeout: 30000 });
+      const saved = saveResponse.data?.rubric || saveResponse.data;
+      if (!saved?.rubric_id) throw new Error("The rubric was generated but the API did not confirm that it was saved.");
+      const existing = readSavedRubrics().filter((item) => item.rubric_id !== saved.rubric_id);
+      writeSavedRubrics([saved, ...existing]);
+      setRubric(saved);
+      setSelectedRubricId(saved.rubric_id);
+      setRubricNotes(rubricResponse.data?.notes || []);
+      await request("post", `/ai-hiring/jobs/${jobId}/applicant-match-rubrics`, { rubric_id: saved.rubric_id }, { timeout: 20000 });
+      await refreshSavedRubrics();
+      setNotice("JD standardized, match rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume.");
+      setActiveTab("match");
+    } catch (error) {
+      const message = explainError(error);
+      if (!jdResult) setJdError(message);
+      else setRubricError(message);
+    } finally {
+      setJdPrepareLoading(false);
     }
   }
 
@@ -1485,6 +1541,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 <ErrorNotice>{jdError}</ErrorNotice>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" className={primaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()}>{jdLoading ? "Processing…" : "Standardize JD"}</button>
+                  <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || connection !== "connected" || !jdSourceJobId || !jdText.trim()}>{jdPrepareLoading ? "Preparing JD & rubric…" : "Automate JD + match setup"}</button>
                   <button type="button" className={secondaryButton} onClick={() => runJD("fast")} disabled={jdLoading || connection !== "connected" || !jdText.trim()}>{jdLoading ? "Processing…" : "Generate fast draft"}</button>
                   <button type="button" className={secondaryButton} onClick={() => { setJdText(""); setJdResult(null); setJdError(""); setNotice(""); }}>Clear</button>
                 </div>
