@@ -872,7 +872,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   async function uploadJobDescription(file) {
     if (!file) return;
-    if (!/\\.(pdf|docx|doc|txt|md)$/i.test(file.name)) { setJdError("Upload a PDF, DOCX, DOC, TXT, or Markdown job description."); return; }
+    if (!/\.(pdf|docx|doc|txt|md)$/i.test(file.name)) { setJdError("Upload a PDF, DOCX, DOC, TXT, or Markdown job description."); return; }
     if (file.size > 10 * 1024 * 1024) { setJdError("The JD file must be 10 MB or smaller."); return; }
     setJdUploadBusy(true); setJdError(""); setJdSourceMessage("");
     try {
@@ -894,7 +894,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   async function importJobLink() {
     const value = jdLink.trim();
-    if (!/^https?:\\/\\//i.test(value)) { setJdError("Enter a complete public job-posting URL starting with https://."); return; }
+    if (!/^https?:\/\//i.test(value)) { setJdError("Enter a complete public job-posting URL starting with https://."); return; }
     setJdLinkBusy(true); setJdError(""); setJdSourceMessage("");
     try {
       const form = new FormData(); form.append("url", value);
