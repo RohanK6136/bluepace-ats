@@ -204,11 +204,11 @@ async def compile_rubric(job: JobSource, llm: ChatLLM, ctx: CallContext, setting
             # Preserve source-grounded requirements without making paid model calls.
             raw_items = []
             for line in lines:
-                chunks = re.split(r"[,;|]|\\s+(?:and|or)\\s+|\\s*/\\s*", line.text, flags=re.I)
+                chunks = re.split(r"[,;|]|\\s+(?:and|or)\\s+|\s*/\s*", line.text, flags=re.I)
                 for chunk in chunks:
                     label = re.sub(
                         r"^(?:experience with|proficiency in|knowledge of|familiarity with|hands[- ]on experience with|strong knowledge of|skills in)\\s+",
-                        "", chunk.strip(" .:-•\\t"), flags=re.I,
+                        "", chunk.strip(" .:-•\t"), flags=re.I,
                     ).strip()
                     if len(label) >= 2:
                         raw_items.append({"line": line.id, "label": label, "type": "skill", "group": "other"})
