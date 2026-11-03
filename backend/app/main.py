@@ -590,9 +590,11 @@ def ensure_bootstrap_account() -> None:
     password_hash_value = os.getenv("BOOTSTRAP_ADMIN_PASSWORD_HASH", "").strip()
     full_name = os.getenv("BOOTSTRAP_ADMIN_NAME", "Blupace Tech Recruiting").strip() or "Blupace Tech Recruiting"
     organization_name = os.getenv("BOOTSTRAP_ORGANIZATION_NAME", "Blupace Tech").strip() or "Blupace Tech"
-    if not email or not (password or password_hash_value):
-        return
 
+    # The public careers portal needs a stable organization even when bootstrap
+    # admin credentials are intentionally not configured. Creating this single
+    # default organization does not create a user or enable public organization
+    # sign-up; admin provisioning remains credential-gated below.
     with SessionLocal() as db:
         organization = db.scalar(
             select(Organization).where(Organization.name == organization_name).order_by(Organization.id.asc()).limit(1)
@@ -601,6 +603,10 @@ def ensure_bootstrap_account() -> None:
             organization = Organization(name=organization_name)
             db.add(organization)
             db.flush()
+
+        if not email or not (password or password_hash_value):
+            db.commit()
+            return
 
         user = db.scalar(select(User).where(User.email == email))
         if user is None:
