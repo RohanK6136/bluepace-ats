@@ -862,6 +862,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
 
   async function matchExistingAtsResume() {
+    if (localAiApiUrl) {
+      setAssessmentSaveMessage("Local mode does not route the private stored-resume endpoint through Ollama yet. To avoid hosted provider usage, upload the resume in Applicant Match and run the local analysis there.");
+      return;
+    }
     const applicationId = Number(atsApplicationId);
     if (!applicationId || !selectedRubricId) {
       setAssessmentSaveMessage("Choose an ATS application and a saved rubric first.");
@@ -888,6 +892,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
   async function saveAssessmentToATS() {
+    if (localAiApiUrl) {
+      setAssessmentSaveMessage("This result was created by the local AI service. The hosted ATS cannot yet verify that local run for shared application storage. The assessment remains in your local JD & Applicant Match workspace.");
+      return;
+    }
     const jobId = Number(atsJobId);
     const applicationId = Number(atsApplicationId);
     const requestId = String(candidateCard?.request_id || candidateCard?.run_id || "").trim();
@@ -2068,7 +2076,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                           : savedAtsAssessments.length ? <div className="mt-2 space-y-2">{savedAtsAssessments.map((item) => <div key={item.id || item.request_id} className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-2"><div><p className="text-xs font-semibold text-ink-800">{item.rubric_title || "Applicant Match assessment"}</p><p className="text-[11px] text-ink-500">{item.created_at ? new Date(item.created_at).toLocaleString() : "Date unavailable"} · {item.status || "recorded"}</p></div><Pill tone={item.match_score == null ? "warn" : item.match_score >= 75 ? "good" : "neutral"}>{item.match_score == null ? "Manual review" : `${item.match_score}% match`}</Pill></div>)}</div>
                             : <p className="mt-2 text-xs text-ink-500">No saved Applicant Match assessments for this application yet.</p>}
                     </div>}
-                    <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={secondaryButton} disabled={atsResumeMatchLoading || !atsApplicationId || !selectedRubricId} onClick={matchExistingAtsResume}>{atsResumeMatchLoading ? "Matching stored resume…" : "Match existing ATS resume"}</button><button type="button" className={primaryButton} disabled={assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard?.request_id || candidateCard?.run_id)} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">Uses the private resume already stored on the candidate profile. No email is sent.</span></div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={secondaryButton} disabled={localAiApiUrl || atsResumeMatchLoading || !atsApplicationId || !selectedRubricId} title={localAiApiUrl ? "Upload the resume in Applicant Match to use local Ollama. This private ATS-resume endpoint remains hosted." : "Use the resume already stored on the ATS candidate profile."} onClick={matchExistingAtsResume}>{atsResumeMatchLoading ? "Matching stored resume…" : "Match existing ATS resume"}</button><button type="button" className={primaryButton} disabled={localAiApiUrl || assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard?.request_id || candidateCard?.run_id)} title={localAiApiUrl ? "Local AI run IDs cannot yet be verified by the hosted ATS assessment store." : "Save the verified assessment to the ATS application."} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">Uses the private resume already stored on the candidate profile. No email is sent.</span></div>
                   </div>
                   {candidateCard.versions?.assessment_mode === "rules_only" && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><p className="text-sm font-semibold text-amber-950">Rules-only assessment</p><p className="mt-1 text-xs leading-5 text-amber-900">{candidateCard.reason || "AI is unavailable. Only direct resume text matches are scored; experience dates and fuzzy criteria need recruiter review."}</p></div>}
                   {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
