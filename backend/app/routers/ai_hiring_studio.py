@@ -21,6 +21,13 @@ from app.core.logging import api_key_id
 from app.database import Base, get_db
 from app.models import Application, ApplicationMatchAssessment, ApplicantMatchRubricLink, Candidate, Job, Role, User
 from app.security import require_roles
+from datetime import date
+from pathlib import PurePosixPath
+
+from app.services.private_storage import private_storage
+from app.features.applicant_match.models import MatchOptions, Rubric
+from app.features.applicant_match.service import ResumeInput, analyze
+from app.features.applicant_match.routes import _deps as _applicant_match_deps
 from app.services.ai_providers import (
     call_ai_provider as _call_ai_provider,
     model_name as _provider_model_name,
@@ -1251,6 +1258,70 @@ def list_applicant_match_application_choices(
         }
         for row in rows
     ]
+
+
+@router.post("/applications/{application_id}/applicant-match")
+async def match_existing_application_resume(
+    application_id: int,
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+    db: Session = Depends(get_db),
+    p: Platform = Depends(platform),
+    _api_key_check: None = Depends(require_api_key),
+):
+    """Analyse the application's already-stored private resume against its job-linked, approved rubric."""
+    application = db.scalar(select(Application).where(
+        Application.id == application_id,
+        Application.organization_id == user.organization_id,
+    ))
+    if application is None:
+        raise HTTPException(404, "Application not found in this organisation.")
+    job = db.scalar(select(Job).where(
+        Job.id == application.job_id,
+        Job.organization_id == user.organization_id,
+    ))
+    candidate = db.scalar(select(Candidate).where(
+        Candidate.id == application.candidate_id,
+        Candidate.organization_id == user.organization_id,
+    ))
+    if job is None or candidate is None:
+        raise HTTPException(404, "The application candidate or job could not be found.")
+    if not candidate.resume_storage_key:
+        raise HTTPException(409, "This candidate has no stored resume. Upload a resume to the candidate profile first.")
+
+    rubric_link = db.scalar(select(ApplicantMatchRubricLink).where(
+        ApplicantMatchRubricLink.organization_id == user.organization_id,
+        ApplicantMatchRubricLink.job_id == job.id,
+    ).order_by(ApplicantMatchRubricLink.created_at.desc()))
+    if rubric_link is None:
+        raise HTTPException(409, "No approved Applicant Match rubric is linked to this job yet.")
+    stored = p.store.get_rubric(rubric_link.rubric_id)
+    if not stored or stored.get("hash") != rubric_link.rubric_hash:
+        raise HTTPException(409, "The linked rubric version is unavailable or has changed. Review and relink the rubric.")
+    rubric = Rubric.model_validate_json(stored["rubric_json"])
+
+    filename = PurePosixPath(candidate.resume_storage_key.replace("\\", "/")).name
+    suffix = PurePosixPath(filename).suffix.casefold()
+    if suffix not in {".pdf", ".docx", ".txt", ".md"}:
+        raise HTTPException(422, "The stored resume format is not supported for Applicant Match.")
+    try:
+        content = private_storage.read_bytes(candidate.resume_storage_key)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise HTTPException(503, "The stored resume could not be retrieved from private storage.") from error
+    if not content:
+        raise HTTPException(422, "The stored resume file is empty.")
+
+    try:
+        result = await analyze(
+            rubric,
+            ResumeInput(filename=filename, data=content),
+            MatchOptions(),
+            date.today(),
+            _applicant_match_deps(p),
+        )
+    except Exception as error:
+        # Do not expose storage contents, resume text, or provider internals in the API error.
+        raise HTTPException(502, "Applicant Match could not analyse the stored resume. Check the AI provider and try again.") from error
+    return result
 
 
 @router.get("/applications/{application_id}/applicant-match-assessments")
