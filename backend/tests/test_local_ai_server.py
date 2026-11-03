@@ -15,6 +15,7 @@ def test_local_ai_service_exposes_jd_and_applicant_match_routes() -> None:
     assert "/v1/jd/standardize" in paths
     assert "/v1/match/rubrics" in paths
     assert "/v1/match/analyze" in paths
+    assert "/v1/assistant" in paths
 
 
 def test_local_ai_service_cors_allows_supported_bluepace_frontends() -> None:
