@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.config import Settings
+from app.core.errors import LLMUnavailable
 from app.core.hashing import canonical_json, sha256_hex
 from app.core.ingest import ingest_text
 from app.features.applicant_match.llm_schemas import rubric_schema
@@ -195,9 +196,28 @@ async def compile_rubric(job: JobSource, llm: ChatLLM, ctx: CallContext, setting
     if lines:
         tpl = load_prompt("rubric_compile")
         system, user = tpl.render(title=job.title, lines=[{"id": ln.id, "text": ln.text[:300]} for ln in lines])
-        res = await call_with_retry(llm, ctx, settings, "match_rubric", tpl.version, system, user,
-                                    rubric_schema(), cfg["llm"]["rubric_max_tokens"])
-        items = build_items(res.parsed.get("items", []), lines, mp, notes)
+        try:
+            res = await call_with_retry(llm, ctx, settings, "match_rubric", tpl.version, system, user,
+                                        rubric_schema(), cfg["llm"]["rubric_max_tokens"])
+            raw_items = res.parsed.get("items", [])
+        except LLMUnavailable as exc:
+            # Preserve source-grounded requirements without making paid model calls.
+            raw_items = []
+            for line in lines:
+                chunks = re.split(r"[,;|]|\\s+(?:and|or)\\s+|\\s*/\\s*", line.text, flags=re.I)
+                for chunk in chunks:
+                    label = re.sub(
+                        r"^(?:experience with|proficiency in|knowledge of|familiarity with|hands[- ]on experience with|strong knowledge of|skills in)\\s+",
+                        "", chunk.strip(" .:-•\\t"), flags=re.I,
+                    ).strip()
+                    if len(label) >= 2:
+                        raw_items.append({"line": line.id, "label": label, "type": "skill", "group": "other"})
+            notes.append(CompileNote(
+                code="rules_fallback",
+                message="AI rubric generation is unavailable. This draft was built from original JD requirement text using deterministic rules. Review and adjust criteria before saving. "
+                        + str(exc)[:180],
+            ))
+        items = build_items(raw_items, lines, mp, notes)
         covered = {it.source_line for it in items}
         for ln in lines:
             if ln.id not in covered and not OVERALL_YEARS_RE.search(ln.text) \
