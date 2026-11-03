@@ -651,12 +651,45 @@ def _public_organization(db: Session) -> Organization:
         return organization
 
     configured_name = os.getenv("BOOTSTRAP_ORGANIZATION_NAME", "Blupace Tech").strip()
+    explicitly_configured_name = bool(os.getenv("BOOTSTRAP_ORGANIZATION_NAME", "").strip())
     if configured_name:
         named_organization = db.scalar(
             select(Organization).where(Organization.name == configured_name).order_by(Organization.id.asc()).limit(1)
         )
         if named_organization is not None:
-            return named_organization
+            named_jobs = db.scalars(
+                select(Job).where(
+                    Job.organization_id == named_organization.id,
+                    Job.status == "open",
+                )
+            ).all()
+            if any(not _is_demo_job(job) for job in named_jobs) or explicitly_configured_name:
+                return named_organization
+
+    # The default organization may have been created for the portal after the
+    # actual ATS organization already existed. If the default has no publishable
+    # vacancies, resolve to the sole organization that has real open jobs.
+    # An explicitly configured organization is always respected above.
+    if not explicitly_configured_name:
+        organizations_with_open_jobs = db.scalars(
+            select(Organization)
+            .join(Job, Job.organization_id == Organization.id)
+            .where(Job.status == "open")
+            .distinct()
+            .order_by(Organization.id.asc())
+        ).all()
+        organizations_with_public_jobs = []
+        for candidate_org in organizations_with_open_jobs:
+            candidate_jobs = db.scalars(
+                select(Job).where(
+                    Job.organization_id == candidate_org.id,
+                    Job.status == "open",
+                )
+            ).all()
+            if any(not _is_demo_job(job) for job in candidate_jobs):
+                organizations_with_public_jobs.append(candidate_org)
+        if len(organizations_with_public_jobs) == 1:
+            return organizations_with_public_jobs[0]
 
     organizations = db.scalars(select(Organization).order_by(Organization.id.asc()).limit(2)).all()
     if len(organizations) == 1:
