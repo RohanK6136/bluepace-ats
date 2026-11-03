@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- shared pure helpers are imported by multiple UI surfaces. */
 /**
  * Text-quality review badge for candidate/application surfaces.
  * Shows observable signals only — never an AI-vs-human verdict.
