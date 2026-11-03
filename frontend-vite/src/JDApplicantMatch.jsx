@@ -13,6 +13,31 @@ const REVIEW_STAGES = [
 ];
 const WORKSPACE_STORAGE_KEY = "bluepace_jd_match_workspaces_v1";
 const ACTIVE_WORKSPACE_KEY = "bluepace_jd_match_active_workspace_v1";
+const LOCAL_AI_API_STORAGE_KEY = "bluepace_jd_match_local_ai_api_v1";
+
+function normalizeLocalAiApiUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || "").trim());
+  } catch {
+    throw new Error("Enter a valid local API URL, for example http://127.0.0.1:8000.");
+  }
+  const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (parsed.protocol !== "http:" || !["localhost", "127.0.0.1", "::1"].includes(host)
+      || parsed.username || parsed.password || parsed.search || parsed.hash || !["", "/"].includes(parsed.pathname)) {
+    throw new Error("For safety, the local AI URL must be an HTTP loopback address such as http://127.0.0.1:8000.");
+  }
+  return parsed.origin;
+}
+
+function readSavedLocalAiApiUrl() {
+  try {
+    const value = localStorage.getItem(LOCAL_AI_API_STORAGE_KEY) || "";
+    return value ? normalizeLocalAiApiUrl(value) : "";
+  } catch {
+    return "";
+  }
+}
 
 function readWorkspaces() {
   try {
@@ -369,6 +394,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [openRouterKey, setOpenRouterKey] = useState(() => sessionProviderKey("openrouter"));
   const [openRouterKeyDraft, setOpenRouterKeyDraft] = useState(() => sessionProviderKey("openrouter"));
   const [inferenceTest, setInferenceTest] = useState({ status: "", message: "" });
+  const [localAiApiUrl, setLocalAiApiUrl] = useState(readSavedLocalAiApiUrl);
+  const [localAiApiDraft, setLocalAiApiDraft] = useState(readSavedLocalAiApiUrl);
+  const [localAiApiTest, setLocalAiApiTest] = useState({ status: "", message: "" });
+  const [localAiApiVerified, setLocalAiApiVerified] = useState(false);
   const [models, setModels] = useState([]);
   const [selectedProfile, setSelectedProfile] = useState(() => initialWorkspace?.selectedProfile || "");
   const [connection, setConnection] = useState("checking");
@@ -650,7 +679,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
-    if (apiKey.trim()) headers["X-API-Key"] = apiKey.trim();
+    const isFeatureRoute = String(path || "").startsWith("/v1/");
+    const usingLocalAi = Boolean(localAiApiUrl && isFeatureRoute);
+    if (apiKey.trim() && !usingLocalAi) headers["X-API-Key"] = apiKey.trim();
     // Model credentials are entered in AI Hiring Studio Settings and remain in this browser tab.
     // Only JD & Applicant Match calls the same-origin Vercel function with these headers.
     const keys = [
@@ -660,17 +691,27 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       ["xai", "X-XAI-Api-Key"],
       ["openai", "X-OpenAI-Api-Key"],
     ];
-    for (const [provider, header] of keys) {
-      const value = provider === "openrouter"
-        ? (sessionProviderKey(provider) || openRouterKey)
-        : sessionProviderKey(provider);
-      if (value) headers[header] = value;
+    // Hosted provider keys are only forwarded to the hosted same-origin model proxy.
+    // Local Ollama does not need a provider key and receives none from this browser.
+    if (!localAiApiUrl && !options.baseURL) {
+      for (const [provider, header] of keys) {
+        const value = provider === "openrouter"
+          ? (sessionProviderKey(provider) || openRouterKey)
+          : sessionProviderKey(provider);
+        if (value) headers[header] = value;
+      }
     }
-    const isFeatureRoute = String(path || "").startsWith("/v1/");
-    const requestOptions = { ...options, headers, ...(isFeatureRoute ? { baseURL: window.location.origin } : {}) };
+    const featureApiBase = options.baseURL || localAiApiUrl || window.location.origin;
+    const requestOptions = {
+      ...options,
+      ...(usingLocalAi ? { timeout: Math.max(Number(options.timeout) || 0, 300000) } : {}),
+      headers,
+      ...(isFeatureRoute ? { baseURL: featureApiBase } : {}),
+      ...(usingLocalAi ? { skipAuth: true } : {}),
+    };
     if (data !== undefined) requestOptions.data = data;
     return apiRequest(token, method, path, requestOptions);
-  }, [apiKey, apiRequest, openRouterKey, token]);
+  }, [apiKey, apiRequest, localAiApiUrl, openRouterKey, token]);
 
   useEffect(() => {
     if (!atsApplicationId || !token) {
@@ -695,16 +736,33 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     return () => { active = false; };
   }, [atsApplicationId, token, request]);
 
-  const refreshConnection = useCallback(async () => {
+  const refreshConnection = useCallback(async (baseURLOverride = null) => {
     setConnection("checking");
-    setConnectionMessage("Checking the AI Feature API…");
+    setConnectionMessage(localAiApiUrl && !baseURLOverride ? "Checking the local AI service and Ollama model…" : "Checking the AI Feature API…");
     try {
-      const response = await request("get", "/v1/models", undefined, { timeout: 8000 });
+      const response = await request("get", "/v1/models", undefined, {
+        timeout: 10000,
+        ...(baseURLOverride ? { baseURL: baseURLOverride } : {}),
+      });
       const rows = Array.isArray(response.data) ? response.data : [];
+      const usingLocal = Boolean(localAiApiUrl && !baseURLOverride);
+      const localModel = rows.find((model) => model.id === "local-ollama");
+      if (usingLocal) {
+        if (!localModel || !localModel.enabled) {
+          throw new Error(localModel?.disabled_reason || "The local AI service does not expose an enabled local-ollama profile.");
+        }
+        const health = await request("get", "/v1/models/local-ollama/health", undefined, { timeout: 30000 });
+        if (!health.data?.ok) throw new Error(health.data?.detail || "Ollama did not respond to the local inference check.");
+        setLocalAiApiTest({ status: "success", message: `Local inference verified · ${localModel.model}` });
+      } else if (baseURLOverride) {
+        setLocalAiApiTest({ status: "", message: "" });
+      }
       setModels(rows);
       setConnection("connected");
       const readyCount = rows.filter((model) => model.enabled).length;
-      setConnectionMessage(rows.length ? (readyCount ? `${readyCount} model profile(s) ready` : "API is reachable, but no provider key is configured. Add one in AI Hiring Studio Settings.") : "API reachable; no model profiles were returned");
+      setConnectionMessage(usingLocal
+        ? `Local inference ready · ${localModel.model}. JD & Applicant Match runs on this computer.`
+        : rows.length ? (readyCount ? `${readyCount} model profile(s) ready` : "API is reachable, but no provider key is configured. Add one in AI Hiring Studio Settings.") : "API reachable; no model profiles were returned");
       setSelectedProfile((current) => rows.find((model) => model.id === current && model.enabled)?.id || rows.find((model) => model.enabled && model.is_default)?.id || rows.find((model) => model.enabled)?.id || "");
       setJdError("");
       setRubricError((current) => current.includes("does not expose") ? "" : current);
@@ -712,8 +770,61 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setModels([]);
       setConnection("unavailable");
       setConnectionMessage(explainError(error));
+      if (localAiApiUrl && !baseURLOverride) {
+        setLocalAiApiTest({ status: "error", message: explainError(error) });
+      }
     }
-  }, [request]);
+  }, [localAiApiUrl, request]);
+
+  async function connectLocalAiApi() {
+    let baseURL;
+    try {
+      baseURL = normalizeLocalAiApiUrl(localAiApiDraft);
+    } catch (error) {
+      setLocalAiApiTest({ status: "error", message: error.message });
+      return;
+    }
+    setLocalAiApiTest({ status: "checking", message: "Checking the local API and Ollama inference…" });
+    try {
+      const response = await apiRequest(null, "get", "/v1/models", { baseURL, timeout: 10000, skipAuth: true });
+      const rows = Array.isArray(response.data) ? response.data : [];
+      const profile = rows.find((model) => model.id === "local-ollama");
+      if (!profile || !profile.enabled) {
+        throw new Error(profile?.disabled_reason || "Local AI API is online, but its local-ollama model profile is not enabled.");
+      }
+      const health = await apiRequest(null, "get", "/v1/models/local-ollama/health", { baseURL, timeout: 200000, skipAuth: true });
+      if (!health.data?.ok) throw new Error(health.data?.detail || "Ollama did not answer the inference health check.");
+      try { localStorage.setItem(LOCAL_AI_API_STORAGE_KEY, baseURL); } catch { /* Keep the selected URL in memory for this tab. */ }
+      setLocalAiApiUrl(baseURL);
+      setLocalAiApiDraft(baseURL);
+      setLocalAiApiVerified(true);
+      setLocalAiApiTest({ status: "success", message: `Local inference verified · ${profile.model}` });
+      setInferenceTest({ status: "", message: "" });
+      setModels(rows);
+      setSelectedProfile("local-ollama");
+      setConnection("connected");
+      setConnectionMessage(`Local inference ready · ${profile.model}. JD & Applicant Match runs on this computer.`);
+      setNotice("Local Ollama connected. No OpenRouter credits or provider API key are used for JD & Applicant Match.");
+    } catch (error) {
+      setLocalAiApiVerified(false);
+      const detail = error?.request || /failed to fetch|load failed|networkerror/i.test(String(error?.message || ""))
+        ? "The browser could not reach the local AI service. Keep the local PowerShell window open and approve the browser's Loopback network access prompt for BluePace ATS, then reconnect."
+        : explainError(error);
+      setLocalAiApiTest({ status: "error", message: detail });
+    }
+  }
+
+  function useHostedAiApi() {
+    try { localStorage.removeItem(LOCAL_AI_API_STORAGE_KEY); } catch { /* Ignore unavailable storage. */ }
+    setLocalAiApiUrl("");
+    setLocalAiApiDraft("");
+    setLocalAiApiVerified(false);
+    setLocalAiApiTest({ status: "", message: "" });
+    setSelectedProfile("");
+    setConnection("checking");
+    setConnectionMessage("Switching JD & Applicant Match back to the hosted AI API…");
+    // The connection effect will refresh the hosted model list after local mode is cleared.
+  }
 
   const refreshSavedRubrics = useCallback(async () => {
     const localRows = readSavedRubrics();
@@ -731,8 +842,20 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }, [request]);
 
   useEffect(() => {
+    if (localAiApiUrl) {
+      if (!localAiApiVerified) {
+        setConnection("unavailable");
+        setConnectionMessage("A local AI endpoint is saved. Select Reconnect local model to approve browser access and verify Ollama.");
+        setLocalAiApiTest((current) => current.message ? current : {
+          status: "",
+          message: "Saved local endpoint. Select Reconnect local model to let the browser connect after the Loopback network permission prompt.",
+        });
+      }
+      return undefined;
+    }
     refreshConnection();
-  }, [refreshConnection]);
+    return undefined;
+  }, [localAiApiUrl, localAiApiVerified, refreshConnection]);
 
   useEffect(() => {
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
@@ -740,6 +863,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
 
   async function matchExistingAtsResume() {
+    if (localAiApiUrl) {
+      setAssessmentSaveMessage("Local mode does not route the private stored-resume endpoint through Ollama yet. To avoid hosted provider usage, upload the resume in Applicant Match and run the local analysis there.");
+      return;
+    }
     const applicationId = Number(atsApplicationId);
     if (!applicationId || !selectedRubricId) {
       setAssessmentSaveMessage("Choose an ATS application and a saved rubric first.");
@@ -766,6 +893,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
   async function saveAssessmentToATS() {
+    if (localAiApiUrl) {
+      setAssessmentSaveMessage("This result was created by the local AI service. The hosted ATS cannot yet verify that local run for shared application storage. The assessment remains in your local JD & Applicant Match workspace.");
+      return;
+    }
     const jobId = Number(atsJobId);
     const applicationId = Number(atsApplicationId);
     const requestId = String(candidateCard?.request_id || candidateCard?.run_id || "").trim();
@@ -1537,6 +1668,28 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           </div>
         </div>
         <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-emerald-950">Local Ollama connection</p>
+                <p className="mt-1 text-xs leading-5 text-emerald-900">Run Qwen3 8B on this computer for JD Standardizer and Applicant Match. No provider key, OpenRouter credits or cloud inference charges.</p>
+              </div>
+              {localAiApiUrl && <Pill tone="good">Local mode active</Pill>}
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+              <Field label="Local AI API URL" hint="Start backend/start-local-ai.ps1 first. On connect, Chrome may ask to allow this site to access your local network; choose Allow.">
+                <input value={localAiApiDraft} onChange={(event) => setLocalAiApiDraft(event.target.value)} placeholder="http://127.0.0.1:8000" className={fieldClass} />
+              </Field>
+              <button type="button" className={primaryButton} onClick={() => void connectLocalAiApi()} disabled={localAiApiTest.status === "checking"}>
+                {localAiApiTest.status === "checking" ? "Connecting…" : localAiApiUrl ? "Reconnect local model" : "Connect local model"}
+              </button>
+              {localAiApiUrl && <button type="button" className={secondaryButton} onClick={useHostedAiApi}>Use hosted AI</button>}
+            </div>
+            {localAiApiTest.message && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${localAiApiTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : localAiApiTest.status === "success" ? "border-emerald-200 bg-white text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{localAiApiTest.message}</p>}
+            <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. Chrome may request Loopback network access on your first click; allow it. Keep the local service running while using local inference.</p>
+          </div>
+        </div>
+        {!localAiApiUrl && <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <Field label="OpenRouter API key (provider credential)" hint="This key authorizes model generation. It is different from the optional X-API-Key field below and is kept only in this browser tab session.">
               <input type="password" autoComplete="off" value={openRouterKeyDraft} onChange={(event) => setOpenRouterKeyDraft(event.target.value)} placeholder="sk-or-v1-…" className={fieldClass} />
@@ -1548,7 +1701,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           </div>
           <p className="mt-2 text-[11px] leading-5 text-ink-500">The inference test sends a tiny prompt to the selected OpenRouter model and can incur a small provider charge. The key is not displayed in test results or logged by this UI.</p>
           {inferenceTest.message && <div role="status" className={"mt-3 rounded-md border px-3 py-2 text-xs leading-5 " + (inferenceTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : inferenceTest.status === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900")}>{inferenceTest.message}</div>}
-        </div>
+        </div>}
         <details className="border-b border-ink-100 px-5 py-3 sm:px-6">
           <summary className="cursor-pointer text-xs font-semibold text-ink-600">API access settings (optional)</summary>
           <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
@@ -1562,7 +1715,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           {connection === "connected" && models.some((model) => model.id === "rules" && model.enabled) && models.filter((model) => model.id !== "rules").every((model) => !model.enabled) && (
             <div role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
               <p className="font-semibold">Built-in Rules Engine is enabled; hosted AI keys are not configured.</p>
-              <p className="mt-1">You can standardize a JD, build a rubric and compare resumes using explicit keyword evidence now. This is deterministic text matching, not generative AI; it can miss synonyms and context. To enable hosted AI models, save a valid provider API key in AI Hiring Studio → Settings for this browser tab.</p>
+              <p className="mt-1">You can standardize a JD, build a rubric and compare resumes using explicit keyword evidence now. This is deterministic text matching, not generative AI; it can miss synonyms and context. To use hosted AI, save a valid provider API key above. To avoid provider credits, connect the local Ollama model above.</p>
             </div>
           )}
           {connection === "connected" && models.length > 0 && models.every((model) => !model.enabled) && (
@@ -1924,7 +2077,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                           : savedAtsAssessments.length ? <div className="mt-2 space-y-2">{savedAtsAssessments.map((item) => <div key={item.id || item.request_id} className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-2"><div><p className="text-xs font-semibold text-ink-800">{item.rubric_title || "Applicant Match assessment"}</p><p className="text-[11px] text-ink-500">{item.created_at ? new Date(item.created_at).toLocaleString() : "Date unavailable"} · {item.status || "recorded"}</p></div><Pill tone={item.match_score == null ? "warn" : item.match_score >= 75 ? "good" : "neutral"}>{item.match_score == null ? "Manual review" : `${item.match_score}% match`}</Pill></div>)}</div>
                             : <p className="mt-2 text-xs text-ink-500">No saved Applicant Match assessments for this application yet.</p>}
                     </div>}
-                    <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={secondaryButton} disabled={atsResumeMatchLoading || !atsApplicationId || !selectedRubricId} onClick={matchExistingAtsResume}>{atsResumeMatchLoading ? "Matching stored resume…" : "Match existing ATS resume"}</button><button type="button" className={primaryButton} disabled={assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard?.request_id || candidateCard?.run_id)} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">Uses the private resume already stored on the candidate profile. No email is sent.</span></div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={secondaryButton} disabled={localAiApiUrl || atsResumeMatchLoading || !atsApplicationId || !selectedRubricId} title={localAiApiUrl ? "Upload the resume in Applicant Match to use local Ollama. This private ATS-resume endpoint remains hosted." : "Use the resume already stored on the ATS candidate profile."} onClick={matchExistingAtsResume}>{atsResumeMatchLoading ? "Matching stored resume…" : "Match existing ATS resume"}</button><button type="button" className={primaryButton} disabled={localAiApiUrl || assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard?.request_id || candidateCard?.run_id)} title={localAiApiUrl ? "Local AI run IDs cannot yet be verified by the hosted ATS assessment store." : "Save the verified assessment to the ATS application."} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">Uses the private resume already stored on the candidate profile. No email is sent.</span></div>
                   </div>
                   {candidateCard.versions?.assessment_mode === "rules_only" && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><p className="text-sm font-semibold text-amber-950">Rules-only assessment</p><p className="mt-1 text-xs leading-5 text-amber-900">{candidateCard.reason || "AI is unavailable. Only direct resume text matches are scored; experience dates and fuzzy criteria need recruiter review."}</p></div>}
                   {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
@@ -1937,7 +2090,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           )}
         </div>
       </section>
-      <p className="text-xs leading-5 text-ink-500">Privacy and audit note: AI calls require a configured backend model provider. Candidate assessments remain recruiter decision support; confirm evidence and do not use the score alone to make hiring decisions.</p>
+      <p className="text-xs leading-5 text-ink-500">Privacy and audit note: AI calls use the selected hosted provider or the connected local Ollama service. Candidate assessments remain recruiter decision support; confirm evidence and do not use the score alone to make hiring decisions.</p>
     </div>
   );
 }

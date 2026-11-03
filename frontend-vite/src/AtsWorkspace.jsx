@@ -146,7 +146,8 @@ async function refreshAccessToken(currentToken) {
 }
 
 async function apiRequest(token, method, path, options = {}) {
-  let requestToken = token || sessionStorage.getItem("bluepace_token") || "";
+  const { skipAuth = false, ...axiosOptions } = options;
+  let requestToken = skipAuth ? "" : token || sessionStorage.getItem("bluepace_token") || "";
   let refreshed = false;
   const isAuthRequest = /^\/auth\/(token|register|logout)$/.test(path);
   const requestTimeout = options.timeout ?? (isAuthRequest ? AUTH_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
@@ -157,15 +158,15 @@ async function apiRequest(token, method, path, options = {}) {
         method,
         url: path,
         timeout: requestTimeout,
-        ...options,
+        ...axiosOptions,
         headers: {
           ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}),
-          ...options.headers,
+          ...axiosOptions.headers,
         },
       });
     } catch (error) {
       if (isAuthRequest) throw error;
-      const canRefresh = Boolean(requestToken)
+      const canRefresh = !skipAuth && Boolean(requestToken)
         && !refreshed
         && error.response?.status === 401
         && !path.startsWith("/auth/token")
