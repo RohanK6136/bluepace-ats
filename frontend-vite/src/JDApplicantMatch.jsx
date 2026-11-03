@@ -374,6 +374,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [connection, setConnection] = useState("checking");
   const [connectionMessage, setConnectionMessage] = useState("Checking the AI Feature API…");
   const [jdText, setJdText] = useState(() => initialWorkspace?.jdText || "");
+  const [jdSourceJobId, setJdSourceJobId] = useState("");
+  const [jdSourceMessage, setJdSourceMessage] = useState("");
   const [jdMode, setJdMode] = useState(() => initialWorkspace?.jdMode || "light");
   const [jdDetail, setJdDetail] = useState(() => initialWorkspace?.jdDetail || "detailed");
   const [jdResult, setJdResult] = useState(() => initialWorkspace?.jdResult || null);
@@ -397,6 +399,34 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
   const [batchError, setBatchError] = useState("");
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    if (!jdSourceJobId) return;
+    const selectedJob = jobs.find((job) => String(job?.id) === String(jdSourceJobId));
+    if (!selectedJob) {
+      setJdSourceMessage("The selected ATS job is no longer available. Refresh the jobs list and try again.");
+      return;
+    }
+    const description = [
+      selectedJob.description,
+      selectedJob.job_description,
+      selectedJob.jobDescription,
+      selectedJob.jd,
+      selectedJob.responsibilities,
+      selectedJob.requirements,
+      selectedJob.qualifications,
+    ].filter((value) => typeof value === "string" && value.trim()).join("\\n\\n");
+    if (!description.trim()) {
+      setJdSourceMessage("This ATS job has no saved description yet. Add a description to the job record or use the manual field below.");
+      return;
+    }
+    setJdText(description.trim());
+    setJdResult(null);
+    setJdError("");
+    setRubricError("");
+    setJdSourceMessage(`Loaded the description from ${selectedJob.title || selectedJob.job_title || `Job #${selectedJob.id}`}. Run Standardize JD to prepare the structured version.`);
+    setActiveTab("jd");
+  }, [jdSourceJobId, jobs]);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -1426,7 +1456,14 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           {activeTab === "jd" && (
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(330px,0.9fr)]">
               <div className="space-y-4">
-                <SectionHeading eyebrow="Step 01" title="Job description input" detail="Paste the recruiter brief or current job description. The API supports strict standardization and a faster draft mode." />
+                <SectionHeading eyebrow="Step 01" title="Job description input" detail="Load the description from an existing ATS job, or use the manual field for an external role." />
+                <Field label="Import from existing ATS job" hint="Selecting a job automatically loads its saved description below.">
+                  <select value={jdSourceJobId} onChange={(event) => { setJdSourceJobId(event.target.value); setJdSourceMessage(""); }} className={fieldClass}>
+                    <option value="">Choose an ATS job to import…</option>
+                    {jobs.filter((job) => job && job.id != null).map((job) => <option key={job.id} value={job.id}>{job.title || job.job_title || `Job #${job.id}`}</option>)}
+                  </select>
+                </Field>
+                {jdSourceMessage && <p role="status" className="rounded-md border border-ink-100 bg-ink-50 px-3 py-2 text-xs leading-5 text-ink-700">{jdSourceMessage}</p>}
                 <Field label="Job description or brief" hint={`${jdText.length.toLocaleString()} characters · API input limit is deployment-configured`}>
                   <textarea value={jdText} onChange={(event) => { setJdText(event.target.value); setJdResult(null); setJdError(""); setRubricError(""); }} rows={13} maxLength={60000} placeholder={"Example: Senior Data Engineer\nLocation: Hyderabad / Hybrid\nRequired: Python, SQL, Airflow, cloud data platforms\nResponsibilities: Build reliable data pipelines, own data quality, and partner with analytics teams."} className={`${fieldClass} resize-y leading-6`} />
                 </Field>
