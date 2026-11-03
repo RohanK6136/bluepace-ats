@@ -55,7 +55,7 @@ function formatProviderMessageForDisplay(message) {
   return text;
 }
 
-function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
+function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed", fallbackReason = "no AI provider key is configured") {
   const source = String(sourceText || "").trim();
   const lines = source.split(/\r?\n/).map((line) => line.trim().replace(/^(?:#{1,6}\s+|[-*•]|\d+[.)])\s*/, "")).filter(Boolean);
   const titleMatch = source.match(/(?:job\s*title|position(?:\s*title)?|role)\s*[:-]\s*([^\r\n]{3,100})/i);
@@ -94,7 +94,7 @@ function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed") {
     "# " + title,
     "",
     "## Draft status",
-    mode === "concise" ? "Local template draft from the supplied notes; AI provider key is not configured. Not AI-rewritten. Verify details before publishing." : "This is a local template draft assembled from the supplied notes because an AI provider key is not configured. It has not been AI-rewritten. Review and complete all details before saving or publishing.",
+    mode === "concise" ? "Local template draft from the supplied notes because " + fallbackReason + ". Not AI-rewritten. Verify details before publishing." : "This is a local template draft assembled from the supplied notes because " + fallbackReason + ". It has not been AI-rewritten. Review and complete all details before saving or publishing.",
     "",
     "## Role details",
     ...detailRows,
@@ -318,8 +318,8 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     }
   }
 
-  function applyLocalJDFallback(chosenDetails) {
-    const fallback = buildLocalJDFallback(sourceText, chosenDetails, mode);
+  function applyLocalJDFallback(chosenDetails, fallbackReason = "no AI provider key is configured") {
+    const fallback = buildLocalJDFallback(sourceText, chosenDetails, mode, fallbackReason);
     const details = fallback.details || {};
     setJobDescription(String(fallback.job_description || ""));
     setJobDetails({
@@ -346,7 +346,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       status: item.resumeData ? "ready" : item.status, error: "",
     })));
     setError("");
-    setNotice("No AI provider key is configured. A local template draft was created from your notes; this is not AI-generated. Add a provider key in Settings to enable AI rewriting.");
+    setNotice("AI generation was unavailable because " + fallbackReason + ". A local template draft was created from your notes; it is not AI-generated. Connect a funded provider in Settings and retry for AI-generated content.");
   }
 
   async function generateJD(overrides = null) {
@@ -416,8 +416,11 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       const message = explainError(requestError);
       const missingProviderKey = /^Add an? .+ API key in settings\b/i.test(message)
         || /API key is not configured/i.test(message);
+      const insufficientCredits = /insufficient credits|account balance|(?:HTTP\\s*)?402/i.test(message);
       if (missingProviderKey) {
         applyLocalJDFallback(chosenDetails);
+      } else if (insufficientCredits) {
+        applyLocalJDFallback(chosenDetails, selectedProvider.label + " reports insufficient credits or account balance");
       } else {
         setError(message);
       }
