@@ -355,6 +355,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [atsJobId, setAtsJobId] = useState("");
   const [atsApplicationId, setAtsApplicationId] = useState("");
   const [assessmentSaving, setAssessmentSaving] = useState(false);
+  const [atsResumeMatchLoading, setAtsResumeMatchLoading] = useState(false);
   const [assessmentSaveMessage, setAssessmentSaveMessage] = useState("");
   const [savedAtsAssessments, setSavedAtsAssessments] = useState([]);
   const [savedAtsAssessmentsLoading, setSavedAtsAssessmentsLoading] = useState(false);
@@ -695,6 +696,31 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
   }, [activeTab, connection, refreshSavedRubrics]);
 
+
+  async function matchExistingAtsResume() {
+    const applicationId = Number(atsApplicationId);
+    if (!applicationId || !selectedRubricId) {
+      setAssessmentSaveMessage("Choose an ATS application and a saved rubric first.");
+      return;
+    }
+    setAtsResumeMatchLoading(true);
+    setAssessmentSaveMessage("");
+    setMatchError("");
+    try {
+      const response = await request("post", `/ai-hiring/applications/${applicationId}/applicant-match`, {}, { timeout: 120000 });
+      const card = response.data;
+      if (!card || !(card.request_id || card.run_id)) {
+        throw new Error("The API returned no verifiable match run. Please retry.");
+      }
+      setCandidateCard(card);
+      setAssessmentSaveMessage("Existing ATS resume analysed successfully. Review the evidence, gaps and score, then save the assessment.");
+      setActiveTab("match");
+    } catch (error) {
+      setAssessmentSaveMessage(explainError(error));
+    } finally {
+      setAtsResumeMatchLoading(false);
+    }
+  }
 
   async function saveAssessmentToATS() {
     const jobId = Number(atsJobId);
@@ -1710,7 +1736,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                           : savedAtsAssessments.length ? <div className="mt-2 space-y-2">{savedAtsAssessments.map((item) => <div key={item.id || item.request_id} className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-2"><div><p className="text-xs font-semibold text-ink-800">{item.rubric_title || "Applicant Match assessment"}</p><p className="text-[11px] text-ink-500">{item.created_at ? new Date(item.created_at).toLocaleString() : "Date unavailable"} · {item.status || "recorded"}</p></div><Pill tone={item.match_score == null ? "warn" : item.match_score >= 75 ? "good" : "neutral"}>{item.match_score == null ? "Manual review" : `${item.match_score}% match`}</Pill></div>)}</div>
                             : <p className="mt-2 text-xs text-ink-500">No saved Applicant Match assessments for this application yet.</p>}
                     </div>}
-                    <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={primaryButton} disabled={assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard.request_id || candidateCard.run_id)} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">No emails are sent by this action.</span></div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={secondaryButton} disabled={atsResumeMatchLoading || !atsApplicationId || !selectedRubricId} onClick={matchExistingAtsResume}>{atsResumeMatchLoading ? "Matching stored resume…" : "Match existing ATS resume"}</button><button type="button" className={primaryButton} disabled={assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard?.request_id || candidateCard?.run_id)} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">Uses the private resume already stored on the candidate profile. No email is sent.</span></div>
                   </div>
                   {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
                   {(candidateCard.evidence || []).map((item) => <EvidenceRatingCard key={`${activeWorkspaceId}:${item.item_id}`} item={item} reviewerName={calibrationReviewerName} onOverride={(status) => overrideCandidateEvidence(item.item_id, status)} onRecordRating={(status, reviewer) => recordCandidateCalibrationRating(item.item_id, status, reviewer)} onResolve={(status, note) => resolveCandidateCalibration(item.item_id, status, note)} />)}
