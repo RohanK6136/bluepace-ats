@@ -106,7 +106,14 @@ async def healthz() -> dict[str, str]:
 async def list_models(p: Platform = Depends(platform)) -> list[dict]:
     if p.registry is None:
         raise HTTPException(status_code=503, detail="Local AI model registry is unavailable.")
-    return [profile.model_dump(mode="json") for profile in p.registry.statuses()]
+    # This companion starts exactly one local model profile. Do not expose
+    # other locally configured endpoints (for example LM Studio on port 1235)
+    # as selectable when this process only starts Ollama.
+    return [
+        profile.model_dump(mode="json")
+        for profile in p.registry.statuses()
+        if profile.id == p.registry.default_id
+    ]
 
 
 @app.get(
@@ -115,8 +122,8 @@ async def list_models(p: Platform = Depends(platform)) -> list[dict]:
     dependencies=[Depends(require_api_key)],
 )
 async def model_health(profile_id: str, p: Platform = Depends(platform)) -> dict[str, object]:
-    if p.registry is None or profile_id not in p.registry.ids():
-        raise HTTPException(status_code=404, detail=f"Unknown model profile: {profile_id}")
+    if p.registry is None or profile_id != p.registry.default_id:
+        raise HTTPException(status_code=404, detail=f"Unknown local model profile: {profile_id}")
     problem = await p.llm.probe(profile_id)
     return {"profile": profile_id, "ok": problem is None, "detail": problem}
 
