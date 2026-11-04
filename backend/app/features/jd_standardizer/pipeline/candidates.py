@@ -159,7 +159,7 @@ def find_candidates(cleaned: CleanResult, seg: Segmentation, policy: Policy,
         if b.kind == "kv" and b.kv_kind == "fact_location" and b.value:
             loc_sources.append((b.line_ids[0], b.value, "kv", True))
     header_location_re = re.compile(
-        r"^(?:country(?:/region)?|location|primary location|work location|job location)\\s*[:：]\\s*(.+)$",
+        r"^(?:country(?:/region)?|location|primary location|work location|job location)\s*[:：]\s*(.+)$",
         re.I,
     )
     for ln in header:
