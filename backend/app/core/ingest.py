@@ -48,7 +48,7 @@ _METADATA_LABELS = {
 
 
 def _metadata_label(text: str) -> str | None:
-    label = re.sub(r"\\s*[:：]\\s*$", "", text.strip()).casefold()
+    label = re.sub(r"\s*[:：]\s*$, "", text.strip()).casefold()
     return label if label in _METADATA_LABELS else None
 
 
@@ -97,7 +97,7 @@ def ingest_pdf(data: bytes) -> list[RawLine]:
         reader = PdfReader(io.BytesIO(data))
         if reader.is_encrypted:
             reader.decrypt("")
-        pages = [(page.extract_text() or "").replace("\\x7f", "•") for page in reader.pages]
+        pages = [(page.extract_text() or "").replace("\x7f", "•") for page in reader.pages]
     except (PdfReadError, ValueError, KeyError, OSError) as e:
         raise IngestError(f"unreadable PDF: {e}") from None
     lines = ingest_text("\n".join(pages))
