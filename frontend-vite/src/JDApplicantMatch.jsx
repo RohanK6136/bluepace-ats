@@ -1015,7 +1015,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   async function uploadJobDescription(file) {
     if (!file) return;
     if (!/\.(pdf|docx|txt|md)$/i.test(file.name)) { setJdError("Upload a searchable PDF, DOCX, TXT, or Markdown job description."); return; }
-    if (file.size > 10 * 1024 * 1024) { setJdError("The JD file must be 10 MB or smaller."); return; }
+    if (file.size > 5 * 1024 * 1024) { setJdError("The JD file must be 5 MB or smaller."); return; }
     setJdUploadBusy(true); setJdError(""); setJdSourceMessage("");
     try {
       const form = new FormData();
@@ -1782,7 +1782,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 {jdSourceMessage && <p role="status" className="rounded-md border border-ink-100 bg-ink-50 px-3 py-2 text-xs leading-5 text-ink-700">{jdSourceMessage}</p>}
                 <div className="grid gap-3 rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-ink-800">Import a job description</p><Pill>PDF · DOCX · TXT · MD · URL</Pill></div>
-                  <Field label="Upload JD file" hint="Maximum 10 MB. Text-based PDF and DOCX files work best.">
+                  <Field label="Upload JD file" hint="Maximum 5 MB. Text-based PDF and DOCX files work best.">
                     <input type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadJobDescription(file); event.target.value = ""; }} className={fieldClass} disabled={jdUploadBusy || jdLinkBusy} />
                   </Field>
                   {jdUploadBusy && <p className="text-xs text-ink-500">Uploading and extracting JD content…</p>}
