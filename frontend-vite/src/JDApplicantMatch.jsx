@@ -1781,7 +1781,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 </Field>
                 {jdSourceMessage && <p role="status" className="rounded-md border border-ink-100 bg-ink-50 px-3 py-2 text-xs leading-5 text-ink-700">{jdSourceMessage}</p>}
                 <div className="grid gap-3 rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-ink-800">Import a job description</p><Pill>PDF · DOCX · DOC · TXT · URL</Pill></div>
+                  <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-ink-800">Import a job description</p><Pill>PDF · DOCX · TXT · MD · URL</Pill></div>
                   <Field label="Upload JD file" hint="Maximum 10 MB. Text-based PDF and DOCX files work best.">
                     <input type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadJobDescription(file); event.target.value = ""; }} className={fieldClass} disabled={jdUploadBusy || jdLinkBusy} />
                   </Field>
