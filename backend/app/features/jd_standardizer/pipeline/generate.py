@@ -196,6 +196,11 @@ def _prefer_kv(fields: dict[str, Fact], flags: list[Flag]) -> dict[str, Fact]:
     return out
 
 
+def parse_streamed_generation(parts: list[str]) -> dict[str, Any]:
+    """Parse streamed deltas using the same tolerant JSON cleanup as the LLM gateway."""
+    return parse_json_tolerant(strip_think("".join(parts)))
+
+
 def title_guess(cleaned: CleanResult, v: ValidateResult) -> str | None:
     """Heuristic title for the instant preview / no-LLM fallback."""
     lines = {ln.id: ln for ln in cleaned.lines}
@@ -793,7 +798,7 @@ async def _generate_steps(inp: PipelineInput, options: Options, overrides: Overr
             else:
                 break
         # stream_json validates after removing Qwen-style <think> blocks; mirror that parser for deltas.
-        gen = parse_json_tolerant(strip_think("".join(parts)))
+        gen = parse_streamed_generation(parts)
     except (LLMUnavailable, LLMTimeout) as e:
         llm_problem = _llm_problem(e, model)
     except (LLMError, json.JSONDecodeError) as e:
