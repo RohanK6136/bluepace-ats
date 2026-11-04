@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, MAX_BULK_RESUMES, validateBulkResume } from "./bulkMatchUtils.mjs";
-import { extractJdTextFromResult, getJdUploadError } from "./jdUploadUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -86,7 +86,7 @@ function savedApplicantRows(batchRows) {
     }));
 }
 function workspaceProgress(workspace) {
-  const hasJD = Boolean(workspace.jdText?.trim() || workspace.jdResult);
+  const hasJD = Boolean(normalizeJdText(workspace.jdText).trim() || workspace.jdResult);
   const hasRubric = Boolean(workspace.rubric?.items?.length);
   const applicantCount = (workspace.applicants || []).filter((row) => row.result).length + (workspace.candidateCard ? 1 : 0);
   return `${hasJD ? "JD ✓" : "JD —"} · ${hasRubric ? "Rubric ✓" : "Rubric —"} · ${applicantCount} applicant${applicantCount === 1 ? "" : "s"}`;
@@ -411,7 +411,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [selectedProfile, setSelectedProfile] = useState(() => initialWorkspace?.selectedProfile || "");
   const [connection, setConnection] = useState("checking");
   const [connectionMessage, setConnectionMessage] = useState("Checking the AI Feature API…");
-  const [jdText, setJdText] = useState(() => initialWorkspace?.jdText || "");
+  const [jdText, setJdText] = useState(() => normalizeJdText(initialWorkspace?.jdText));
   const [jdSourceJobId, setJdSourceJobId] = useState("");
   const [jdSourceMessage, setJdSourceMessage] = useState("");
   const [jdUploadBusy, setJdUploadBusy] = useState(false);
@@ -518,7 +518,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setWorkspaceName(workspace.title || "Untitled workspace");
     setWorkspaceNotes(workspace.notes || "");
     setCalibrationReviewerName(workspace.calibrationReviewerName || "");
-    setJdText(workspace.jdText || "");
+    setJdText(normalizeJdText(workspace.jdText));
     setJdMode(workspace.jdMode || "light");
     setJdDetail(workspaceJdDetail(workspace));
     setJdResult(workspace.jdResult || null);
@@ -1028,7 +1028,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       if (uploadError) throw new Error(uploadError);
       setJdResult(result);
       const extracted = extractJdTextFromResult(result);
-      setJdText(extracted || result.long_description_text || "");
+      setJdText(normalizeJdText(extracted || result.long_description_text || ""));
       setJdSourceMessage(`Imported ${file.name}. Review the extracted content and standardized output.`);
       setNotice("JD file uploaded and processed. Review the output, then generate and link the match rubric.");
     } catch (error) { setJdError(explainError(error)); }
@@ -1043,8 +1043,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       const form = new FormData(); form.append("url", value);
       const response = await request("post", "/jobs/preview-url", form, { timeout: 30000 });
       const data = response.data || {};
-      if (!String(data.description || "").trim()) throw new Error("No usable job description was found at that link. Upload the JD document or paste the text instead.");
-      setJdText(data.description); setJdResult(null); setJdSourceJobId("");
+      const importedDescription = normalizeJdText(data.description);
+      if (!importedDescription.trim()) throw new Error("No usable job description was found at that link. Upload the JD document or paste the text instead.");
+      setJdText(importedDescription); setJdResult(null); setJdSourceJobId("");
       setJdSourceMessage(`Imported ${data.title || "job posting"} from ${data.source_url || value}. Preview only; no ATS job was created.`);
       setNotice("Job description imported from link. Standardize it and choose the ATS job to attach the match rubric to.");
     } catch (error) { setJdError(explainError(error)); }
@@ -1058,7 +1059,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       "You are the BluePace JD & Applicant Match workflow assistant. Give concise practical recruiter guidance.",
       "Help import job descriptions, standardize requirements, create match rubrics, and interpret evidence-based applicant matches.",
       "Never make hiring or rejection decisions. A recruiter must decide. Do not invent missing JD details; flag them for recruiter confirmation.",
-      "Current JD text: " + (jdText.slice(0, 7000) || "Not provided yet."),
+      "Current JD text: " + (normalizeJdText(jdText).slice(0, 7000) || "Not provided yet."),
       "Workflow: JD result " + (jdResult ? "available" : "not generated") + "; rubric " + (selectedRubricId ? "selected" : "not selected") + ".",
       "Question: " + question,
     ].join("\\n");
