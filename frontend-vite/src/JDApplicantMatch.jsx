@@ -1043,6 +1043,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const response = await request("post", "/v1/test", {}, {
         timeout: 60000,
+        baseURL: window.location.origin,
         ...(value ? { headers: { "X-OpenRouter-Api-Key": value } } : {}),
       });
       const result = response.data || {};
