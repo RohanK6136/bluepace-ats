@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ProviderKind = Literal["openai_compatible", "anthropic"]
+ProviderKind = Literal["openai_compatible", "anthropic", "ollama"]
 
 
 class Pricing(BaseModel):

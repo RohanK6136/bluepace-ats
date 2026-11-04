@@ -2,7 +2,7 @@
 
 This setup lets the hosted BluePace ATS interface send **only JD Standardizer and Applicant Match AI requests** to an AI service running on your own Windows computer. The rest of the ATS (login, jobs, applications and recruiter workflow) remains on the hosted ATS API.
 
-The local service uses Ollama with Qwen3 8B. No OpenRouter key, paid model subscription or inference credits are needed. The model runs on your own CPU/GPU, so speed depends on your computer.
+The local service uses Ollama with Qwen3 8B. The BluePace local profile calls Ollama's native `/api/chat` endpoint, disables Qwen3's separate thinking phase for structured recruiter tasks (`think: false`), and keeps the model warm for 30 minutes between requests. No OpenRouter key, paid model subscription or inference credits are needed. The model runs on your own CPU/GPU, so speed still depends on your computer.
 
 ## One-time setup
 
@@ -28,14 +28,14 @@ Keep the PowerShell window open while using the local model. Stop it with Ctrl+C
 2. In the **Local Ollama connection** area, enter `http://127.0.0.1:8000`.
 3. Select **Connect local model**.
 4. Wait for the inference check to confirm that **Qwen3 8B · local Ollama** is ready.
-5. Select that model in the model selector. Run JD Standardizer, build a rubric, and assess resumes.
+5. Select that model in the model selector. Use **Standardize JD** for the fast one-model-call path, then **Automate JD + match setup** to prepare the rubric. The default generated draft is **Concise**; change the detail selector to **Detailed** only when you need the longer draft. **Full validation (slower)** runs the more extensive 12-stage standardization pipeline.
 
 The local endpoint is saved in this browser's local storage. To return to hosted inference, choose **Use hosted AI** in the same area. That switches JD & Applicant Match back to the hosted model API.
 
 ## What runs where
 
-- The browser connects to the local API at `127.0.0.1:8000).
-- The local AI API calls Ollama at `127.0.0.1:11434`.
+- The browser connects to the local API at `127.0.0.1:8000`.
+- The local AI API calls Ollama's native API at `127.0.0.1:11434` and requests structured JSON output with thinking disabled.
 - The local API binds to loopback only; it is not exposed as a public network service.
 - Only `/v1/*` JD & Applicant Match calls are sent to the local API. The main ATS backend continues to handle recruiter login, jobs, candidates and applications.
 - Resume text and job-description content are processed locally by Ollama. The local AI run store is in-memory and is cleared when the local service stops. The model weights remain installed in Ollama.

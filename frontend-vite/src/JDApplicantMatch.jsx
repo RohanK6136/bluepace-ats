@@ -51,6 +51,14 @@ function readActiveWorkspace() {
     return readWorkspaces().find((workspace) => workspace.id === id) || null;
   } catch { return null; }
 }
+
+function workspaceJdDetail(workspace) {
+  // Workspaces created before the concise-default release stored "detailed"
+  // even when the recruiter never changed the old default. Migrate them once.
+  return workspace?.jdDetailVersion === 1 && workspace.jdDetail === "detailed"
+    ? "detailed"
+    : "concise";
+}
 function writeWorkspaces(rows) {
   try {
     localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(rows.slice(0, 40)));
@@ -413,7 +421,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [jdAssistantMessages, setJdAssistantMessages] = useState([{ role: "assistant", text: "Hi! I can guide you through importing a JD, standardizing it, building a match rubric, and reviewing applicant evidence. What would you like help with?" }]);
   const [jdAssistantBusy, setJdAssistantBusy] = useState(false);
   const [jdMode, setJdMode] = useState(() => initialWorkspace?.jdMode || "light");
-  const [jdDetail, setJdDetail] = useState(() => initialWorkspace?.jdDetail || "detailed");
+  const [jdDetail, setJdDetail] = useState(() => workspaceJdDetail(initialWorkspace));
   const [jdResult, setJdResult] = useState(() => initialWorkspace?.jdResult || null);
   const [jdLoading, setJdLoading] = useState(false);
   const [jdPrepareLoading, setJdPrepareLoading] = useState(false);
@@ -484,6 +492,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       jdText,
       jdMode,
       jdDetail,
+      jdDetailVersion: 1,
       jdResult,
       rubric,
       rubricNotes,
@@ -510,7 +519,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setCalibrationReviewerName(workspace.calibrationReviewerName || "");
     setJdText(workspace.jdText || "");
     setJdMode(workspace.jdMode || "light");
-    setJdDetail(workspace.jdDetail || "detailed");
+    setJdDetail(workspaceJdDetail(workspace));
     setJdResult(workspace.jdResult || null);
     setRubric(workspace.rubric || null);
     setRubricNotes(workspace.rubricNotes || []);
@@ -546,6 +555,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       jdText,
       jdMode,
       jdDetail,
+      jdDetailVersion: 1,
       jdResult,
       rubric,
       rubricNotes,
@@ -1068,7 +1078,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   async function prepareSelectedJobForMatching() {
     const jobId = Number(jdSourceJobId) || null;
-    if (!jdText.trim()) {
+    const sourceJD = String(jdText || "").trim();
+    if (!sourceJD) {
       setJdError("The selected ATS job does not contain a description. Add one to the job record first.");
       return;
     }
@@ -1078,23 +1089,38 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("");
     setCandidateCard(null);
     try {
-      const jdResponse = await request("post", "/v1/jd/generate", {
-        text: jdText.trim(),
-        options: { mode: jdMode === "verbatim" ? "verbatim" : jdMode === "rewrite" ? "rewrite" : "light", detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) },
-        overrides: {},
-      }, { timeout: 120000 });
+      const options = {
+        mode: jdMode === "verbatim" ? "verbatim" : jdMode === "rewrite" ? "rewrite" : "light",
+        detail: jdDetail,
+        ...(selectedProfile ? { profile: selectedProfile } : {}),
+      };
+      setNotice("Preparing the standardized JD and source-grounded match rubric…");
+
+      // These tasks are independent: JD generation can add clearly-marked draft prose,
+      // while the rubric must be built from the original recruiter-supplied requirements.
+      // Hosted profiles can process both requests concurrently; local Ollama safely
+      // serializes them through its one-model concurrency limit.
+      const [jdResponse, rubricResponse] = await Promise.all([
+        request("post", "/v1/jd/generate", {
+          text: sourceJD,
+          options,
+          overrides: {},
+        }, { timeout: 120000 }),
+        request("post", "/v1/match/rubrics", {
+          jd_text: sourceJD,
+          options: selectedProfile ? { profile: selectedProfile } : {},
+        }, { timeout: 120000 }),
+      ]);
+
       const standardized = jdResponse.data;
       if (!standardized || !Array.isArray(standardized.sections) || !standardized.sections.length) {
         throw new Error("JD Standardizer returned no structured sections. Review the job description and try again.");
       }
       setJdResult(standardized);
-      const rubricResponse = await request("post", "/v1/match/rubrics", {
-        job: standardized,
-        options: selectedProfile ? { profile: selectedProfile } : {},
-      }, { timeout: 120000 });
+
       const draft = rubricResponse.data?.rubric || rubricResponse.data;
       if (!draft?.rubric_id || !Array.isArray(draft.items) || !draft.items.length) {
-        throw new Error("The match rubric could not be generated. Check that the JD includes clear requirements and qualifications.");
+        throw new Error("The match rubric could not be generated. Check that the original JD contains clear requirements and qualifications.");
       }
       const saveResponse = await request("post", "/v1/match/rubrics", { rubric: draft }, { timeout: 30000 });
       const saved = saveResponse.data?.rubric || saveResponse.data;
@@ -1107,12 +1133,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       if (jobId && !localAiApiUrl) {
         await request("post", `/ai-hiring/jobs/${jobId}/applicant-match-rubrics`, { rubric_id: saved.rubric_id }, { timeout: 20000 });
       }
-      await refreshSavedRubrics();
+      // Switching to the Match tab triggers the saved-rubric refresh effect. Avoid
+      // making the same list request here and then again in the tab effect.
       setNotice(localAiApiUrl
-        ? "JD standardized and match rubric generated with local Ollama. The rubric is saved in this local workspace; shared ATS job linking is not available in local mode. Continue with resume-file matching."
+        ? "JD standardized and source-grounded match rubric generated with local Ollama. The rubric is saved in this local workspace; shared ATS job linking is not available in local mode. Continue with resume-file matching."
         : jobId
-          ? "JD standardized, match rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
-          : "JD standardized and match rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
+          ? "JD standardized, source-grounded match rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
+          : "JD standardized and source-grounded match rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
       setActiveTab("match");
     } catch (error) {
       const message = explainError(error);
@@ -1782,9 +1809,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 </div>
                 <ErrorNotice>{jdError}</ErrorNotice>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className={primaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()}>{jdLoading ? "Processing…" : "Standardize JD"}</button>
-                  <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || !jdText.trim()} title={!jdText.trim() ? "Add or import a job description to enable setup" : connection !== "connected" ? "The API may be unavailable; click to attempt setup and view the error" : "Standardize this JD and generate and save its applicant-match rubric"}>{jdPrepareLoading ? "Preparing JD & rubric…" : "Automate JD + match setup"}</button>
-                  <button type="button" className={secondaryButton} onClick={() => runJD("fast")} disabled={jdLoading || connection !== "connected" || !jdText.trim()}>{jdLoading ? "Processing…" : "Generate fast draft"}</button>
+                  <button type="button" className={primaryButton} onClick={() => runJD("fast")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Fast path: rule-based parsing plus one model call.">{jdLoading ? "Standardizing…" : "Standardize JD"}</button>
+                  <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || !jdText.trim()} title={!jdText.trim() ? "Add or import a job description to enable setup" : "Prepare the JD and source-grounded match rubric together"}>{jdPrepareLoading ? "Preparing JD & rubric…" : "Automate JD + match setup"}</button>
+                  <button type="button" className={secondaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Full 12-stage validation; takes longer than the fast standardization path.">{jdLoading ? "Processing…" : "Full validation (slower)"}</button>
                   <button type="button" className={secondaryButton} onClick={() => { setJdText(""); setJdResult(null); setJdError(""); setNotice(""); }}>Clear</button>
                 </div>
               </div>

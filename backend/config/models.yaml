@@ -41,17 +41,19 @@ profiles:
   local-ollama:
     label: Qwen3 8B · local Ollama
     description: Runs Qwen3 8B on this computer through Ollama. No provider API key or inference credits are required.
-    provider: openai_compatible
-    base_url: ${OLLAMA_BASE_URL:-http://127.0.0.1:11434/v1}
+    provider: ollama
+    base_url: ${OLLAMA_BASE_URL:-http://127.0.0.1:11434}
     model: ${OLLAMA_MODEL:-qwen3:8b}
     local: true
-    structured_output: prompt_only
-    max_tokens_param: max_tokens
+    structured_output: json_schema
     seed: null
     context_tokens: 32768
     concurrency: 1
     timeout_s: 300
     stall_timeout_s: 60
+    extra_body:
+      think: false
+      keep_alive: 30m
 
   openai-compatible:
     label: OpenAI-compatible API

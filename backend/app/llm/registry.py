@@ -76,7 +76,7 @@ class ModelRegistry:
     def disabled_reason(self, profile: ModelProfile) -> str | None:
         if not profile.model:
             return "no model id configured"
-        if profile.provider == "openai_compatible" and not profile.base_url:
+        if profile.provider in ("openai_compatible", "ollama") and not profile.base_url:
             return "no base_url configured"
         if profile.api_key_env and not self._api_key_configured(profile):
             alternate = " or GITHUB_TOKEN" if profile.api_key_env == "GITHUB_MODELS_TOKEN" else ""

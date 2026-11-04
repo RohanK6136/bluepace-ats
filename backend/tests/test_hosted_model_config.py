@@ -64,7 +64,7 @@ def test_direct_provider_profiles_are_registered_and_disabled_without_keys(monke
 def test_local_ollama_profile_is_ready_without_a_provider_key(monkeypatch) -> None:
     config_path = Path(__file__).parents[1] / "config" / "models.yaml"
     monkeypatch.setenv("LLM_PROFILE", "local-ollama")
-    monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     monkeypatch.setenv("OLLAMA_MODEL", "qwen3:8b")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
@@ -73,7 +73,11 @@ def test_local_ollama_profile_is_ready_without_a_provider_key(monkeypatch) -> No
 
     assert registry.default_id == "local-ollama"
     assert profile.model == "qwen3:8b"
-    assert profile.base_url == "http://127.0.0.1:11434/v1"
+    assert profile.base_url == "http://127.0.0.1:11434"
+    assert profile.provider == "ollama"
+    assert profile.structured_output == "json_schema"
+    assert profile.extra_body["think"] is False
+    assert profile.extra_body["keep_alive"] == "30m"
     assert profile.local is True
     assert profile.api_key_env is None
     assert profile.pricing.cost(1000, 1000) == 0
