@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:jd-match-api": "node --test tests/model-api.test.js",
+    "test:jd-upload": "node --test src/jdUploadUtils.test.mjs",
     "test:hiring-workflow": "node --test src/hiringWorkflowUtils.test.mjs",
     "test:public-portal": "node --test public-portal.test.mjs"
   },

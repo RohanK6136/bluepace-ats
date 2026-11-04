@@ -158,8 +158,16 @@ def find_candidates(cleaned: CleanResult, seg: Segmentation, policy: Policy,
     for b in seg.blocks:
         if b.kind == "kv" and b.kv_kind == "fact_location" and b.value:
             loc_sources.append((b.line_ids[0], b.value, "kv", True))
+    header_location_re = re.compile(
+        r"^(?:country(?:/region)?|location|primary location|work location|job location)\s*[:：]\s*(.+)$",
+        re.I,
+    )
     for ln in header:
-        loc_sources.append((ln.id, ln.text, "header", ln.id != first_header_id))
+        labelled_location = header_location_re.match(ln.text.strip())
+        if labelled_location:
+            loc_sources.append((ln.id, labelled_location.group(1).strip(), "kv", True))
+        else:
+            loc_sources.append((ln.id, ln.text, "header", ln.id != first_header_id))
     for lid, text, src, allow_city in loc_sources:
         p = parse_location(text, policy, resolver)
         if p.country:

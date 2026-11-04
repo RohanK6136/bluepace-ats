@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import handler from "../api/v1/[...path].js";
+import handler, { extractPdfText } from "../api/v1/[...path].js";
+import { deflateSync } from "node:zlib";
 import { onRequest as pagesFunction } from "../functions/v1/[[path]].js";
 
 function invoke(headers = {}, method = "GET", pathParts = ["models"], body = "") {
@@ -43,6 +45,72 @@ test("model registry enables OpenRouter when the session key is supplied", async
   assert.equal(response.statusCode, 200);
   assert.equal(openrouter.enabled, true);
   assert.equal(openrouter.is_default, true);
+});
+
+test("curated free OpenRouter models are visible and use the shared OpenRouter key", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ data: [] }), {
+    status: 200, headers: { "content-type": "application/json" },
+  });
+  try {
+    const withoutKey = await invoke({ host: "ats.vercel.app" });
+    const freeRows = withoutKey.body.filter((row) => row.free_endpoint);
+    assert.equal(freeRows.length, 8);
+    assert.ok(freeRows.every((row) => row.enabled === false));
+    assert.ok(freeRows.some((row) => row.model === "openrouter/free"));
+
+    const withKey = await invoke({ host: "ats.vercel.app", "x-openrouter-api-key": "test-free-model-key" });
+    const enabledFreeRows = withKey.body.filter((row) => row.free_endpoint);
+    assert.equal(enabledFreeRows.length, 8);
+    assert.ok(enabledFreeRows.every((row) => row.enabled === true));
+    assert.ok(enabledFreeRows.every((row) => row.provider === "openrouter"));
+    assert.ok(enabledFreeRows.some((row) => row.model === "cohere/north-mini-code:free"));
+    assert.ok(enabledFreeRows.some((row) => row.model === "recursive/flint-v1.0:free"));
+    assert.equal(enabledFreeRows.some((row) => row.model.includes("thinkingmachines/inkling")), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("free Cohere profile uses its model id and omits unsupported JSON response_format", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody = null;
+  globalThis.fetch = async (_url, init = {}) => {
+    capturedBody = JSON.parse(init.body || "{}");
+    return new Response(JSON.stringify({
+      model: "cohere/north-mini-code:free",
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            title: "Python Developer",
+            role_type: "Full-Time",
+            location: { country: "India", city: "Hyderabad" },
+            responsibilities: ["Build and maintain Python APIs"],
+            requirements: ["Python and SQL experience"],
+          }),
+        },
+      }],
+      usage: { prompt_tokens: 20, completion_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "x-openrouter-api-key": "test-free-model-key", "content-type": "application/json" },
+      "POST",
+      ["jd", "standardize"],
+      JSON.stringify({
+        text: "Python Developer\\nResponsibilities\\nBuild Python APIs\\nRequirements\\nPython and SQL experience",
+        options: { profile: "openrouter:cohere/north-mini-code:free", mode: "light" },
+      }),
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(response.body.meta.profile, "openrouter:cohere/north-mini-code:free");
+    assert.equal(response.body.meta.model, "cohere/north-mini-code:free");
+    assert.equal(capturedBody.model, "cohere/north-mini-code:free");
+    assert.equal(Object.hasOwn(capturedBody, "response_format"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("OpenRouter inference test verifies a real completion without exposing the key", async () => {
@@ -386,4 +454,94 @@ test("Cloudflare Pages adapter builds a rubric and assesses resume evidence with
   assert.equal(matchResponse.statusCode, 200, JSON.stringify(matchResponse.body));
   assert.equal(matchResponse.body.versions.profile, "rules");
   assert.ok(matchResponse.body.evidence.length > 0);
+});
+
+
+function encodeAscii85(buffer) {
+  const parts = [];
+  for (let offset = 0; offset < buffer.length; offset += 4) {
+    const chunk = buffer.subarray(offset, offset + 4);
+    let value = 0;
+    for (let index = 0; index < 4; index++) value = value * 256 + (chunk[index] || 0);
+    if (chunk.length === 4 && value === 0) {
+      parts.push("z");
+      continue;
+    }
+    const digits = Array(5);
+    for (let index = 4; index >= 0; index--) {
+      digits[index] = String.fromCharCode((value % 85) + 33);
+      value = Math.floor(value / 85);
+    }
+    parts.push(digits.slice(0, chunk.length + 1).join(""));
+  }
+  return parts.join("") + "~>";
+}
+
+test("PDF extraction decodes ASCII85 then Flate streams and preserves JD headings", () => {
+  const content = [
+    "BT /F1 12 Tf 72 720 Td (Python Full Stack Developer) Tj ET",
+    "BT /F1 11 Tf 72 700 Td (Required Qualifications) Tj ET",
+    "BT /F1 10 Tf 72 680 Td (Python and FastAPI experience) Tj ET",
+  ].join("\n");
+  const encoded = encodeAscii85(deflateSync(Buffer.from(content, "latin1")));
+  const pdf = Buffer.from(
+    "%PDF-1.4\n1 0 obj\n<< /Length " + encoded.length + " /Filter [ /ASCII85Decode /FlateDecode ] >>\nstream\n" +
+    encoded + "endstream\\nendobj\\n%%EOF\\n",
+    "latin1",
+  );
+
+  const extracted = extractPdfText(pdf);
+  assert.match(extracted, /Python Full Stack Developer/);
+  assert.match(extracted, /Required Qualifications/);
+  assert.match(extracted, /Python and FastAPI experience/);
+  assert.ok(extracted.indexOf("Required Qualifications") > extracted.indexOf("Python Full Stack Developer"));
+});
+
+
+test("multipart JD PDF upload extracts requirements using its selected rules profile", async () => {
+  const contentStream = [
+    "BT /F1 12 Tf 72 720 Td (Python Full Stack Developer) Tj ET",
+    "BT /F1 11 Tf 72 700 Td (Key Responsibilities) Tj ET",
+    "BT /F1 10 Tf 72 680 Td (Build and maintain REST APIs) Tj ET",
+    "BT /F1 11 Tf 72 660 Td (Required Qualifications) Tj ET",
+    "BT /F1 10 Tf 72 640 Td (Python and FastAPI experience) Tj ET",
+    "BT /F1 11 Tf 72 620 Td (Preferred Skills) Tj ET",
+    "BT /F1 10 Tf 72 600 Td (Docker and AWS) Tj ET",
+  ].join("\n");
+  const encoded = encodeAscii85(deflateSync(Buffer.from(contentStream, "latin1")));
+  const pdf = [
+    "%PDF-1.4",
+    "1 0 obj",
+    "<< /Length " + encoded.length + " /Filter [ /ASCII85Decode /FlateDecode ] >>",
+    "stream",
+    encoded + "endstream",
+    "endobj",
+    "%%EOF",
+  ].join("\n");
+  const boundary = "jd-pdf-ascii85-boundary";
+  const multipart = [
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"sample.pdf\"\r\nContent-Type: application/pdf\r\n\r\n",
+    pdf,
+    "\r\n--" + boundary + "\r\nContent-Disposition: form-data; name=\"options\"\r\n\r\n" +
+      JSON.stringify({ mode: "light", profile: "rules" }) + "\r\n",
+    "--" + boundary + "--\r\n",
+  ].join("");
+
+  const response = await invoke(
+    { host: "ats.vercel.app", "content-type": "multipart/form-data; boundary=" + boundary },
+    "POST",
+    ["jd", "generate", "upload"],
+    multipart,
+  );
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  assert.equal(response.body.meta.profile, "rules");
+  const requirements = response.body.sections.find((section) => section.id === "requirements");
+  assert.ok(requirements?.items.some((item) => /Python and FastAPI experience/i.test(item.text)));
+  assert.equal(requirements?.items.some((item) => item.text === "Required Qualifications"), false);
+});
+
+
+test("Vercel model API rewrite preserves the requested path", () => {
+  const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.ok(config.rewrites.some((rule) => rule.source === "/v1/:path*" && rule.destination === "/api/v1/:path*"));
 });

@@ -33,8 +33,60 @@ def decode_text(data: bytes) -> str:
         return data.decode("cp1252", errors="replace")
 
 
+
+
+# Recruiter metadata is often laid out as a two-row label/value table in PDFs and DOCX files.
+# pypdf emits those cells as adjacent lines; python-docx emits them separated by pipes.
+_METADATA_LABELS = {
+    "job title", "title", "position", "position title", "role title",
+    "employment type", "job type", "contract type", "engagement", "work type",
+    "country", "country/region", "location", "primary location", "work location", "job location",
+    "work model", "work mode", "work arrangement", "experience", "experience required",
+    "years of experience", "experience range", "department", "reporting to", "duration",
+    "contract duration", "shift", "work schedule", "timezone", "time zone",
+}
+
+
+def _metadata_label(text: str) -> str | None:
+    label = re.sub(r"\s*[:：]\s*$", "", text.strip()).casefold()
+    return label if label in _METADATA_LABELS else None
+
+
+def _normalize_labeled_fields(lines: list[RawLine]) -> list[RawLine]:
+    """Convert known two-cell metadata rows to Label: Value before line numbering."""
+    out: list[RawLine] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        text = line.text.strip()
+        cells = [part.strip() for part in text.split("|")]
+        inline_label = _metadata_label(cells[0]) if len(cells) >= 2 else None
+        if inline_label and any(cells[1:]):
+            value = " ".join(part for part in cells[1:] if part)
+            out.append(RawLine(text=f"{cells[0].strip()}: {value}", style=line.style, level=line.level))
+            i += 1
+            continue
+
+        label = _metadata_label(text)
+        if label and i + 1 < len(lines):
+            next_line = lines[i + 1]
+            value = next_line.text.strip()
+            next_label = _metadata_label(value)
+            is_bullet = value.startswith(("•", "●", "▪", "◦", "- ", "* "))
+            if value and not next_label and not is_bullet and len(value) <= 200:
+                out.append(RawLine(text=f"{text.rstrip(':： ').strip()}: {value}",
+                                   style=line.style, level=line.level))
+                i += 2
+                continue
+
+        out.append(line)
+        i += 1
+    return out
+
+ 
 def ingest_text(text: str) -> list[RawLine]:
-    return [RawLine(text=t) for t in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    lines = [RawLine(text=t) for t in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    return _normalize_labeled_fields(lines)
 
 
 def ingest_pdf(data: bytes) -> list[RawLine]:
@@ -45,7 +97,7 @@ def ingest_pdf(data: bytes) -> list[RawLine]:
         reader = PdfReader(io.BytesIO(data))
         if reader.is_encrypted:
             reader.decrypt("")
-        pages = [page.extract_text() or "" for page in reader.pages]
+        pages = [(page.extract_text() or "").replace("\x7f", "•") for page in reader.pages]
     except (PdfReadError, ValueError, KeyError, OSError) as e:
         raise IngestError(f"unreadable PDF: {e}") from None
     lines = ingest_text("\n".join(pages))
@@ -108,7 +160,7 @@ def ingest_docx(data: bytes, max_uncompressed_bytes: int) -> list[RawLine]:
                 if cells:
                     out.append(RawLine(text=" | ".join(cells)))
             out.append(RawLine(text=""))
-    return out
+    return _normalize_labeled_fields(out)
 
 
 def ingest_file(filename: str, data: bytes, settings: Settings) -> tuple[list[RawLine], str]:

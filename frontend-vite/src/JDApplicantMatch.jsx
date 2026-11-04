@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, MAX_BULK_RESUMES, validateBulkResume } from "./bulkMatchUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -85,7 +86,7 @@ function savedApplicantRows(batchRows) {
     }));
 }
 function workspaceProgress(workspace) {
-  const hasJD = Boolean(workspace.jdText?.trim() || workspace.jdResult);
+  const hasJD = Boolean(normalizeJdText(workspace.jdText).trim() || workspace.jdResult);
   const hasRubric = Boolean(workspace.rubric?.items?.length);
   const applicantCount = (workspace.applicants || []).filter((row) => row.result).length + (workspace.candidateCard ? 1 : 0);
   return `${hasJD ? "JD ✓" : "JD —"} · ${hasRubric ? "Rubric ✓" : "Rubric —"} · ${applicantCount} applicant${applicantCount === 1 ? "" : "s"}`;
@@ -410,7 +411,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [selectedProfile, setSelectedProfile] = useState(() => initialWorkspace?.selectedProfile || "");
   const [connection, setConnection] = useState("checking");
   const [connectionMessage, setConnectionMessage] = useState("Checking the AI Feature API…");
-  const [jdText, setJdText] = useState(() => initialWorkspace?.jdText || "");
+  const [jdText, setJdText] = useState(() => normalizeJdText(initialWorkspace?.jdText));
   const [jdSourceJobId, setJdSourceJobId] = useState("");
   const [jdSourceMessage, setJdSourceMessage] = useState("");
   const [jdUploadBusy, setJdUploadBusy] = useState(false);
@@ -517,7 +518,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setWorkspaceName(workspace.title || "Untitled workspace");
     setWorkspaceNotes(workspace.notes || "");
     setCalibrationReviewerName(workspace.calibrationReviewerName || "");
-    setJdText(workspace.jdText || "");
+    setJdText(normalizeJdText(workspace.jdText));
     setJdMode(workspace.jdMode || "light");
     setJdDetail(workspaceJdDetail(workspace));
     setJdResult(workspace.jdResult || null);
@@ -690,10 +691,17 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
     const isFeatureRoute = String(path || "").startsWith("/v1/");
-    const usingLocalAi = Boolean(localAiApiUrl && isFeatureRoute);
+    const explicitBaseURL = options.baseURL ? String(options.baseURL).replace(/\/$/, "") : "";
+    const usingLocalAi = Boolean(
+      localAiApiUrl && isFeatureRoute
+      && (explicitBaseURL === localAiApiUrl || (!explicitBaseURL && selectedProfile === "local-ollama"))
+    );
+    const featureApiBase = explicitBaseURL || (usingLocalAi ? localAiApiUrl : window.location.origin);
+    const usingHostedModelProxy = isFeatureRoute && featureApiBase === window.location.origin;
+
     if (apiKey.trim() && !usingLocalAi) headers["X-API-Key"] = apiKey.trim();
-    // Model credentials are entered in AI Hiring Studio Settings and remain in this browser tab.
-    // Only JD & Applicant Match calls the same-origin Vercel function with these headers.
+    // Hosted provider keys are sent only to this app's same-origin model proxy.
+    // They are never sent to the local Ollama endpoint or another custom API host.
     const keys = [
       ["openrouter", "X-OpenRouter-Api-Key"],
       ["gemini", "X-Google-Api-Key"],
@@ -701,9 +709,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       ["xai", "X-XAI-Api-Key"],
       ["openai", "X-OpenAI-Api-Key"],
     ];
-    // Hosted provider keys are only forwarded to the hosted same-origin model proxy.
-    // Local Ollama does not need a provider key and receives none from this browser.
-    if (!localAiApiUrl && !options.baseURL) {
+    if (usingHostedModelProxy) {
       for (const [provider, header] of keys) {
         const value = provider === "openrouter"
           ? (sessionProviderKey(provider) || openRouterKey)
@@ -711,17 +717,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         if (value) headers[header] = value;
       }
     }
-    const featureApiBase = options.baseURL || localAiApiUrl || window.location.origin;
     const requestOptions = {
       ...options,
-      ...(usingLocalAi ? { timeout: Math.max(Number(options.timeout) || 0, 300000) } : {}),
+      ...(usingLocalAi ? { timeout: Math.max(Number(options.timeout) || 0, 300000), skipAuth: true } : {}),
       headers,
       ...(isFeatureRoute ? { baseURL: featureApiBase } : {}),
-      ...(usingLocalAi ? { skipAuth: true } : {}),
     };
     if (data !== undefined) requestOptions.data = data;
     return apiRequest(token, method, path, requestOptions);
-  }, [apiKey, apiRequest, localAiApiUrl, openRouterKey, token]);
+  }, [apiKey, apiRequest, localAiApiUrl, openRouterKey, selectedProfile, token]);
 
   useEffect(() => {
     if (!atsApplicationId || !token) {
@@ -748,32 +752,60 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   const refreshConnection = useCallback(async (baseURLOverride = null) => {
     setConnection("checking");
-    setConnectionMessage(localAiApiUrl && !baseURLOverride ? "Checking the local AI service and Ollama model…" : "Checking the AI Feature API…");
+    const usingLocal = Boolean(localAiApiUrl && localAiApiVerified && !baseURLOverride);
+    setConnectionMessage(usingLocal ? "Checking the local AI service and hosted model options…" : "Checking the AI Feature API…");
     try {
+      const connectionBase = usingLocal ? localAiApiUrl : (baseURLOverride || window.location.origin);
       const response = await request("get", "/v1/models", undefined, {
         timeout: 10000,
-        ...(baseURLOverride ? { baseURL: baseURLOverride } : {}),
+        baseURL: connectionBase,
       });
-      const rows = Array.isArray(response.data) ? response.data : [];
-      const usingLocal = Boolean(localAiApiUrl && !baseURLOverride);
-      const localModel = rows.find((model) => model.id === "local-ollama");
+      const primaryRows = Array.isArray(response.data) ? response.data : [];
+      let rows = primaryRows;
+      let localModel = primaryRows.find((model) => model.id === "local-ollama");
+
       if (usingLocal) {
         if (!localModel || !localModel.enabled) {
           throw new Error(localModel?.disabled_reason || "The local AI service does not expose an enabled local-ollama profile.");
         }
-        const health = await request("get", "/v1/models/local-ollama/health", undefined, { timeout: 30000 });
+        const health = await request("get", "/v1/models/local-ollama/health", undefined, {
+          timeout: 30000, baseURL: localAiApiUrl,
+        });
         if (!health.data?.ok) throw new Error(health.data?.detail || "Ollama did not respond to the local inference check.");
         setLocalAiApiTest({ status: "success", message: `Local inference verified · ${localModel.model}` });
+
+        // Local registry returns only local profiles. Fetch the hosted Vercel catalogue separately
+        // so recruiters can switch between local Ollama and OpenRouter free/paid models.
+        try {
+          const hostedResponse = await request("get", "/v1/models", undefined, {
+            timeout: 10000, baseURL: window.location.origin,
+          });
+          const hostedRows = Array.isArray(hostedResponse.data) ? hostedResponse.data : [];
+          rows = [
+            ...primaryRows.filter((model) => model.local),
+            ...hostedRows.filter((model) => !model.local),
+          ];
+        } catch {
+          rows = primaryRows;
+        }
       } else if (baseURLOverride) {
         setLocalAiApiTest({ status: "", message: "" });
       }
+
       setModels(rows);
       setConnection("connected");
       const readyCount = rows.filter((model) => model.enabled).length;
+      const freeCount = rows.filter((model) => model.free_endpoint).length;
       setConnectionMessage(usingLocal
-        ? `Local inference ready · ${localModel.model}. JD & Applicant Match runs on this computer.`
+        ? `Local inference ready · ${localModel.model}. ${freeCount} hosted free model option(s) also listed.`
         : rows.length ? (readyCount ? `${readyCount} model profile(s) ready` : "API is reachable, but no provider key is configured. Add one in AI Hiring Studio Settings.") : "API reachable; no model profiles were returned");
-      setSelectedProfile((current) => rows.find((model) => model.id === current && model.enabled)?.id || rows.find((model) => model.enabled && model.is_default)?.id || rows.find((model) => model.enabled)?.id || "");
+      setSelectedProfile((current) => (
+        rows.find((model) => model.id === current && model.enabled)?.id
+        || (usingLocal ? rows.find((model) => model.id === "local-ollama" && model.enabled)?.id : null)
+        || rows.find((model) => model.enabled && model.is_default)?.id
+        || rows.find((model) => model.enabled)?.id
+        || ""
+      ));
       setJdError("");
       setRubricError((current) => current.includes("does not expose") ? "" : current);
     } catch (error) {
@@ -784,7 +816,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         setLocalAiApiTest({ status: "error", message: explainError(error) });
       }
     }
-  }, [localAiApiUrl, request]);
+  }, [localAiApiUrl, localAiApiVerified, request]);
 
   async function connectLocalAiApi() {
     let baseURL;
@@ -810,11 +842,25 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setLocalAiApiVerified(true);
       setLocalAiApiTest({ status: "success", message: `Local inference verified · ${profile.model}` });
       setInferenceTest({ status: "", message: "" });
-      setModels(rows);
+      let combinedRows = rows.filter((model) => model.local);
+      try {
+        const hostedResponse = await request("get", "/v1/models", undefined, {
+          timeout: 10000, baseURL: window.location.origin,
+        });
+        const hostedRows = Array.isArray(hostedResponse.data) ? hostedResponse.data : [];
+        combinedRows = [
+          ...combinedRows,
+          ...hostedRows.filter((model) => !model.local),
+        ];
+      } catch {
+        // Keep local inference working even when the hosted model proxy is unavailable.
+      }
+      setModels(combinedRows);
       setSelectedProfile("local-ollama");
       setConnection("connected");
-      setConnectionMessage(`Local inference ready · ${profile.model}. JD & Applicant Match runs on this computer.`);
-      setNotice("Local Ollama connected. No OpenRouter credits or provider API key are used for JD & Applicant Match.");
+      const freeCount = combinedRows.filter((model) => model.free_endpoint).length;
+      setConnectionMessage(`Local inference ready · ${profile.model}. ${freeCount} hosted free model option(s) also listed.`);
+      setNotice("Local Ollama connected. Choose Local Ollama for on-device inference or a free OpenRouter model for hosted inference.");
     } catch (error) {
       setLocalAiApiVerified(false);
       const detail = error?.request || /failed to fetch|load failed|networkerror/i.test(String(error?.message || ""))
@@ -852,20 +898,48 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }, [request]);
 
   useEffect(() => {
+    let active = true;
     if (localAiApiUrl) {
       if (!localAiApiVerified) {
-        setConnection("unavailable");
-        setConnectionMessage("A local AI endpoint is saved. Select Reconnect local model to approve browser access and verify Ollama.");
-        setLocalAiApiTest((current) => current.message ? current : {
-          status: "",
-          message: "Saved local endpoint. Select Reconnect local model to let the browser connect after the Loopback network permission prompt.",
+        // If the local loopback service has not been re-authorized yet, keep hosted
+        // models usable instead of hiding the selector or blocking the whole panel.
+        const headers = {};
+        const providerHeaders = [
+          ["openrouter", "X-OpenRouter-Api-Key"],
+          ["gemini", "X-Google-Api-Key"],
+          ["deepseek", "X-DeepSeek-Api-Key"],
+          ["xai", "X-XAI-Api-Key"],
+          ["openai", "X-OpenAI-Api-Key"],
+        ];
+        for (const [provider, header] of providerHeaders) {
+          const value = provider === "openrouter"
+            ? (sessionProviderKey(provider) || openRouterKey)
+            : sessionProviderKey(provider);
+          if (value) headers[header] = value;
+        }
+        apiRequest(null, "get", "/v1/models", {
+          baseURL: window.location.origin, headers, timeout: 10000, skipAuth: true,
+        }).then((response) => {
+          if (!active) return;
+          const hostedRows = Array.isArray(response.data) ? response.data : [];
+          const visibleRows = hostedRows.filter((model) => !model.local);
+          setModels(visibleRows);
+          setConnection("connected");
+          setConnectionMessage(
+            `Hosted AI API is available · ${visibleRows.filter((model) => model.free_endpoint).length} free OpenRouter choices listed. Reconnect local Ollama to enable on-device inference.`
+          );
+        }).catch((error) => {
+          if (!active) return;
+          setModels([]);
+          setConnection("unavailable");
+          setConnectionMessage(explainError(error));
         });
       }
-      return undefined;
+      return () => { active = false; };
     }
     refreshConnection();
-    return undefined;
-  }, [localAiApiUrl, localAiApiVerified, refreshConnection]);
+    return () => { active = false; };
+  }, [localAiApiUrl, localAiApiVerified, refreshConnection, apiRequest, openRouterKey]);
 
   useEffect(() => {
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
@@ -969,6 +1043,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const response = await request("post", "/v1/test", {}, {
         timeout: 60000,
+        baseURL: window.location.origin,
         ...(value ? { headers: { "X-OpenRouter-Api-Key": value } } : {}),
       });
       const result = response.data || {};
@@ -1013,8 +1088,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   async function uploadJobDescription(file) {
     if (!file) return;
-    if (!/\.(pdf|docx|doc|txt|md)$/i.test(file.name)) { setJdError("Upload a PDF, DOCX, DOC, TXT, or Markdown job description."); return; }
-    if (file.size > 10 * 1024 * 1024) { setJdError("The JD file must be 10 MB or smaller."); return; }
+    if (!/\.(pdf|docx|txt|md)$/i.test(file.name)) { setJdError("Upload a searchable PDF, DOCX, TXT, or Markdown job description."); return; }
+    if (file.size > 5 * 1024 * 1024) { setJdError("The JD file must be 5 MB or smaller."); return; }
     setJdUploadBusy(true); setJdError(""); setJdSourceMessage("");
     try {
       const form = new FormData();
@@ -1022,11 +1097,12 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       form.append("options", JSON.stringify({ mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) }));
       form.append("overrides", JSON.stringify({}));
       const response = await request("post", "/v1/jd/generate/upload", form, { timeout: 120000 });
-      const result = response.data;
-      if (!result || !Array.isArray(result.sections) || !result.sections.length) throw new Error("The uploaded file did not produce structured JD sections. Try a text-based PDF or DOCX.");
+      const result = response.data || {};
+      const uploadError = getJdUploadError(result);
+      if (uploadError) throw new Error(uploadError);
       setJdResult(result);
-      const extracted = [result.title, ...(result.sections || []).flatMap((section) => [section.title || section.name, section.content || section.text, ...(Array.isArray(section.items) ? section.items : [])])].filter(Boolean).join("\\n");
-      setJdText(extracted || result.summary || "");
+      const extracted = extractJdTextFromResult(result);
+      setJdText(normalizeJdText(extracted || result.long_description_text || ""));
       setJdSourceMessage(`Imported ${file.name}. Review the extracted content and standardized output.`);
       setNotice("JD file uploaded and processed. Review the output, then generate and link the match rubric.");
     } catch (error) { setJdError(explainError(error)); }
@@ -1041,8 +1117,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       const form = new FormData(); form.append("url", value);
       const response = await request("post", "/jobs/preview-url", form, { timeout: 30000 });
       const data = response.data || {};
-      if (!String(data.description || "").trim()) throw new Error("No usable job description was found at that link. Upload the JD document or paste the text instead.");
-      setJdText(data.description); setJdResult(null); setJdSourceJobId("");
+      const importedDescription = normalizeJdText(data.description);
+      if (!importedDescription.trim()) throw new Error("No usable job description was found at that link. Upload the JD document or paste the text instead.");
+      setJdText(importedDescription); setJdResult(null); setJdSourceJobId("");
       setJdSourceMessage(`Imported ${data.title || "job posting"} from ${data.source_url || value}. Preview only; no ATS job was created.`);
       setNotice("Job description imported from link. Standardize it and choose the ATS job to attach the match rubric to.");
     } catch (error) { setJdError(explainError(error)); }
@@ -1056,7 +1133,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       "You are the BluePace JD & Applicant Match workflow assistant. Give concise practical recruiter guidance.",
       "Help import job descriptions, standardize requirements, create match rubrics, and interpret evidence-based applicant matches.",
       "Never make hiring or rejection decisions. A recruiter must decide. Do not invent missing JD details; flag them for recruiter confirmation.",
-      "Current JD text: " + (jdText.slice(0, 7000) || "Not provided yet."),
+      "Current JD text: " + (normalizeJdText(jdText).slice(0, 7000) || "Not provided yet."),
       "Workflow: JD result " + (jdResult ? "available" : "not generated") + "; rubric " + (selectedRubricId ? "selected" : "not selected") + ".",
       "Question: " + question,
     ].join("\\n");
@@ -1693,12 +1770,24 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         <div className="flex flex-wrap gap-2 border-b border-ink-100 bg-[#fafaf8] px-4 py-3 sm:px-6" role="tablist" aria-label="AI feature workflows">
           <button type="button" role="tab" aria-selected={activeTab === "jd"} onClick={() => setActiveTab("jd")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "jd" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>1 · JD Standardizer</button>
           <button type="button" role="tab" aria-selected={activeTab === "match"} onClick={() => setActiveTab("match")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "match" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>2 · Applicant Match</button>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <span className="hidden text-xs text-ink-500 sm:inline">Model</span>
             <select aria-label="AI model profile" value={selectedProfile} onChange={(event) => setSelectedProfile(event.target.value)} className="max-w-[230px] rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs text-ink-700">
               <option value="">Backend default</option>
-              {models.map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : " · unavailable"}</option>)}
+              {models.some((model) => model.free_endpoint) && (
+                <optgroup label="Free OpenRouter models">
+                  {models.filter((model) => model.free_endpoint).map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : " · add OpenRouter key"}</option>)}
+                </optgroup>
+              )}
+              <optgroup label="Other models">
+                {models.filter((model) => !model.free_endpoint).map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : " · unavailable"}</option>)}
+              </optgroup>
             </select>
+            {models.some((model) => model.id === selectedProfile && model.free_endpoint) && (
+              <p role="note" className="basis-full max-w-[620px] text-right text-[11px] leading-4 text-amber-800">
+                Free shared inference is rate-limited and provider data policies vary. Use synthetic or anonymised demo data only; do not send identifiable candidate resumes or confidential hiring data unless your organisation has approved that provider.
+              </p>
+            )}
           </div>
         </div>
         <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
@@ -1723,9 +1812,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
             <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. Chrome may request Loopback network access on your first click; allow it. Keep the local service running while using local inference.</p>
           </div>
         </div>
-        {!localAiApiUrl && <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
+        <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <Field label="OpenRouter API key (provider credential)" hint="This key authorizes model generation. It is different from the optional X-API-Key field below and is kept only in this browser tab session.">
+            <Field label="OpenRouter API key (provider credential)" hint="Required for hosted OpenRouter models, including the free options. This is different from X-API-Key and is kept only in this browser tab session. Local Ollama does not use this key.">
               <input type="password" autoComplete="off" value={openRouterKeyDraft} onChange={(event) => setOpenRouterKeyDraft(event.target.value)} placeholder="sk-or-v1-…" className={fieldClass} />
             </Field>
             <div className="flex flex-wrap gap-2">
@@ -1735,7 +1824,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           </div>
           <p className="mt-2 text-[11px] leading-5 text-ink-500">The inference test sends a tiny prompt to the selected OpenRouter model and can incur a small provider charge. The key is not displayed in test results or logged by this UI.</p>
           {inferenceTest.message && <div role="status" className={"mt-3 rounded-md border px-3 py-2 text-xs leading-5 " + (inferenceTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : inferenceTest.status === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900")}>{inferenceTest.message}</div>}
-        </div>}
+        </div>
         <details className="border-b border-ink-100 px-5 py-3 sm:px-6">
           <summary className="cursor-pointer text-xs font-semibold text-ink-600">API access settings (optional)</summary>
           <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
@@ -1779,9 +1868,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 </Field>
                 {jdSourceMessage && <p role="status" className="rounded-md border border-ink-100 bg-ink-50 px-3 py-2 text-xs leading-5 text-ink-700">{jdSourceMessage}</p>}
                 <div className="grid gap-3 rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-ink-800">Import a job description</p><Pill>PDF · DOCX · DOC · TXT · URL</Pill></div>
-                  <Field label="Upload JD file" hint="Maximum 10 MB. Text-based PDF and DOCX files work best.">
-                    <input type="file" accept=".pdf,.docx,.doc,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadJobDescription(file); event.target.value = ""; }} className={fieldClass} disabled={jdUploadBusy || jdLinkBusy} />
+                  <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-ink-800">Import a job description</p><Pill>PDF · DOCX · TXT · MD · URL</Pill></div>
+                  <Field label="Upload JD file" hint="Maximum 5 MB. Text-based PDF and DOCX files work best.">
+                    <input type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadJobDescription(file); event.target.value = ""; }} className={fieldClass} disabled={jdUploadBusy || jdLinkBusy} />
                   </Field>
                   {jdUploadBusy && <p className="text-xs text-ink-500">Uploading and extracting JD content…</p>}
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
