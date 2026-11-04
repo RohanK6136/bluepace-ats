@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import handler, { extractPdfText } from "../api/v1/[...path].js";
 import { deflateSync } from "node:zlib";
@@ -537,4 +538,10 @@ test("multipart JD PDF upload extracts requirements using its selected rules pro
   const requirements = response.body.sections.find((section) => section.id === "requirements");
   assert.ok(requirements?.items.some((item) => /Python and FastAPI experience/i.test(item.text)));
   assert.equal(requirements?.items.some((item) => item.text === "Required Qualifications"), false);
+});
+
+
+test("Vercel model API rewrite preserves the requested path", () => {
+  const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.ok(config.rewrites.some((rule) => rule.source === "/v1/:path*" && rule.destination === "/api/v1/:path*"));
 });
