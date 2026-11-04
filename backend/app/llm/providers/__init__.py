@@ -13,4 +13,8 @@ def make_provider(profile: ModelProfile, json_instruction: str) -> Provider:
         from app.llm.providers.anthropic_provider import AnthropicProvider
 
         return AnthropicProvider(profile, json_instruction)
+    if profile.provider == "ollama":
+        from app.llm.providers.ollama import OllamaNativeProvider
+
+        return OllamaNativeProvider(profile, json_instruction)
     raise ValueError(f"unknown provider {profile.provider!r}")
