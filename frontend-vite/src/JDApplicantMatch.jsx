@@ -1794,9 +1794,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
             <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. Chrome may request Loopback network access on your first click; allow it. Keep the local service running while using local inference.</p>
           </div>
         </div>
-        {!localAiApiUrl && <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
+        <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <Field label="OpenRouter API key (provider credential)" hint="This key authorizes model generation. It is different from the optional X-API-Key field below and is kept only in this browser tab session.">
+            <Field label="OpenRouter API key (provider credential)" hint="Required for hosted OpenRouter models, including the free options. This is different from X-API-Key and is kept only in this browser tab session. Local Ollama does not use this key.">
               <input type="password" autoComplete="off" value={openRouterKeyDraft} onChange={(event) => setOpenRouterKeyDraft(event.target.value)} placeholder="sk-or-v1-…" className={fieldClass} />
             </Field>
             <div className="flex flex-wrap gap-2">
@@ -1806,7 +1806,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           </div>
           <p className="mt-2 text-[11px] leading-5 text-ink-500">The inference test sends a tiny prompt to the selected OpenRouter model and can incur a small provider charge. The key is not displayed in test results or logged by this UI.</p>
           {inferenceTest.message && <div role="status" className={"mt-3 rounded-md border px-3 py-2 text-xs leading-5 " + (inferenceTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : inferenceTest.status === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900")}>{inferenceTest.message}</div>}
-        </div>}
+        </div>
         <details className="border-b border-ink-100 px-5 py-3 sm:px-6">
           <summary className="cursor-pointer text-xs font-semibold text-ink-600">API access settings (optional)</summary>
           <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
