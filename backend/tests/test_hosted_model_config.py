@@ -77,7 +77,7 @@ def test_local_ollama_profile_is_ready_without_a_provider_key(monkeypatch) -> No
     assert profile.provider == "ollama"
     assert profile.structured_output == "json_schema"
     assert profile.extra_body["think"] is False
-    assert profile.extra_body["keep_alive"] == "30m"
+    assert profile.extra_body["keep_alive"] == "1h"
     assert profile.local is True
     assert profile.api_key_env is None
     assert profile.pricing.cost(1000, 1000) == 0
