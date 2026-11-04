@@ -68,6 +68,7 @@ from app.features.jd_standardizer.pipeline.textutil import (
 from app.features.jd_standardizer.pipeline.validate import TITLE_PREFIX_RE, ValidateResult, validate
 from app.features.jd_standardizer.promptlib import load_prompt
 from app.llm.client import CallContext
+from app.llm.providers.base import parse_json_tolerant, strip_think
 from app.llm.types import ModelInfo
 from app.observability.runs import RunRecorder
 
@@ -198,6 +199,14 @@ def _prefer_kv(fields: dict[str, Fact], flags: list[Flag]) -> dict[str, Fact]:
 def title_guess(cleaned: CleanResult, v: ValidateResult) -> str | None:
     """Heuristic title for the instant preview / no-LLM fallback."""
     lines = {ln.id: ln for ln in cleaned.lines}
+    # Prefer an explicitly labelled title field over a page banner or employer heading.
+    title_field = re.compile(r"^(?:job\s+title|position(?:\s+title)?|role\s+title|title)\s*[:：]\s*(.+)$", re.I)
+    for ln in cleaned.lines:
+        if ln.id in cleaned.chrome_ids:
+            continue
+        match = title_field.match(ln.text.strip())
+        if match and match.group(1).strip():
+            return TITLE_PREFIX_RE.sub("", match.group(1).strip()).strip() or None
     header = [lines[i] for i in cleaned.header_ids]
     jd_marker = next((ln.n for ln in cleaned.lines if ln.id in cleaned.chrome_ids
                       and norm(ln.text) == "job description"), 0)
@@ -783,7 +792,8 @@ async def _generate_steps(inp: PipelineInput, options: Options, overrides: Overr
                 raise payload
             else:
                 break
-        gen = json.loads("".join(parts))
+        # stream_json validates after removing Qwen-style <think> blocks; mirror that parser for deltas.
+        gen = parse_json_tolerant(strip_think("".join(parts)))
     except (LLMUnavailable, LLMTimeout) as e:
         llm_problem = _llm_problem(e, model)
     except (LLMError, json.JSONDecodeError) as e:
