@@ -70,8 +70,8 @@ def test_two_line_jd_metadata_populates_publication_fields():
 
 def test_company_profile_only_does_not_guess_publication_fields_or_call_it_model_failure():
     text = (
-        "# Untitled role\\n\\n"
-        "## About Blupace Tech\\n"
+        "# Untitled role\n\n"
+        "## About Blupace Tech\n"
         "Blupace Tech is a trusted digital transformation partner operating from 10+ countries. "
         "Our expertise spans AI, cloud, cybersecurity, software engineering, data and analytics. "
         "Our cross-functional teams deliver outcomes across telecom, BFSI, retail, and life sciences."
@@ -87,14 +87,14 @@ def test_company_profile_only_does_not_guess_publication_fields_or_call_it_model
 
 def test_role_specific_jd_is_not_misclassified_as_company_profile_only():
     text = (
-        "# Python Full Stack Developer\\n\\n"
-        "## About Blupace Tech\\n"
-        "Blupace Tech is a digital transformation company.\\n\\n"
-        "## About the Role\\n"
-        "Build and maintain Python services and React applications.\\n\\n"
-        "## Key Responsibilities\\n"
-        "• Design and maintain REST APIs.\\n\\n"
-        "## Required Qualifications\\n"
+        "# Python Full Stack Developer\n\n"
+        "## About Blupace Tech\n"
+        "Blupace Tech is a digital transformation company.\n\n"
+        "## About the Role\n"
+        "Build and maintain Python services and React applications.\n\n"
+        "## Key Responsibilities\n"
+        "• Design and maintain REST APIs.\n\n"
+        "## Required Qualifications\n"
         "• Strong Python and SQL experience."
     )
     _, cleaned, validated = _analyse(text)
