@@ -1,5 +1,5 @@
 fact_company:   [company, employer, client]
-fact_location:  [location, work location, job location, city]
+fact_location:  [location, work location, job location, primary location, city, country, country/region]
 fact_role_type: [employment type, job type, type, contract type, engagement, work type]
 fact_experience: [experience, experience required, years of experience, exp]
 fact_duration:  [duration, tenure, term, contract duration, contract length, length of contract]
