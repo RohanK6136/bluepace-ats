@@ -59,6 +59,24 @@ const PROFILES = {
     context_tokens: 256000, free_endpoint: true, response_format: false,
     description: "Cohere compact instruction/code model. Uses prompt-based JSON (no response_format enforcement); provider data terms apply."
   },
+  "openrouter:thinkingmachines/inkling:free": {
+    id: "openrouter:thinkingmachines/inkling:free", label: "Thinking Machines Inkling · Free", provider: "openrouter", model: "thinkingmachines/inkling:free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 1050000, free_endpoint: true, response_format: false,
+    description: "Multimodal general-purpose reasoning and instruction model. Shared free capacity and provider data terms apply."
+  },
+  "openrouter:thinkingmachines/inkling-small:free": {
+    id: "openrouter:thinkingmachines/inkling-small:free", label: "Thinking Machines Inkling Small · Free", provider: "openrouter", model: "thinkingmachines/inkling-small:free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 1050000, free_endpoint: true, response_format: false,
+    description: "Smaller, efficient multimodal reasoning model. Shared free capacity and provider data terms apply."
+  },
+  "openrouter:recursive/flint-v1.0:free": {
+    id: "openrouter:recursive/flint-v1.0:free", label: "Recursive Flint · Free", provider: "openrouter", model: "recursive/flint-v1.0:free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 262000, free_endpoint: true, response_format: false,
+    description: "Compact open model suited to coding and structured tool tasks. Shared free capacity and provider data terms apply."
+  },
   rules: { id: "rules", label: "Built-in Rules Engine · no AI key required", provider: "built-in", model: "rule-match-v1", endpoint: "", header: "", context_tokens: 60000, description: "Deterministic text and keyword matching. No external AI model is called.", rule_based: true }
 };
 
