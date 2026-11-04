@@ -898,20 +898,31 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }, [request]);
 
   useEffect(() => {
+    let active = true;
     if (localAiApiUrl) {
       if (!localAiApiVerified) {
         setConnection("unavailable");
-        setConnectionMessage("A local AI endpoint is saved. Select Reconnect local model to approve browser access and verify Ollama.");
+        setConnectionMessage("Local Ollama needs reconnection. Hosted model choices are being loaded separately.");
         setLocalAiApiTest((current) => current.message ? current : {
           status: "",
-          message: "Saved local endpoint. Select Reconnect local model to let the browser connect after the Loopback network permission prompt.",
+          message: "Saved local endpoint. Select Reconnect local model to approve browser access and verify Ollama.",
+        });
+        // Still show hosted choices while loopback access is awaiting browser permission.
+        apiRequest(null, "get", "/v1/models", {
+          baseURL: window.location.origin, timeout: 10000, skipAuth: true,
+        }).then((response) => {
+          if (!active) return;
+          const hostedRows = Array.isArray(response.data) ? response.data : [];
+          setModels(hostedRows.filter((model) => !model.local));
+        }).catch(() => {
+          if (active) setModels([]);
         });
       }
-      return undefined;
+      return () => { active = false; };
     }
     refreshConnection();
-    return undefined;
-  }, [localAiApiUrl, localAiApiVerified, refreshConnection]);
+    return () => { active = false; };
+  }, [localAiApiUrl, localAiApiVerified, refreshConnection, apiRequest]);
 
   useEffect(() => {
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
