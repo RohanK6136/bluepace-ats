@@ -168,6 +168,7 @@ class Prepared:
     title_guess: str | None
     shift: str | None
     existing: list[str] = field(default_factory=list)
+    message: str | None = None
 
 
 @dataclass
@@ -202,6 +203,14 @@ def parse_streamed_generation(parts: list[str]) -> dict[str, Any]:
     return parse_json_tolerant(strip_think("".join(parts)))
 
 
+def _usable_title(value: str) -> str | None:
+    candidate = re.sub(r"^#{1,6}\s*", "", value.strip())
+    candidate = TITLE_PREFIX_RE.sub("", candidate).strip()
+    if norm(candidate) in {"untitled", "untitled role", "job description", "job posting", "job vacancy"}:
+        return None
+    return candidate or None
+
+
 def title_guess(cleaned: CleanResult, v: ValidateResult) -> str | None:
     """Heuristic title for the instant preview / no-LLM fallback."""
     lines = {ln.id: ln for ln in cleaned.lines}
@@ -210,9 +219,12 @@ def title_guess(cleaned: CleanResult, v: ValidateResult) -> str | None:
     for ln in cleaned.lines:
         if ln.id in cleaned.chrome_ids:
             continue
-        match = title_field.match(ln.text.strip())
+        line_text = re.sub(r"^#{1,6}\s*", "", ln.text.strip())
+        match = title_field.match(line_text)
         if match and match.group(1).strip():
-            return TITLE_PREFIX_RE.sub("", match.group(1).strip()).strip() or None
+            guessed = _usable_title(match.group(1))
+            if guessed:
+                return guessed
     header = [lines[i] for i in cleaned.header_ids]
     jd_marker = next((ln.n for ln in cleaned.lines if ln.id in cleaned.chrome_ids
                       and norm(ln.text) == "job description"), 0)
@@ -221,8 +233,38 @@ def title_guess(cleaned: CleanResult, v: ValidateResult) -> str | None:
             continue
         if v.dispositions.get(ln.id, "").startswith("fact:") or word_count(ln.text) > TITLE_MAX_WORDS:
             continue
-        return TITLE_PREFIX_RE.sub("", ln.text).strip() or None
+        guessed = _usable_title(ln.text)
+        if guessed:
+            return guessed
     return None
+
+
+def _company_profile_only(cleaned: CleanResult, v: ValidateResult, fields: dict[str, Fact],
+                          guessed_title: str | None) -> bool:
+    """Detect an employer overview supplied without any job-specific content."""
+    source = "\n".join(ln.text for ln in cleaned.lines if ln.id not in cleaned.chrome_ids)
+    has_company_intro = bool(re.search(
+        r"\babout\s+(?:blupace\s+tech|the\s+company|us)\b", source, re.I
+    ))
+    if not has_company_intro or guessed_title:
+        return False
+
+    role_heading = re.compile(
+        r"\b(?:about\s+(?:the\s+)?(?:role|position)|key\s+responsibilities|"
+        r"roles?\s+and\s+responsibilities|responsibilities|duties|requirements|"
+        r"qualifications|required\s+skills|what\s+you\s+bring|what\s+you(?:'|’)ll\s+do)\b",
+        re.I,
+    )
+    if role_heading.search(source):
+        return False
+
+    role_sections = {"about_role", "responsibilities", "requirements", "nice_to_have"}
+    if any(block.section in role_sections for block in v.blocks):
+        return False
+    role_facts = ("role_type", "country", "state", "city")
+    if any(fields[name].status in ("verified", "override", "conflict") for name in role_facts):
+        return False
+    return True
 
 
 def _shift(v: ValidateResult) -> str | None:
@@ -587,7 +629,7 @@ def build_result(rid: str, prep: Prepared, gen: dict[str, Any] | None, *, final:
             needs.append(NeedsInput(field=name, reason="conflict", candidates=fields[name].candidates))
     if llm_problem:
         flags.append(Flag(code="llm_unavailable", severity="block", message=llm_problem))
-    elif final and not gen:
+    elif final and not gen and not prep.message:
         flags.append(Flag(code="generation_failed", severity="warn",
                           message="the model's answer could not be used; showing what was found in the text"))
     flags.sort(key=lambda f: (f.code, f.message))
@@ -605,7 +647,7 @@ def build_result(rid: str, prep: Prepared, gen: dict[str, Any] | None, *, final:
         publishable=not blockers, publish_blockers=blockers, title=title, subtitle=subtitle, meta_line=meta_line,
         short_description=short, header=header, sections=sections, about_company=about_company, legal=legal,
         long_description=md, long_description_annotated=md_ai, long_description_text=txt, fields=fields,
-        needs_input=needs, flags=flags, not_imported=prep.v.not_imported,
+        needs_input=needs, flags=flags, not_imported=prep.v.not_imported, message=prep.message,
         meta=_meta(s, model, ctx, t_start, llm_ms, generated),
     )
 
@@ -757,14 +799,37 @@ async def _generate_steps(inp: PipelineInput, options: Options, overrides: Overr
     kept_ids = {lid for lid, d in v.dispositions.items() if not d.startswith("dropped:")}
     model_text = "\n".join(ln.text for ln in cleaned.lines
                            if ln.id in kept_ids or ln.id in cleaned.header_ids)
+    guessed_title = title_guess(cleaned, v)
+    profile_only = _company_profile_only(cleaned, v, fields, guessed_title)
+    profile_message = (
+        "This upload contains a company profile, not a role-specific job description. "
+        "Add the job title, employment type, work country/location, responsibilities, and required qualifications. "
+        "The standardizer will not guess these publication fields from the company overview."
+        if profile_only else None
+    )
+    if profile_only:
+        flags.append(Flag(
+            code="company_profile_only",
+            severity="warn",
+            message="Only the employer overview was found; no role title, employment type, job location, or role-specific sections were supplied.",
+        ))
+        want = {}
+
     prep = Prepared(cleaned=cleaned, v=v, fields=fields, flags=flags, want=want,
-                    source_text=model_text[: gen_pol["max_source_chars"]], title_guess=title_guess(cleaned, v),
-                    shift=_shift(v), existing=[b.text for b in v.blocks if b.kind in ("bullet", "paragraph")])
+                    source_text=model_text[: gen_pol["max_source_chars"]], title_guess=guessed_title,
+                    shift=_shift(v), existing=[b.text for b in v.blocks if b.kind in ("bullet", "paragraph")],
+                    message=profile_message)
 
     common = {"deps": deps, "options": options, "overrides": overrides, "ctx": ctx, "model": model,
               "t_start": t_start}
     yield {"event": "start", "want": want,
            "result": build_result(rid, prep, None, final=False, llm_problem=None, llm_ms=0, **common)}
+
+    if profile_only:
+        res = build_result(rid, prep, {}, final=True, llm_problem=None, llm_ms=0, **common)
+        yield {"event": "final", "result": finish(res, trace={"source_quality": "company_profile_only",
+                                                               "llm_skipped": True})}
+        return
 
     tpl = load_prompt("generate")
     system, user = tpl.render(company=s.COMPANY_NAME, short_max=s.SUMMARY_MAX_CHARS, want=want,
