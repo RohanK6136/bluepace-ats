@@ -691,10 +691,17 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
     const isFeatureRoute = String(path || "").startsWith("/v1/");
-    const usingLocalAi = Boolean(localAiApiUrl && isFeatureRoute);
+    const explicitBaseURL = options.baseURL ? String(options.baseURL).replace(/\\/$/, "") : "";
+    const usingLocalAi = Boolean(
+      localAiApiUrl && isFeatureRoute
+      && (explicitBaseURL === localAiApiUrl || (!explicitBaseURL && selectedProfile === "local-ollama"))
+    );
+    const featureApiBase = explicitBaseURL || (usingLocalAi ? localAiApiUrl : window.location.origin);
+    const usingHostedModelProxy = isFeatureRoute && featureApiBase === window.location.origin;
+
     if (apiKey.trim() && !usingLocalAi) headers["X-API-Key"] = apiKey.trim();
-    // Model credentials are entered in AI Hiring Studio Settings and remain in this browser tab.
-    // Only JD & Applicant Match calls the same-origin Vercel function with these headers.
+    // Hosted provider keys are sent only to this app's same-origin model proxy.
+    // They are never sent to the local Ollama endpoint or another custom API host.
     const keys = [
       ["openrouter", "X-OpenRouter-Api-Key"],
       ["gemini", "X-Google-Api-Key"],
@@ -702,9 +709,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       ["xai", "X-XAI-Api-Key"],
       ["openai", "X-OpenAI-Api-Key"],
     ];
-    // Hosted provider keys are only forwarded to the hosted same-origin model proxy.
-    // Local Ollama does not need a provider key and receives none from this browser.
-    if (!localAiApiUrl && !options.baseURL) {
+    if (usingHostedModelProxy) {
       for (const [provider, header] of keys) {
         const value = provider === "openrouter"
           ? (sessionProviderKey(provider) || openRouterKey)
@@ -712,17 +717,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         if (value) headers[header] = value;
       }
     }
-    const featureApiBase = options.baseURL || localAiApiUrl || window.location.origin;
     const requestOptions = {
       ...options,
-      ...(usingLocalAi ? { timeout: Math.max(Number(options.timeout) || 0, 300000) } : {}),
+      ...(usingLocalAi ? { timeout: Math.max(Number(options.timeout) || 0, 300000), skipAuth: true } : {}),
       headers,
       ...(isFeatureRoute ? { baseURL: featureApiBase } : {}),
-      ...(usingLocalAi ? { skipAuth: true } : {}),
     };
     if (data !== undefined) requestOptions.data = data;
     return apiRequest(token, method, path, requestOptions);
-  }, [apiKey, apiRequest, localAiApiUrl, openRouterKey, token]);
+  }, [apiKey, apiRequest, localAiApiUrl, openRouterKey, selectedProfile, token]);
 
   useEffect(() => {
     if (!atsApplicationId || !token) {
@@ -749,32 +752,60 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   const refreshConnection = useCallback(async (baseURLOverride = null) => {
     setConnection("checking");
-    setConnectionMessage(localAiApiUrl && !baseURLOverride ? "Checking the local AI service and Ollama model…" : "Checking the AI Feature API…");
+    const usingLocal = Boolean(localAiApiUrl && !baseURLOverride);
+    setConnectionMessage(usingLocal ? "Checking the local AI service and hosted model options…" : "Checking the AI Feature API…");
     try {
+      const connectionBase = usingLocal ? localAiApiUrl : (baseURLOverride || window.location.origin);
       const response = await request("get", "/v1/models", undefined, {
         timeout: 10000,
-        ...(baseURLOverride ? { baseURL: baseURLOverride } : {}),
+        baseURL: connectionBase,
       });
-      const rows = Array.isArray(response.data) ? response.data : [];
-      const usingLocal = Boolean(localAiApiUrl && !baseURLOverride);
-      const localModel = rows.find((model) => model.id === "local-ollama");
+      const primaryRows = Array.isArray(response.data) ? response.data : [];
+      let rows = primaryRows;
+      let localModel = primaryRows.find((model) => model.id === "local-ollama");
+
       if (usingLocal) {
         if (!localModel || !localModel.enabled) {
           throw new Error(localModel?.disabled_reason || "The local AI service does not expose an enabled local-ollama profile.");
         }
-        const health = await request("get", "/v1/models/local-ollama/health", undefined, { timeout: 30000 });
+        const health = await request("get", "/v1/models/local-ollama/health", undefined, {
+          timeout: 30000, baseURL: localAiApiUrl,
+        });
         if (!health.data?.ok) throw new Error(health.data?.detail || "Ollama did not respond to the local inference check.");
         setLocalAiApiTest({ status: "success", message: `Local inference verified · ${localModel.model}` });
+
+        // Local registry returns only local profiles. Fetch the hosted Vercel catalogue separately
+        // so recruiters can switch between local Ollama and OpenRouter free/paid models.
+        try {
+          const hostedResponse = await request("get", "/v1/models", undefined, {
+            timeout: 10000, baseURL: window.location.origin,
+          });
+          const hostedRows = Array.isArray(hostedResponse.data) ? hostedResponse.data : [];
+          rows = [
+            ...primaryRows.filter((model) => model.local),
+            ...hostedRows.filter((model) => !model.local),
+          ];
+        } catch {
+          rows = primaryRows;
+        }
       } else if (baseURLOverride) {
         setLocalAiApiTest({ status: "", message: "" });
       }
+
       setModels(rows);
       setConnection("connected");
       const readyCount = rows.filter((model) => model.enabled).length;
+      const freeCount = rows.filter((model) => model.free_endpoint).length;
       setConnectionMessage(usingLocal
-        ? `Local inference ready · ${localModel.model}. JD & Applicant Match runs on this computer.`
+        ? `Local inference ready · ${localModel.model}. ${freeCount} hosted free model option(s) also listed.`
         : rows.length ? (readyCount ? `${readyCount} model profile(s) ready` : "API is reachable, but no provider key is configured. Add one in AI Hiring Studio Settings.") : "API reachable; no model profiles were returned");
-      setSelectedProfile((current) => rows.find((model) => model.id === current && model.enabled)?.id || rows.find((model) => model.enabled && model.is_default)?.id || rows.find((model) => model.enabled)?.id || "");
+      setSelectedProfile((current) => (
+        rows.find((model) => model.id === current && model.enabled)?.id
+        || (usingLocal ? rows.find((model) => model.id === "local-ollama" && model.enabled)?.id : null)
+        || rows.find((model) => model.enabled && model.is_default)?.id
+        || rows.find((model) => model.enabled)?.id
+        || ""
+      ));
       setJdError("");
       setRubricError((current) => current.includes("does not expose") ? "" : current);
     } catch (error) {
@@ -811,11 +842,25 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setLocalAiApiVerified(true);
       setLocalAiApiTest({ status: "success", message: `Local inference verified · ${profile.model}` });
       setInferenceTest({ status: "", message: "" });
-      setModels(rows);
+      let combinedRows = rows.filter((model) => model.local);
+      try {
+        const hostedResponse = await request("get", "/v1/models", undefined, {
+          timeout: 10000, baseURL: window.location.origin,
+        });
+        const hostedRows = Array.isArray(hostedResponse.data) ? hostedResponse.data : [];
+        combinedRows = [
+          ...combinedRows,
+          ...hostedRows.filter((model) => !model.local),
+        ];
+      } catch {
+        // Keep local inference working even when the hosted model proxy is unavailable.
+      }
+      setModels(combinedRows);
       setSelectedProfile("local-ollama");
       setConnection("connected");
-      setConnectionMessage(`Local inference ready · ${profile.model}. JD & Applicant Match runs on this computer.`);
-      setNotice("Local Ollama connected. No OpenRouter credits or provider API key are used for JD & Applicant Match.");
+      const freeCount = combinedRows.filter((model) => model.free_endpoint).length;
+      setConnectionMessage(`Local inference ready · ${profile.model}. ${freeCount} hosted free model option(s) also listed.`);
+      setNotice("Local Ollama connected. Choose Local Ollama for on-device inference or a free OpenRouter model for hosted inference.");
     } catch (error) {
       setLocalAiApiVerified(false);
       const detail = error?.request || /failed to fetch|load failed|networkerror/i.test(String(error?.message || ""))
