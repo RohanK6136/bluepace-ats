@@ -419,7 +419,7 @@ test("PDF extraction decodes ASCII85 then Flate streams and preserves JD heading
   const encoded = encodeAscii85(deflateSync(Buffer.from(content, "latin1")));
   const pdf = Buffer.from(
     "%PDF-1.4\n1 0 obj\n<< /Length " + encoded.length + " /Filter [ /ASCII85Decode /FlateDecode ] >>\nstream\n" +
-    encoded + "\nendstream\nendobj\n%%EOF\n",
+    encoded + "endstream\\nendobj\\n%%EOF\\n",
     "latin1",
   );
 
@@ -428,4 +428,47 @@ test("PDF extraction decodes ASCII85 then Flate streams and preserves JD heading
   assert.match(extracted, /Required Qualifications/);
   assert.match(extracted, /Python and FastAPI experience/);
   assert.ok(extracted.indexOf("Required Qualifications") > extracted.indexOf("Python Full Stack Developer"));
+});
+
+
+test("multipart JD PDF upload extracts requirements using its selected rules profile", async () => {
+  const contentStream = [
+    "BT /F1 12 Tf 72 720 Td (Python Full Stack Developer) Tj ET",
+    "BT /F1 11 Tf 72 700 Td (Key Responsibilities) Tj ET",
+    "BT /F1 10 Tf 72 680 Td (Build and maintain REST APIs) Tj ET",
+    "BT /F1 11 Tf 72 660 Td (Required Qualifications) Tj ET",
+    "BT /F1 10 Tf 72 640 Td (Python and FastAPI experience) Tj ET",
+    "BT /F1 11 Tf 72 620 Td (Preferred Skills) Tj ET",
+    "BT /F1 10 Tf 72 600 Td (Docker and AWS) Tj ET",
+  ].join("\n");
+  const encoded = encodeAscii85(deflateSync(Buffer.from(contentStream, "latin1")));
+  const pdf = [
+    "%PDF-1.4",
+    "1 0 obj",
+    "<< /Length " + encoded.length + " /Filter [ /ASCII85Decode /FlateDecode ] >>",
+    "stream",
+    encoded + "endstream",
+    "endobj",
+    "%%EOF",
+  ].join("\n");
+  const boundary = "jd-pdf-ascii85-boundary";
+  const multipart = [
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"sample.pdf\"\r\nContent-Type: application/pdf\r\n\r\n",
+    pdf,
+    "\r\n--" + boundary + "\r\nContent-Disposition: form-data; name=\"options\"\r\n\r\n" +
+      JSON.stringify({ mode: "light", profile: "rules" }) + "\r\n",
+    "--" + boundary + "--\r\n",
+  ].join("");
+
+  const response = await invoke(
+    { host: "ats.vercel.app", "content-type": "multipart/form-data; boundary=" + boundary },
+    "POST",
+    ["jd", "generate", "upload"],
+    multipart,
+  );
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  assert.equal(response.body.meta.profile, "rules");
+  const requirements = response.body.sections.find((section) => section.id === "requirements");
+  assert.ok(requirements?.items.some((item) => /Python and FastAPI experience/i.test(item.text)));
+  assert.equal(requirements?.items.some((item) => item.text === "Required Qualifications"), false);
 });
