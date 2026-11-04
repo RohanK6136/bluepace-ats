@@ -752,7 +752,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   const refreshConnection = useCallback(async (baseURLOverride = null) => {
     setConnection("checking");
-    const usingLocal = Boolean(localAiApiUrl && !baseURLOverride);
+    const usingLocal = Boolean(localAiApiUrl && localAiApiVerified && !baseURLOverride);
     setConnectionMessage(usingLocal ? "Checking the local AI service and hosted model options…" : "Checking the AI Feature API…");
     try {
       const connectionBase = usingLocal ? localAiApiUrl : (baseURLOverride || window.location.origin);
@@ -816,7 +816,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         setLocalAiApiTest({ status: "error", message: explainError(error) });
       }
     }
-  }, [localAiApiUrl, request]);
+  }, [localAiApiUrl, localAiApiVerified, request]);
 
   async function connectLocalAiApi() {
     let baseURL;
@@ -901,28 +901,45 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     let active = true;
     if (localAiApiUrl) {
       if (!localAiApiVerified) {
-        setConnection("unavailable");
-        setConnectionMessage("Local Ollama needs reconnection. Hosted model choices are being loaded separately.");
-        setLocalAiApiTest((current) => current.message ? current : {
-          status: "",
-          message: "Saved local endpoint. Select Reconnect local model to approve browser access and verify Ollama.",
-        });
-        // Still show hosted choices while loopback access is awaiting browser permission.
+        // If the local loopback service has not been re-authorized yet, keep hosted
+        // models usable instead of hiding the selector or blocking the whole panel.
+        const headers = {};
+        const providerHeaders = [
+          ["openrouter", "X-OpenRouter-Api-Key"],
+          ["gemini", "X-Google-Api-Key"],
+          ["deepseek", "X-DeepSeek-Api-Key"],
+          ["xai", "X-XAI-Api-Key"],
+          ["openai", "X-OpenAI-Api-Key"],
+        ];
+        for (const [provider, header] of providerHeaders) {
+          const value = provider === "openrouter"
+            ? (sessionProviderKey(provider) || openRouterKey)
+            : sessionProviderKey(provider);
+          if (value) headers[header] = value;
+        }
         apiRequest(null, "get", "/v1/models", {
-          baseURL: window.location.origin, timeout: 10000, skipAuth: true,
+          baseURL: window.location.origin, headers, timeout: 10000, skipAuth: true,
         }).then((response) => {
           if (!active) return;
           const hostedRows = Array.isArray(response.data) ? response.data : [];
-          setModels(hostedRows.filter((model) => !model.local));
-        }).catch(() => {
-          if (active) setModels([]);
+          const visibleRows = hostedRows.filter((model) => !model.local);
+          setModels(visibleRows);
+          setConnection("connected");
+          setConnectionMessage(
+            `Hosted AI API is available · ${visibleRows.filter((model) => model.free_endpoint).length} free OpenRouter choices listed. Reconnect local Ollama to enable on-device inference.`
+          );
+        }).catch((error) => {
+          if (!active) return;
+          setModels([]);
+          setConnection("unavailable");
+          setConnectionMessage(explainError(error));
         });
       }
       return () => { active = false; };
     }
     refreshConnection();
     return () => { active = false; };
-  }, [localAiApiUrl, localAiApiVerified, refreshConnection, apiRequest]);
+  }, [localAiApiUrl, localAiApiVerified, refreshConnection, apiRequest, openRouterKey]);
 
   useEffect(() => {
     if (activeTab === "match" && connection === "connected") refreshSavedRubrics();
