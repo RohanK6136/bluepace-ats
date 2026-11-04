@@ -54,19 +54,18 @@ test("curated free OpenRouter models are visible and use the shared OpenRouter k
   try {
     const withoutKey = await invoke({ host: "ats.vercel.app" });
     const freeRows = withoutKey.body.filter((row) => row.free_endpoint);
-    assert.equal(freeRows.length, 10);
+    assert.equal(freeRows.length, 8);
     assert.ok(freeRows.every((row) => row.enabled === false));
     assert.ok(freeRows.some((row) => row.model === "openrouter/free"));
 
     const withKey = await invoke({ host: "ats.vercel.app", "x-openrouter-api-key": "test-free-model-key" });
     const enabledFreeRows = withKey.body.filter((row) => row.free_endpoint);
-    assert.equal(enabledFreeRows.length, 10);
+    assert.equal(enabledFreeRows.length, 8);
     assert.ok(enabledFreeRows.every((row) => row.enabled === true));
     assert.ok(enabledFreeRows.every((row) => row.provider === "openrouter"));
     assert.ok(enabledFreeRows.some((row) => row.model === "cohere/north-mini-code:free"));
-    assert.ok(enabledFreeRows.some((row) => row.model === "thinkingmachines/inkling:free"));
-    assert.ok(enabledFreeRows.some((row) => row.model === "thinkingmachines/inkling-small:free"));
     assert.ok(enabledFreeRows.some((row) => row.model === "recursive/flint-v1.0:free"));
+    assert.equal(enabledFreeRows.some((row) => row.model.includes("thinkingmachines/inkling")), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
