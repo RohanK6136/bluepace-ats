@@ -206,7 +206,10 @@ def parse_streamed_generation(parts: list[str]) -> dict[str, Any]:
 def _usable_title(value: str) -> str | None:
     candidate = re.sub(r"^#{1,6}\s*", "", value.strip())
     candidate = TITLE_PREFIX_RE.sub("", candidate).strip()
-    if norm(candidate) in {"untitled", "untitled role", "job description", "job posting", "job vacancy"}:
+    key = norm(candidate)
+    if (key in {"untitled", "untitled role", "job description", "job posting", "job vacancy",
+                "blupace", "blupace tech", "about blupace tech", "about the company"}
+            or key.startswith("about ")):
         return None
     return candidate or None
 
@@ -214,7 +217,17 @@ def _usable_title(value: str) -> str | None:
 def title_guess(cleaned: CleanResult, v: ValidateResult) -> str | None:
     """Heuristic title for the instant preview / no-LLM fallback."""
     lines = {ln.id: ln for ln in cleaned.lines}
-    # Prefer an explicitly labelled title field over a page banner or employer heading.
+    # Markdown first-level headings are common in pasted JDs; ignore placeholders and employer headings.
+    markdown_title = re.compile(r"^#{1,2}\s+(.+?)\s*#*$")
+    for ln in cleaned.lines:
+        if ln.id in cleaned.chrome_ids:
+            continue
+        match = markdown_title.match(ln.text.strip())
+        if match:
+            guessed = _usable_title(match.group(1))
+            if guessed:
+                return guessed
+    # Prefer an explicitly labelled title field over a page banner or company heading.
     title_field = re.compile(r"^(?:job\s+title|position(?:\s+title)?|role\s+title|title)\s*[:：]\s*(.+)$", re.I)
     for ln in cleaned.lines:
         if ln.id in cleaned.chrome_ids:
