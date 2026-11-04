@@ -6,7 +6,6 @@ const STATUS_MESSAGES = {
 
 export function getJdUploadError(result) {
   if (Array.isArray(result?.sections) && result.sections.length > 0) return "";
-
   const status = String(result?.status || "").trim().toLowerCase();
   const detail = String(result?.message || "").trim();
   if (status === "needs_text") {
@@ -22,18 +21,39 @@ export function extractJdTextFromResult(result) {
   const parts = [];
   const title = typeof result?.title === "string" ? result.title : result?.title?.text;
   if (title?.trim()) parts.push(title.trim());
-
   for (const section of Array.isArray(result?.sections) ? result.sections : []) {
     const heading = String(section?.heading || section?.title || section?.name || "").trim();
     if (heading) parts.push(heading);
-
     for (const item of Array.isArray(section?.items) ? section.items : []) {
       const text = typeof item === "string" ? item : item?.text;
       if (typeof text === "string" && text.trim()) parts.push(text.trim());
     }
   }
-
   const structured = parts.join("\n\n").trim();
   if (structured) return structured;
   return typeof result?.long_description_text === "string" ? result.long_description_text.trim() : "";
+}
+
+export function normalizeJdText(value) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => typeof item === "string" ? item : (typeof item?.text === "string" ? item.text : ""))
+      .filter((item) => item.trim())
+      .join("\n\n");
+  }
+  if (!value || typeof value !== "object") return "";
+  const directText = [
+    value.long_description_text,
+    value.description,
+    value.description_text,
+    value.description_markdown,
+    value.job_description,
+    value.jobDescription,
+    value.jd,
+    value.text,
+  ].find((item) => typeof item === "string" && item.trim());
+  if (directText) return directText.trim();
+  return extractJdTextFromResult(value);
 }
