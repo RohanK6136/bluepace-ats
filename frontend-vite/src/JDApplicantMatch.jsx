@@ -51,6 +51,14 @@ function readActiveWorkspace() {
     return readWorkspaces().find((workspace) => workspace.id === id) || null;
   } catch { return null; }
 }
+
+function workspaceJdDetail(workspace) {
+  // Workspaces created before the concise-default release stored "detailed"
+  // even when the recruiter never changed the old default. Migrate them once.
+  return workspace?.jdDetailVersion === 1 && workspace.jdDetail === "detailed"
+    ? "detailed"
+    : "concise";
+}
 function writeWorkspaces(rows) {
   try {
     localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(rows.slice(0, 40)));
@@ -413,7 +421,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [jdAssistantMessages, setJdAssistantMessages] = useState([{ role: "assistant", text: "Hi! I can guide you through importing a JD, standardizing it, building a match rubric, and reviewing applicant evidence. What would you like help with?" }]);
   const [jdAssistantBusy, setJdAssistantBusy] = useState(false);
   const [jdMode, setJdMode] = useState(() => initialWorkspace?.jdMode || "light");
-  const [jdDetail, setJdDetail] = useState(() => initialWorkspace?.jdDetail || "concise");
+  const [jdDetail, setJdDetail] = useState(() => workspaceJdDetail(initialWorkspace));
   const [jdResult, setJdResult] = useState(() => initialWorkspace?.jdResult || null);
   const [jdLoading, setJdLoading] = useState(false);
   const [jdPrepareLoading, setJdPrepareLoading] = useState(false);
@@ -484,6 +492,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       jdText,
       jdMode,
       jdDetail,
+      jdDetailVersion: 1,
       jdResult,
       rubric,
       rubricNotes,
@@ -510,7 +519,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setCalibrationReviewerName(workspace.calibrationReviewerName || "");
     setJdText(workspace.jdText || "");
     setJdMode(workspace.jdMode || "light");
-    setJdDetail(workspace.jdDetail || "detailed");
+    setJdDetail(workspaceJdDetail(workspace));
     setJdResult(workspace.jdResult || null);
     setRubric(workspace.rubric || null);
     setRubricNotes(workspace.rubricNotes || []);
@@ -546,6 +555,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       jdText,
       jdMode,
       jdDetail,
+      jdDetailVersion: 1,
       jdResult,
       rubric,
       rubricNotes,
