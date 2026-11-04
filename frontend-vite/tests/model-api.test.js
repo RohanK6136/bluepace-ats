@@ -46,6 +46,70 @@ test("model registry enables OpenRouter when the session key is supplied", async
   assert.equal(openrouter.is_default, true);
 });
 
+test("curated free OpenRouter models are visible and use the shared OpenRouter key", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ data: [] }), {
+    status: 200, headers: { "content-type": "application/json" },
+  });
+  try {
+    const withoutKey = await invoke({ host: "ats.vercel.app" });
+    const freeRows = withoutKey.body.filter((row) => row.free_endpoint);
+    assert.equal(freeRows.length, 7);
+    assert.ok(freeRows.every((row) => row.enabled === false));
+    assert.ok(freeRows.some((row) => row.model === "openrouter/free"));
+
+    const withKey = await invoke({ host: "ats.vercel.app", "x-openrouter-api-key": "test-free-model-key" });
+    const enabledFreeRows = withKey.body.filter((row) => row.free_endpoint);
+    assert.equal(enabledFreeRows.length, 7);
+    assert.ok(enabledFreeRows.every((row) => row.enabled === true));
+    assert.ok(enabledFreeRows.every((row) => row.provider === "openrouter"));
+    assert.ok(enabledFreeRows.some((row) => row.model === "cohere/north-mini-code:free"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("free Cohere profile uses its model id and omits unsupported JSON response_format", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody = null;
+  globalThis.fetch = async (_url, init = {}) => {
+    capturedBody = JSON.parse(init.body || "{}");
+    return new Response(JSON.stringify({
+      model: "cohere/north-mini-code:free",
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            title: "Python Developer",
+            role_type: "Full-Time",
+            location: { country: "India", city: "Hyderabad" },
+            responsibilities: ["Build and maintain Python APIs"],
+            requirements: ["Python and SQL experience"],
+          }),
+        },
+      }],
+      usage: { prompt_tokens: 20, completion_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "x-openrouter-api-key": "test-free-model-key", "content-type": "application/json" },
+      "POST",
+      ["jd", "standardize"],
+      JSON.stringify({
+        text: "Python Developer\\nResponsibilities\\nBuild Python APIs\\nRequirements\\nPython and SQL experience",
+        options: { profile: "openrouter:cohere/north-mini-code:free", mode: "light" },
+      }),
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(response.body.meta.profile, "openrouter:cohere/north-mini-code:free");
+    assert.equal(response.body.meta.model, "cohere/north-mini-code:free");
+    assert.equal(capturedBody.model, "cohere/north-mini-code:free");
+    assert.equal(Object.hasOwn(capturedBody, "response_format"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("OpenRouter inference test verifies a real completion without exposing the key", async () => {
   const originalFetch = globalThis.fetch;
   let capturedUrl = "";
