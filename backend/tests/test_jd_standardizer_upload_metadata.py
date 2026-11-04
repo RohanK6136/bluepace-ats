@@ -23,7 +23,7 @@ def _analyse(text: str):
 
 
 def test_two_line_jd_metadata_populates_publication_fields():
-    text = "\\n".join(
+    text = "\n".join(
         [
             "BluePace Tech | Job Description | Python Full Stack Developer",
             "Python Full Stack Developer",
@@ -66,8 +66,8 @@ def test_two_line_jd_metadata_populates_publication_fields():
 
 def test_metadata_in_docx_style_table_rows_is_normalized():
     raw = ingest_text(
-        "Job Title | Python Full Stack Developer\\n"
-        "Employment Type | Full-Time\\n"
+        "Job Title | Python Full Stack Developer\n"
+        "Employment Type | Full-Time\n"
         "Country | India"
     )
     lines = [line.text for line in raw]
@@ -82,7 +82,7 @@ def test_metadata_in_docx_style_table_rows_is_normalized():
 def test_stream_parser_strips_qwen_think_block_before_json_parse():
     parsed = parse_streamed_generation(
         [
-            "<think>Let me inspect the source and prepare the result.</think>\\n",
+            "<think>Let me inspect the source and prepare the result.</think>\n",
             '{"title":"Python Full Stack Developer","facts":{"employment_type":"Full-Time"}}',
         ]
     )
