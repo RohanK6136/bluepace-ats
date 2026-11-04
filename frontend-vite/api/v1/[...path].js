@@ -26,7 +26,7 @@ const PROFILES = {
   "openrouter:nvidia/nemotron-3.5-super-vl:free": {
     id: "openrouter:nvidia/nemotron-3.5-super-vl:free", label: "NVIDIA Nemotron 3.5 Super VL · Free", provider: "openrouter", model: "nvidia/nemotron-3.5-super-vl:free",
     endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
-    context_tokens: 1000000, free_endpoint: true, response_format: true,
+    context_tokens: 1000000, free_endpoint: true, response_format: false,
     description: "Free text and multimodal model for document understanding and reasoning. Shared capacity; provider data terms apply."
   },
   "openrouter:nvidia/nemotron-3.5-lightning:free": {
@@ -50,7 +50,7 @@ const PROFILES = {
   "openrouter:dots-studio/dots-3-note-preview:free": {
     id: "openrouter:dots-studio/dots-3-note-preview:free", label: "Dots3-Note Preview · Free", provider: "openrouter", model: "dots-studio/dots-3-note-preview:free",
     endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
-    context_tokens: 512000, free_endpoint: true, response_format: true,
+    context_tokens: 512000, free_endpoint: true, response_format: false,
     description: "Reasoning and document-analysis model. Can be slower; preview model currently listed through December 31, 2026."
   },
   "openrouter:cohere/north-mini-code:free": {
@@ -59,23 +59,11 @@ const PROFILES = {
     context_tokens: 256000, free_endpoint: true, response_format: false,
     description: "Cohere compact instruction/code model. Uses prompt-based JSON (no response_format enforcement); provider data terms apply."
   },
-  "openrouter:thinkingmachines/inkling:free": {
-    id: "openrouter:thinkingmachines/inkling:free", label: "Thinking Machines Inkling · Free", provider: "openrouter", model: "thinkingmachines/inkling:free",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
-    context_tokens: 1050000, free_endpoint: true, response_format: false,
-    description: "Multimodal general-purpose reasoning and instruction model. Shared free capacity and provider data terms apply."
-  },
-  "openrouter:thinkingmachines/inkling-small:free": {
-    id: "openrouter:thinkingmachines/inkling-small:free", label: "Thinking Machines Inkling Small · Free", provider: "openrouter", model: "thinkingmachines/inkling-small:free",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
-    context_tokens: 1050000, free_endpoint: true, response_format: false,
-    description: "Smaller, efficient multimodal reasoning model. Shared free capacity and provider data terms apply."
-  },
   "openrouter:recursive/flint-v1.0:free": {
-    id: "openrouter:recursive/flint-v1.0:free", label: "Recursive Flint · Free", provider: "openrouter", model: "recursive/flint-v1.0:free",
+    id: "openrouter:recursive/flint-v1.0:free", label: "Recursive Flint · Free (experimental)", provider: "openrouter", model: "recursive/flint-v1.0:free",
     endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
     context_tokens: 262000, free_endpoint: true, response_format: false,
-    description: "Compact open model suited to coding and structured tool tasks. Shared free capacity and provider data terms apply."
+    description: "Experimental open model suited to coding and structured tool tasks. Official listing currently reports very low availability; do not rely on it for time-critical processing."
   },
   rules: { id: "rules", label: "Built-in Rules Engine · no AI key required", provider: "built-in", model: "rule-match-v1", endpoint: "", header: "", context_tokens: 60000, description: "Deterministic text and keyword matching. No external AI model is called.", rule_based: true }
 };
