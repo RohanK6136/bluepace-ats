@@ -362,25 +362,122 @@ function freezeRubric(rubric) {
 function redact(text) {
   return String(text || "").replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[EMAIL REDACTED]").replace(/(?:\+?\d[\d\s().-]{7,}\d)/g, "[PHONE REDACTED]").replace(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[^\s)]+/gi, "[LINKEDIN REDACTED]").replace(/(?:https?:\/\/)?(?:www\.)?github\.com\/[^\s)]+/gi, "[GITHUB REDACTED]");
 }
+export function decodeAscii85(input) {
+  const source = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  const output = [];
+  let group = [];
+
+  function flushGroup() {
+    const originalLength = group.length;
+    if (originalLength === 1) throw new Error("Invalid ASCII85 final group.");
+    const digits = [...group];
+    while (digits.length < 5) digits.push(84);
+    let value = 0;
+    for (const digit of digits) value = value * 85 + digit;
+    if (value > 0xffffffff) throw new Error("Invalid ASCII85 value.");
+    const decoded = [
+      (value >>> 24) & 0xff,
+      (value >>> 16) & 0xff,
+      (value >>> 8) & 0xff,
+      value & 0xff,
+    ];
+    output.push(...decoded.slice(0, originalLength === 5 ? 4 : originalLength - 1));
+    group = [];
+  }
+
+  for (let i = 0; i < source.length; i++) {
+    const code = source[i];
+    if (code === 0 || code === 9 || code === 10 || code === 12 || code === 13 || code === 32) continue;
+    if (code === 0x7e) break; // PDF ASCII85 streams end with ~>.
+    if (code === 0x7a) {
+      if (group.length) throw new Error("ASCII85 z shortcut inside a partial group.");
+      output.push(0, 0, 0, 0);
+      continue;
+    }
+    if (code < 33 || code > 117) throw new Error("Invalid ASCII85 character.");
+    group.push(code - 33);
+    if (group.length === 5) flushGroup();
+  }
+  if (group.length) flushGroup();
+  return Buffer.from(output);
+}
+
+function decodePdfLiteral(value) {
+  return value
+    .replace(/\\([nrtbf()\\])/g, (_match, character) => ({
+      n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", "(": "(", ")": ")", "\\": "\\",
+    })[character])
+    .replace(/\\([0-7]{1,3})/g, (_match, octal) => String.fromCharCode(parseInt(octal, 8)));
+}
+
 function extractPdfText(buffer) {
   const source = buffer.toString("latin1");
   const streams = [source];
   const regex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
   let match;
+
   while ((match = regex.exec(source))) {
     const start = match.index + match[0].indexOf(match[1]);
-    if (/\/FlateDecode/.test(source.slice(Math.max(0, match.index - 300), match.index))) {
-      try { streams.push(inflateSync(buffer.subarray(start, start + Buffer.byteLength(match[1], "latin1"))).toString("latin1")); } catch { /* malformed response or unsupported stream; use the fallback parser */ }
+    const encoded = buffer.subarray(start, start + Buffer.byteLength(match[1], "latin1"));
+    const context = source.slice(Math.max(0, match.index - 1000), match.index);
+    const filterMatch = /\/Filter\s*(?:\[\s*([^\]]+)\]|\/([A-Za-z0-9]+))/s.exec(context);
+    const filters = filterMatch
+      ? (filterMatch[1] || filterMatch[2]).match(/\/[A-Za-z0-9]+/g) || []
+      : [];
+
+    try {
+      let decoded = encoded;
+      for (const filter of filters) {
+        if (filter === "/ASCII85Decode" || filter === "/A85") decoded = decodeAscii85(decoded);
+        else if (filter === "/FlateDecode" || filter === "/Fl") decoded = inflateSync(decoded);
+        else throw new Error("Unsupported PDF stream filter.");
+      }
+      if (filters.length) streams.push(decoded.toString("latin1"));
+      else streams.push(encoded.toString("latin1"));
+    } catch {
+      // Skip streams with unsupported or malformed filters; continue with other readable streams.
     }
   }
+
   const out = [];
   for (const stream of streams) {
-    const single = /\(((?:\\.|[^\\)])*)\)\s*Tj/g;
-    while ((match = single.exec(stream))) out.push(match[1].replace(/\\([nrtbf()\\])/g, "$1"));
-    const arrays = /\[((?:.|\r|\n)*?)\]\s*TJ/g;
-    while ((match = arrays.exec(stream))) for (const item of match[1].matchAll(/\(((?:\\.|[^\\)])*)\)/g)) out.push(item[1]);
+    const blocks = stream.matchAll(/\bBT\b([\s\S]*?)\bET\b/g);
+    for (const block of blocks) {
+      const body = block[1];
+      const tokenPattern = /\(((?:\\.|[^\\)])*)\)\s*Tj|\[((?:.|\r|\n)*?)\]\s*TJ/g;
+      const tokens = [];
+      let token;
+      while ((token = tokenPattern.exec(body))) {
+        let value;
+        if (token[1] !== undefined) {
+          value = decodePdfLiteral(token[1]);
+        } else {
+          value = [...token[2].matchAll(/\(((?:\\.|[^\\)])*)\)/g)]
+            .map((item) => decodePdfLiteral(item[1]))
+            .join("");
+        }
+        if (value) tokens.push({ index: token.index, end: tokenPattern.lastIndex, value });
+      }
+
+      let line = "";
+      let previousEnd = 0;
+      for (const item of tokens) {
+        const movement = body.slice(previousEnd, item.index);
+        if (line) line += /T\*|[-+]?(?:\d*\.)?\d+\s+[-+]?(?:\d*\.)?\d+\s+T[dD]\b/.test(movement) ? "\n" : " ";
+        line += item.value;
+        previousEnd = item.end;
+      }
+      if (line.trim()) out.push(line.trim());
+    }
   }
-  return out.join(" ").replace(/[^\S\r\n]+/g, " ").trim();
+
+  return out.join("\n")
+    .replace(/\x7f/g, "•")
+    .replace(/[^\S\r\n]+/g, " ")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
 }
 function extractDocxText(buffer) {
   let end = -1;
