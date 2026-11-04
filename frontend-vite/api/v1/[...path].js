@@ -17,6 +17,48 @@ const PROFILES = {
   "github-models": { id: "github-models", label: "GitHub Models · retired API", provider: "github", model: "", endpoint: "", header: "", context_tokens: 0, description: RETIRED_GITHUB_MODELS, retired: true },
   "local-qwen": { id: "local-qwen", label: "Qwen · local (LM Studio)", provider: "local", model: "qwen/qwen3.5-9b", endpoint: "", header: "", context_tokens: 8192, description: "Vercel cannot reach LM Studio running on your computer.", local: true },
   "local-ollama": { id: "local-ollama", label: "Ollama · local", provider: "local", model: "", endpoint: "", header: "", context_tokens: 8192, description: "Vercel cannot reach Ollama running on your computer.", local: true },
+  "openrouter:openrouter/free": {
+    id: "openrouter:openrouter/free", label: "OpenRouter Auto · Free Router", provider: "openrouter", model: "openrouter/free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 1000000, free_endpoint: true, response_format: false,
+    description: "Automatically routes each request to an eligible free OpenRouter model. Shared capacity and rate limits apply; use anonymised demo data only."
+  },
+  "openrouter:nvidia/nemotron-3.5-super-vl:free": {
+    id: "openrouter:nvidia/nemotron-3.5-super-vl:free", label: "NVIDIA Nemotron 3.5 Super VL · Free", provider: "openrouter", model: "nvidia/nemotron-3.5-super-vl:free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 1000000, free_endpoint: true, response_format: true,
+    description: "Free text and multimodal model for document understanding and reasoning. Shared capacity; provider data terms apply."
+  },
+  "openrouter:nvidia/nemotron-3.5-lightning:free": {
+    id: "openrouter:nvidia/nemotron-3.5-lightning:free", label: "NVIDIA Nemotron 3.5 Lightning · Free", provider: "openrouter", model: "nvidia/nemotron-3.5-lightning:free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 1000000, free_endpoint: true, response_format: false,
+    description: "Smaller high-throughput reasoning model for quick JD cleanup and first-pass matching. Shared capacity; provider data terms apply."
+  },
+  "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": {
+    id: "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free", label: "NVIDIA Nemotron 3 Ultra · Free", provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 1000000, free_endpoint: true, response_format: false,
+    description: "Large reasoning model for more complex JD analysis. Shared capacity; provider data terms apply."
+  },
+  "openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
+    id: "openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", label: "NVIDIA Nemotron 3 Nano Omni Reasoning · Free", provider: "openrouter", model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 256000, free_endpoint: true, response_format: false,
+    description: "Compact multimodal reasoning model for first-pass extraction. Shared capacity; provider data terms apply."
+  },
+  "openrouter:dots-studio/dots-3-note-preview:free": {
+    id: "openrouter:dots-studio/dots-3-note-preview:free", label: "Dots3-Note Preview · Free", provider: "openrouter", model: "dots-studio/dots-3-note-preview:free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 512000, free_endpoint: true, response_format: true,
+    description: "Reasoning and document-analysis model. Can be slower; preview model currently listed through December 31, 2026."
+  },
+  "openrouter:cohere/north-mini-code:free": {
+    id: "openrouter:cohere/north-mini-code:free", label: "Cohere North Mini Code · Free", provider: "openrouter", model: "cohere/north-mini-code:free",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions", header: "x-openrouter-api-key", env: "OPENROUTER_API_KEY",
+    context_tokens: 256000, free_endpoint: true, response_format: false,
+    description: "Cohere compact instruction/code model. Uses prompt-based JSON (no response_format enforcement); provider data terms apply."
+  },
   rules: { id: "rules", label: "Built-in Rules Engine · no AI key required", provider: "built-in", model: "rule-match-v1", endpoint: "", header: "", context_tokens: 60000, description: "Deterministic text and keyword matching. No external AI model is called.", rule_based: true }
 };
 
@@ -108,7 +150,12 @@ function resolveCredential(profile, headers) {
     return openrouterKey ? { key: openrouterKey, endpoint: profile.endpoint, model: profile.model, provider: "openrouter", response_format: profile.response_format !== false } : null;
   }
   const directKey = getKey(profile, headers);
-  if (directKey && profile.endpoint) return { key: directKey, endpoint: profile.endpoint, model: profile.model, provider: profile.provider };
+  if (directKey && profile.endpoint) {
+    return {
+      key: directKey, endpoint: profile.endpoint, model: profile.model, provider: profile.provider,
+      response_format: profile.response_format !== false,
+    };
+  }
   const openrouterKey = getKey(PROFILES.openrouter, headers);
   if (openrouterKey && profile.id !== "openrouter" && profile.openrouter_model) {
     return { key: openrouterKey, endpoint: "https://openrouter.ai/api/v1/chat/completions", model: profile.openrouter_model, provider: "openrouter" };
@@ -123,7 +170,7 @@ async function modelStatuses(headers) {
     else if (profile.retired) reason = profile.description;
     else if (profile.local) reason = profile.description;
     else if (!credential) {
-      const provider = profile.id === "openrouter" ? "OpenRouter" : profile.provider === "google" ? "Google Gemini" : profile.provider === "xai" ? "xAI Grok" : profile.provider === "openai" ? "OpenAI" : "DeepSeek";
+      const provider = profile.provider === "openrouter" ? "OpenRouter" : profile.provider === "google" ? "Google Gemini" : profile.provider === "xai" ? "xAI Grok" : profile.provider === "openai" ? "OpenAI" : "DeepSeek";
       reason = "Add a " + provider + " API key in AI Hiring Studio Settings to enable this model. A saved OpenRouter key also enables this hosted model option.";
     }
     return { ...profile, model: credential ? credential.model : profile.model, provider: credential ? credential.provider : profile.provider, enabled: !reason, is_default: false, disabled_reason: reason };
@@ -142,8 +189,10 @@ async function modelStatuses(headers) {
           const modalities = item.architecture && item.architecture.output_modalities;
           const parameters = item.supported_parameters;
           if (!/^[A-Za-z0-9._:/-]{1,200}$/.test(model) || !Array.isArray(modalities) || !modalities.includes("text")) continue;
-          
-          const profile = { ...profileForId("openrouter:" + model), response_format: Array.isArray(parameters) && parameters.includes("response_format") };
+          const profileId = "openrouter:" + model;
+          // Pinned free choices appear once with their privacy, quota and JSON-mode metadata.
+          if (rows.some((row) => row.id === profileId)) continue;
+          const profile = { ...profileForId(profileId), response_format: Array.isArray(parameters) && parameters.includes("response_format") };
           const name = String(item.name || model).slice(0, 120);
           rows.push({
             ...profile,
