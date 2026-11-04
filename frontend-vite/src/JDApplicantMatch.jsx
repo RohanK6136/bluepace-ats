@@ -691,7 +691,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
     const isFeatureRoute = String(path || "").startsWith("/v1/");
-    const explicitBaseURL = options.baseURL ? String(options.baseURL).replace(/\\/$/, "") : "";
+    const explicitBaseURL = options.baseURL ? String(options.baseURL).replace(/\/$/, "") : "";
     const usingLocalAi = Boolean(
       localAiApiUrl && isFeatureRoute
       && (explicitBaseURL === localAiApiUrl || (!explicitBaseURL && selectedProfile === "local-ollama"))
