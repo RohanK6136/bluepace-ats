@@ -374,7 +374,7 @@ function freezeRubric(rubric) {
 function redact(text) {
   return String(text || "").replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[EMAIL REDACTED]").replace(/(?:\+?\d[\d\s().-]{7,}\d)/g, "[PHONE REDACTED]").replace(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[^\s)]+/gi, "[LINKEDIN REDACTED]").replace(/(?:https?:\/\/)?(?:www\.)?github\.com\/[^\s)]+/gi, "[GITHUB REDACTED]");
 }
-export function decodeAscii85(input) {
+function decodeAscii85(input) {
   const source = Buffer.isBuffer(input) ? input : Buffer.from(input);
   const output = [];
   let group = [];
@@ -422,7 +422,7 @@ function decodePdfLiteral(value) {
     .replace(/\\([0-7]{1,3})/g, (_match, octal) => String.fromCharCode(parseInt(octal, 8)));
 }
 
-function extractPdfText(buffer) {
+export function extractPdfText(buffer) {
   const source = buffer.toString("latin1");
   const streams = [source];
   const regex = /stream\r?\n([\s\S]*?)\r?\n?endstream/g;
