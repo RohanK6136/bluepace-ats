@@ -48,7 +48,7 @@ _METADATA_LABELS = {
 
 
 def _metadata_label(text: str) -> str | None:
-    label = re.sub(r"\s*[:：]\s*$, "", text.strip()).casefold()
+    label = re.sub(r"\s*[:：]\s*$", "", text.strip()).casefold()
     return label if label in _METADATA_LABELS else None
 
 
