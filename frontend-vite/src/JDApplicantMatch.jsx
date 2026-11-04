@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, MAX_BULK_RESUMES, validateBulkResume } from "./bulkMatchUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError } from "./jdUploadUtils.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -1013,7 +1014,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   async function uploadJobDescription(file) {
     if (!file) return;
-    if (!/\.(pdf|docx|doc|txt|md)$/i.test(file.name)) { setJdError("Upload a PDF, DOCX, DOC, TXT, or Markdown job description."); return; }
+    if (!/\.(pdf|docx|txt|md)$/i.test(file.name)) { setJdError("Upload a searchable PDF, DOCX, TXT, or Markdown job description."); return; }
     if (file.size > 10 * 1024 * 1024) { setJdError("The JD file must be 10 MB or smaller."); return; }
     setJdUploadBusy(true); setJdError(""); setJdSourceMessage("");
     try {
@@ -1022,11 +1023,12 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       form.append("options", JSON.stringify({ mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) }));
       form.append("overrides", JSON.stringify({}));
       const response = await request("post", "/v1/jd/generate/upload", form, { timeout: 120000 });
-      const result = response.data;
-      if (!result || !Array.isArray(result.sections) || !result.sections.length) throw new Error("The uploaded file did not produce structured JD sections. Try a text-based PDF or DOCX.");
+      const result = response.data || {};
+      const uploadError = getJdUploadError(result);
+      if (uploadError) throw new Error(uploadError);
       setJdResult(result);
-      const extracted = [result.title, ...(result.sections || []).flatMap((section) => [section.title || section.name, section.content || section.text, ...(Array.isArray(section.items) ? section.items : [])])].filter(Boolean).join("\\n");
-      setJdText(extracted || result.summary || "");
+      const extracted = extractJdTextFromResult(result);
+      setJdText(extracted || result.long_description_text || "");
       setJdSourceMessage(`Imported ${file.name}. Review the extracted content and standardized output.`);
       setNotice("JD file uploaded and processed. Review the output, then generate and link the match rubric.");
     } catch (error) { setJdError(explainError(error)); }
@@ -1781,7 +1783,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 <div className="grid gap-3 rounded-lg border border-ink-100 bg-[#fafaf8] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-ink-800">Import a job description</p><Pill>PDF · DOCX · DOC · TXT · URL</Pill></div>
                   <Field label="Upload JD file" hint="Maximum 10 MB. Text-based PDF and DOCX files work best.">
-                    <input type="file" accept=".pdf,.docx,.doc,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadJobDescription(file); event.target.value = ""; }} className={fieldClass} disabled={jdUploadBusy || jdLinkBusy} />
+                    <input type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadJobDescription(file); event.target.value = ""; }} className={fieldClass} disabled={jdUploadBusy || jdLinkBusy} />
                   </Field>
                   {jdUploadBusy && <p className="text-xs text-ink-500">Uploading and extracting JD content…</p>}
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
