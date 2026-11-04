@@ -13,7 +13,10 @@ The local service uses Ollama with Qwen3 8B. No OpenRouter key, paid model subsc
 
    `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
 
-   `.ackend\start-local-ai.ps1`
+   ```powershell
+Set-Location backend
+.\start-local-ai.ps1
+```
 
 The script downloads `qwen3:8b` if it is not already installed, creates a small Python virtual environment, installs only the dependencies needed by the local AI API, and starts the service at `http://127.0.0.1:8000`. The first model download is about 5.2 GB.
 
