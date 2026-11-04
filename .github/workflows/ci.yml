@@ -92,6 +92,10 @@ jobs:
         working-directory: frontend-vite
         run: npm run test:jd-match-api
 
+      - name: Test JD document upload extraction and diagnostics
+        working-directory: frontend-vite
+        run: npm run test:jd-upload
+
       - name: Test smart hiring workflow stages and filters
         working-directory: frontend-vite
         run: npm run test:hiring-workflow
