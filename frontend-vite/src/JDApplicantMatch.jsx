@@ -1696,12 +1696,24 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         <div className="flex flex-wrap gap-2 border-b border-ink-100 bg-[#fafaf8] px-4 py-3 sm:px-6" role="tablist" aria-label="AI feature workflows">
           <button type="button" role="tab" aria-selected={activeTab === "jd"} onClick={() => setActiveTab("jd")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "jd" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>1 · JD Standardizer</button>
           <button type="button" role="tab" aria-selected={activeTab === "match"} onClick={() => setActiveTab("match")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "match" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>2 · Applicant Match</button>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <span className="hidden text-xs text-ink-500 sm:inline">Model</span>
             <select aria-label="AI model profile" value={selectedProfile} onChange={(event) => setSelectedProfile(event.target.value)} className="max-w-[230px] rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs text-ink-700">
               <option value="">Backend default</option>
-              {models.map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : " · unavailable"}</option>)}
+              {models.some((model) => model.free_endpoint) && (
+                <optgroup label="Free OpenRouter models">
+                  {models.filter((model) => model.free_endpoint).map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : " · add OpenRouter key"}</option>)}
+                </optgroup>
+              )}
+              <optgroup label="Other models">
+                {models.filter((model) => !model.free_endpoint).map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : " · unavailable"}</option>)}
+              </optgroup>
             </select>
+            {models.some((model) => model.id === selectedProfile && model.free_endpoint) && (
+              <p role="note" className="basis-full max-w-[620px] text-right text-[11px] leading-4 text-amber-800">
+                Free shared inference is rate-limited and provider data policies vary. Use synthetic or anonymised demo data only; do not send identifiable candidate resumes or confidential hiring data unless your organisation has approved that provider.
+              </p>
+            )}
           </div>
         </div>
         <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
