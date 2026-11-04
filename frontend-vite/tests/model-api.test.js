@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import handler from "../api/v1/[...path].js";
+import handler, { extractPdfText } from "../api/v1/[...path].js";
+import { deflateSync } from "node:zlib";
 import { onRequest as pagesFunction } from "../functions/v1/[[path]].js";
 
 function invoke(headers = {}, method = "GET", pathParts = ["models"], body = "") {
@@ -386,4 +387,45 @@ test("Cloudflare Pages adapter builds a rubric and assesses resume evidence with
   assert.equal(matchResponse.statusCode, 200, JSON.stringify(matchResponse.body));
   assert.equal(matchResponse.body.versions.profile, "rules");
   assert.ok(matchResponse.body.evidence.length > 0);
+});
+
+
+function encodeAscii85(buffer) {
+  const parts = [];
+  for (let offset = 0; offset < buffer.length; offset += 4) {
+    const chunk = buffer.subarray(offset, offset + 4);
+    let value = 0;
+    for (let index = 0; index < 4; index++) value = value * 256 + (chunk[index] || 0);
+    if (chunk.length === 4 && value === 0) {
+      parts.push("z");
+      continue;
+    }
+    const digits = Array(5);
+    for (let index = 4; index >= 0; index--) {
+      digits[index] = String.fromCharCode((value % 85) + 33);
+      value = Math.floor(value / 85);
+    }
+    parts.push(digits.slice(0, chunk.length + 1).join(""));
+  }
+  return parts.join("") + "~>";
+}
+
+test("PDF extraction decodes ASCII85 then Flate streams and preserves JD headings", () => {
+  const content = [
+    "BT /F1 12 Tf 72 720 Td (Python Full Stack Developer) Tj ET",
+    "BT /F1 11 Tf 72 700 Td (Required Qualifications) Tj ET",
+    "BT /F1 10 Tf 72 680 Td (Python and FastAPI experience) Tj ET",
+  ].join("\n");
+  const encoded = encodeAscii85(deflateSync(Buffer.from(content, "latin1")));
+  const pdf = Buffer.from(
+    "%PDF-1.4\n1 0 obj\n<< /Length " + encoded.length + " /Filter [ /ASCII85Decode /FlateDecode ] >>\nstream\n" +
+    encoded + "\nendstream\nendobj\n%%EOF\n",
+    "latin1",
+  );
+
+  const extracted = extractPdfText(pdf);
+  assert.match(extracted, /Python Full Stack Developer/);
+  assert.match(extracted, /Required Qualifications/);
+  assert.match(extracted, /Python and FastAPI experience/);
+  assert.ok(extracted.indexOf("Required Qualifications") > extracted.indexOf("Python Full Stack Developer"));
 });
