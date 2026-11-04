@@ -1001,8 +1001,14 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         overrides: {},
       };
       const response = await request("post", mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
-      setJdResult(response.data);
-      if (response.data?.request_id) setNotice(`Run completed · ${response.data.request_id}`);
+      const result = response.data || {};
+      if (!Array.isArray(result.sections) || result.sections.length === 0) {
+        const detail = String(result.message || "").trim();
+        const status = String(result.status || "").replaceAll("_", " ");
+        throw new Error(detail || (status ? `JD Standardizer could not create sections (status: ${status}). Add the complete job description, including responsibilities and qualifications, then retry.` : "JD Standardizer returned no structured sections. Add the complete job description, including responsibilities and qualifications, then retry."));
+      }
+      setJdResult(result);
+      if (result.request_id) setNotice(`Run completed · ${result.request_id}`);
     } catch (error) {
       setJdError(explainError(error));
     } finally {
@@ -1112,9 +1118,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         }, { timeout: 120000 }),
       ]);
 
-      const standardized = jdResponse.data;
-      if (!standardized || !Array.isArray(standardized.sections) || !standardized.sections.length) {
-        throw new Error("JD Standardizer returned no structured sections. Review the job description and try again.");
+      const standardized = jdResponse.data || {};
+      if (!Array.isArray(standardized.sections) || standardized.sections.length === 0) {
+        const detail = String(standardized.message || "").trim();
+        const status = String(standardized.status || "").replaceAll("_", " ");
+        throw new Error(detail || (status
+          ? `JD Standardizer could not create sections (status: ${status}). Add the complete job description, including responsibilities and qualifications, then retry.`
+          : "JD Standardizer returned no structured sections. Add the complete job description, including responsibilities and qualifications, then retry."));
       }
       setJdResult(standardized);
 
