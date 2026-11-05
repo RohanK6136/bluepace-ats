@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import handler, { extractPdfText } from "../api/v1/[...path].js";
+import explicitTestHandler from "../api/v1/test.js";
 import { deflateSync } from "node:zlib";
 import { onRequest as pagesFunction } from "../functions/v1/[[path]].js";
 
@@ -28,6 +29,30 @@ function invoke(headers = {}, method = "GET", pathParts = ["models"], body = "")
     body: JSON.parse(res.body || "null"),
   }));
 }
+function invokeHandler(targetHandler, headers = {}, method = "GET", url = "/api/v1/models", query = {}, body = "") {
+  const req = {
+    method,
+    url,
+    headers,
+    query,
+    async *[Symbol.asyncIterator]() {
+      if (body) yield Buffer.from(body);
+    },
+  };
+  const res = {
+    statusCode: 200,
+    headers: {},
+    body: "",
+    setHeader(name, value) { this.headers[name.toLowerCase()] = value; },
+    end(value = "") { this.body = value; },
+  };
+  return Promise.resolve(targetHandler(req, res)).then(() => ({
+    statusCode: res.statusCode,
+    headers: res.headers,
+    body: JSON.parse(res.body || "null"),
+  }));
+}
+
 
 test("model registry reports hosted profiles as disabled without session keys", async () => {
   const response = await invoke({ host: "ats.vercel.app" });
@@ -544,4 +569,46 @@ test("multipart JD PDF upload extracts requirements using its selected rules pro
 test("Vercel model API rewrite preserves the requested path", () => {
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   assert.ok(config.rewrites.some((rule) => rule.source === "/v1/:path*" && rule.destination === "/api/v1/:path*"));
+});
+
+test("explicit OpenRouter test route and Vercel catch-all path variants complete inference", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedAuthorization = "";
+  globalThis.fetch = async (_url, init = {}) => {
+    capturedAuthorization = String(init.headers?.Authorization || "");
+    return new Response(JSON.stringify({
+      model: "google/gemini-3.8-flash",
+      choices: [{ message: { content: '{"status":"ok"}' } }],
+      usage: { prompt_tokens: 9, completion_tokens: 4 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  const headers = {
+    host: "ats.vercel.app",
+    "x-openrouter-api-key": "test-secret-never-returned",
+    "content-type": "application/json",
+  };
+  const cases = [
+    ["explicit /api/v1/test function", explicitTestHandler, "/api/v1/test", {}],
+    ["catch-all array parameter", handler, "/api/v1/test", { path: ["test"] }],
+    ["catch-all prefixed string parameter", handler, "/api/v1/test", { path: "v1/test" }],
+    ["catch-all original /v1 URL fallback", handler, "/v1/test", {}],
+    ["catch-all rewritten /api/v1 URL fallback", handler, "/api/v1/test", {}],
+  ];
+
+  try {
+    for (const [label, targetHandler, url, query] of cases) {
+      const response = await invokeHandler(targetHandler, headers, "POST", url, query, "{}");
+      assert.equal(response.statusCode, 200, label + ": " + JSON.stringify(response.body));
+      assert.equal(response.body.status, "connected", label);
+      assert.equal(response.body.completion_verified, true, label);
+      assert.equal(response.body.model, "google/gemini-3.8-flash", label);
+      assert.equal(response.body.prompt_tokens, 9, label);
+      assert.equal(response.body.completion_tokens, 4, label);
+      assert.equal(JSON.stringify(response.body).includes("test-secret-never-returned"), false, label);
+    }
+    assert.equal(capturedAuthorization, "Bearer test-secret-never-returned");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
