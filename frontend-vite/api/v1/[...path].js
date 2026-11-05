@@ -746,43 +746,6 @@ function inferTitle(text) {
   }
   return null;
 }
-function createRulesJD(text) {
-  const rawLines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const lines = sourceLines(text);
-  const responsibilities = [];
-  const requirements = [];
-  const nice = [];
-  const offer = [];
-  const about = [];
-  for (const statement of lines.map((line) => line.text)) {
-    if (/preferred|nice to have|bonus|desirable/i.test(statement)) { nice.push(statement); continue; }
-    if (/salary|compensation|benefits|health insurance|paid leave|equity|stock option|what we offer/i.test(statement)) { offer.push(statement); continue; }
-    if (/responsibilit|you will|responsible for|build|develop|manage|lead|design|implement|maintain|support|deliver|collaborate|analy[sz]e|create|coordinate|optimi[sz]e|ensure|own |oversee/i.test(statement)) responsibilities.push(statement);
-    else if (/require|qualif|degree|bachelor|master|phd|certif|proficien|experience|years?|skills?|knowledge|must have|familiarity|expertise/i.test(statement)) requirements.push(statement);
-    else about.push(statement);
-  }
-  const title = inferTitle(text);
-  const expMatch = String(text).match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\b/i);
-  return {
-    title,
-    short_description: about.slice(0, 2).join(" ").slice(0, 500) || (title ? "Role summary extracted from the supplied job description." : null),
-    category_hint: null,
-    role_type: null,
-    experience: { min_years: expMatch ? Number(expMatch[1]) : null, max_years: null },
-    responsibilities: responsibilities.slice(0, 30),
-    requirements: requirements.slice(0, 30),
-    nice_to_have: nice.slice(0, 20),
-    offer: offer.slice(0, 20),
-    about_role: about.slice(0, 5),
-    additional_info: rawLines.filter((line) => /remote|hybrid|on[- ]site|location|full[- ]time|part[- ]time|contract|salary|compensation/i.test(line)).slice(0, 10),
-    missing_information: [
-      ...(!title ? ["job title: not clearly identified in the supplied text"] : []),
-      ...(!offer.length ? ["compensation or benefits: not stated in the supplied text"] : []),
-      ...(!/location|remote|hybrid|on[- ]site/i.test(text) ? ["work location or mode: not stated in the supplied text"] : []),
-    ],
-    review_flags: ["Built-in rules engine extracted text sections only; review the original JD for omissions and context."]
-  };
-}
 function createRulesRubric(jdText) {
   const lines = sourceLines(jdText);
   const raw = {
@@ -890,17 +853,12 @@ async function routeRequest(req, res, path, body) {
     if (text.length < 15) throw Object.assign(new Error("Paste a job description with at least 15 characters."), { statusCode: 422 });
     if (text.length > MAX_TEXT) throw Object.assign(new Error("Job description exceeds the 60,000 character limit."), { statusCode: 413 });
     const options = parseObjectField(payload.options);
-    // JD standardization is intentionally non-generative. Keep accepting the
-    // legacy options.profile field for API compatibility, but never route JD
-    // content to a hosted or local language model.
+    // JD Standardizer is model-independent. Legacy profile options are accepted
+    // for compatibility but never passed to a language-model provider.
     const profile = PROFILES.rules;
     const usage = { model: profile.model, latency_ms: 0, prompt_tokens: 0, completion_tokens: 0 };
     const standardized = standardizeDeterministicJD(text);
     return send(res, 200, normalizeJD(standardized, profile, usage, options.mode || "light"));
-    const system = "This legacy model prompt is intentionally unreachable.";
-    const user = JSON.stringify({ task: path.includes("/generate") ? "Create a concise first-pass JD draft." : "Standardize the supplied JD without changing its meaning.", mode: options.mode || "light", detail: options.detail || "detailed", source_job_description: text, overrides: parseObjectField(payload.overrides), response_schema: { title: "string or null", category_hint: "string or null", role_type: "string or null", location: { country: "string or null", state: "string or null", city: "string or null", work_mode: "remote|hybrid|onsite or null" }, experience: { min_years: "number or null", max_years: "number or null" }, duration_months: "number or null", about_role: ["paragraphs"], responsibilities: ["responsibilities"], requirements: ["must-have requirements"], nice_to_have: ["preferred requirements"], offer: ["source benefits"], additional_info: ["source details"], short_description: "one sentence", missing_information: ["field: reason"], review_flags: ["items to verify"] } });
-    const usage = await callModel(profile, headers, system, user, path.includes("/generate") ? 3500 : 5000);
-    return send(res, 200, normalizeJD(usage.parsed, profile, usage, options.mode || "light"));
   }
 
   if (path === "/v1/match/rubrics" && method === "GET") return send(res, 200, []);
