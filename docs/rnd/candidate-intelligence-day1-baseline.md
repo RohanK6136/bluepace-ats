@@ -25,20 +25,20 @@ Establish a reliable, auditable candidate document and profile lifecycle before 
 - The matching service already considers required/preferred skills, experience, education, location, work mode, semantic similarity and project evidence.
 - The current semantic search and talent-pool functionality should be extended rather than duplicated.
 
-## 3. Initial risks and questions to verify
+## 3. Confirmed lifecycle findings and remaining questions
 
-These are audit questions, not confirmed production defects.
+The following findings are confirmed by reading the current main-branch source. They have not yet been reproduced against a running production environment.
 
-1. Does every successful upload create a durable `CandidateDocument` row and retain the original object in storage?
-2. Does the Resume Lab processing path update `Candidate.resume_storage_key`, or only the structured profile?
-3. What happens to the prior document and extracted profile when a candidate uploads a replacement CV?
-4. Are profile updates merged field-by-field, and can recruiter-entered values be overwritten?
-5. Are original documents downloadable only by authorised users belonging to the candidate's organisation?
-6. Are storage keys opaque and private, with access mediated by an authenticated backend route or short-lived signed URL?
-7. What are the configured retention and deletion behaviours for original CVs, temporary files, extracted text, embeddings, and processing results?
-8. Which database migration mechanism is used, and how are new document-version records deployed safely?
-9. Are candidate merges updating all document references and preserving an audit trail?
-10. Which frontend views and APIs currently show the original CV and document history?
+1. **CandidateDocument is not currently wired into the inspected upload paths.** The model exists and is imported in `main.py`, but no `CandidateDocument(...)` creation was found in the inspected backend source.
+2. **Public-application source CV deletion risk:** `public_apply` stores the uploaded CV in private storage, sets that same reference as `candidate.resume_storage_key`, and sets it as `ResumeProcessingJob.storage_path`. After successful extraction, `process_resume_ingest_job` deletes `job.storage_path`. Therefore, on this path, the worker appears to delete the same object referenced by the candidate profile. This is a confirmed code-path conflict and a high-priority fix; production impact still needs runtime verification.
+3. **Resume Lab / bulk ingestion retention gap:** when the worker creates or updates a candidate from a queued job, it updates structured `resume_data` but does not set `candidate.resume_storage_key` or create a `CandidateDocument` in the inspected task. The worker then deletes the queue object's `job.storage_path` after success. This means the source CV is not retained for this path.
+4. **Recruiter candidate creation path:** `/candidates/from-resume` writes the original file directly under `RESUME_STORAGE_DIR` and sets `resume_storage_key`, but does not create a `CandidateDocument` record in the inspected route.
+5. **Candidate CV replacement path:** `/candidates/{candidate_id}/resume` writes a new private-storage object and overwrites `candidate.resume_storage_key` and `candidate.resume_data`. The old reference is captured in the audit event's before-state, but no version record is created in the inspected route. The route does not preserve the old CV as a first-class history item.
+6. The replacement route replaces the full structured profile with the latest extracted payload. Recruiter-entered profile preservation needs a dedicated test and a defined merge policy.
+7. Frontend entry points, document retrieval routes, role permissions and organisation isolation need a complete pass before adding a download/history API.
+8. Retention and deletion policies for original CVs, temporary files, extracted text, embeddings and processing results remain to be verified.
+9. The application uses `initialize_database()` with `Base.metadata.create_all` and incremental `upgrade_phase*` functions in `backend/app/database.py`; a new schema change must follow this existing mechanism and be tested on both SQLite and PostgreSQL-compatible behaviour.
+10. Candidate merge handling of document records and storage objects remains to be verified.
 
 ## 4. Proposed first feature: CV Version History
 
@@ -93,11 +93,12 @@ Establish baseline measurements before setting numerical targets.
 - [x] Inspect candidate, resume-job and candidate-document models.
 - [x] Inspect extraction engine selection and structured validation.
 - [x] Inspect matching and duplicate/merge foundations.
-- [ ] Trace all upload endpoints and frontend entry points.
-- [ ] Trace storage writes, downloads, deletion and retention.
-- [ ] Inspect migrations and relevant automated tests.
-- [ ] Confirm current profile overwrite/merge semantics.
-- [ ] Produce a complete API/data-flow map and implementation specification.
+- [x] Trace the main backend upload entry points: public application, recruiter candidate creation, candidate CV replacement, Resume Lab queue and bulk upload.
+- [x] Trace the private-storage write/read/delete calls in the inspected upload and worker paths.
+- [x] Confirm current profile overwrite semantics in the candidate CV replacement and Resume Lab processing paths.
+- [ ] Inspect all frontend entry points, document download routes and automated test coverage.
+- [ ] Confirm database migration/deployment behaviour and storage retention policy.
+- [ ] Produce the complete API/data-flow map and implementation specification.
 
 ## 8. Change and verification log
 
