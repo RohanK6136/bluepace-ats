@@ -124,7 +124,7 @@ function heading(raw) {
   return SECTION_RULES.find((item) => item[1].test(value))?.[0] || null;
 }
 function inlineHeading(raw) {
-  const cleaned = norm(raw).replace(/^#{1,6}\\s*/, "");
+  const cleaned = stripBullet(raw);
   const colon = cleaned.indexOf(":");
   if (colon <= 0 || colon > 50) return null;
   const section = heading(cleaned.slice(0, colon));
