@@ -324,42 +324,64 @@ test("built-in rules engine builds a rubric and returns evidence-based resume ma
 });
 
 
-test("hosted model requests enable JSON mode before parsing structured JD output", async () => {
+test("JD standardization stays deterministic even when a hosted model key is supplied", async () => {
   const originalFetch = globalThis.fetch;
-  let requestBody;
-  globalThis.fetch = async (_url, init = {}) => {
-    requestBody = JSON.parse(init.body);
-    return new Response(JSON.stringify({
-      model: "google/gemini-3.8-flash",
-      choices: [{ message: { content: JSON.stringify({
-        title: "Software Engineer",
-        responsibilities: ["Build and maintain APIs"],
-        requirements: ["Python"],
-        experience: { min_years: 3, max_years: null },
-        location: { work_mode: "hybrid" },
-      }) } }],
-      usage: { prompt_tokens: 20, completion_tokens: 30 },
-    }), { status: 200, headers: { "content-type": "application/json" } });
+  let providerCallMade = false;
+  globalThis.fetch = async () => {
+    providerCallMade = true;
+    throw new Error("JD standardization must never call a model provider.");
   };
   try {
     const response = await invoke(
-      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-json-mode-key" },
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-jd-provider-key" },
       "POST",
       ["jd", "standardize"],
       JSON.stringify({
-        text: "Software Engineer\nRequirements:\n- Python and 3 years of experience",
+        text: "Software Engineer\nResponsibilities:\n- Build and maintain APIs\nRequirements:\n- Python and 3 years of experience",
         options: { profile: "openrouter", mode: "light" },
       }),
     );
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
-    assert.deepEqual(requestBody.response_format, { type: "json_object" });
     assert.equal(response.body.fields.title.value, "Software Engineer");
-    assert.equal(response.body.meta.model, "google/gemini-3.8-flash");
+    assert.equal(response.body.meta.profile, "rules");
+    assert.equal(response.body.meta.model, "deterministic-nlp-rules-v1");
+    assert.equal(response.body.meta.llm_calls, 0);
+    assert.equal(response.body.meta.prompt_tokens, 0);
+    assert.equal(response.body.meta.completion_tokens, 0);
+    assert.equal(response.body.meta.cost_usd, 0);
+    assert.equal(providerCallMade, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
+test("JD fast generation also uses source-grounded deterministic output with zero inference cost", async () => {
+  const originalFetch = globalThis.fetch;
+  let providerCallMade = false;
+  globalThis.fetch = async () => {
+    providerCallMade = true;
+    throw new Error("Fast JD generation must not call a model provider.");
+  };
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json" },
+      "POST",
+      ["jd", "generate"],
+      JSON.stringify({
+        text: "QA Automation Engineer\nResponsibilities\n- Maintain Playwright test suites\nRequirements\n- 4 years of test automation experience",
+        options: { profile: "openrouter", mode: "rewrite" },
+      }),
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(response.body.fields.title.value, "QA Automation Engineer");
+    assert.equal(response.body.meta.llm_calls, 0);
+    assert.equal(response.body.meta.cost_usd, 0);
+    assert.equal(response.body.sections.find((section) => section.id === "responsibilities").items[0].origin, "source");
+    assert.equal(providerCallMade, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("OpenRouter requests enable response healing and retry malformed structured output once", async () => {
   const originalFetch = globalThis.fetch;
