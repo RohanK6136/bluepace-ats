@@ -256,7 +256,7 @@ test("built-in rules engine standardizes a job description without an external p
   assert.equal(response.body.meta.profile, "rules");
   assert.equal(response.body.fields.title.value, "Senior Software Engineer");
   assert.ok(response.body.sections.some((section) => section.items.length));
-  assert.match(response.body.flags.map((flag) => flag.message).join(" "), /rules engine/i);
+  assert.match(response.body.flags.map((flag) => flag.message).join(" "), /deterministic NLP/i);
 });
 
 test("built-in rules engine builds a rubric and returns evidence-based resume matching", async () => {
