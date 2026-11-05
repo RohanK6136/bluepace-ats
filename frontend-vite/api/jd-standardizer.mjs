@@ -372,10 +372,11 @@ export function standardizeJD(input) {
   const missing = [];
   const conflicts = [];
   for (const [field, item] of Object.entries(facts)) {
-    if (item.status === "missing") missing.push(field.replaceAll("_", " ") + ": not stated in the supplied job description");
+    const displayField = field === "title" ? "job title" : field.replaceAll("_", " ");
+    if (item.status === "missing") missing.push(displayField + ": not stated in the supplied job description");
     if (item.status === "conflict") {
       conflicts.push({ field, candidates: item.candidates });
-      missing.push(field.replaceAll("_", " ") + ": conflicting source values need recruiter confirmation");
+      missing.push(displayField + ": conflicting source values need recruiter confirmation");
     }
   }
   if (!responsibilities.length) missing.push("responsibilities: no role-specific responsibilities were identified");
