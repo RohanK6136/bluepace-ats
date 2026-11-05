@@ -578,7 +578,7 @@ test("direct /api/v1 function URLs serve JD Standardizer and Applicant Match wit
     "- Build REST APIs with Python and FastAPI",
     "Requirements:",
     "- 5 years of experience with Python, SQL and AWS",
-  ].join("\\n");
+  ].join("\n");
   const standardize = await invokeHandler(
     handler,
     { ...hostHeaders, "content-type": "application/json" },
@@ -606,11 +606,11 @@ test("direct /api/v1 function URLs serve JD Standardizer and Applicant Match wit
   const boundary = "direct-api-path-boundary";
   const resume = "Senior software engineer with 6 years of experience. Built REST APIs using Python and FastAPI. Worked with SQL databases and AWS cloud deployments.";
   const multipart = [
-    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\\"rubric\\"\\r\\n\\r\\n" + JSON.stringify(rubric) + "\\r\\n",
-    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\\"text\\"\\r\\n\\r\\n" + resume + "\\r\\n",
-    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\\"profile\\"\\r\\n\\r\\nrules\\r\\n",
-    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\\"rubric_id\\"\\r\\n\\r\\n" + rubric.rubric_id + "\\r\\n",
-    "--" + boundary + "--\\r\\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric\"\r\n\r\n" + JSON.stringify(rubric) + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\n" + resume + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"profile\"\r\n\r\nrules\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric_id\"\r\n\r\n" + rubric.rubric_id + "\r\n",
+    "--" + boundary + "--\r\n",
   ].join("");
   const analysis = await invokeHandler(
     handler,
