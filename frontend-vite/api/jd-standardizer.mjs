@@ -268,6 +268,13 @@ export function standardizeJD(input) {
         if (label.field === "location") pushCandidate(candidates, "location", label.value, item);
         else pushCandidate(candidates, label.field, label.value, item);
       }
+      if (label.field === "salary" && label.value) {
+        content.offer.push({ text: item.text, lines: [item.id] });
+        sectionLineRefs.offer.push(item.id);
+      } else if (label.field === "education" && label.value) {
+        content.requirements.push({ text: item.text, lines: [item.id] });
+        sectionLineRefs.requirements.push(item.id);
+      }
       const modes = label.field === "location" ? matching(WORK_MODES, label.value) : [];
       for (const mode of modes) pushCandidate(candidates, "work_mode", mode, item);
       lines.push({ ...item, section: "metadata", field: label.field });
@@ -360,7 +367,7 @@ export function standardizeJD(input) {
   const requiredText = lines.filter((line) => sectionLineRefs.requirements.includes(line.id)).map((line) => line.text).join("\n");
   const preferredText = lines.filter((line) => sectionLineRefs.nice_to_have.includes(line.id)).map((line) => line.text).join("\n");
   const allText = lines.map((line) => line.text).join("\n");
-  const skills = { required: skillMatches(requiredText || allText), preferred: skillMatches(preferredText), all: skillMatches(allText) };
+  const skills = { required: skillMatches(requiredText), preferred: skillMatches(preferredText), all: skillMatches(allText) };
   if (companyProfileOnly) {
     duplicates.push({ section: "company_about", line: null, duplicate_of: null, text: "Company profile supplied without role-specific content." });
   }
