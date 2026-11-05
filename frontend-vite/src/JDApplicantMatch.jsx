@@ -150,12 +150,12 @@ function explainError(error) {
   const status = error?.response?.status;
   const requestedPath = error?.config?.url || "";
   const detail = error?.response?.data?.detail;
-  // A generic FastAPI 404 body ("Not Found") hid the more useful deployment mismatch.
-  if (status === 404 && requestedPath.includes("/v1/models")) {
-    return "The backend answered, but GET /v1/models is missing. Its deployed version is older than this AI workspace. Deploy the compatible backend revision before using JD Standardizer or Applicant Match.";
-  }
   if (status === 404) {
-    return "The backend answered, but the requested AI feature route is missing. The compatible JD Standardizer / Applicant Match backend revision has not been deployed to this API host yet.";
+    const routeDetail = typeof detail === "string" ? detail : "";
+    const routeLabel = requestedPath || "The requested AI feature endpoint";
+    return routeDetail
+      ? `${routeLabel} returned HTTP 404: ${routeDetail}`
+      : `${routeLabel} is not available on this deployment. Check the deployed AI API function and route configuration.`;
   }
   if (status === 503) {
     return typeof detail === "string" ? detail : "The backend is reachable, but its AI feature platform or model registry is unavailable. Check backend startup configuration.";
@@ -1041,9 +1041,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setInferenceTest({ status: "checking", message: "Sending a short test prompt to OpenRouter. Provider usage charges may apply." });
     setNotice("");
     try {
-      const response = await request("post", "/v1/test", {}, {
+      const response = await request("post", "/api/v1/test", {}, {
         timeout: 60000,
         baseURL: window.location.origin,
+        skipAuth: true,
         ...(value ? { headers: { "X-OpenRouter-Api-Key": value } } : {}),
       });
       const result = response.data || {};
