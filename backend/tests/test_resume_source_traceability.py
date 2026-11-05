@@ -317,7 +317,7 @@ def test_docling_native_provenance_flows_into_resume_extraction_evidence(monkeyp
         document_intelligence_service,
         "extract",
         lambda _content, _filename: DocumentIntelligenceResult(
-            text="Aarav Mehta\\naarav.mehta@example.test\\nPython FastAPI",
+            text="Aarav Mehta\naarav.mehta@example.test\nPython FastAPI",
             markdown="Aarav Mehta",
             engine="docling",
             source_line_locations=locations,
