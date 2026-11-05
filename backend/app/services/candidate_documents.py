@@ -49,27 +49,6 @@ def record_candidate_document(
     return document
 
 
-def is_resume_reference_retained(db, storage_reference: str) -> bool:
-    """Return whether a stored object is still linked to a candidate or CV history."""
-    if not storage_reference:
-        return False
-
-    current_candidate_id = db.scalar(
-        select(Candidate.id)
-        .where(Candidate.resume_storage_key == storage_reference)
-        .limit(1)
-    )
-    if current_candidate_id is not None:
-        return True
-
-    document_id = db.scalar(
-        select(CandidateDocument.id)
-        .where(CandidateDocument.storage_key == storage_reference)
-        .limit(1)
-    )
-    return document_id is not None
-
-
 def should_delete_resume_source(
     storage_reference: str,
     *,
