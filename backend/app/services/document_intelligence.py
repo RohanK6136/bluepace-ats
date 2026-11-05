@@ -115,6 +115,24 @@ class DocumentIntelligenceService:
                     if all(key in bbox_values for key in ("l", "t", "r", "b")):
                         location["bbox"] = bbox_values
 
+                pages = cls._member(document, "pages", {}) or {}
+                page_item = pages.get(page_number) if hasattr(pages, "get") else None
+                page_size = cls._member(page_item, "size") if page_item is not None else None
+                size_width = cls._member(page_size, "width") if page_size is not None else None
+                size_height = cls._member(page_size, "height") if page_size is not None else None
+                if (
+                    isinstance(size_width, (int, float))
+                    and not isinstance(size_width, bool)
+                    and isinstance(size_height, (int, float))
+                    and not isinstance(size_height, bool)
+                    and size_width > 0
+                    and size_height > 0
+                ):
+                    location["page_size"] = {
+                        "width": float(size_width),
+                        "height": float(size_height),
+                    }
+
                 for item_line in item_text.splitlines():
                     normalized = " ".join(item_line.split()).casefold()
                     if normalized:
