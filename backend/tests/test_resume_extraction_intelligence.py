@@ -63,3 +63,94 @@ def test_experience_years_ignores_non_dictionary_entries():
     assert DocumentExtractor._experience_years_from_entries(
         ["Jan 2020 - Dec 2020", None], as_of=AS_OF
     ) is None
+
+@pytest.mark.parametrize(
+    "raw_text, skills",
+    [
+        ("Google Cloud and NoSQL database experience", ["Go", "SQL"]),
+        ("Golang services and PostgreSQL queries", ["Go", "SQL"]),
+    ],
+)
+def test_extraction_evidence_does_not_match_skill_substrings(raw_text, skills):
+    evidence, confidence = DocumentExtractor._evidence_and_confidence(
+        raw_text, {"skills": skills}
+    )
+
+    skill_evidence = next(item for item in evidence if item["field"] == "skills")
+    assert skill_evidence["source_lines"] == []
+    assert skill_evidence["evidence_coverage"] == 0.0
+    assert skill_evidence["matched_value_count"] == 0
+    assert confidence["skills"] < 0.88
+
+
+def test_extraction_evidence_matches_complete_skill_tokens():
+    evidence, confidence = DocumentExtractor._evidence_and_confidence(
+        "Skills: Go, SQL, NoSQL, and Golang",
+        {"skills": ["Go", "SQL"]},
+    )
+
+    skill_evidence = next(item for item in evidence if item["field"] == "skills")
+    assert skill_evidence["source_lines"] == ["Skills: Go, SQL, NoSQL, and Golang"]
+    assert skill_evidence["evidence_coverage"] == 1.0
+    assert skill_evidence["matched_value_count"] == 2
+    assert skill_evidence["total_value_count"] == 2
+    assert confidence["skills"] == 0.88
+
+
+def test_extraction_evidence_requires_all_experience_components_for_full_coverage():
+    evidence, confidence = DocumentExtractor._evidence_and_confidence(
+        "Senior Engineer",
+        {
+            "experience": [
+                {
+                    "title": "Senior Engineer",
+                    "company": "Acme Labs",
+                    "duration": "Jan 2020 - Dec 2022",
+                    "description": "Led a team",
+                }
+            ]
+        },
+    )
+
+    experience_evidence = next(item for item in evidence if item["field"] == "experience")
+    assert experience_evidence["source_lines"] == ["Senior Engineer"]
+    assert experience_evidence["evidence_coverage"] == pytest.approx(1 / 3, abs=0.001)
+    assert experience_evidence["matched_value_count"] == 1
+    assert experience_evidence["total_value_count"] == 3
+    assert confidence["experience"] == pytest.approx(0.68)
+
+
+def test_extraction_evidence_tracks_components_across_multiple_source_lines():
+    evidence, confidence = DocumentExtractor._evidence_and_confidence(
+        "Role: Senior Engineer\nCompany: Acme Labs\nDates: Jan 2020 - Dec 2022",
+        {
+            "experience": [
+                {
+                    "title": "Senior Engineer",
+                    "company": "Acme Labs",
+                    "duration": "Jan 2020 - Dec 2022",
+                }
+            ]
+        },
+    )
+
+    experience_evidence = next(item for item in evidence if item["field"] == "experience")
+    assert experience_evidence["source_lines"] == [
+        "Role: Senior Engineer",
+        "Company: Acme Labs",
+        "Dates: Jan 2020 - Dec 2022",
+    ]
+    assert experience_evidence["evidence_coverage"] == 1.0
+    assert confidence["experience"] == 0.88
+
+
+def test_extraction_evidence_matches_profile_urls_with_or_without_scheme():
+    evidence, confidence = DocumentExtractor._evidence_and_confidence(
+        "linkedin.com/in/aarav-mehta",
+        {"linkedin": "https://www.linkedin.com/in/aarav-mehta"},
+    )
+
+    linkedin_evidence = next(item for item in evidence if item["field"] == "linkedin")
+    assert linkedin_evidence["source_lines"] == ["linkedin.com/in/aarav-mehta"]
+    assert linkedin_evidence["evidence_coverage"] == 1.0
+    assert confidence["linkedin"] == 0.99
