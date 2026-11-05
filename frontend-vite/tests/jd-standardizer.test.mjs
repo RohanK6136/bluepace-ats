@@ -133,6 +133,52 @@ test("preserves labelled salary and education details in recruiter-facing sectio
   assert.ok(result.required_skills.includes("Microsoft Excel"));
 });
 
+test("keeps contract duration separate from required experience and employment type", () => {
+  const result = standardizeJD([
+    "Project Coordinator",
+    "Contract Duration: 2 years",
+    "Responsibilities",
+    "- Coordinate delivery milestones and stakeholder updates.",
+    "Requirements",
+    "- Strong stakeholder management and communication skills.",
+  ].join("\n"));
+
+  assert.equal(result.duration_months, 24);
+  assert.equal(result.role_type, null);
+  assert.equal(result.field_evidence.role_type.status, "missing");
+  assert.equal(result.field_evidence.experience.status, "missing");
+  assert.equal(result.experience.min_years, null);
+});
+
+test("retains country hints in parenthetical locations", () => {
+  const result = standardizeJD([
+    "Data Analyst",
+    "Location: Bengaluru (India)",
+    "Responsibilities",
+    "- Prepare reporting dashboards.",
+    "Requirements",
+    "- SQL and Microsoft Excel experience.",
+  ].join("\n"));
+
+  assert.equal(result.city, "Bengaluru");
+  assert.deepEqual(result.country, { iso2: "IN", name: "India" });
+});
+
+test("detects work mode from the role summary, not only a labelled location field", () => {
+  const result = standardizeJD([
+    "Senior Data Analyst",
+    "About the Role",
+    "This hybrid role is based in Bengaluru and works closely with the analytics team.",
+    "Responsibilities",
+    "- Prepare reporting dashboards.",
+    "Requirements",
+    "- SQL and Microsoft Excel experience.",
+  ].join("\n"));
+
+  assert.deepEqual(result.work_mode, ["hybrid"]);
+  assert.equal(result.field_evidence.work_mode.status, "verified");
+});
+
 test("rejects empty and over-limit source text", () => {
   assert.throws(() => standardizeJD("Too short"), /at least 15 characters/i);
   assert.throws(() => standardizeJD("x".repeat(60001)), /60,000 character limit/i);
