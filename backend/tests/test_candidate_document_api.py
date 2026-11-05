@@ -1,5 +1,3 @@
-from io import BytesIO
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -8,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import CandidateDocument
+from app.models import Candidate, CandidateDocument
 from app.services.private_storage import private_storage
 
 
@@ -74,8 +72,9 @@ def test_candidate_cv_history_lists_and_downloads_only_authorized_documents(clie
     candidate_id = candidate_response.json()["id"]
 
     with client.app.state.test_session() as db:
+        candidate = db.get(Candidate, candidate_id)
         document = CandidateDocument(
-            organization_id=candidate_response.json()["organization_id"],
+            organization_id=candidate.organization_id,
             candidate_id=candidate_id,
             name="morgan-cv-v1.pdf",
             storage_key="local://org/candidate/morgan-v1.pdf",
@@ -95,14 +94,13 @@ def test_candidate_cv_history_lists_and_downloads_only_authorized_documents(clie
 
     listed = client.get(f"/candidates/{candidate_id}/documents", headers=headers)
     assert listed.status_code == 200
-    assert listed.json() == [{
-        "id": document_id,
-        "name": "morgan-cv-v1.pdf",
-        "content_type": "application/pdf",
-        "size_bytes": 5,
-        "application_id": None,
-        "created_at": listed.json()[0]["created_at"],
-    }]
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["id"] == document_id
+    assert listed.json()[0]["name"] == "morgan-cv-v1.pdf"
+    assert listed.json()[0]["content_type"] == "application/pdf"
+    assert listed.json()[0]["size_bytes"] == 5
+    assert listed.json()[0]["application_id"] is None
+    assert listed.json()[0]["created_at"] is not None
     assert "storage_key" not in listed.text
 
     downloaded = client.get(
@@ -133,8 +131,9 @@ def test_candidate_cv_history_is_not_accessible_across_organizations(client):
     candidate_id = candidate_response.json()["id"]
 
     with client.app.state.test_session() as db:
+        candidate = db.get(Candidate, candidate_id)
         document = CandidateDocument(
-            organization_id=candidate_response.json()["organization_id"],
+            organization_id=candidate.organization_id,
             candidate_id=candidate_id,
             name="private-cv.pdf",
             storage_key="local://org/private-cv.pdf",
