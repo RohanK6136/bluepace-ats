@@ -348,10 +348,6 @@ function list(value, max) {
   if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean).slice(0, limit);
   return typeof value === "string" && value.trim() ? [value.trim()] : [];
 }
-function fact(value) {
-  const present = value !== null && value !== undefined && value !== "";
-  return { value: present ? value : null, status: present ? "verified" : "missing", source: present ? "llm" : null, line: null, quote: null, candidates: [], also: [], edits: [] };
-}
 function normalizeJD(raw, profile, usage, mode) {
   const deterministic = Boolean(profile.rule_based || raw.source_mode === "deterministic");
   const exp = raw.experience && typeof raw.experience === "object" ? raw.experience : {};
