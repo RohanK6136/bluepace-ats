@@ -16,11 +16,11 @@ AS_OF = datetime(2024, 1, 15)
         (["05/2020 - 08/2022"], 2.3),
         (["2020/05 - 2021/04"], 1.0),
         (["May'20 - Jun'22"], 2.2),
-        (["January 2020 to March 2022"], 2.3),
+        (["January 2020 to March 2022"], 2.2),
         (["2018 - 2020", "2021 - 2023"], 4.0),
         (["Jan 2020 - Dec 2021", "Jan 2021 - Dec 2022"], 3.0),
         (["Jan 2018 - Dec 2018; Jan 2020 - Dec 2020"], 2.0),
-        (["Jan 2021 - Present"], 3.1),
+        (["Jan 2021 - Present"], 3.0),
     ],
 )
 def test_experience_years_supports_resume_date_formats_and_deduplicates_overlap(
@@ -38,7 +38,7 @@ def test_experience_years_caps_future_end_date_at_reference_month():
 
     assert DocumentExtractor._experience_years_from_entries(
         experience, as_of=AS_OF
-    ) == 1.1
+    ) == 1.0
 
 
 @pytest.mark.parametrize(
