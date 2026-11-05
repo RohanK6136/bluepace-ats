@@ -288,7 +288,7 @@ export function standardizeJD(input) {
     if (duplicate) { duplicates.push({ section, line: item.id, duplicate_of: duplicate.lines[0], text: item.text }); continue; }
     content[section].push({ text: item.text, lines: [item.id] });
     sectionLineRefs[section].push(item.id);
-    if (/\b(remote|hybrid|on[\s-]?site|in[\s-]?office|office[\s-]?based|work from home|wfh)\b/i.test(record.text)) {
+    if (/\b(remote|hybrid|on[\s-]?site|in[\s-]?office|office[\s-]?based|work from home|wfh)\b/i.test(item.text)) {
       for (const mode of matching(WORK_MODES, item.text)) pushCandidate(candidates, "work_mode", mode, item);
     }
   }
