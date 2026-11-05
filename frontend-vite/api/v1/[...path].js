@@ -352,6 +352,7 @@ function fact(value) {
   return { value: present ? value : null, status: present ? "verified" : "missing", source: present ? "llm" : null, line: null, quote: null, candidates: [], also: [], edits: [] };
 }
 function normalizeJD(raw, profile, usage, mode) {
+  const deterministic = Boolean(profile.rule_based || raw.source_mode === "deterministic");
   const exp = raw.experience && typeof raw.experience === "object" ? raw.experience : {};
   const loc = raw.location && typeof raw.location === "object" ? raw.location : {};
   const values = {
@@ -363,21 +364,122 @@ function normalizeJD(raw, profile, usage, mode) {
     additional_info: list(raw.additional_info, 15)
   };
   const labels = { about_role: "About the Role", responsibilities: "Key Responsibilities", requirements: "Requirements", nice_to_have: "Nice to Have", offer: "What We Offer", additional_info: "Additional Information" };
-  const sections = Object.keys(labels).map((id) => ({ id, heading: labels[id], status: values[id].length ? "drafted" : "missing", items: values[id].map((text) => ({ text, origin: "ai_draft", lines: [], group: null, basis: "brief", accepted: null, edits: [] })) }));
-  const markdown = sections.filter((section) => section.items.length).map((section) => "## " + section.heading + "\n\n" + section.items.map((item) => "- " + item.text).join("\n")).join("\n\n");
-  const missing = list(raw.missing_information || raw.needs_input, 20).map((entry) => { const parts = String(entry).split(":"); return { field: parts.shift().trim() || "details", reason: parts.join(":").trim() || "missing", candidates: null }; });
-  const flags = list(raw.review_flags || raw.flags, 15).map((message, i) => ({ code: "review_" + (i + 1), severity: "warn", message, lines: [] }));
-  flags.unshift({ code: "ai_draft", severity: "warn", message: "AI-generated draft. Verify every fact against the source before publishing.", lines: [] });
+  const sourceRefs = raw.source_line_refs && typeof raw.source_line_refs === "object" ? raw.source_line_refs : {};
+  const sections = Object.keys(labels).map((id) => ({
+    id,
+    heading: labels[id],
+    status: values[id].length ? (deterministic ? "provided" : "drafted") : "missing",
+    items: values[id].map((text, index) => ({
+      text,
+      origin: deterministic ? "source" : "ai_draft",
+      lines: Array.isArray(sourceRefs[id]) ? [sourceRefs[id][index]].filter(Boolean) : [],
+      group: null,
+      basis: deterministic ? "source" : "brief",
+      accepted: null,
+      edits: []
+    }))
+  }));
+  const markdown = sections.filter((section) => section.items.length)
+    .map((section) => "## " + section.heading + "\n\n" + section.items.map((item) => "- " + item.text).join("\n"))
+    .join("\n\n");
+  const missing = list(raw.missing_information || raw.needs_input, 25).map((entry) => {
+    const parts = String(entry).split(":");
+    return { field: parts.shift().trim() || "details", reason: parts.join(":").trim() || "missing", candidates: null };
+  });
+  const flags = list(raw.review_flags || raw.flags, 20).map((message, i) => ({
+    code: deterministic ? "rules_review_" + (i + 1) : "review_" + (i + 1),
+    severity: "warn",
+    message,
+    lines: []
+  }));
+  if (deterministic) {
+    flags.push({
+      code: "deterministic_nlp",
+      severity: "info",
+      message: "Standardized with deterministic NLP and source rules. No generative model was called; verify extracted facts before publishing.",
+      lines: []
+    });
+  } else {
+    flags.unshift({ code: "ai_draft", severity: "warn", message: "AI-generated draft. Verify every fact against the source before publishing.", lines: [] });
+  }
+
+  const factWithSource = (value, sourceField) => {
+    const evidence = raw.field_evidence && raw.field_evidence[sourceField] ? raw.field_evidence[sourceField] : {};
+    const present = value !== null && value !== undefined && value !== "";
+    const status = evidence.status || (present ? "verified" : "missing");
+    return {
+      value: present ? value : null,
+      status,
+      source: present ? (deterministic ? "rules" : "llm") : null,
+      line: evidence.line || null,
+      quote: evidence.quote || null,
+      candidates: Array.isArray(evidence.candidates) ? evidence.candidates : [],
+      also: [],
+      edits: []
+    };
+  };
   const minYears = exp.min_years == null ? null : Number(exp.min_years);
   const maxYears = exp.max_years == null ? null : Number(exp.max_years);
+  const fields = {
+    title: factWithSource(String(raw.title || raw.job_title || "").trim() || null, "title"),
+    category_hint: factWithSource(raw.category_hint || null, "category_hint"),
+    role_type: factWithSource(raw.role_type || null, "role_type"),
+    country: factWithSource(loc.country || raw.country || null, "country"),
+    state: factWithSource(loc.state || raw.state || null, "state"),
+    city: factWithSource(loc.city || raw.city || null, "city"),
+    work_mode: factWithSource(loc.work_mode || raw.work_mode || null, "work_mode"),
+    experience: factWithSource({ min_years: Number.isFinite(minYears) ? minYears : null, max_years: Number.isFinite(maxYears) ? maxYears : null, scope: exp.scope || "unspecified" }, "experience"),
+    duration_months: factWithSource(raw.duration_months == null ? null : raw.duration_months, "duration_months")
+  };
+  const conflicts = Array.isArray(raw.conflicts) ? raw.conflicts : [];
+  for (const conflict of conflicts) {
+    const existing = missing.find((item) => item.field === String(conflict.field || "").replaceAll("_", " "));
+    if (!existing) missing.push({ field: String(conflict.field || "field"), reason: "conflicting source values require recruiter review", candidates: conflict.candidates || [] });
+  }
+  const blockers = [];
+  if (!deterministic) blockers.push("Recruiter review required before publishing this AI-assisted draft.");
+  else {
+    blockers.push("Recruiter approval is required before publishing a deterministic extraction.");
+    if (!fields.title.value) blockers.push("A job title must be confirmed.");
+    if (conflicts.length) blockers.push("Conflicting source values must be resolved.");
+  }
   return {
-    request_id: randomUUID(), status: "needs_review", tier: "partial", mode: ["verbatim", "light", "rewrite"].includes(mode) ? mode : "light",
-    publishable: false, publish_blockers: ["Recruiter review required before publishing this AI-assisted draft."],
-    fields: { title: fact(String(raw.title || raw.job_title || "").trim() || null), category_hint: fact(raw.category_hint || null), role_type: fact(raw.role_type || null), country: fact(loc.country || raw.country || null), state: fact(loc.state || raw.state || null), city: fact(loc.city || raw.city || null), work_mode: fact(loc.work_mode || raw.work_mode || null), experience: fact({ min_years: Number.isFinite(minYears) ? minYears : null, max_years: Number.isFinite(maxYears) ? maxYears : null }), duration_months: fact(raw.duration_months == null ? null : raw.duration_months) },
-    sections, short_description: raw.short_description ? { text: String(raw.short_description).slice(0, 1000), origin: "llm" } : null,
+    request_id: randomUUID(),
+    status: "needs_review",
+    tier: deterministic ? (Number(raw.quality?.score) >= 80 ? "complete" : "partial") : "partial",
+    mode: ["verbatim", "light", "rewrite"].includes(mode) ? mode : "light",
+    publishable: false,
+    publish_blockers: blockers,
+    fields,
+    sections,
+    short_description: raw.short_description ? { text: String(raw.short_description).slice(0, 1000), origin: deterministic ? "template" : "llm" } : null,
     standard_blocks: Object.fromEntries(sections.map((section) => [section.id, { heading: section.heading, items: section.items }])),
-    not_imported: [], needs_input: missing, flags, description_markdown: markdown || String(raw.description_markdown || ""), description_markdown_annotated: markdown || String(raw.description_markdown || ""),
-    meta: { pipeline_version: "vercel-model-api-1", prompt_versions: { jd_standardize: 1 }, profile: profile.id, model: usage.model, model_fingerprint: null, llm_calls: 1, llm_calls_by_step: { jd_standardize: 1 }, repairs: 0, cache_hits: 0, prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens, cost_usd: null, latency_ms: usage.latency_ms }
+    not_imported: [],
+    needs_input: missing,
+    flags,
+    description_markdown: markdown || String(raw.description_markdown || ""),
+    description_markdown_annotated: markdown || String(raw.description_markdown || ""),
+    quality: raw.quality || null,
+    source_lines: Array.isArray(raw.source_lines) ? raw.source_lines : [],
+    extracted_skills: Array.isArray(raw.extracted_skills) ? raw.extracted_skills : [],
+    required_skills: Array.isArray(raw.required_skills) ? raw.required_skills : [],
+    preferred_skills: Array.isArray(raw.preferred_skills) ? raw.preferred_skills : [],
+    conflicts,
+    meta: {
+      pipeline_version: deterministic ? "vercel-deterministic-jd-1" : "vercel-model-api-1",
+      prompt_versions: deterministic ? {} : { jd_standardize: 1 },
+      profile: profile.id,
+      model: deterministic ? "deterministic-nlp-rules-v1" : usage.model,
+      model_fingerprint: null,
+      llm_calls: deterministic ? 0 : 1,
+      llm_calls_by_step: deterministic ? {} : { jd_standardize: 1 },
+      repairs: 0,
+      cache_hits: 0,
+      prompt_tokens: deterministic ? 0 : usage.prompt_tokens,
+      completion_tokens: deterministic ? 0 : usage.completion_tokens,
+      cost_usd: deterministic ? 0 : null,
+      latency_ms: Number(usage.latency_ms) || 0
+    }
   };
 }
 function sourceLines(text) {
