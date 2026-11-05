@@ -1,4 +1,5 @@
 from io import BytesIO
+from types import SimpleNamespace
 
 from docx import Document
 from reportlab.pdfgen import canvas
@@ -171,3 +172,161 @@ def test_docling_flat_text_is_explicitly_marked_location_unavailable(monkeypatch
     assert result["document_source_location_status"] == "unavailable"
     assert result["document_source_line_count"] == 0
     assert evidence["email"]["source_locations"] == []
+
+def test_docling_native_page_and_bounding_box_provenance_maps_exact_lines():
+    from app.services.document_intelligence import DocumentIntelligenceService
+
+    def provenance(page_number, left, top, right, bottom):
+        return SimpleNamespace(
+            page_no=page_number,
+            bbox=SimpleNamespace(
+                l=left,
+                t=top,
+                r=right,
+                b=bottom,
+                coord_origin=SimpleNamespace(value="TOPLEFT"),
+            ),
+        )
+
+    items = [
+        (
+            SimpleNamespace(
+                text="Aarav Mehta",
+                label=SimpleNamespace(value="title"),
+                prov=[provenance(1, 10, 20, 100, 40)],
+            ),
+            0,
+        ),
+        (
+            SimpleNamespace(
+                text="aarav.mehta@example.test",
+                label=SimpleNamespace(value="paragraph"),
+                prov=[provenance(1, 10, 50, 180, 65)],
+            ),
+            0,
+        ),
+        (
+            SimpleNamespace(
+                text="Python FastAPI",
+                label=SimpleNamespace(value="paragraph"),
+                prov=[provenance(2, 12, 70, 150, 85)],
+            ),
+            0,
+        ),
+    ]
+    document = SimpleNamespace(iterate_items=lambda: iter(items))
+
+    locations = DocumentIntelligenceService._docling_source_line_locations(
+        document,
+        "Aarav Mehta\naarav.mehta@example.test\nPython FastAPI",
+    )
+
+    assert locations == [
+        {
+            "source_type": "docling_item",
+            "page_number": 1,
+            "item_label": "title",
+            "bbox": {
+                "l": 10.0,
+                "t": 20.0,
+                "r": 100.0,
+                "b": 40.0,
+                "coord_origin": "TOPLEFT",
+            },
+        },
+        {
+            "source_type": "docling_item",
+            "page_number": 1,
+            "item_label": "paragraph",
+            "bbox": {
+                "l": 10.0,
+                "t": 50.0,
+                "r": 180.0,
+                "b": 65.0,
+                "coord_origin": "TOPLEFT",
+            },
+        },
+        {
+            "source_type": "docling_item",
+            "page_number": 2,
+            "item_label": "paragraph",
+            "bbox": {
+                "l": 12.0,
+                "t": 70.0,
+                "r": 150.0,
+                "b": 85.0,
+                "coord_origin": "TOPLEFT",
+            },
+        },
+    ]
+
+
+def test_docling_provenance_leaves_ambiguous_repeated_lines_unlocated():
+    from app.services.document_intelligence import DocumentIntelligenceService
+
+    items = [
+        (
+            SimpleNamespace(
+                text="Same line",
+                label="paragraph",
+                prov=[SimpleNamespace(page_no=1, bbox=None)],
+            ),
+            0,
+        ),
+        (
+            SimpleNamespace(
+                text="Another line",
+                label="paragraph",
+                prov=[SimpleNamespace(page_no=2, bbox=None)],
+            ),
+            0,
+        ),
+    ]
+    document = SimpleNamespace(iterate_items=lambda: iter(items))
+
+    locations = DocumentIntelligenceService._docling_source_line_locations(
+        document, "Same line\nSame line\nAnother line"
+    )
+
+    assert locations[0] is None
+    assert locations[1] is None
+    assert locations[2] == {
+        "source_type": "docling_item",
+        "page_number": 2,
+        "item_label": "paragraph",
+    }
+
+
+def test_docling_native_provenance_flows_into_resume_extraction_evidence(monkeypatch):
+    from app.services.document_intelligence import (
+        DocumentIntelligenceResult,
+        document_intelligence_service,
+    )
+
+    monkeypatch.setenv("DOCUMENT_EXTRACTION_ENGINE", "docling")
+    monkeypatch.setenv("ENABLE_LLM_RESUME_ENRICHMENT", "false")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    locations = [
+        {"source_type": "docling_item", "page_number": 1, "item_label": "title"},
+        {"source_type": "docling_item", "page_number": 1, "item_label": "paragraph"},
+        {"source_type": "docling_item", "page_number": 2, "item_label": "paragraph"},
+    ]
+    monkeypatch.setattr(
+        document_intelligence_service,
+        "extract",
+        lambda _content, _filename: DocumentIntelligenceResult(
+            text="Aarav Mehta\naarav.mehta@example.test\nPython FastAPI",
+            markdown="Aarav Mehta",
+            engine="docling",
+            source_line_locations=locations,
+        ),
+    )
+
+    result = DocumentExtractor().extract_to_json(b"synthetic bytes", "resume.pdf")
+    evidence = {item["field"]: item for item in result["extraction_evidence"]}
+
+    assert result["document_extraction_engine"] == "docling"
+    assert result["document_source_location_status"] == "available"
+    assert result["document_source_line_count"] == 3
+    assert evidence["email"]["source_locations"] == [locations[1]]
+    assert evidence["skills"]["source_locations"] == [locations[2]]
