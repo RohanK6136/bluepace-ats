@@ -214,7 +214,7 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
             # Once extraction finishes, enrich that existing record and recompute
             # the deterministic job match without blocking the applicant request.
             if job.candidate_id:
-                from app.models import Candidate, Application, CandidateJobMatch, Job
+                from app.models import Application, CandidateJobMatch, Job
                 from app.services.matching import matching_service
 
                 candidate = db.get(Candidate, job.candidate_id)
