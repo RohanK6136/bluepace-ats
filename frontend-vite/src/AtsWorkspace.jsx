@@ -2239,12 +2239,14 @@ export default function AtsWorkspace() {
                               {sourceLocations.slice(0, 3).map((location, index) => {
                                 const sourceLabel = location.source_type === "pdf_page"
                                   ? "PDF · Page " + location.page_number
-                                  : location.source_type === "docx_paragraph"
-                                    ? (location.section || "DOCX") + " · Paragraph " + location.paragraph_index
-                                    : location.source_type === "docx_table_row"
-                                      ? (location.section || "DOCX") + " · Table " + location.table_index + ", row " + location.row_index
-                                      : location.part || "Document source";
-                                const canOpenPage = location.source_type === "pdf_page"
+                                  : location.source_type === "docling_item"
+                                    ? "Docling · Page " + location.page_number + (location.item_label ? " · " + location.item_label : "")
+                                    : location.source_type === "docx_paragraph"
+                                      ? (location.section || "DOCX") + " · Paragraph " + location.paragraph_index
+                                      : location.source_type === "docx_table_row"
+                                        ? (location.section || "DOCX") + " · Table " + location.table_index + ", row " + location.row_index
+                                        : location.part || "Document source";
+                                const canOpenPage = (location.source_type === "pdf_page" || location.source_type === "docling_item")
                                   && currentDocument
                                   && (
                                     String(currentDocument.content_type || "").toLowerCase().includes("pdf")
