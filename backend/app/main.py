@@ -111,6 +111,7 @@ from app.schemas import (
 from app.security import JWT_SECRET, USING_DEVELOPMENT_JWT_FALLBACK, create_access_token, create_candidate_portal_token, decode_candidate_portal_token, get_current_user, password_hash, require_roles, refresh_access_token
 from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
 from app.services.private_storage import private_storage
+from app.services.candidate_documents import record_candidate_document
 from app.services.request_limits import read_request_body_limited
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email, disable_pending_email_records
@@ -1792,6 +1793,16 @@ async def public_apply(
         size_bytes=len(content),
         status="queued",
     )
+    record_candidate_document(
+        db,
+        organization_id=candidate.organization_id,
+        candidate_id=candidate.id,
+        application_id=application.id,
+        name=file.filename or f"resume{suffix}",
+        storage_reference=storage_reference,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+    )
     db.add(processing_job)
     db.commit()
     db.refresh(processing_job)
@@ -1809,7 +1820,8 @@ async def public_apply(
             processing_job.status = "failed"
             processing_job.error_message = f"Queue submission failed: {error}"[:4000]
             db.commit()
-            private_storage.delete(processing_job.storage_path)
+            # Keep the uploaded CV: it is already linked to the candidate and
+            # recorded in CandidateDocument, even when queue submission fails.
             raise HTTPException(
                 status_code=503,
                 detail="Your application could not be placed in the processing queue. Please retry.",
@@ -3107,11 +3119,21 @@ async def create_candidate_from_resume(
     }
 
     storage_key = f"{user.organization_id}/{candidate.id}/{os.urandom(16).hex()}{suffix}"
-    storage_dir = Path(os.getenv("RESUME_STORAGE_DIR", "./private_uploads"))
-    storage_path = storage_dir / storage_key
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    storage_path.write_bytes(content)
-    candidate.resume_storage_key = storage_key
+    storage_reference = private_storage.put_bytes(
+        storage_key,
+        content,
+        file.content_type or "application/octet-stream",
+    )
+    candidate.resume_storage_key = storage_reference
+    record_candidate_document(
+        db,
+        organization_id=candidate.organization_id,
+        candidate_id=candidate.id,
+        name=file.filename or f"resume{suffix}",
+        storage_reference=storage_reference,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+    )
 
     if job_id is not None:
         job = _get_org_record(db, Job, job_id, user.organization_id)
@@ -4847,6 +4869,15 @@ async def upload_candidate_resume(
 
     before = {"resume_storage_key": candidate.resume_storage_key}
     candidate.resume_storage_key = storage_reference
+    record_candidate_document(
+        db,
+        organization_id=candidate.organization_id,
+        candidate_id=candidate.id,
+        name=file.filename or f"resume{suffix}",
+        storage_reference=storage_reference,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+    )
     candidate.resume_data = {key: value for key, value in parsed.items() if key != "raw_text"}
     if not candidate.phone and parsed.get("phone"):
         candidate.phone = parsed["phone"][:50]
@@ -4864,6 +4895,80 @@ async def upload_candidate_resume(
     db.commit()
     db.refresh(candidate)
     return candidate
+
+
+@app.get("/candidates/{candidate_id}/documents", response_class=JSONResponse)
+def list_candidate_documents(
+    candidate_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    documents = db.scalars(
+        select(CandidateDocument)
+        .where(
+            CandidateDocument.organization_id == user.organization_id,
+            CandidateDocument.candidate_id == candidate.id,
+        )
+        .order_by(CandidateDocument.created_at.desc(), CandidateDocument.id.desc())
+    ).all()
+    return [
+        {
+            "id": document.id,
+            "name": document.name,
+            "content_type": document.content_type,
+            "size_bytes": document.size_bytes,
+            "application_id": document.application_id,
+            "created_at": document.created_at.isoformat() if document.created_at else None,
+        }
+        for document in documents
+    ]
+
+
+@app.get(
+    "/candidates/{candidate_id}/documents/{document_id}",
+    response_class=Response,
+)
+def download_candidate_document(
+    candidate_id: int,
+    document_id: int,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    document = db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.id == document_id,
+            CandidateDocument.organization_id == user.organization_id,
+            CandidateDocument.candidate_id == candidate.id,
+        )
+    )
+    if document is None:
+        raise HTTPException(status_code=404, detail="Candidate document not found")
+
+    try:
+        content = private_storage.read_bytes(document.storage_key)
+    except Exception as error:
+        raise HTTPException(status_code=404, detail="Candidate document is unavailable") from error
+
+    safe_name = "".join(
+        character for character in Path(document.name or f"resume-{document.id}.pdf").name
+        if character.isalnum() or character in {" ", ".", "_", "-"}
+    ).strip() or f"resume-{document.id}.pdf"
+    ascii_name = safe_name.encode("ascii", "ignore").decode("ascii") or f"resume-{document.id}.pdf"
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="{ascii_name}"; '
+            f"filename*=UTF-8''{urllib.parse.quote(safe_name)}"
+        ),
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    return Response(
+        content=content,
+        media_type=document.content_type or "application/octet-stream",
+        headers=headers,
+    )
 
 
 @app.post("/applications", response_model=ApplicationRead, status_code=status.HTTP_201_CREATED)
