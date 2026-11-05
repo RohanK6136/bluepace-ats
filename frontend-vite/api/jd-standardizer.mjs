@@ -166,7 +166,7 @@ function matching(values, text) {
 }
 function parseLocation(value) {
   // Retain parenthetical location details such as "Bengaluru (India)".
-  let text = norm(value).replace(/[()]/g, " ").replace(/[|;]/g, ",");
+  let text = norm(value).replace(/[()]/g, ",").replace(/[|;]/g, ",");
   const modes = matching(WORK_MODES, value);
   text = norm(text.replace(/\b(remote|hybrid|on[\s-]?site|in[\s-]?office|office[\s-]?based|work from home|wfh)\b/ig, " ")).replace(/^[,/\-]+|[,/\-]+$/g, "");
   const pieces = text.split(/\s*,\s*|\s+\/\s+|\s+\|\s+/).map(norm).filter(Boolean);
