@@ -1,15 +1,23 @@
 import base64
 import os
 from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
+
+from sqlalchemy import select
 
 from app.database import SessionLocal
-from app.models import ResumeProcessingJob
+from app.models import Candidate, CandidateDocument, ResumeProcessingJob
 
 from celery_app import celery_app
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.llm_validator import llm_validator
 from app.services.slm_service import slm_service
 from app.services.private_storage import private_storage
+from app.services.candidate_documents import (
+    is_resume_reference_retained,
+    record_candidate_document,
+)
 from app.features.resume_authorship.analysis import attach_text_quality_review
 
 
@@ -162,6 +170,40 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
                             else:
                                 job.application_id = application.id
 
+            # Keep each processed source CV as a durable candidate document.
+            # Public applications already point at the original object; Resume Lab
+            # and bulk intake files are promoted to a candidate-owned object first.
+            if job.candidate_id:
+                candidate = db.get(Candidate, job.candidate_id)
+                if candidate is not None:
+                    if candidate.resume_storage_key == job.storage_path:
+                        retained_reference = job.storage_path
+                    else:
+                        suffix = Path(job.filename or "").suffix.lower()
+                        if suffix not in {".pdf", ".doc", ".docx"}:
+                            suffix = ".bin"
+                        durable_key = (
+                            f"{candidate.organization_id}/{candidate.id}/"
+                            f"{uuid4().hex}{suffix}"
+                        )
+                        retained_reference = private_storage.put_bytes(
+                            durable_key,
+                            file_content,
+                            job.content_type,
+                        )
+                        candidate.resume_storage_key = retained_reference
+
+                    record_candidate_document(
+                        db,
+                        organization_id=candidate.organization_id,
+                        candidate_id=candidate.id,
+                        application_id=job.application_id,
+                        name=job.filename,
+                        storage_reference=retained_reference,
+                        content_type=job.content_type,
+                        size_bytes=job.size_bytes,
+                    )
+
             job.result_data = result_data
 
             # Public applications create the candidate/application immediately.
@@ -212,10 +254,15 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
             job.completed_at = datetime.now(timezone.utc)
             db.commit()
 
-            try:
-                private_storage.delete(job.storage_path)
-            except Exception:
-                pass
+            # A public-application source or a retained historical version must
+            # never be removed as if it were a temporary queue object. Bulk and
+            # Resume Lab intake objects are deleted only after their durable copy
+            # and document-history row have committed successfully.
+            if not is_resume_reference_retained(db, job.storage_path):
+                try:
+                    private_storage.delete(job.storage_path)
+                except Exception:
+                    pass
 
             return {"status": "completed", "job_id": job.id}
         except Exception as error:
