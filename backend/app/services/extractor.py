@@ -567,13 +567,41 @@ class DocumentExtractor:
             confidence["years_of_experience"] = 0.97 if explicit is not None else (0.84 if calculated is not None else 0.5)
             years_source_lines = []
             years_source_locations = []
-            for line_index, line in enumerate(lines):
-                if re.search(r"years?|yrs?", line, re.IGNORECASE) and "experience" in line.lower():
-                    years_source_lines.append(line)
-                    if line_index < len(source_line_locations):
-                        location = source_line_locations[line_index]
-                        if location and location not in years_source_locations:
-                            years_source_locations.append(location)
+
+            if explicit is not None:
+                for line_index, line in enumerate(lines):
+                    if re.search(r"years?|yrs?", line, re.IGNORECASE) and "experience" in line.lower():
+                        years_source_lines.append(line)
+                        if line_index < len(source_line_locations):
+                            location = source_line_locations[line_index]
+                            if location and location not in years_source_locations:
+                                years_source_locations.append(location)
+            else:
+                # Date-derived totals should point back to the employment-duration
+                # text that contributed to the calculation.
+                for item in parsed.get("experience") or []:
+                    if not isinstance(item, dict):
+                        continue
+                    duration = str(item.get("duration") or "").strip()
+                    if not duration:
+                        continue
+                    line_match = DocumentExtractor._evidence_line_for_value(
+                        duration, indexed_lines
+                    )
+                    if line_match and line_match not in years_source_lines:
+                        years_source_lines.append(line_match)
+                        line_index = next(
+                            (
+                                index for index, (source_line, _lower_line) in enumerate(indexed_lines)
+                                if source_line == line_match
+                            ),
+                            None,
+                        )
+                        if line_index is not None and line_index < len(source_line_locations):
+                            location = source_line_locations[line_index]
+                            if location and location not in years_source_locations:
+                                years_source_locations.append(location)
+
             evidence.append({
                 "field": "years_of_experience",
                 "value": parsed["years_of_experience"],
