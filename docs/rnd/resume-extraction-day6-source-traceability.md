@@ -90,7 +90,7 @@ python -m pytest tests/test_resume_source_traceability.py -q
 - DOCX section labels depend on semantic Heading/Title paragraph styles. Documents that use visual formatting without heading styles may have no section label; paragraph/table positions remain available.
 - A repeated identical line may resolve to the first matching occurrence because evidence matching currently resolves one source line per extracted component.
 - OCR/Docling source locations remain unavailable until the document-intelligence adapter exposes structured page/layout metadata.
-- Source metadata supports a future review UI; this increment does not yet render clickable page previews or highlights.
+- The candidate profile displays source locators beside extracted evidence. For the current PDF version, recruiters can open the original file directly at the referenced page. DOCX paragraph/table positions are displayed; recruiters can use CV history to download that source. Text-level highlights and PDF bounding boxes are not implemented.
 
 ## 6. Acceptance status
 
@@ -100,5 +100,8 @@ python -m pytest tests/test_resume_source_traceability.py -q
 - [x] Trace date-derived experience totals to employment-duration evidence.
 - [x] Mark flattened Docling text as location-unavailable.
 - [x] Add real-byte PDF and DOCX regression fixtures.
+- [x] Display source locators beside recruiter-facing extraction evidence.
+- [x] Identify the current CV version without exposing private storage keys.
+- [x] Open the current PDF at its referenced page.
+- [ ] Add rendered DOCX navigation and text-level highlighting.
 - [ ] Complete GitHub backend and frontend CI.
-- [ ] Add recruiter-facing source navigation and highlighting in the profile UI.
