@@ -330,14 +330,25 @@ export function standardizeJD(input) {
     candidates.work_mode = candidates.work_mode.flatMap((item) => (Array.isArray(item.value) ? item.value : matching(WORK_MODES, item.value)).map((value) => ({ ...item, value })));
   }
 
+  const countryFact = fact(candidates.country, (value) => {
+    const text = String(value).trim().toLowerCase();
+    const found = COUNTRIES.find(([code, name, aliases]) =>
+      code.toLowerCase() === text || name.toLowerCase() === text || aliases.includes(text)
+    );
+    return found ? { iso2: found[0], name: found[1] } : value;
+  });
+  const workModeItems = candidates.work_mode || [];
+  const workModeValues = dedupe(workModeItems.flatMap((item) =>
+    Array.isArray(item.value) ? item.value : [item.value]
+  ));
+  const workModeFact = workModeValues.length
+    ? { value: workModeValues, status: "verified", source: "rules", line: workModeItems[0]?.line || null, quote: workModeItems[0]?.quote || null, candidates: [] }
+    : fact([]);
   const facts = {
     title: fact(candidates.title), role_type: fact(candidates.role_type),
-    country: fact(candidates.country, (value) => {
-      const found = COUNTRIES.find(([, name]) => name.toLowerCase() === String(value).toLowerCase());
-      return found ? { iso2: found[0], name: found[1] } : value;
-    }),
-    state: fact(candidates.state), city: fact(candidates.city), work_mode: fact(candidates.work_mode),
-    experience: fact(candidates.experience), duration_months: fact(candidates.duration, Number),
+    country: countryFact, state: fact(candidates.state), city: fact(candidates.city),
+    work_mode: workModeFact, experience: fact(candidates.experience),
+    duration_months: fact(candidates.duration, Number),
   };
   const responsibilities = content.responsibilities.map((item) => item.text);
   const requirements = content.requirements.map((item) => item.text);
@@ -358,7 +369,10 @@ export function standardizeJD(input) {
   const conflicts = [];
   for (const [field, item] of Object.entries(facts)) {
     if (item.status === "missing") missing.push(field.replaceAll("_", " ") + ": not stated in the supplied job description");
-    if (item.status === "conflict") conflicts.push({ field, candidates: item.candidates });
+    if (item.status === "conflict") {
+      conflicts.push({ field, candidates: item.candidates });
+      missing.push(field.replaceAll("_", " ") + ": conflicting source values need recruiter confirmation");
+    }
   }
   if (!responsibilities.length) missing.push("responsibilities: no role-specific responsibilities were identified");
   if (!requirements.length) missing.push("requirements: no required qualifications or skills were identified");
