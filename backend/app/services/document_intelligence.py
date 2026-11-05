@@ -9,7 +9,7 @@ model or runtime dependency is unavailable.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 from io import BytesIO
@@ -28,6 +28,9 @@ class DocumentIntelligenceResult:
     text: str
     markdown: str
     engine: str
+    # One entry per non-empty exported text line. None means that Docling did
+    # not provide an exact, unambiguous source-item match for that line.
+    source_line_locations: list[dict | None] = field(default_factory=list)
 
 
 class DocumentIntelligenceService:
@@ -52,6 +55,97 @@ class DocumentIntelligenceService:
                 allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
             )
         return self._converter
+
+    @staticmethod
+    def _member(value, name, default=None):
+        if isinstance(value, dict):
+            return value.get(name, default)
+        return getattr(value, name, default)
+
+    @classmethod
+    def _docling_source_line_locations(cls, document, raw_text: str) -> list[dict | None]:
+        """Map exact exported text lines to Docling item provenance.
+
+        Docling's provenance is attached to document items, not necessarily to
+        each individual line in the flattened text export. Exact line matching
+        avoids assigning a neighbouring item's page or bounding box to text
+        that was reordered or reformatted during export.
+        """
+        lines = [line for line in str(raw_text or "").splitlines() if line.strip()]
+        if not lines:
+            return []
+
+        item_locations: dict[str, list[dict]] = {}
+        try:
+            items = document.iterate_items()
+            for entry in items:
+                item = entry[0] if isinstance(entry, tuple) else entry
+                item_text = cls._member(item, "text", "")
+                if not isinstance(item_text, str) or not item_text.strip():
+                    continue
+
+                provenance = cls._member(item, "prov", []) or []
+                if not provenance:
+                    continue
+                first_provenance = provenance[0]
+                page_number = cls._member(first_provenance, "page_no")
+                if not isinstance(page_number, int) or page_number < 1:
+                    continue
+
+                location = {
+                    "source_type": "docling_item",
+                    "page_number": page_number,
+                }
+                label = cls._member(item, "label")
+                label = cls._member(label, "value", label)
+                if label:
+                    location["item_label"] = str(label)
+
+                bbox = cls._member(first_provenance, "bbox")
+                if bbox is not None:
+                    bbox_values = {}
+                    for coordinate in ("l", "t", "r", "b"):
+                        value = cls._member(bbox, coordinate)
+                        if isinstance(value, (int, float)):
+                            bbox_values[coordinate] = float(value)
+                    origin = cls._member(bbox, "coord_origin")
+                    origin = cls._member(origin, "value", origin)
+                    if origin:
+                        bbox_values["coord_origin"] = str(origin)
+                    if all(key in bbox_values for key in ("l", "t", "r", "b")):
+                        location["bbox"] = bbox_values
+
+                for item_line in item_text.splitlines():
+                    normalized = " ".join(item_line.split()).casefold()
+                    if normalized:
+                        item_locations.setdefault(normalized, []).append(location)
+        except Exception:
+            # A Docling version or item that does not expose the expected
+            # structure must not make the document conversion itself fail.
+            return [None for _line in lines]
+
+        exported_counts: dict[str, int] = {}
+        for line in lines:
+            normalized = " ".join(line.split()).casefold()
+            exported_counts[normalized] = exported_counts.get(normalized, 0) + 1
+
+        occurrence_indexes: dict[str, int] = {}
+        mapped: list[dict | None] = []
+        for line in lines:
+            normalized = " ".join(line.split()).casefold()
+            candidates = item_locations.get(normalized, [])
+            occurrence_index = occurrence_indexes.get(normalized, 0)
+            occurrence_indexes[normalized] = occurrence_index + 1
+
+            # Repeated text is only mapped when every exported occurrence has
+            # a matching Docling item. Otherwise the source is ambiguous.
+            if len(candidates) == exported_counts[normalized]:
+                mapped.append(dict(candidates[occurrence_index]))
+            elif len(candidates) == 1 and exported_counts[normalized] == 1:
+                mapped.append(dict(candidates[0]))
+            else:
+                mapped.append(None)
+        return mapped
 
     def extract(self, file_content: bytes, filename: str) -> DocumentIntelligenceResult:
         if not self.enabled:
@@ -79,6 +173,9 @@ class DocumentIntelligenceService:
 
             text = (result.document.export_to_text() or "").strip()
             markdown = (result.document.export_to_markdown() or "").strip()
+            source_line_locations = self._docling_source_line_locations(
+                result.document, text
+            )
             if not text:
                 raise DocumentIntelligenceError(
                     "Docling did not extract readable text from the document."
@@ -88,6 +185,7 @@ class DocumentIntelligenceService:
                 text=text,
                 markdown=markdown,
                 engine="docling",
+                source_line_locations=source_line_locations,
             )
         except DocumentIntelligenceError:
             raise
