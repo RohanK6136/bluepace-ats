@@ -15,8 +15,8 @@ from app.services.llm_validator import llm_validator
 from app.services.slm_service import slm_service
 from app.services.private_storage import private_storage
 from app.services.candidate_documents import (
-    is_resume_reference_retained,
     record_candidate_document,
+    should_delete_resume_source,
 )
 from app.features.resume_authorship.analysis import attach_text_quality_review
 
@@ -258,7 +258,21 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
             # never be removed as if it were a temporary queue object. Bulk and
             # Resume Lab intake objects are deleted only after their durable copy
             # and document-history row have committed successfully.
-            if not is_resume_reference_retained(db, job.storage_path):
+            current_resume_references = db.scalars(
+                select(Candidate.resume_storage_key).where(
+                    Candidate.resume_storage_key == job.storage_path
+                )
+            ).all()
+            document_references = db.scalars(
+                select(CandidateDocument.storage_key).where(
+                    CandidateDocument.storage_key == job.storage_path
+                )
+            ).all()
+            if should_delete_resume_source(
+                job.storage_path,
+                current_resume_references=current_resume_references,
+                document_references=document_references,
+            ):
                 try:
                     private_storage.delete(job.storage_path)
                 except Exception:
