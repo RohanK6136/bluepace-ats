@@ -272,25 +272,104 @@ class DocumentExtractor:
         return max(values) if values else None
 
     @staticmethod
-    def _experience_years_from_entries(experience):
-        total_months = 0
-        date_re = re.compile(r"(\d{4})\s*(?:-|–|to)\s*(\d{4}|present|current)", re.IGNORECASE)
+    def _resume_date_tokens(value, current_month):
+        """Return ordered (calendar-month index, month-precision) date tokens."""
+        month_pattern = (
+            r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
+            r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
+            r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+        )
+        date_pattern = re.compile(
+            rf"(?P<current>\b(?:present|current|now)\b)"
+            rf"|(?P<month_name>\b(?P<month_name_value>{month_pattern})\.?\s*[,/.-]?\s*['’]?(?P<month_name_year>(?:19|20)\d{{2}}|\d{{2}})\b)"
+            r"|(?P<month_year>\b(?P<month_num>0?[1-9]|1[0-2])\s*[/.-]\s*(?P<month_num_year>(?:19|20)\d{2})\b)"
+            r"|(?P<year_month>\b(?P<year_month_year>(?:19|20)\d{2})\s*[/.-]\s*(?P<year_month_num>0?[1-9]|1[0-2])\b)"
+            r"|(?P<year_only>\b(?:19|20)\d{2}\b)",
+            re.IGNORECASE,
+        )
+        month_numbers = {
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+        }
+        tokens = []
+
+        for match in date_pattern.finditer(str(value or "")):
+            if match.group("current"):
+                tokens.append((current_month, True))
+                continue
+
+            if match.group("month_name"):
+                year_value = int(match.group("month_name_year"))
+                if year_value < 100:
+                    year_value += 2000 if year_value < 50 else 1900
+                month = month_numbers[match.group("month_name_value")[:3].lower()]
+                tokens.append((year_value * 12 + month - 1, True))
+                continue
+
+            if match.group("month_year"):
+                year_value = int(match.group("month_num_year"))
+                month = int(match.group("month_num"))
+                tokens.append((year_value * 12 + month - 1, True))
+                continue
+
+            if match.group("year_month"):
+                year_value = int(match.group("year_month_year"))
+                month = int(match.group("year_month_num"))
+                tokens.append((year_value * 12 + month - 1, True))
+                continue
+
+            if match.group("year_only"):
+                year_value = int(match.group("year_only"))
+                tokens.append((year_value * 12, False))
+
+        return tokens
+
+    @staticmethod
+    def _experience_years_from_entries(experience, as_of=None):
+        """Estimate distinct employment months, avoiding double-counted overlaps.
+
+        Month-specific dates are counted inclusively. A year-only end date is
+        treated as the start of that year (an exclusive boundary), preserving
+        the conservative precision of the source resume.
+        """
+        reference_date = as_of or datetime.now()
+        current_month = reference_date.year * 12 + reference_date.month - 1
+        intervals = []
+
         for item in experience or []:
             if not isinstance(item, dict):
                 continue
             duration = str(item.get("duration") or "")
-            match = date_re.search(duration)
-            if not match:
-                continue
-            start, end = int(match.group(1)), match.group(2).lower()
-            end_year = datetime_year = None
-            if end in {"present", "current"}:
-                from datetime import datetime
-                end_year = datetime.now().year
+            tokens = DocumentExtractor._resume_date_tokens(duration, current_month)
+
+            # A duration may contain more than one explicit range. Pair tokens
+            # in document order and ignore incomplete or malformed pairs.
+            for token_index in range(0, len(tokens) - 1, 2):
+                start_month = tokens[token_index][0]
+                end_month, end_has_month_precision = tokens[token_index + 1]
+
+                if start_month > current_month or end_month < start_month:
+                    continue
+
+                end_month = min(end_month, current_month)
+                if not end_has_month_precision:
+                    end_month -= 1
+                if end_month >= start_month:
+                    intervals.append((start_month, end_month))
+
+        if not intervals:
+            return None
+
+        # Merge overlapping or adjacent intervals so concurrent roles are not
+        # counted twice in total professional experience.
+        merged = []
+        for start_month, end_month in sorted(intervals):
+            if merged and start_month <= merged[-1][1] + 1:
+                merged[-1][1] = max(merged[-1][1], end_month)
             else:
-                end_year = int(end)
-            if end_year >= start:
-                total_months += (end_year - start) * 12
+                merged.append([start_month, end_month])
+
+        total_months = sum(end - start + 1 for start, end in merged)
         return round(total_months / 12, 1) if total_months else None
 
     @staticmethod
