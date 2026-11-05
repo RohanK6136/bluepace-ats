@@ -66,7 +66,7 @@ const PROFILES = {
     context_tokens: 262000, free_endpoint: true, response_format: false,
     description: "Experimental open model suited to coding and structured tool tasks. Official listing currently reports very low availability; do not rely on it for time-critical processing."
   },
-  rules: { id: "rules", label: "Deterministic NLP & Rules · no model required", provider: "built-in", model: "deterministic-nlp-rules-v1", endpoint: "", header: "", context_tokens: 60000, description: "Source-grounded JD parsing, structured field extraction, skill taxonomy and quality checks. No generative model or provider key is used.", rule_based: true }
+  rules: { id: "rules", label: "Deterministic NLP & Rules · no AI key required", provider: "built-in", model: "deterministic-nlp-rules-v1", endpoint: "", header: "", context_tokens: 60000, description: "Source-grounded JD parsing, structured field extraction, skill taxonomy and quality checks. No generative model or provider key is used.", rule_based: true }
 };
 
 function send(res, status, data) {
