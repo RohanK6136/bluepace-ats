@@ -109,7 +109,8 @@ test("does not invent role facts for a company profile without a job description
   assert.equal(result.title, null);
   assert.equal(result.role_type, null);
   assert.equal(result.country, null);
-  assert.equal(result.experience, null);
+  assert.equal(result.experience.min_years, null);
+  assert.equal(result.experience.max_years, null);
   assert.deepEqual(result.about_role, []);
   assert.ok(result.missing_information.some((item) => /job title/i.test(item)));
   assert.ok(result.review_flags.some((flag) => /company profile rather than a role-specific/i.test(flag)));
