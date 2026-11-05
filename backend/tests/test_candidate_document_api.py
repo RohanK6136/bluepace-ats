@@ -165,3 +165,173 @@ def test_candidate_cv_history_is_not_accessible_across_organizations(client):
         headers=other_headers,
     )
     assert downloaded.status_code == 404
+
+
+
+def test_candidate_pdf_evidence_preview_highlights_only_stored_current_source_locations(
+    client, monkeypatch
+):
+    headers = register_and_login(
+        client, "evidence-owner@example.com", "Evidence Preview Org"
+    )
+    candidate_response = client.post(
+        "/candidates",
+        json={
+            "first_name": "Aarav",
+            "last_name": "Mehta",
+            "email": "aarav.evidence@example.com",
+        },
+        headers=headers,
+    )
+    assert candidate_response.status_code == 201
+    candidate_id = candidate_response.json()["id"]
+
+    source_location = {
+        "source_type": "docling_item",
+        "page_number": 1,
+        "item_label": "paragraph",
+        "bbox": {
+            "l": 10.0,
+            "t": 50.0,
+            "r": 200.0,
+            "b": 90.0,
+            "coord_origin": "TOPLEFT",
+        },
+        "page_size": {"width": 600.0, "height": 800.0},
+    }
+
+    with client.app.state.test_session() as db:
+        candidate = db.get(Candidate, candidate_id)
+        document = CandidateDocument(
+            organization_id=candidate.organization_id,
+            candidate_id=candidate_id,
+            name="aarav-current.pdf",
+            storage_key="local://org/candidate/aarav-current.pdf",
+            content_type="application/pdf",
+            size_bytes=100,
+        )
+        candidate.resume_storage_key = document.storage_key
+        candidate.resume_data = {
+            "extraction_evidence": [
+                {"field": "email", "source_locations": [source_location]}
+            ]
+        }
+        db.add(document)
+        db.commit()
+        db.refresh(document)
+        document_id = document.id
+
+    captured = {}
+
+    monkeypatch.setattr(
+        private_storage, "read_bytes", lambda _reference: b"%PDF-synthetic"
+    )
+
+    def fake_annotate(pdf_bytes, locations):
+        captured["pdf_bytes"] = pdf_bytes
+        captured["locations"] = locations
+        return b"%PDF-highlighted-preview"
+
+    monkeypatch.setattr("app.main.annotate_pdf_with_evidence", fake_annotate)
+
+    response = client.post(
+        f"/candidates/{candidate_id}/documents/{document_id}/evidence-preview",
+        json={"source_locations": [source_location]},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"%PDF-highlighted-preview"
+    assert response.headers["content-type"].startswith("application/pdf")
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert captured == {
+        "pdf_bytes": b"%PDF-synthetic",
+        "locations": [source_location],
+    }
+
+
+def test_candidate_pdf_evidence_preview_rejects_forged_or_previous_source_location(
+    client, monkeypatch
+):
+    headers = register_and_login(
+        client, "evidence-owner2@example.com", "Evidence Preview Org 2"
+    )
+    candidate_response = client.post(
+        "/candidates",
+        json={
+            "first_name": "Alex",
+            "last_name": "Morgan",
+            "email": "alex.evidence@example.com",
+        },
+        headers=headers,
+    )
+    assert candidate_response.status_code == 201
+    candidate_id = candidate_response.json()["id"]
+
+    current_location = {
+        "source_type": "docling_item",
+        "page_number": 1,
+        "bbox": {
+            "l": 10.0,
+            "t": 50.0,
+            "r": 200.0,
+            "b": 90.0,
+            "coord_origin": "TOPLEFT",
+        },
+        "page_size": {"width": 600.0, "height": 800.0},
+    }
+    previous_location = {**current_location, "page_number": 2}
+
+    with client.app.state.test_session() as db:
+        candidate = db.get(Candidate, candidate_id)
+        current_document = CandidateDocument(
+            organization_id=candidate.organization_id,
+            candidate_id=candidate_id,
+            name="alex-current.pdf",
+            storage_key="local://org/candidate/alex-current.pdf",
+            content_type="application/pdf",
+            size_bytes=100,
+        )
+        previous_document = CandidateDocument(
+            organization_id=candidate.organization_id,
+            candidate_id=candidate_id,
+            name="alex-previous.pdf",
+            storage_key="local://org/candidate/alex-previous.pdf",
+            content_type="application/pdf",
+            size_bytes=90,
+        )
+        candidate.resume_storage_key = current_document.storage_key
+        candidate.resume_data = {
+            "extraction_evidence": [
+                {"field": "email", "source_locations": [current_location]}
+            ]
+        }
+        db.add_all([current_document, previous_document])
+        db.commit()
+        db.refresh(current_document)
+        db.refresh(previous_document)
+        current_document_id = current_document.id
+        previous_document_id = previous_document.id
+
+    monkeypatch.setattr(
+        private_storage, "read_bytes", lambda _reference: b"%PDF-synthetic"
+    )
+    monkeypatch.setattr(
+        "app.main.annotate_pdf_with_evidence",
+        lambda *_args: pytest.fail("Forged or outdated locations must not be annotated."),
+    )
+
+    forged = client.post(
+        f"/candidates/{candidate_id}/documents/{current_document_id}/evidence-preview",
+        json={"source_locations": [previous_location]},
+        headers=headers,
+    )
+    assert forged.status_code == 422
+
+    previous_document_response = client.post(
+        f"/candidates/{candidate_id}/documents/{previous_document_id}/evidence-preview",
+        json={"source_locations": [current_location]},
+        headers=headers,
+    )
+    assert previous_document_response.status_code == 409
