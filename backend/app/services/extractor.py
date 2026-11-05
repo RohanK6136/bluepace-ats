@@ -450,24 +450,24 @@ class DocumentExtractor:
     @staticmethod
     def _evidence_line_for_value(value, indexed_lines):
         """Find a source line containing a complete value, not an arbitrary substring."""
-        normalized = re.sub(r"\\s+", " ", str(value or "")).strip()
+        normalized = re.sub(r"\s+", " ", str(value or "")).strip()
         if not normalized:
             return None
 
         candidates = [normalized]
         if re.match(r"^https?://", normalized, re.IGNORECASE):
-            candidates.append(re.sub(r"^https?://(?:www\\.)?", "", normalized, flags=re.IGNORECASE))
-        elif re.match(r"^www\\.", normalized, re.IGNORECASE):
-            candidates.append(re.sub(r"^www\\.", "", normalized, flags=re.IGNORECASE))
+            candidates.append(re.sub(r"^https?://(?:www\.)?", "", normalized, flags=re.IGNORECASE))
+        elif re.match(r"^www\.", normalized, re.IGNORECASE):
+            candidates.append(re.sub(r"^www\.", "", normalized, flags=re.IGNORECASE))
 
         for candidate in candidates:
             escaped = re.escape(candidate)
             if candidate[0].isalnum():
-                escaped = r"(?<!\\w)" + escaped
+                escaped = r"(?<!\w)" + escaped
             if candidate[-1].isalnum():
-                escaped += r"(?!\\w)"
+                escaped += r"(?!\w)"
             for line, normalized_line in indexed_lines:
-                searchable_line = re.sub(r"\\s+", " ", normalized_line).strip()
+                searchable_line = re.sub(r"\s+", " ", normalized_line).strip()
                 if re.search(escaped, searchable_line, re.IGNORECASE):
                     return line
         return None
