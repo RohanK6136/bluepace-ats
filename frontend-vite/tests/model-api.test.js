@@ -566,6 +566,66 @@ test("multipart JD PDF upload extracts requirements using its selected rules pro
 });
 
 
+test("direct /api/v1 function URLs serve JD Standardizer and Applicant Match without a rewrite", async () => {
+  const hostHeaders = { host: "ats.vercel.app" };
+  const models = await invokeHandler(handler, hostHeaders, "GET", "/api/v1/models", {});
+  assert.equal(models.statusCode, 200);
+  assert.ok(models.body.some((row) => row.id === "rules" && row.enabled));
+
+  const jd = [
+    "Senior Software Engineer",
+    "Responsibilities:",
+    "- Build REST APIs with Python and FastAPI",
+    "Requirements:",
+    "- 5 years of experience with Python, SQL and AWS",
+  ].join("\\n");
+  const standardize = await invokeHandler(
+    handler,
+    { ...hostHeaders, "content-type": "application/json" },
+    "POST",
+    "/api/v1/jd/standardize",
+    {},
+    JSON.stringify({ text: jd, options: { profile: "rules", mode: "light" } }),
+  );
+  assert.equal(standardize.statusCode, 200, JSON.stringify(standardize.body));
+  assert.equal(standardize.body.meta.profile, "rules");
+  assert.equal(standardize.body.fields.title.value, "Senior Software Engineer");
+
+  const rubricResponse = await invokeHandler(
+    handler,
+    { ...hostHeaders, "content-type": "application/json" },
+    "POST",
+    "/api/v1/match/rubrics",
+    {},
+    JSON.stringify({ jd_text: jd, options: { profile: "rules" } }),
+  );
+  assert.equal(rubricResponse.statusCode, 200, JSON.stringify(rubricResponse.body));
+  const rubric = rubricResponse.body.rubric;
+  assert.ok(rubric?.items?.length > 0);
+
+  const boundary = "direct-api-path-boundary";
+  const resume = "Senior software engineer with 6 years of experience. Built REST APIs using Python and FastAPI. Worked with SQL databases and AWS cloud deployments.";
+  const multipart = [
+    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\\"rubric\\"\\r\\n\\r\\n" + JSON.stringify(rubric) + "\\r\\n",
+    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\\"text\\"\\r\\n\\r\\n" + resume + "\\r\\n",
+    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\\"profile\\"\\r\\n\\r\\nrules\\r\\n",
+    "--" + boundary + "\\r\\nContent-Disposition: form-data; name=\\"rubric_id\\"\\r\\n\\r\\n" + rubric.rubric_id + "\\r\\n",
+    "--" + boundary + "--\\r\\n",
+  ].join("");
+  const analysis = await invokeHandler(
+    handler,
+    { ...hostHeaders, "content-type": "multipart/form-data; boundary=" + boundary },
+    "POST",
+    "/api/v1/match/analyze",
+    {},
+    multipart,
+  );
+  assert.equal(analysis.statusCode, 200, JSON.stringify(analysis.body));
+  assert.equal(analysis.body.versions.profile, "rules");
+  assert.equal(analysis.body.status, "complete");
+  assert.ok(analysis.body.evidence.length > 0);
+});
+
 test("Vercel model API rewrite preserves the requested path", () => {
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   assert.ok(config.rewrites.some((rule) => rule.source === "/v1/:path*" && rule.destination === "/api/v1/:path*"));
