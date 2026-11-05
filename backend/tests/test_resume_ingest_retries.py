@@ -335,3 +335,64 @@ def test_delayed_bulk_ingest_does_not_replace_existing_candidate_cv(
             current_resume,
             f"local://{uploaded[0][0]}",
         }
+
+
+def _seed_resume_lab_job(test_session, job_id):
+    with test_session() as db:
+        organization = Organization(name="Resume Lab QA")
+        db.add(organization)
+        db.flush()
+        user = User(
+            organization_id=organization.id,
+            email=f"resume-lab-owner-{job_id}@example.com",
+            full_name="Resume Lab QA Owner",
+            password_hash="not-used-in-this-test",
+        )
+        db.add(user)
+        db.flush()
+        job = db.get(ResumeProcessingJob, job_id)
+        job.organization_id = organization.id
+        job.created_by_id = user.id
+        db.commit()
+        return organization.id, job.storage_path
+
+
+def test_resume_lab_worker_creates_candidate_and_retains_uploaded_cv(
+    resume_job_store, monkeypatch
+):
+    test_session, job_id = resume_job_store
+    organization_id, source_path = _seed_resume_lab_job(test_session, job_id)
+    uploaded = []
+    deleted = []
+
+    _patch_successful_resume_extraction(monkeypatch)
+
+    def put_bytes(key, content, content_type):
+        uploaded.append((key, content, content_type))
+        return f"local://{key}"
+
+    monkeypatch.setattr(queue_tasks.private_storage, "put_bytes", put_bytes)
+    monkeypatch.setattr(queue_tasks.private_storage, "delete", lambda path: deleted.append(path))
+
+    result = queue_tasks.process_resume_ingest_job.run(job_id, dispatcher_attempt=0)
+
+    assert result == {"status": "completed", "job_id": job_id}
+    assert len(uploaded) == 1
+    assert uploaded[0][0].startswith(f"{organization_id}/")
+    assert uploaded[0][0].endswith(f"/resume-ingest-{job_id}.pdf")
+    assert deleted == [source_path]
+
+    with test_session() as db:
+        candidate = db.query(Candidate).filter_by(
+            organization_id=organization_id,
+            email="morgan@example.com",
+        ).one()
+        document = db.query(CandidateDocument).filter_by(
+            organization_id=organization_id,
+            candidate_id=candidate.id,
+        ).one()
+        job = db.get(ResumeProcessingJob, job_id)
+        assert job.candidate_id == candidate.id
+        assert candidate.resume_storage_key == f"local://{uploaded[0][0]}"
+        assert document.storage_key == candidate.resume_storage_key
+        assert document.name == "resume.pdf"
