@@ -182,16 +182,21 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
                         suffix = Path(job.filename or "").suffix.lower()
                         if suffix not in {".pdf", ".doc", ".docx"}:
                             suffix = ".bin"
+                        # The job id makes promotion idempotent: a retry writes
+                        # the same destination rather than leaving orphaned copies.
                         durable_key = (
                             f"{candidate.organization_id}/{candidate.id}/"
-                            f"{uuid4().hex}{suffix}"
+                            f"resume-ingest-{job.id}{suffix}"
                         )
                         retained_reference = private_storage.put_bytes(
                             durable_key,
                             file_content,
                             job.content_type,
                         )
-                        candidate.resume_storage_key = retained_reference
+                        # Do not let a delayed bulk job replace a newer direct CV
+                        # upload. It still appears in the version history below.
+                        if not candidate.resume_storage_key:
+                            candidate.resume_storage_key = retained_reference
 
                     record_candidate_document(
                         db,
