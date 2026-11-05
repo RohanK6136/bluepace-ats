@@ -295,6 +295,7 @@ def test_public_application_ingest_keeps_candidate_source_file(
         candidate = db.get(Candidate, candidate_id)
         documents = db.query(CandidateDocument).filter_by(candidate_id=candidate_id).all()
         assert candidate.resume_storage_key == public_path
+        assert candidate.resume_data["name"] == "Morgan Taylor"
         assert len(documents) == 1
         assert documents[0].storage_key == public_path
 
@@ -309,6 +310,15 @@ def test_delayed_bulk_ingest_does_not_replace_existing_candidate_cv(
         job_id,
         current_resume=current_resume,
     )
+    current_profile = {"name": "Current CV", "skills": ["Go"]}
+    with test_session() as db:
+        candidate = db.get(Candidate, candidate_id)
+        candidate.resume_data = current_profile
+        candidate.phone = "5555555555"
+        candidate.linkedin_url = "https://www.linkedin.com/in/current-profile"
+        candidate.needs_review = False
+        db.commit()
+
     uploaded = []
     deleted = []
 
@@ -331,6 +341,10 @@ def test_delayed_bulk_ingest_does_not_replace_existing_candidate_cv(
         candidate = db.get(Candidate, candidate_id)
         documents = db.query(CandidateDocument).filter_by(candidate_id=candidate_id).all()
         assert candidate.resume_storage_key == current_resume
+        assert candidate.resume_data == current_profile
+        assert candidate.phone == "5555555555"
+        assert candidate.linkedin_url == "https://www.linkedin.com/in/current-profile"
+        assert candidate.needs_review is False
         assert {document.storage_key for document in documents} == {
             current_resume,
             f"local://{uploaded[0][0]}",
@@ -394,5 +408,6 @@ def test_resume_lab_worker_creates_candidate_and_retains_uploaded_cv(
         job = db.get(ResumeProcessingJob, job_id)
         assert job.candidate_id == candidate.id
         assert candidate.resume_storage_key == f"local://{uploaded[0][0]}"
+        assert candidate.resume_data["name"] == "Morgan Taylor"
         assert document.storage_key == candidate.resume_storage_key
         assert document.name == "resume.pdf"
