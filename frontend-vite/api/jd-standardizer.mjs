@@ -289,7 +289,7 @@ export function standardizeJD(input) {
     content[section].push({ text: item.text, lines: [item.id] });
     sectionLineRefs[section].push(item.id);
     if (/\b(remote|hybrid|on[\s-]?site|in[\s-]?office|office[\s-]?based|work from home|wfh)\b/i.test(record.text)) {
-      for (const mode of matching(WORK_MODES, record.text)) pushCandidate(candidates, "work_mode", mode, record);
+      for (const mode of matching(WORK_MODES, item.text)) pushCandidate(candidates, "work_mode", mode, item);
     }
   }
 
