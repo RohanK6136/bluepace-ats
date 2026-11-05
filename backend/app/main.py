@@ -3125,7 +3125,7 @@ async def create_candidate_from_resume(
         file.content_type or "application/octet-stream",
     )
     candidate.resume_storage_key = storage_reference
-    record_candidate_document(
+    candidate_document = record_candidate_document(
         db,
         organization_id=candidate.organization_id,
         candidate_id=candidate.id,
@@ -3157,6 +3157,7 @@ async def create_candidate_from_resume(
             )
             db.add(application)
             db.flush()
+            candidate_document.application_id = application.id
 
             if not job.jd_analysis:
                 job.jd_analysis = matching_service.analyze_job(job)
@@ -3176,6 +3177,8 @@ async def create_candidate_from_resume(
             )
             subject, body = _stage_email(application, "Applied", db=db)
             email_id = queue_application_email(db, application, subject, body)
+        else:
+            candidate_document.application_id = existing_application
 
     db.commit()
     if job_id is not None and "email_id" in locals() and background_tasks is not None:
