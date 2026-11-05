@@ -691,13 +691,16 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
     const isFeatureRoute = String(path || "").startsWith("/v1/");
+    const isDeterministicJdRoute = String(path || "").startsWith("/v1/jd/");
     const explicitBaseURL = options.baseURL ? String(options.baseURL).replace(/\/$/, "") : "";
     const usingLocalAi = Boolean(
-      localAiApiUrl && isFeatureRoute
+      !isDeterministicJdRoute && localAiApiUrl && isFeatureRoute
       && (explicitBaseURL === localAiApiUrl || (!explicitBaseURL && selectedProfile === "local-ollama"))
     );
+    // JD Standardizer always uses the same-origin deterministic NLP endpoint.
+    // The selected model profile only affects Applicant Match and the assistant.
     const featureApiBase = explicitBaseURL || (usingLocalAi ? localAiApiUrl : window.location.origin);
-    const usingHostedModelProxy = isFeatureRoute && featureApiBase === window.location.origin;
+    const usingHostedModelProxy = isFeatureRoute && !isDeterministicJdRoute && featureApiBase === window.location.origin;
 
     if (apiKey.trim() && !usingLocalAi) headers["X-API-Key"] = apiKey.trim();
     // Hosted provider keys are sent only to this app's same-origin model proxy.
@@ -1078,10 +1081,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const payload = {
         text: jdText.trim(),
-        options: { mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) },
+        options: { mode: jdMode, detail: jdDetail, profile: "rules" },
         overrides: {},
       };
-      const response = await request("post", mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
+      const response = await request("post", mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, {
+        timeout: 120000,
+        baseURL: window.location.origin,
+      });
       setJdResult(response.data);
       if (response.data?.request_id) setNotice(`Run completed · ${response.data.request_id}`);
     } catch (error) {
@@ -1100,9 +1106,12 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const form = new FormData();
       form.append("file", file);
-      form.append("options", JSON.stringify({ mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) }));
+      form.append("options", JSON.stringify({ mode: jdMode, detail: jdDetail, profile: "rules" }));
       form.append("overrides", JSON.stringify({}));
-      const response = await request("post", "/v1/jd/generate/upload", form, { timeout: 120000 });
+      const response = await request("post", "/v1/jd/generate/upload", form, {
+        timeout: 120000,
+        baseURL: window.location.origin,
+      });
       const result = response.data || {};
       const uploadError = getJdUploadError(result);
       if (uploadError) throw new Error(uploadError);
@@ -1172,23 +1181,21 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("");
     setCandidateCard(null);
     try {
-      const options = {
+      const rubricOptions = {
         mode: jdMode === "verbatim" ? "verbatim" : jdMode === "rewrite" ? "rewrite" : "light",
         detail: jdDetail,
         ...(selectedProfile ? { profile: selectedProfile } : {}),
       };
-      setNotice("Preparing the standardized JD and source-grounded match rubric…");
+      setNotice("Standardizing the JD with deterministic NLP and preparing the applicant rubric…");
 
-      // These tasks are independent: JD generation can add clearly-marked draft prose,
-      // while the rubric must be built from the original recruiter-supplied requirements.
-      // Hosted profiles can process both requests concurrently; local Ollama safely
-      // serializes them through its one-model concurrency limit.
+      // JD parsing is deterministic and same-origin. The chosen model profile
+      // applies only to Applicant Match rubric assistance, not JD standardization.
       const [jdResponse, rubricResponse] = await Promise.all([
         request("post", "/v1/jd/generate", {
           text: sourceJD,
-          options,
+          options: { mode: rubricOptions.mode, detail: rubricOptions.detail, profile: "rules" },
           overrides: {},
-        }, { timeout: 120000 }),
+        }, { timeout: 120000, baseURL: window.location.origin }),
         request("post", "/v1/match/rubrics", {
           jd_text: sourceJD,
           options: selectedProfile ? { profile: selectedProfile } : {},
@@ -1219,10 +1226,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       // Switching to the Match tab triggers the saved-rubric refresh effect. Avoid
       // making the same list request here and then again in the tab effect.
       setNotice(localAiApiUrl
-        ? "JD standardized and source-grounded match rubric generated with local Ollama. The rubric is saved in this local workspace; shared ATS job linking is not available in local mode. Continue with resume-file matching."
+        ? "JD standardized with deterministic NLP. The applicant rubric was generated using the selected local model and saved in this browser workspace; shared ATS job linking is not available in local mode."
         : jobId
-          ? "JD standardized, source-grounded match rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
-          : "JD standardized and source-grounded match rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
+          ? "JD standardized with deterministic NLP; applicant rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
+          : "JD standardized with deterministic NLP; applicant rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
       setActiveTab("match");
     } catch (error) {
       const message = explainError(error);
@@ -1777,8 +1784,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           <button type="button" role="tab" aria-selected={activeTab === "jd"} onClick={() => setActiveTab("jd")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "jd" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>1 · JD Standardizer</button>
           <button type="button" role="tab" aria-selected={activeTab === "match"} onClick={() => setActiveTab("match")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "match" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>2 · Applicant Match</button>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            <span className="hidden text-xs text-ink-500 sm:inline">Model</span>
-            <select aria-label="AI model profile" value={selectedProfile} onChange={(event) => setSelectedProfile(event.target.value)} className="max-w-[230px] rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs text-ink-700">
+            <span className="hidden text-xs text-ink-500 sm:inline">Applicant Match model</span>
+            <select aria-label="Applicant Match model profile" value={selectedProfile} onChange={(event) => setSelectedProfile(event.target.value)} className="max-w-[230px] rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs text-ink-700">
               <option value="">Backend default</option>
               {models.some((model) => model.free_endpoint) && (
                 <optgroup label="Free OpenRouter models">
@@ -1800,8 +1807,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-emerald-950">Local Ollama connection</p>
-                <p className="mt-1 text-xs leading-5 text-emerald-900">Run Qwen3 8B on this computer for JD Standardizer and Applicant Match. No provider key, OpenRouter credits or cloud inference charges.</p>
+                <p className="text-sm font-semibold text-emerald-950">Local Ollama connection for Applicant Match</p>
+                <p className="mt-1 text-xs leading-5 text-emerald-900">Run Qwen3 8B on this computer for Applicant Match and workflow guidance. JD Standardizer uses deterministic NLP and does not call a generative model.</p>
               </div>
               {localAiApiUrl && <Pill tone="good">Local mode active</Pill>}
             </div>
@@ -1815,7 +1822,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               {localAiApiUrl && <button type="button" className={secondaryButton} onClick={useHostedAiApi}>Use hosted AI</button>}
             </div>
             {localAiApiTest.message && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${localAiApiTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : localAiApiTest.status === "success" ? "border-emerald-200 bg-white text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{localAiApiTest.message}</p>}
-            <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. Chrome may request Loopback network access on your first click; allow it. Keep the local service running while using local inference.</p>
+            <p className="mt-2 text-[11px] leading-5 text-emerald-900">Applicant Match and optional workflow-assistant calls switch to this computer. JD Standardizer remains on the hosted deterministic NLP endpoint. ATS login, jobs and applications continue using the hosted ATS API. Chrome may request Loopback network access on your first click; allow it.</p>
           </div>
         </div>
         <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
@@ -1904,9 +1911,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 </div>
                 <ErrorNotice>{jdError}</ErrorNotice>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className={primaryButton} onClick={() => runJD("fast")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Fast path: rule-based parsing plus one model call.">{jdLoading ? "Standardizing…" : "Standardize JD"}</button>
+                  <button type="button" className={primaryButton} onClick={() => runJD("fast")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Deterministic NLP extraction, taxonomy matching and source validation. No generative model is called.">{jdLoading ? "Standardizing…" : "Standardize JD"}</button>
                   <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || !jdText.trim()} title={!jdText.trim() ? "Add or import a job description to enable setup" : "Prepare the JD and source-grounded match rubric together"}>{jdPrepareLoading ? "Preparing JD & rubric…" : "Automate JD + match setup"}</button>
-                  <button type="button" className={secondaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Full 12-stage validation; takes longer than the fast standardization path.">{jdLoading ? "Processing…" : "Full validation (slower)"}</button>
+                  <button type="button" className={secondaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Run deterministic source-quality, conflict and completeness checks.">{jdLoading ? "Processing…" : "Full validation (slower)"}</button>
                   <button type="button" className={secondaryButton} onClick={() => { setJdText(""); setJdResult(null); setJdError(""); setNotice(""); }}>Clear</button>
                 </div>
               </div>
@@ -1937,7 +1944,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                       <p className="mt-1 text-xs text-ink-500">Request ID: {jdResult.request_id || "not supplied"}</p>
                       <div className="mt-4 grid grid-cols-2 gap-3">
                         <ScoreMetric label="Status" value={jdResult.status || "—"} detail="Pipeline outcome" />
-                        <ScoreMetric label="Est. model cost" value={jdResult.meta?.cost_usd != null ? `$${Number(jdResult.meta.cost_usd).toFixed(4)}` : "—"} detail="Provider-reported / configured estimate" />
+                        <ScoreMetric label="JD model cost" value={jdResult.meta?.cost_usd != null ? `$${Number(jdResult.meta.cost_usd).toFixed(4)}` : "—"} detail="No generative inference is used" />
                       </div>
                     </div>
                     {(jdResult.needs_input || []).length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-sm font-semibold text-amber-950">Details to confirm</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">{jdResult.needs_input.map((item, index) => <li key={index}>{item.field}: {item.reason}</li>)}</ul></div>}
