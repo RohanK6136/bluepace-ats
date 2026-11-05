@@ -100,7 +100,7 @@ def test_candidate_cv_history_lists_and_downloads_only_authorized_documents(clie
     monkeypatch.setattr(
         private_storage,
         "read_bytes",
-        lambda reference: b"%PDF-" if reference == "local://org/candidate/morgan-v1.pdf" else b"",
+        lambda reference: b"%PDF-" if reference in {"local://org/candidate/morgan-v1.pdf", "local://org/candidate/morgan-v2.pdf"} else b"",
     )
 
     listed = client.get(f"/candidates/{candidate_id}/documents", headers=headers)
