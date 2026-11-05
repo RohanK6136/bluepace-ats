@@ -309,13 +309,13 @@ class DocumentExtractor:
             if match.group("month_year"):
                 year_value = int(match.group("month_num_year"))
                 month = int(match.group("month_num"))
-                tokens.append((year_value * 12 + month - 1, True))
+                tokens.append((year_value * 12 + month - 1, "month"))
                 continue
 
             if match.group("year_month"):
                 year_value = int(match.group("year_month_year"))
                 month = int(match.group("year_month_num"))
-                tokens.append((year_value * 12 + month - 1, True))
+                tokens.append((year_value * 12 + month - 1, "month"))
                 continue
 
             if match.group("year_only"):
