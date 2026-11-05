@@ -226,14 +226,6 @@ function fieldCandidatesFromLocation(map, items, field) {
     if (field === "work_mode") for (const mode of parsed.work_mode) pushCandidate(map, field, mode, { id: item.line, text: item.quote });
   }
 }
-function makeSectionContent(lines, sectionLineRefs) {
-  const output = {};
-  for (const key of SECTION_IDS) {
-    output[key] = lines.filter((line) => sectionLineRefs[key].includes(line.id)).map((line) => line.text);
-  }
-  return output;
-}
-
 export function standardizeJD(input) {
   const source = String(input ?? "").replace(/\r\n?/g, "\n");
   if (source.trim().length < 15) throw Object.assign(new Error("Paste a job description with at least 15 characters."), { statusCode: 422 });
