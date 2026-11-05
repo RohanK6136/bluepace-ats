@@ -3,8 +3,8 @@
  * Source-grounded NLP/rules only. No model calls and no invented facts.
  */
 const SECTION_RULES = [
-  ["responsibilities", /^(?:key\s+)?responsibilities|what\s+you(?:'|’)ll\s+do|duties|role\s+responsibilities$/i],
-  ["requirements", /^(?:required\s+)?(?:qualifications?|skills?|requirements?|must[- ]haves?|what\s+you(?:'|’)ll\s+need|what\s+you\s+bring|experience)$/i],
+  ["responsibilities", /^(?:(?:key\s+)?responsibilities|what\s+you(?:'|’)ll\s+do|duties|role\s+responsibilities)$/i],
+  ["requirements", /^(?:(?:required\s+)?(?:qualifications?|skills?|requirements?)|must[- ]haves?|what\s+you(?:'|’)ll\s+need|what\s+you\s+bring|experience|technical\s+requirements)$/i],
   ["nice_to_have", /^(?:preferred\s+(?:skills?|qualifications?)|nice[- ]to[- ]have|bonus|desirable|preferred)$/i],
   ["offer", /^(?:what\s+we\s+offer|benefits|compensation|perks|our\s+offer)$/i],
   ["about_role", /^(?:about\s+(?:the\s+)?role|role\s+overview|job\s+summary|position\s+summary|overview)$/i],
@@ -85,7 +85,7 @@ function norm(value) {
   return String(value ?? "").replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ").trim();
 }
 function stripBullet(value) {
-  return norm(value).replace(/^(?:[-*•●▪◦]+|\d+[.)])\s*/, "").trim();
+  return norm(value).replace(/^#{1,6}\s*/, "").replace(/^(?:[-*•●▪◦]+|\d+[.)])\s*/, "").trim();
 }
 function dedupe(values) {
   const seen = new Set();
@@ -122,6 +122,14 @@ function heading(raw) {
   const value = stripBullet(raw).replace(/:$/, "").trim();
   if (!value || value.length > 65) return null;
   return SECTION_RULES.find((item) => item[1].test(value))?.[0] || null;
+}
+function inlineHeading(raw) {
+  const cleaned = norm(raw).replace(/^#{1,6}\\s*/, "");
+  const colon = cleaned.indexOf(":");
+  if (colon <= 0 || colon > 50) return null;
+  const section = heading(cleaned.slice(0, colon));
+  const value = norm(cleaned.slice(colon + 1));
+  return section ? { section, value } : null;
 }
 function inferSection(text) {
   if (/\b(preferred|nice to have|bonus|desirable)\b/i.test(text)) return "nice_to_have";
@@ -236,14 +244,21 @@ export function standardizeJD(input) {
   const duplicates = [];
   let activeSection = "about_role", companyIntro = false;
 
-  for (let index = 0; index < source.split("\n").length; index += 1) {
-    const raw = norm(source.split("\n")[index]);
+  const rawLines = source.split("\n");
+  for (let index = 0; index < rawLines.length; index += 1) {
+    const raw = norm(rawLines[index]);
     if (!raw) continue;
     const item = { id: "J" + String(lines.length + 1).padStart(2, "0"), n: index + 1, raw, text: stripBullet(raw), section: activeSection };
-    const sectionHeading = heading(raw);
+    const inline = inlineHeading(raw);
+    const sectionHeading = inline?.section || heading(raw);
     if (sectionHeading) {
       activeSection = sectionHeading;
-      lines.push({ ...item, text: raw.replace(/:$/, ""), section: "heading" });
+      lines.push({ ...item, text: raw, section: "heading" });
+      if (inline?.value) {
+        const inlineItem = { ...item, text: inline.value, section: activeSection };
+        content[activeSection].push({ text: inlineItem.text, lines: [inlineItem.id] });
+        sectionLineRefs[activeSection].push(inlineItem.id);
+      }
       continue;
     }
 
