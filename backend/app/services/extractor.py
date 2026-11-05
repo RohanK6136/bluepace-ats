@@ -473,13 +473,14 @@ class DocumentExtractor:
         return None
 
     @staticmethod
-    def _evidence_and_confidence(raw_text, parsed):
+    def _evidence_and_confidence(raw_text, parsed, source_line_locations=None):
         """
         Attach source snippets and extraction confidence without turning inference into fact.
         Confidence describes extraction evidence coverage, not candidate quality or probability.
         """
         lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
         indexed_lines = [(line, line.casefold()) for line in lines]
+        source_line_locations = source_line_locations or []
         evidence = []
         confidence = {}
 
@@ -496,6 +497,7 @@ class DocumentExtractor:
                 continue
             values = value if isinstance(value, list) else [value]
             matched = []
+            matched_locations = []
             matched_value_count = 0
             total_value_count = 0
 
@@ -521,6 +523,17 @@ class DocumentExtractor:
                         matched_value_count += 1
                         if line_match not in matched:
                             matched.append(line_match)
+                        line_index = next(
+                            (
+                                index for index, (source_line, _lower_line) in enumerate(indexed_lines)
+                                if source_line == line_match
+                            ),
+                            None,
+                        )
+                        if line_index is not None and line_index < len(source_line_locations):
+                            location = source_line_locations[line_index]
+                            if location and location not in matched_locations:
+                                matched_locations.append(location)
 
             coverage = (
                 matched_value_count / total_value_count
@@ -540,6 +553,7 @@ class DocumentExtractor:
                 "field": field,
                 "value": value,
                 "source_lines": matched[:5],
+                "source_locations": matched_locations[:10],
                 "evidence_coverage": round(coverage, 3),
                 "matched_value_count": matched_value_count,
                 "total_value_count": total_value_count,
@@ -551,14 +565,20 @@ class DocumentExtractor:
             calculated = DocumentExtractor._experience_years_from_entries(parsed.get("experience"))
             explicit = DocumentExtractor._extract_explicit_experience_years(raw_text)
             confidence["years_of_experience"] = 0.97 if explicit is not None else (0.84 if calculated is not None else 0.5)
+            years_source_lines = []
+            years_source_locations = []
+            for line_index, line in enumerate(lines):
+                if re.search(r"years?|yrs?", line, re.IGNORECASE) and "experience" in line.lower():
+                    years_source_lines.append(line)
+                    if line_index < len(source_line_locations):
+                        location = source_line_locations[line_index]
+                        if location and location not in years_source_locations:
+                            years_source_locations.append(location)
             evidence.append({
                 "field": "years_of_experience",
                 "value": parsed["years_of_experience"],
-                "source_lines": [
-                    line for line in lines
-                    if re.search(r"years?|yrs?", line, re.IGNORECASE)
-                    and "experience" in line.lower()
-                ][:3],
+                "source_lines": years_source_lines[:3],
+                "source_locations": years_source_locations[:10],
                 "confidence": confidence["years_of_experience"],
                 "derivation": "explicit_resume_statement" if explicit is not None else "employment_dates",
             })
@@ -642,24 +662,86 @@ Resume text:
             return None
 
     @staticmethod
-    def _docx_container_text(container):
-        lines = []
+    def _docx_container_segments(container, source_part="body", section_index=None):
+        """Extract DOCX text blocks with stable paragraph/table locators."""
+        segments = []
+        paragraph_index = 0
+        table_index = 0
+        active_section = None
+
         for block in container.iter_inner_content():
             if hasattr(block, "rows"):
-                for row in block.rows:
-                    cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                table_index += 1
+                for row_index, row in enumerate(block.rows, start=1):
+                    cells = []
+                    cell_indices = []
+                    for cell_index, cell in enumerate(row.cells, start=1):
+                        cell_text = (cell.text or "").strip()
+                        if cell_text:
+                            cells.append(cell_text)
+                            cell_indices.append(cell_index)
                     if cells:
-                        lines.append(" | ".join(cells))
-            elif block.text.strip():
-                lines.append(block.text.strip())
-        return lines
+                        location = {
+                            "source_type": "docx_table_row",
+                            "part": source_part,
+                            "table_index": table_index,
+                            "row_index": row_index,
+                            "cell_indices": cell_indices,
+                        }
+                        if section_index is not None:
+                            location["section_index"] = section_index
+                        if active_section:
+                            location["section"] = active_section
+                        segments.append({
+                            "text": " | ".join(cells),
+                            "location": location,
+                        })
+            else:
+                paragraph_index += 1
+                paragraph_text = (block.text or "").strip()
+                if not paragraph_text:
+                    continue
+
+                style_name = getattr(getattr(block, "style", None), "name", "") or ""
+                normalized_style = style_name.casefold()
+                if normalized_style == "title" or normalized_style.startswith("heading"):
+                    active_section = paragraph_text
+
+                location = {
+                    "source_type": "docx_paragraph",
+                    "part": source_part,
+                    "paragraph_index": paragraph_index,
+                }
+                if section_index is not None:
+                    location["section_index"] = section_index
+                if active_section:
+                    location["section"] = active_section
+                segments.append({
+                    "text": paragraph_text,
+                    "location": location,
+                })
+
+        return segments
+
+    @staticmethod
+    def _source_line_locations(source_segments):
+        """Return one locator per non-empty line in the same order as assembled text."""
+        locations = []
+        for segment in source_segments or []:
+            location = segment.get("location") or {}
+            for line in str(segment.get("text") or "").splitlines():
+                if line.strip():
+                    locations.append(dict(location))
+        return locations
 
     def extract_to_json(self, file_content: bytes, filename: str) -> dict:
         if len(file_content) > MAX_DOCUMENT_SIZE_BYTES:
             raise DocumentExtractionError("Document must be 5 MB or smaller.")
 
-        text_parts = []
+        source_segments = []
         raw_text = ""
+        source_line_locations = []
+        source_location_status = "unavailable"
         extraction_engine = None
         extraction_warning = None
 
@@ -683,24 +765,50 @@ Resume text:
                 if filename.lower().endswith(".pdf"):
                     from pypdf import PdfReader
                     reader = PdfReader(io.BytesIO(file_content))
-                    for page in reader.pages:
+                    for page_number, page in enumerate(reader.pages, start=1):
                         page_text = page.extract_text()
                         if page_text:
-                            text_parts.append(page_text)
+                            source_segments.append({
+                                "text": page_text,
+                                "location": {
+                                    "source_type": "pdf_page",
+                                    "page_number": page_number,
+                                },
+                            })
                     extraction_engine = "pypdf"
                 elif filename.lower().endswith(".docx"):
                     from docx import Document
                     doc = Document(io.BytesIO(file_content))
-                    text_parts.extend(self._docx_container_text(doc))
-                    for section in doc.sections:
-                        text_parts.extend(self._docx_container_text(section.header))
-                        text_parts.extend(self._docx_container_text(section.footer))
+                    source_segments.extend(
+                        self._docx_container_segments(doc, source_part="body")
+                    )
+                    for section_index, section in enumerate(doc.sections, start=1):
+                        source_segments.extend(
+                            self._docx_container_segments(
+                                section.header,
+                                source_part="header",
+                                section_index=section_index,
+                            )
+                        )
+                        source_segments.extend(
+                            self._docx_container_segments(
+                                section.footer,
+                                source_part="footer",
+                                section_index=section_index,
+                            )
+                        )
                     extraction_engine = "python-docx"
                 else:
                     raise ValueError("Unsupported resume format")
             except Exception as e:
                 raise DocumentExtractionError(f"Failed to extract text: {str(e)}") from e
-            raw_text = "\n".join(text_parts).strip()
+            raw_text = "\n".join(
+                str(segment.get("text") or "") for segment in source_segments
+            ).strip()
+            source_line_locations = self._source_line_locations(source_segments)
+            source_location_status = (
+                "available" if source_line_locations else "unavailable"
+            )
 
         if not raw_text and fallback_engine in {"docling", "document_intelligence"}:
             try:
@@ -739,8 +847,12 @@ Resume text:
             parsed["years_of_experience"] = self._experience_years_from_entries(parsed.get("experience"))
         parsed["resume_quality"] = self._resume_quality_flags(raw_text, parsed)
         parsed["resume_validation"] = self._resume_document_validation(raw_text, parsed)
-        parsed["extraction_evidence"], parsed["extraction_confidence"] = self._evidence_and_confidence(raw_text, parsed)
-        parsed["resume_intelligence_version"] = 5
+        parsed["extraction_evidence"], parsed["extraction_confidence"] = self._evidence_and_confidence(
+            raw_text, parsed, source_line_locations
+        )
+        parsed["document_source_location_status"] = source_location_status
+        parsed["document_source_line_count"] = len(source_line_locations)
+        parsed["resume_intelligence_version"] = 6
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
         parsed["document_extraction_engine"] = extraction_engine or "unknown"
