@@ -857,9 +857,9 @@ export default async function handler(req, res) {
   // /api/v1 path, or the catch-all query value. Strip any prefix once so all
   // three forms resolve to the same feature route.
   const normalizedRoute = String(raw)
-    .replace(/^\\/+/, "")
-    .replace(/^(?:api\\/)?v1(?:\\/|$)/i, "")
-    .replace(/\\/+$/, "");
+    .replace(/^\/+/, "")
+    .replace(/^(?:api\/)?v1(?:\/|$)/i, "")
+    .replace(/\/+$/, "");
   const path = normalizedRoute ? "/v1/" + normalizedRoute : "/v1";
   try {
     const body = ["POST", "PUT", "PATCH"].includes(String(req.method || "").toUpperCase()) ? await readBody(req) : Buffer.alloc(0);
