@@ -335,7 +335,9 @@ class ResumeData(BaseModel):
     resume_quality: dict = {}
     extraction_evidence: List[dict] = []
     extraction_confidence: dict = {}
-    resume_intelligence_version: int = 3
+    document_source_location_status: str = "unavailable"
+    document_source_line_count: int = 0
+    resume_intelligence_version: int = 6
     is_fresher: bool = False
     raw_text_length: int = 0
 
