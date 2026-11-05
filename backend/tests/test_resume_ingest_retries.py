@@ -161,7 +161,7 @@ def test_stale_processing_jobs_are_requeued_without_touching_recent_jobs(
 
 
 
-def _seed_candidate_and_attach_job(test_session, job_id, *, current_resume=None):
+def _seed_candidate_and_attach_job(test_session, job_id, *, current_resume=None, job_storage_path=None):
     with test_session() as db:
         organization = Organization(name="Resume Retention QA")
         db.add(organization)
@@ -188,6 +188,8 @@ def _seed_candidate_and_attach_job(test_session, job_id, *, current_resume=None)
         job.organization_id = organization.id
         job.created_by_id = user.id
         job.candidate_id = candidate.id
+        if job_storage_path is not None:
+            job.storage_path = job_storage_path
         if current_resume:
             db.add(CandidateDocument(
                 organization_id=organization.id,
@@ -198,7 +200,7 @@ def _seed_candidate_and_attach_job(test_session, job_id, *, current_resume=None)
                 size_bytes=50,
             ))
         db.commit()
-        return candidate.id, job.storage_path
+        return candidate.id, job.storage_path, organization.id
 
 
 def _patch_successful_resume_extraction(monkeypatch):
@@ -229,7 +231,7 @@ def test_resume_lab_ingest_promotes_source_to_candidate_history_and_cleans_intak
     resume_job_store, monkeypatch
 ):
     test_session, job_id = resume_job_store
-    candidate_id, source_path = _seed_candidate_and_attach_job(test_session, job_id)
+    candidate_id, source_path, organization_id = _seed_candidate_and_attach_job(test_session, job_id)
     uploaded = []
     deleted = []
 
@@ -246,7 +248,7 @@ def test_resume_lab_ingest_promotes_source_to_candidate_history_and_cleans_intak
 
     assert result == {"status": "completed", "job_id": job_id}
     assert len(uploaded) == 1
-    assert uploaded[0][0].startswith(f"1/{candidate_id}/resume-ingest-{job_id}")
+    assert uploaded[0][0].startswith(f"{organization_id}/{candidate_id}/resume-ingest-{job_id}")
     assert uploaded[0][1] == b"resume-source-bytes"
     assert deleted == [source_path]
 
@@ -273,11 +275,6 @@ def test_public_application_ingest_keeps_candidate_source_file(
     uploaded = []
     deleted = []
 
-    with test_session() as db:
-        job = db.get(ResumeProcessingJob, job_id)
-        job.storage_path = "local://candidate/current-public-application.pdf"
-        db.commit()
-
     _patch_successful_resume_extraction(monkeypatch)
     monkeypatch.setattr(
         queue_tasks.private_storage,
@@ -295,9 +292,9 @@ def test_public_application_ingest_keeps_candidate_source_file(
     with test_session() as db:
         candidate = db.get(Candidate, candidate_id)
         documents = db.query(CandidateDocument).filter_by(candidate_id=candidate_id).all()
-        assert candidate.resume_storage_key == source_path
+        assert candidate.resume_storage_key == public_path
         assert len(documents) == 1
-        assert documents[0].storage_key == source_path
+        assert documents[0].storage_key == public_path
 
 
 def test_delayed_bulk_ingest_does_not_replace_existing_candidate_cv(
@@ -305,7 +302,7 @@ def test_delayed_bulk_ingest_does_not_replace_existing_candidate_cv(
 ):
     test_session, job_id = resume_job_store
     current_resume = "local://candidate/newer-direct-upload.pdf"
-    candidate_id, source_path = _seed_candidate_and_attach_job(
+    candidate_id, source_path, _organization_id = _seed_candidate_and_attach_job(
         test_session,
         job_id,
         current_resume=current_resume,
