@@ -848,8 +848,19 @@ async function routeRequest(req, res, path, body) {
 export default async function handler(req, res) {
   if (!sameOrigin(req)) return send(res, 403, { detail: "Cross-origin requests are not allowed." });
   const route = req.query && req.query.path;
-  const raw = Array.isArray(route) ? route.join("/") : typeof route === "string" ? route : String(req.url || "").split("?")[0].replace(/^\/api\/v1\/?/, "");
-  const path = "/v1/" + raw.replace(/^\/+|\/+$/g, "");
+  const raw = Array.isArray(route)
+    ? route.join("/")
+    : typeof route === "string"
+      ? route
+      : String(req.url || "").split("?")[0];
+  // Vercel rewrites can expose either the original /v1 path, the rewritten
+  // /api/v1 path, or the catch-all query value. Strip any prefix once so all
+  // three forms resolve to the same feature route.
+  const normalizedRoute = String(raw)
+    .replace(/^\\/+/, "")
+    .replace(/^(?:api\\/)?v1(?:\\/|$)/i, "")
+    .replace(/\\/+$/, "");
+  const path = normalizedRoute ? "/v1/" + normalizedRoute : "/v1";
   try {
     const body = ["POST", "PUT", "PATCH"].includes(String(req.method || "").toUpperCase()) ? await readBody(req) : Buffer.alloc(0);
     return await routeRequest(req, res, path, body);
