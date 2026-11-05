@@ -110,7 +110,7 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
             # existing email templates, pipeline, and matching workflow receive
             # the same validated resume data.
             if not job.candidate_id:
-                from app.models import Candidate, Application, Job
+                from app.models import Application, Job
                 from app.services.workflow import ensure_job_stages, queue_application_email
                 from app.main import _stage_email
 
