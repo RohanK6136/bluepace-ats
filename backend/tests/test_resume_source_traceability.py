@@ -158,7 +158,7 @@ def test_docling_flat_text_is_explicitly_marked_location_unavailable(monkeypatch
         document_intelligence_service,
         "extract",
         lambda _content, _filename: DocumentIntelligenceResult(
-            text="Aarav Mehta\\naarav.mehta@example.test\\nPython FastAPI",
+            text="Aarav Mehta\naarav.mehta@example.test\nPython FastAPI",
             markdown="Aarav Mehta",
             engine="docling",
         ),
