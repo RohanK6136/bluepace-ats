@@ -267,10 +267,12 @@ def test_public_application_ingest_keeps_candidate_source_file(
     resume_job_store, monkeypatch
 ):
     test_session, job_id = resume_job_store
-    candidate_id, source_path = _seed_candidate_and_attach_job(
+    public_path = "local://candidate/current-public-application.pdf"
+    candidate_id, source_path, _organization_id = _seed_candidate_and_attach_job(
         test_session,
         job_id,
-        current_resume="local://candidate/current-public-application.pdf",
+        current_resume=public_path,
+        job_storage_path=public_path,
     )
     uploaded = []
     deleted = []
