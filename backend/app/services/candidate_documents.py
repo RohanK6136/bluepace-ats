@@ -2,7 +2,7 @@
 
 from sqlalchemy import select
 
-from app.models import Candidate, CandidateDocument
+from app.models import CandidateDocument
 
 
 def record_candidate_document(
