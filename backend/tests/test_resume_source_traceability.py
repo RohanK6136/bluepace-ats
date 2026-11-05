@@ -214,7 +214,13 @@ def test_docling_native_page_and_bounding_box_provenance_maps_exact_lines():
             0,
         ),
     ]
-    document = SimpleNamespace(iterate_items=lambda: iter(items))
+    document = SimpleNamespace(
+        iterate_items=lambda: iter(items),
+        pages={
+            1: SimpleNamespace(size=SimpleNamespace(width=600, height=800)),
+            2: SimpleNamespace(size=SimpleNamespace(width=600, height=800)),
+        },
+    )
 
     locations = DocumentIntelligenceService._docling_source_line_locations(
         document,
@@ -226,6 +232,7 @@ def test_docling_native_page_and_bounding_box_provenance_maps_exact_lines():
             "source_type": "docling_item",
             "page_number": 1,
             "item_label": "title",
+            "page_size": {"width": 600.0, "height": 800.0},
             "bbox": {
                 "l": 10.0,
                 "t": 20.0,
@@ -238,6 +245,7 @@ def test_docling_native_page_and_bounding_box_provenance_maps_exact_lines():
             "source_type": "docling_item",
             "page_number": 1,
             "item_label": "paragraph",
+            "page_size": {"width": 600.0, "height": 800.0},
             "bbox": {
                 "l": 10.0,
                 "t": 50.0,
@@ -250,6 +258,7 @@ def test_docling_native_page_and_bounding_box_provenance_maps_exact_lines():
             "source_type": "docling_item",
             "page_number": 2,
             "item_label": "paragraph",
+            "page_size": {"width": 600.0, "height": 800.0},
             "bbox": {
                 "l": 12.0,
                 "t": 70.0,
