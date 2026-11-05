@@ -724,7 +724,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       ...(isFeatureRoute ? { baseURL: featureApiBase } : {}),
     };
     if (data !== undefined) requestOptions.data = data;
-    return apiRequest(token, method, path, requestOptions);
+    // Vercel rewrites have not been consistently applied on every deployed
+    // BluePace hostname. Address the serverless function path directly for
+    // hosted feature requests; local Ollama exposes the original /v1 path.
+    const featureRequestPath = isFeatureRoute && !usingLocalAi ? `/api${path}` : path;
+    return apiRequest(token, method, featureRequestPath, requestOptions);
   }, [apiKey, apiRequest, localAiApiUrl, openRouterKey, selectedProfile, token]);
 
   useEffect(() => {
