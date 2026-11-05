@@ -68,7 +68,7 @@ def test_experience_years_ignores_non_dictionary_entries():
     "raw_text, skills",
     [
         ("Google Cloud and NoSQL database experience", ["Go", "SQL"]),
-        ("Golang services and SQL queries", ["Go", "SQL"]),
+        ("Golang services and PostgreSQL queries", ["Go", "SQL"]),
     ],
 )
 def test_extraction_evidence_does_not_match_skill_substrings(raw_text, skills):
@@ -117,7 +117,7 @@ def test_extraction_evidence_requires_all_experience_components_for_full_coverag
     assert experience_evidence["evidence_coverage"] == pytest.approx(1 / 3, abs=0.001)
     assert experience_evidence["matched_value_count"] == 1
     assert experience_evidence["total_value_count"] == 3
-    assert confidence["experience"] == 0.68
+    assert confidence["experience"] == pytest.approx(0.68)
 
 
 def test_extraction_evidence_tracks_components_across_multiple_source_lines():
