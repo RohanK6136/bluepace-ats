@@ -4922,6 +4922,7 @@ def list_candidate_documents(
             "content_type": document.content_type,
             "size_bytes": document.size_bytes,
             "application_id": document.application_id,
+            "is_current": document.storage_key == candidate.resume_storage_key,
             "created_at": document.created_at.isoformat() if document.created_at else None,
         }
         for document in documents
