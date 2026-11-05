@@ -34,7 +34,7 @@ def annotate_pdf_with_evidence(
     try:
         from pypdf import PdfReader, PdfWriter
         from pypdf.annotations import Highlight
-        from pypdf.generic import ArrayObject, FloatObject
+        from pypdf.generic import ArrayObject, FloatObject, NameObject, TextStringObject
     except Exception as error:
         raise PdfEvidenceHighlightError("PDF annotation support is unavailable.") from error
 
@@ -78,11 +78,17 @@ def annotate_pdf_with_evidence(
             ):
                 continue
 
-            if not (0 <= left < right <= source_width and 0 <= top < bottom <= source_height):
+            if not (0 <= left < right <= source_width):
                 continue
 
             origin = str(bbox.get("coord_origin") or "TOPLEFT").upper()
-            if origin not in {"TOPLEFT", "BOTTOMLEFT"}:
+            if origin == "TOPLEFT":
+                if not (0 <= top < bottom <= source_height):
+                    continue
+            elif origin == "BOTTOMLEFT":
+                if not (0 <= bottom < top <= source_height):
+                    continue
+            else:
                 continue
 
             source_page = reader.pages[page_number - 1]
@@ -125,17 +131,17 @@ def annotate_pdf_with_evidence(
 
             rect = (x0, y0, x1, y1)
             quad_points = ArrayObject([
-                FloatObject(x0), FloatObject(y1),
-                FloatObject(x1), FloatObject(y1),
                 FloatObject(x0), FloatObject(y0),
                 FloatObject(x1), FloatObject(y0),
+                FloatObject(x0), FloatObject(y1),
+                FloatObject(x1), FloatObject(y1),
             ])
             annotation = Highlight(
                 rect=rect,
                 quad_points=quad_points,
                 highlight_color="fff2a8",
             )
-            annotation["/Contents"] = (
+            annotation[NameObject("/Contents")] = TextStringObject(
                 "BluePace ATS recruiter evidence highlight"
             )
             writer.add_annotation(page_number=page_number - 1, annotation=annotation)
