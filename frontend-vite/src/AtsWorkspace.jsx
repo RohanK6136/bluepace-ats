@@ -655,7 +655,7 @@ export default function AtsWorkspace() {
       const response = await apiRequest(
         token,
         "get",
-        `/candidates/${selectedCandidate}/documents/${documentItem.id}`,
+        "/candidates/" + selectedCandidate + "/documents/" + documentItem.id,
         { responseType: "blob" },
       );
       const blob = response.data instanceof Blob
@@ -664,7 +664,7 @@ export default function AtsWorkspace() {
       const objectUrl = window.URL.createObjectURL(blob);
       const anchor = window.document.createElement("a");
       anchor.href = objectUrl;
-      anchor.download = documentItem.name || `candidate-${selectedCandidate}-resume`;
+      anchor.download = documentItem.name || ("candidate-" + selectedCandidate + "-resume");
       anchor.rel = "noopener";
       window.document.body.appendChild(anchor);
       anchor.click();
@@ -674,6 +674,45 @@ export default function AtsWorkspace() {
       setError(errorText(requestError));
     } finally {
       setDownloadingCandidateDocument(null);
+    }
+  }
+
+  async function openCandidatePdfAtPage(location) {
+    if (!selectedCandidate || !location?.page_number) return;
+    const currentDocument = candidateDocuments.find(
+      (item) => item.is_current && (
+        String(item.content_type || "").toLowerCase().includes("pdf")
+        || String(item.name || "").toLowerCase().endsWith(".pdf")
+      ),
+    );
+    if (!currentDocument) {
+      setError("The current PDF resume version is not available in CV history.");
+      return;
+    }
+
+    const previewWindow = window.open("about:blank", "_blank");
+    if (!previewWindow) {
+      setError("Allow pop-ups to open the source page, or use Download in CV history.");
+      return;
+    }
+    previewWindow.opener = null;
+    try {
+      const response = await apiRequest(
+        token,
+        "get",
+        "/candidates/" + selectedCandidate + "/documents/" + currentDocument.id,
+        { responseType: "blob" },
+      );
+      const blob = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], { type: currentDocument.content_type || "application/pdf" });
+      const objectUrl = window.URL.createObjectURL(blob);
+      const page = Math.max(1, Number(location.page_number) || 1);
+      previewWindow.location.replace(objectUrl + "#page=" + page);
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 120000);
+    } catch (requestError) {
+      previewWindow.close();
+      setError(errorText(requestError));
     }
   }
 
@@ -2069,7 +2108,10 @@ export default function AtsWorkspace() {
                       {candidateDocuments.map((documentItem, index) => (
                         <div key={documentItem.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-ink-800">{documentItem.name}</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-medium text-ink-800">{documentItem.name}</p>
+                              {documentItem.is_current ? <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Current source</span> : null}
+                            </div>
                             <p className="mt-1 text-xs text-ink-500">
                               Version {candidateDocuments.length - index}
                               {documentItem.created_at ? ` · ${new Date(documentItem.created_at).toLocaleString()}` : ""}
@@ -2184,12 +2226,43 @@ export default function AtsWorkspace() {
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       {Object.entries(profile.extraction_confidence || {}).slice(0, 12).map(([field, score]) => {
                         const evidence = (profile.extraction_evidence || []).find((item) => item.field === field);
+                        const sourceLocations = Array.isArray(evidence?.source_locations) ? evidence.source_locations : [];
+                        const currentDocument = candidateDocuments.find((item) => item.is_current);
                         return <div key={field} className="rounded-md border border-ink-100 bg-[#fafaf8] p-2">
                           <div className="flex items-center justify-between gap-2 text-xs">
                             <span className="font-medium">{field.replaceAll("_", " ")}</span>
                             <span>{Math.round(Number(score) * 100)}%</span>
                           </div>
                           {evidence?.source_lines?.length ? <p className="mt-1 text-[11px] text-ink-500">{evidence.source_lines[0]}</p> : null}
+                          {sourceLocations.length ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {sourceLocations.slice(0, 3).map((location, index) => {
+                                const sourceLabel = location.source_type === "pdf_page"
+                                  ? "PDF · Page " + location.page_number
+                                  : location.source_type === "docx_paragraph"
+                                    ? (location.section || "DOCX") + " · Paragraph " + location.paragraph_index
+                                    : location.source_type === "docx_table_row"
+                                      ? (location.section || "DOCX") + " · Table " + location.table_index + ", row " + location.row_index
+                                      : location.part || "Document source";
+                                const canOpenPage = location.source_type === "pdf_page"
+                                  && currentDocument
+                                  && (
+                                    String(currentDocument.content_type || "").toLowerCase().includes("pdf")
+                                    || String(currentDocument.name || "").toLowerCase().endsWith(".pdf")
+                                  );
+                                return <span key={index} className="inline-flex items-center gap-1 rounded bg-white px-2 py-1 text-[10px] text-ink-600">
+                                  {sourceLabel}
+                                  {canOpenPage ? (
+                                    <button type="button" className="font-semibold text-blue-700 underline" onClick={() => openCandidatePdfAtPage(location)}>
+                                      Open
+                                    </button>
+                                  ) : null}
+                                </span>;
+                              })}
+                            </div>
+                          ) : profile.document_source_location_status === "unavailable" ? (
+                            <p className="mt-1 text-[10px] text-ink-400">Page/section location unavailable for this extraction.</p>
+                          ) : null}
                         </div>;
                       })}
                     </div>
