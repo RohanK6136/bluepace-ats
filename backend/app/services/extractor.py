@@ -273,7 +273,7 @@ class DocumentExtractor:
 
     @staticmethod
     def _resume_date_tokens(value, current_month):
-        """Return ordered (calendar-month index, month-precision) date tokens."""
+        """Return ordered (calendar-month index, precision) date tokens."""
         month_pattern = (
             r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
             r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
@@ -295,7 +295,7 @@ class DocumentExtractor:
 
         for match in date_pattern.finditer(str(value or "")):
             if match.group("current"):
-                tokens.append((current_month, True))
+                tokens.append((current_month, "current"))
                 continue
 
             if match.group("month_name"):
@@ -303,7 +303,7 @@ class DocumentExtractor:
                 if year_value < 100:
                     year_value += 2000 if year_value < 50 else 1900
                 month = month_numbers[match.group("month_name_value")[:3].lower()]
-                tokens.append((year_value * 12 + month - 1, True))
+                tokens.append((year_value * 12 + month - 1, "month"))
                 continue
 
             if match.group("month_year"):
@@ -320,7 +320,7 @@ class DocumentExtractor:
 
             if match.group("year_only"):
                 year_value = int(match.group("year_only"))
-                tokens.append((year_value * 12, False))
+                tokens.append((year_value * 12, "year"))
 
         return tokens
 
@@ -328,9 +328,9 @@ class DocumentExtractor:
     def _experience_years_from_entries(experience, as_of=None):
         """Estimate distinct employment months, avoiding double-counted overlaps.
 
-        Month-specific dates are counted inclusively. A year-only end date is
-        treated as the start of that year (an exclusive boundary), preserving
-        the conservative precision of the source resume.
+        Explicit month-specific end dates are counted inclusively. Year-only and
+        present/current end dates are treated as exclusive month boundaries,
+        avoiding an extra month when the exact day is not available.
         """
         reference_date = as_of or datetime.now()
         current_month = reference_date.year * 12 + reference_date.month - 1
@@ -346,13 +346,15 @@ class DocumentExtractor:
             # in document order and ignore incomplete or malformed pairs.
             for token_index in range(0, len(tokens) - 1, 2):
                 start_month = tokens[token_index][0]
-                end_month, end_has_month_precision = tokens[token_index + 1]
+                end_month, end_precision = tokens[token_index + 1]
 
                 if start_month > current_month or end_month < start_month:
                     continue
 
-                end_month = min(end_month, current_month)
-                if not end_has_month_precision:
+                if end_month > current_month:
+                    end_month = current_month
+                    end_precision = "current"
+                if end_precision != "month":
                     end_month -= 1
                 if end_month >= start_month:
                     intervals.append((start_month, end_month))
