@@ -785,6 +785,10 @@ Resume text:
                 docling_result = document_intelligence_service.extract(file_content, filename)
                 raw_text = docling_result.text.strip()
                 extraction_engine = docling_result.engine
+                source_line_locations = docling_result.source_line_locations
+                source_location_status = (
+                    "available" if any(source_line_locations) else "unavailable"
+                )
             except DocumentIntelligenceError as error:
                 extraction_warning = str(error)
 
@@ -843,6 +847,10 @@ Resume text:
                 docling_result = document_intelligence_service.extract(file_content, filename)
                 raw_text = docling_result.text.strip()
                 extraction_engine = docling_result.engine
+                source_line_locations = docling_result.source_line_locations
+                source_location_status = (
+                    "available" if any(source_line_locations) else "unavailable"
+                )
             except DocumentIntelligenceError as error:
                 extraction_warning = str(error)
 
@@ -879,7 +887,9 @@ Resume text:
             raw_text, parsed, source_line_locations
         )
         parsed["document_source_location_status"] = source_location_status
-        parsed["document_source_line_count"] = len(source_line_locations)
+        parsed["document_source_line_count"] = sum(
+            1 for location in source_line_locations if location
+        )
         parsed["resume_intelligence_version"] = 6
         parsed["raw_text_length"] = len(raw_text)
         parsed["raw_text"] = raw_text
