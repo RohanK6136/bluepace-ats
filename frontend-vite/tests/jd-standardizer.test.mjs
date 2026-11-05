@@ -81,7 +81,7 @@ test("reports conflicting source facts instead of choosing one silently", () => 
   assert.equal(result.conflicts[0].field, "title");
   assert.ok(result.conflicts[0].candidates.length >= 2);
   assert.ok(result.review_flags.some((flag) => /conflict/i.test(flag)));
-  assert.ok(result.missing_information.some((item) => /title: not stated/i.test(item)));
+  assert.ok(result.missing_information.some((item) => /title: conflicting source values/i.test(item)));
 });
 
 test("deduplicates repeated requirements while retaining the duplicate source line", () => {
@@ -113,6 +113,23 @@ test("does not invent role facts for a company profile without a job description
   assert.deepEqual(result.about_role, []);
   assert.ok(result.missing_information.some((item) => /job title/i.test(item)));
   assert.ok(result.review_flags.some((flag) => /company profile rather than a role-specific/i.test(flag)));
+});
+
+test("preserves labelled salary and education details in recruiter-facing sections", () => {
+  const result = standardizeJD([
+    "Data Analyst",
+    "Salary: INR 12–16 LPA",
+    "Education: Bachelor's degree in Statistics or a related field",
+    "Responsibilities",
+    "- Prepare data reports.",
+    "Requirements",
+    "- Strong SQL and Excel skills.",
+  ].join("\n"));
+
+  assert.ok(result.offer.some((line) => /INR 12–16 LPA/i.test(line)));
+  assert.ok(result.requirements.some((line) => /Bachelor's degree/i.test(line)));
+  assert.ok(result.required_skills.includes("SQL"));
+  assert.ok(result.required_skills.includes("Microsoft Excel"));
 });
 
 test("rejects empty and over-limit source text", () => {
