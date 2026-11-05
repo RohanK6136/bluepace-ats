@@ -316,6 +316,9 @@ export default function AtsWorkspace() {
   const [candidateForm, setCandidateForm] = useState({ first_name: "", last_name: "", email: "", phone: "", source: "Direct", job_id: "" });
   const [resumeFile, setResumeFile] = useState(null);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
+  const [candidateDocuments, setCandidateDocuments] = useState([]);
+  const [candidateDocumentsLoading, setCandidateDocumentsLoading] = useState(false);
+  const [downloadingCandidateDocument, setDownloadingCandidateDocument] = useState(null);
   const [matchJobId, setMatchJobId] = useState("");
   const [matchAnalysis, setMatchAnalysis] = useState(null);
   const [matches, setMatches] = useState([]);
@@ -619,6 +622,60 @@ export default function AtsWorkspace() {
       .catch(() => { if (active) setCandidateCollaboration(null); });
     return () => { active = false; };
   }, [token, selectedCandidate]);
+
+  useEffect(() => {
+    if (!token || !selectedCandidate) {
+      setCandidateDocuments([]);
+      setCandidateDocumentsLoading(false);
+      return undefined;
+    }
+    let active = true;
+    setCandidateDocuments([]);
+    setCandidateDocumentsLoading(true);
+    apiRequest(token, "get", `/candidates/${selectedCandidate}/documents`)
+      .then((response) => {
+        if (active) setCandidateDocuments(Array.isArray(response.data) ? response.data : []);
+      })
+      .catch((requestError) => {
+        if (active) {
+          setCandidateDocuments([]);
+          setError(errorText(requestError));
+        }
+      })
+      .finally(() => {
+        if (active) setCandidateDocumentsLoading(false);
+      });
+    return () => { active = false; };
+  }, [token, selectedCandidate]);
+
+  async function downloadCandidateDocument(documentItem) {
+    if (!selectedCandidate || !documentItem?.id) return;
+    setDownloadingCandidateDocument(documentItem.id);
+    try {
+      const response = await apiRequest(
+        token,
+        "get",
+        `/candidates/${selectedCandidate}/documents/${documentItem.id}`,
+        { responseType: "blob" },
+      );
+      const blob = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], { type: documentItem.content_type || "application/octet-stream" });
+      const objectUrl = window.URL.createObjectURL(blob);
+      const anchor = window.document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = documentItem.name || `candidate-${selectedCandidate}-resume`;
+      anchor.rel = "noopener";
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
+    } catch (requestError) {
+      setError(errorText(requestError));
+    } finally {
+      setDownloadingCandidateDocument(null);
+    }
+  }
 
   async function refreshCandidateCollaboration() {
     if (!token || !selectedCandidate) return;
@@ -1996,6 +2053,44 @@ export default function AtsWorkspace() {
                 <CandidateHandoffBrief candidate={candidate} profile={profile} application={scorecardApplication} fitAnalysis={fitAnalysis} events={candidateActivity?.events || []} />
                 <CandidatePortalQuestions token={token} apiRequest={apiRequest} applications={candidateActivity?.applications || []} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} onOpenScheduling={(applicationId, roundNumber, questionId) => { setInterviewApplicationFocus(String(applicationId)); setInterviewRoundFocus(roundNumber); setInterviewRescheduleQuestionFocus(questionId); setView("interviews-2"); }} />
                 <CandidateDocumentRequests token={token} apiRequest={apiRequest} applications={candidateActivity?.applications || []} onNotice={setNotice} onError={(requestError) => setError(errorText(requestError))} />
+
+                <section className="mt-5 rounded-xl border border-ink-100 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-semibold text-ink-900">CV history</h4>
+                      <p className="mt-1 text-xs text-ink-500">Previous uploads stay available when a newer resume is added.</p>
+                    </div>
+                    <span className="text-xs text-ink-500">{candidateDocuments.length} version{candidateDocuments.length === 1 ? "" : "s"}</span>
+                  </div>
+                  {candidateDocumentsLoading ? (
+                    <p className="mt-3 text-sm text-ink-500">Loading CV history…</p>
+                  ) : candidateDocuments.length ? (
+                    <div className="mt-3 divide-y divide-ink-100">
+                      {candidateDocuments.map((documentItem, index) => (
+                        <div key={documentItem.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-ink-800">{documentItem.name}</p>
+                            <p className="mt-1 text-xs text-ink-500">
+                              Version {candidateDocuments.length - index}
+                              {documentItem.created_at ? ` · ${new Date(documentItem.created_at).toLocaleString()}` : ""}
+                              {documentItem.size_bytes > 0 ? ` · ${(documentItem.size_bytes / (1024 * 1024)).toFixed(2)} MB` : ""}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className={buttonSecondary}
+                            disabled={downloadingCandidateDocument === documentItem.id}
+                            onClick={() => downloadCandidateDocument(documentItem)}
+                          >
+                            {downloadingCandidateDocument === documentItem.id ? "Downloading…" : "Download"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-ink-500">No CV history is available for this candidate yet. New uploads will be listed here.</p>
+                  )}
+                </section>
 
                 <div className="mt-5 rounded-xl border border-ink-100 bg-[#fcfcfa] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
