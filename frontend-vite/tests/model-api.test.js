@@ -369,7 +369,7 @@ test("JD fast generation also uses source-grounded deterministic output with zer
   }
 });
 
-test("OpenRouter requests enable response healing and retry malformed structured output once", async () => {
+test("OpenRouter rubric requests enable response healing and retry malformed structured output once", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (_url, init = {}) => {
@@ -379,10 +379,16 @@ test("OpenRouter requests enable response healing and retry malformed structured
       ? "I will structure this response now."
       : JSON.stringify({
           title: "Software Engineer",
-          responsibilities: ["Build REST APIs"],
-          requirements: ["Python"],
-          location: { work_mode: "hybrid" },
-          experience: { min_years: 3, max_years: null },
+          required_years: 3,
+          items: [{
+            label: "Python",
+            source_line: "J02",
+            type: "skill",
+            group: "coding",
+            importance: "must",
+            weight: 2,
+            aliases: ["Python 3"],
+          }],
         });
     return new Response(JSON.stringify({
       model: "google/gemini-3.8-flash",
@@ -394,10 +400,10 @@ test("OpenRouter requests enable response healing and retry malformed structured
     const response = await invoke(
       { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-repair-key" },
       "POST",
-      ["jd", "standardize"],
+      ["match", "rubrics"],
       JSON.stringify({
-        text: "Software Engineer\\nRequirements:\\n- Python and 3 years of experience",
-        options: { profile: "openrouter", mode: "light" },
+        jd_text: "Software Engineer\nRequirements:\n- Python and 3 years of experience",
+        options: { profile: "openrouter" },
       }),
     );
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
@@ -405,8 +411,8 @@ test("OpenRouter requests enable response healing and retry malformed structured
     assert.deepEqual(requests[0].response_format, { type: "json_object" });
     assert.deepEqual(requests[0].plugins, [{ id: "response-healing" }]);
     assert.match(requests[1].messages[0].content, /OUTPUT CONTRACT/);
-    assert.equal(response.body.fields.title.value, "Software Engineer");
-    assert.equal(response.body.meta.model, "google/gemini-3.8-flash");
+    assert.equal(response.body.rubric.title, "Software Engineer");
+    assert.equal(response.body.model, "google/gemini-3.8-flash");
   } finally {
     globalThis.fetch = originalFetch;
   }
