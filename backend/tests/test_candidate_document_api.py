@@ -76,31 +76,44 @@ def test_candidate_cv_history_lists_and_downloads_only_authorized_documents(clie
         document = CandidateDocument(
             organization_id=candidate.organization_id,
             candidate_id=candidate_id,
-            name="morgan-cv-v1.pdf",
-            storage_key="local://org/candidate/morgan-v1.pdf",
+            name="morgan-cv-v2.pdf",
+            storage_key="local://org/candidate/morgan-v2.pdf",
             content_type="application/pdf",
             size_bytes=5,
         )
-        db.add(document)
+        previous_document = CandidateDocument(
+            organization_id=candidate.organization_id,
+            candidate_id=candidate_id,
+            name="morgan-cv-v1.pdf",
+            storage_key="local://org/candidate/morgan-v1.pdf",
+            content_type="application/pdf",
+            size_bytes=4,
+        )
+        candidate.resume_storage_key = "local://org/candidate/morgan-v2.pdf"
+        db.add_all([document, previous_document])
         db.commit()
         db.refresh(document)
+        db.refresh(previous_document)
         document_id = document.id
+        previous_document_id = previous_document.id
 
     monkeypatch.setattr(
         private_storage,
         "read_bytes",
-        lambda reference: b"%PDF-" if reference == "local://org/candidate/morgan-v1.pdf" else b"",
+        lambda reference: b"%PDF-" if reference in {"local://org/candidate/morgan-v1.pdf", "local://org/candidate/morgan-v2.pdf"} else b"",
     )
 
     listed = client.get(f"/candidates/{candidate_id}/documents", headers=headers)
     assert listed.status_code == 200
-    assert len(listed.json()) == 1
-    assert listed.json()[0]["id"] == document_id
-    assert listed.json()[0]["name"] == "morgan-cv-v1.pdf"
-    assert listed.json()[0]["content_type"] == "application/pdf"
-    assert listed.json()[0]["size_bytes"] == 5
-    assert listed.json()[0]["application_id"] is None
-    assert listed.json()[0]["created_at"] is not None
+    assert len(listed.json()) == 2
+    listed_by_id = {item["id"]: item for item in listed.json()}
+    assert listed_by_id[document_id]["name"] == "morgan-cv-v2.pdf"
+    assert listed_by_id[document_id]["content_type"] == "application/pdf"
+    assert listed_by_id[document_id]["size_bytes"] == 5
+    assert listed_by_id[document_id]["application_id"] is None
+    assert listed_by_id[document_id]["is_current"] is True
+    assert listed_by_id[document_id]["created_at"] is not None
+    assert listed_by_id[previous_document_id]["is_current"] is False
     assert "storage_key" not in listed.text
 
     downloaded = client.get(
