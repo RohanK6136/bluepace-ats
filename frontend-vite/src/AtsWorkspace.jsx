@@ -680,7 +680,10 @@ export default function AtsWorkspace() {
   async function openCandidatePdfAtPage(location) {
     if (!selectedCandidate || !location?.page_number) return;
     const currentDocument = candidateDocuments.find(
-      (item) => item.is_current && String(item.content_type || "").toLowerCase().includes("pdf"),
+      (item) => item.is_current && (
+        String(item.content_type || "").toLowerCase().includes("pdf")
+        || String(item.name || "").toLowerCase().endsWith(".pdf")
+      ),
     );
     if (!currentDocument) {
       setError("The current PDF resume version is not available in CV history.");
@@ -2243,7 +2246,10 @@ export default function AtsWorkspace() {
                                       : location.part || "Document source";
                                 const canOpenPage = location.source_type === "pdf_page"
                                   && currentDocument
-                                  && String(currentDocument.content_type || "").toLowerCase().includes("pdf");
+                                  && (
+                                    String(currentDocument.content_type || "").toLowerCase().includes("pdf")
+                                    || String(currentDocument.name || "").toLowerCase().endsWith(".pdf")
+                                  );
                                 return <span key={index} className="inline-flex items-center gap-1 rounded bg-white px-2 py-1 text-[10px] text-ink-600">
                                   {sourceLabel}
                                   {canOpenPage ? (
