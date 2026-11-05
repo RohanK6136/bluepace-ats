@@ -105,6 +105,12 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
                 from app.main import build_resume_job_summary
                 result_data["job_fit"] = build_resume_job_summary(extracted, requested_jd)
 
+            # Keep the extracted profile separate from the candidate's current
+            # profile until we know this job's document is the current CV. A
+            # delayed bulk/Resume Lab job may only add a historical document.
+            candidate = None
+            candidate_profile_is_current = False
+
             # Turn completed Resume Lab uploads into reusable ATS records. When a
             # target job was selected, also create the Applied application so the
             # existing email templates, pipeline, and matching workflow receive
@@ -137,13 +143,6 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
                         db.add(candidate)
                         db.flush()
                     job.candidate_id = candidate.id
-                    candidate.resume_data = result_data
-                    candidate.phone = str(extracted.get("phone") or candidate.phone or "")[:50] or None
-                    candidate.linkedin_url = str(extracted.get("linkedin") or candidate.linkedin_url or "")[:500] or None
-                    structure_needs_review = result_data.get("structure_validation", {}).get("status") != "valid"
-                    review_status = (result_data.get("text_quality_review") or {}).get("status")
-                    text_needs_review = review_status == "review_recommended"
-                    candidate.needs_review = structure_needs_review or text_needs_review
 
                     if requested_job_id:
                         target_job = db.get(Job, int(requested_job_id))
@@ -173,7 +172,18 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
             # Public applications already point at the original object; Resume Lab
             # and bulk intake files are promoted to a candidate-owned object first.
             if job.candidate_id:
-                candidate = db.get(Candidate, job.candidate_id)
+                # Lock and refresh the organisation-scoped candidate row after
+                # extraction. This prevents an older queued job from deciding
+                # against a stale in-memory CV pointer.
+                candidate = db.scalar(
+                    select(Candidate)
+                    .where(
+                        Candidate.id == job.candidate_id,
+                        Candidate.organization_id == job.organization_id,
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
                 if candidate is not None:
                     if candidate.resume_storage_key == job.storage_path:
                         retained_reference = job.storage_path
@@ -197,6 +207,12 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
                         if not candidate.resume_storage_key:
                             candidate.resume_storage_key = retained_reference
 
+                    # Only the CV whose durable reference is current may update
+                    # the candidate's structured profile and review state.
+                    candidate_profile_is_current = (
+                        candidate.resume_storage_key == retained_reference
+                    )
+
                     record_candidate_document(
                         db,
                         organization_id=candidate.organization_id,
@@ -217,16 +233,17 @@ def process_resume_ingest_job(self, job_id: int, dispatcher_attempt: int | None 
                 from app.models import Application, CandidateJobMatch, Job
                 from app.services.matching import matching_service
 
-                candidate = db.get(Candidate, job.candidate_id)
                 if candidate is not None:
-                    candidate.resume_data = result_data
-                    if not candidate.phone and extracted.get("phone"):
-                        candidate.phone = str(extracted["phone"])[:50]
-                    if not candidate.linkedin_url and extracted.get("linkedin"):
-                        candidate.linkedin_url = str(extracted["linkedin"])[:500]
-                    review_status = (result_data.get("text_quality_review") or {}).get("status")
-                    if review_status == "review_recommended":
-                        candidate.needs_review = True
+                    if candidate_profile_is_current:
+                        candidate.resume_data = result_data
+                        candidate.phone = str(extracted.get("phone") or candidate.phone or "")[:50] or None
+                        candidate.linkedin_url = str(extracted.get("linkedin") or candidate.linkedin_url or "")[:500] or None
+                        structure_needs_review = (
+                            result_data.get("structure_validation", {}).get("status") != "valid"
+                        )
+                        review_status = (result_data.get("text_quality_review") or {}).get("status")
+                        text_needs_review = review_status == "review_recommended"
+                        candidate.needs_review = structure_needs_review or text_needs_review
 
                     if job.application_id:
                         application = db.get(Application, job.application_id)
