@@ -448,10 +448,35 @@ class DocumentExtractor:
         }
 
     @staticmethod
+    def _evidence_line_for_value(value, indexed_lines):
+        """Find a source line containing a complete value, not an arbitrary substring."""
+        normalized = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not normalized:
+            return None
+
+        candidates = [normalized]
+        if re.match(r"^https?://", normalized, re.IGNORECASE):
+            candidates.append(re.sub(r"^https?://(?:www\.)?", "", normalized, flags=re.IGNORECASE))
+        elif re.match(r"^www\.", normalized, re.IGNORECASE):
+            candidates.append(re.sub(r"^www\.", "", normalized, flags=re.IGNORECASE))
+
+        for candidate in candidates:
+            escaped = re.escape(candidate)
+            if candidate[0].isalnum():
+                escaped = r"(?<!\w)" + escaped
+            if candidate[-1].isalnum():
+                escaped += r"(?!\w)"
+            for line, normalized_line in indexed_lines:
+                searchable_line = re.sub(r"\s+", " ", normalized_line).strip()
+                if re.search(escaped, searchable_line, re.IGNORECASE):
+                    return line
+        return None
+
+    @staticmethod
     def _evidence_and_confidence(raw_text, parsed):
         """
         Attach source snippets and extraction confidence without turning inference into fact.
-        Confidence describes extraction certainty, not candidate quality.
+        Confidence describes extraction evidence coverage, not candidate quality or probability.
         """
         lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
         indexed_lines = [(line, line.casefold()) for line in lines]
@@ -471,27 +496,56 @@ class DocumentExtractor:
                 continue
             values = value if isinstance(value, list) else [value]
             matched = []
+            matched_value_count = 0
+            total_value_count = 0
+
             for item in values[:20]:
                 if isinstance(item, dict):
-                    search_values = [str(v).strip().casefold() for v in item.values() if v]
+                    # Long free-text descriptions are not reliable identity anchors.
+                    search_values = [
+                        str(component).strip()
+                        for key, component in item.items()
+                        if key not in {"description", "summary", "details"}
+                        and component is not None
+                        and str(component).strip()
+                    ]
                 else:
-                    search_values = [str(item).strip().casefold()]
-                line_match = next(
-                    (line for line, lower_line in indexed_lines if any(
-                        token and token in lower_line
-                        for token in search_values[:5]
-                    )),
-                    None,
-                )
-                if line_match and line_match not in matched:
-                    matched.append(line_match)
+                    search_values = [str(item).strip()] if item is not None and str(item).strip() else []
+
+                for search_value in search_values[:10]:
+                    total_value_count += 1
+                    line_match = DocumentExtractor._evidence_line_for_value(
+                        search_value, indexed_lines
+                    )
+                    if line_match:
+                        matched_value_count += 1
+                        if line_match not in matched:
+                            matched.append(line_match)
+
+            coverage = (
+                matched_value_count / total_value_count
+                if total_value_count
+                else 0.0
+            )
+            if coverage >= 0.8:
+                field_confidence = base_confidence
+            elif coverage >= 0.5:
+                field_confidence = max(base_confidence - 0.10, 0.5)
+            elif coverage > 0:
+                field_confidence = max(base_confidence - 0.20, 0.5)
+            else:
+                field_confidence = max(base_confidence - 0.25, 0.5)
+
             evidence.append({
                 "field": field,
                 "value": value,
                 "source_lines": matched[:5],
-                "confidence": base_confidence if matched else max(base_confidence - 0.15, 0.5),
+                "evidence_coverage": round(coverage, 3),
+                "matched_value_count": matched_value_count,
+                "total_value_count": total_value_count,
+                "confidence": field_confidence,
             })
-            confidence[field] = evidence[-1]["confidence"]
+            confidence[field] = field_confidence
 
         if parsed.get("years_of_experience") is not None:
             calculated = DocumentExtractor._experience_years_from_entries(parsed.get("experience"))
