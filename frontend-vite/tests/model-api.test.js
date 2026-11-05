@@ -97,26 +97,12 @@ test("curated free OpenRouter models are visible and use the shared OpenRouter k
   }
 });
 
-test("free Cohere profile uses its model id and omits unsupported JSON response_format", async () => {
+test("selecting a free OpenRouter model does not change deterministic JD standardization", async () => {
   const originalFetch = globalThis.fetch;
-  let capturedBody = null;
-  globalThis.fetch = async (_url, init = {}) => {
-    capturedBody = JSON.parse(init.body || "{}");
-    return new Response(JSON.stringify({
-      model: "cohere/north-mini-code:free",
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            title: "Python Developer",
-            role_type: "Full-Time",
-            location: { country: "India", city: "Hyderabad" },
-            responsibilities: ["Build and maintain Python APIs"],
-            requirements: ["Python and SQL experience"],
-          }),
-        },
-      }],
-      usage: { prompt_tokens: 20, completion_tokens: 30 },
-    }), { status: 200, headers: { "content-type": "application/json" } });
+  let providerCallMade = false;
+  globalThis.fetch = async () => {
+    providerCallMade = true;
+    throw new Error("JD standardization must not invoke a selected model.");
   };
   try {
     const response = await invoke(
@@ -124,15 +110,15 @@ test("free Cohere profile uses its model id and omits unsupported JSON response_
       "POST",
       ["jd", "standardize"],
       JSON.stringify({
-        text: "Python Developer\\nResponsibilities\\nBuild Python APIs\\nRequirements\\nPython and SQL experience",
+        text: "Python Developer\nResponsibilities\nBuild Python APIs\nRequirements\nPython and SQL experience",
         options: { profile: "openrouter:cohere/north-mini-code:free", mode: "light" },
       }),
     );
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
-    assert.equal(response.body.meta.profile, "openrouter:cohere/north-mini-code:free");
-    assert.equal(response.body.meta.model, "cohere/north-mini-code:free");
-    assert.equal(capturedBody.model, "cohere/north-mini-code:free");
-    assert.equal(Object.hasOwn(capturedBody, "response_format"), false);
+    assert.equal(response.body.meta.profile, "rules");
+    assert.equal(response.body.meta.llm_calls, 0);
+    assert.equal(response.body.fields.title.value, "Python Developer");
+    assert.equal(providerCallMade, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
