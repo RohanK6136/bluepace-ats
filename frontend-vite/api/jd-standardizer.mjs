@@ -290,7 +290,9 @@ export function standardizeJD(input) {
     sectionLineRefs[section].push(item.id);
   }
 
-  const title = inferTitle(lines);
+  // A company overview must not be mistaken for a job title. Only an explicit
+  // title field can identify a role when the source is company-profile-only.
+  const title = companyIntro ? null : inferTitle(lines);
   if (title && !(candidates.title || []).length) pushCandidate(candidates, "title", title.value, title);
   const fullText = lines.map((line) => line.text).join("\n");
 
@@ -341,13 +343,14 @@ export function standardizeJD(input) {
   const requirements = content.requirements.map((item) => item.text);
   const preferred = content.nice_to_have.map((item) => item.text);
   const offer = content.offer.map((item) => item.text);
-  const about = content.about_role.map((item) => item.text);
+  const companyProfileOnly = companyIntro && !facts.title.value && !responsibilities.length && !requirements.length;
+  const about = companyProfileOnly ? [] : content.about_role.map((item) => item.text);
   const additional = content.additional_info.map((item) => item.text);
   const requiredText = lines.filter((line) => sectionLineRefs.requirements.includes(line.id)).map((line) => line.text).join("\n");
   const preferredText = lines.filter((line) => sectionLineRefs.nice_to_have.includes(line.id)).map((line) => line.text).join("\n");
   const allText = lines.map((line) => line.text).join("\n");
   const skills = { required: skillMatches(requiredText || allText), preferred: skillMatches(preferredText), all: skillMatches(allText) };
-  if (companyIntro && !facts.title.value && !responsibilities.length && !requirements.length) {
+  if (companyProfileOnly) {
     duplicates.push({ section: "company_about", line: null, duplicate_of: null, text: "Company profile supplied without role-specific content." });
   }
 
@@ -367,7 +370,7 @@ export function standardizeJD(input) {
   if (conflicts.length) flags.push({ code: "source_conflicts", severity: "block", message: conflicts.length + " field conflict(s) need recruiter resolution.", lines: conflicts.flatMap((item) => item.candidates.map((candidate) => candidate.line).filter(Boolean)) });
   if (!responsibilities.length) flags.push({ code: "responsibilities_missing", severity: "warn", message: "No responsibilities were identified. Add role-specific duties before publishing.", lines: [] });
   if (!requirements.length) flags.push({ code: "requirements_missing", severity: "warn", message: "No mandatory qualifications or skills were identified. Add role-related criteria before creating a match rubric.", lines: [] });
-  if (companyIntro && !facts.title.value && !responsibilities.length && !requirements.length) flags.push({ code: "company_profile_only", severity: "warn", message: "The source appears to contain a company profile rather than a role-specific job description.", lines: [] });
+  if (companyProfileOnly) flags.push({ code: "company_profile_only", severity: "warn", message: "The source appears to contain a company profile rather than a role-specific job description. Add a specific job title, responsibilities and qualifications.", lines: [] });
   if (duplicates.length) flags.push({ code: "duplicate_content", severity: "info", message: duplicates.length + " duplicate or non-role-specific source item(s) were excluded from standardized sections.", lines: duplicates.map((item) => item.line).filter(Boolean) });
   flags.push({ code: "deterministic_nlp", severity: "info", message: "Standardized with deterministic NLP, a curated skill/occupation taxonomy and source rules. No generative model was called; verify every extracted fact before publishing.", lines: [] });
 
