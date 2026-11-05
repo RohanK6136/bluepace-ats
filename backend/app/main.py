@@ -4945,6 +4945,33 @@ def preview_candidate_document_evidence(
     if not request.source_locations or len(request.source_locations) > 10:
         raise HTTPException(status_code=422, detail="Provide between 1 and 10 source locations.")
 
+    # Only accept source locations already stored in this candidate's current
+    # extraction evidence. Clients cannot invent arbitrary page rectangles.
+    resume_data = candidate.resume_data if isinstance(candidate.resume_data, dict) else {}
+    allowed_locations = []
+    for evidence_item in resume_data.get("extraction_evidence") or []:
+        if not isinstance(evidence_item, dict):
+            continue
+        for location in evidence_item.get("source_locations") or []:
+            if (
+                isinstance(location, dict)
+                and location.get("source_type") == "docling_item"
+                and isinstance(location.get("bbox"), dict)
+                and isinstance(location.get("page_size"), dict)
+                and location not in allowed_locations
+            ):
+                allowed_locations.append(location)
+
+    selected_locations = [
+        location for location in request.source_locations
+        if isinstance(location, dict) and location in allowed_locations
+    ]
+    if not selected_locations:
+        raise HTTPException(
+            status_code=422,
+            detail="No requested source locations match the current resume extraction evidence.",
+        )
+
     try:
         original = private_storage.read_bytes(document.storage_key)
     except Exception as error:
@@ -4954,7 +4981,7 @@ def preview_candidate_document_evidence(
         raise HTTPException(status_code=413, detail="The source PDF exceeds the 5 MB document limit.")
 
     try:
-        highlighted = annotate_pdf_with_evidence(original, request.source_locations)
+        highlighted = annotate_pdf_with_evidence(original, selected_locations)
     except PdfEvidenceHighlightError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -4966,7 +4993,6 @@ def preview_candidate_document_evidence(
             "Content-Disposition": f'inline; filename="{safe_name}"',
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "sandbox",
         },
     )
 
