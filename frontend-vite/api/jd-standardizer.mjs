@@ -165,7 +165,8 @@ function matching(values, text) {
   return values.filter(([, pattern]) => pattern.test(text)).map(([value]) => value);
 }
 function parseLocation(value) {
-  let text = norm(value).replace(/\([^)]*\)/g, " ").replace(/[|;]/g, ",");
+  // Retain parenthetical location details such as "Bengaluru (India)".
+  let text = norm(value).replace(/[()]/g, " ").replace(/[|;]/g, ",");
   const modes = matching(WORK_MODES, value);
   text = norm(text.replace(/\b(remote|hybrid|on[\s-]?site|in[\s-]?office|office[\s-]?based|work from home|wfh)\b/ig, " ")).replace(/^[,/\-]+|[,/\-]+$/g, "");
   const pieces = text.split(/\s*,\s*|\s+\/\s+|\s+\|\s+/).map(norm).filter(Boolean);
@@ -287,6 +288,9 @@ export function standardizeJD(input) {
     if (duplicate) { duplicates.push({ section, line: item.id, duplicate_of: duplicate.lines[0], text: item.text }); continue; }
     content[section].push({ text: item.text, lines: [item.id] });
     sectionLineRefs[section].push(item.id);
+    if (/\b(remote|hybrid|on[\s-]?site|in[\s-]?office|office[\s-]?based|work from home|wfh)\b/i.test(record.text)) {
+      for (const mode of matching(WORK_MODES, record.text)) pushCandidate(candidates, "work_mode", mode, record);
+    }
   }
 
   // A company overview must not be mistaken for a job title. Only an explicit
@@ -297,7 +301,7 @@ export function standardizeJD(input) {
 
   if (!(candidates.role_type || []).length) {
     for (const [canonical, pattern] of ROLE_TYPES) {
-      const foundLine = lines.find((line) => pattern.test(line.text));
+      const foundLine = lines.find((line) => line.section !== "metadata" && pattern.test(line.text));
       if (foundLine) pushCandidate(candidates, "role_type", canonical, foundLine);
     }
   } else {
@@ -306,7 +310,8 @@ export function standardizeJD(input) {
 
   if (!(candidates.experience || []).length) {
     for (const line of lines) {
-      if (!/experience|years?|yrs?/i.test(line.text)) continue;
+      // A labelled contract duration is not a candidate experience requirement.
+      if (line.section === "metadata" || !/experience|years?|yrs?/i.test(line.text)) continue;
       const parsed = parseExperience(line.text);
       if (parsed) pushCandidate(candidates, "experience", String(parsed.min_years) + (parsed.max_years == null ? "+" : "-" + parsed.max_years) + " years", line);
     }
