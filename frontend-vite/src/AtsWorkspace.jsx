@@ -716,6 +716,48 @@ export default function AtsWorkspace() {
     }
   }
 
+  async function openCandidatePdfWithEvidence(location) {
+    if (!selectedCandidate || location?.source_type !== "docling_item" || !location?.bbox || !location?.page_size) return;
+    const currentDocument = candidateDocuments.find(
+      (item) => item.is_current && (
+        String(item.content_type || "").toLowerCase().includes("pdf")
+        || String(item.name || "").toLowerCase().endsWith(".pdf")
+      ),
+    );
+    if (!currentDocument) {
+      setError("The current PDF resume version is not available in CV history.");
+      return;
+    }
+
+    const previewWindow = window.open("about:blank", "_blank");
+    if (!previewWindow) {
+      setError("Allow pop-ups to open the highlighted source, or use Download in CV history.");
+      return;
+    }
+    previewWindow.opener = null;
+    try {
+      const response = await apiRequest(
+        token,
+        "post",
+        "/candidates/" + selectedCandidate + "/documents/" + currentDocument.id + "/evidence-preview",
+        {
+          data: { source_locations: [location] },
+          responseType: "blob",
+        },
+      );
+      const blob = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], { type: "application/pdf" });
+      const objectUrl = window.URL.createObjectURL(blob);
+      const page = Math.max(1, Number(location.page_number) || 1);
+      previewWindow.location.replace(objectUrl + "#page=" + page);
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 120000);
+    } catch (requestError) {
+      previewWindow.close();
+      setError(errorText(requestError));
+    }
+  }
+
   async function refreshCandidateCollaboration() {
     if (!token || !selectedCandidate) return;
     const response = await apiRequest(token, "get", "/candidates/" + selectedCandidate + "/collaboration");
@@ -2252,11 +2294,20 @@ export default function AtsWorkspace() {
                                     String(currentDocument.content_type || "").toLowerCase().includes("pdf")
                                     || String(currentDocument.name || "").toLowerCase().endsWith(".pdf")
                                   );
+                                const canHighlight = canOpenPage
+                                  && location.source_type === "docling_item"
+                                  && location.bbox
+                                  && location.page_size;
                                 return <span key={index} className="inline-flex items-center gap-1 rounded bg-white px-2 py-1 text-[10px] text-ink-600">
                                   {sourceLabel}
                                   {canOpenPage ? (
                                     <button type="button" className="font-semibold text-blue-700 underline" onClick={() => openCandidatePdfAtPage(location)}>
                                       Open
+                                    </button>
+                                  ) : null}
+                                  {canHighlight ? (
+                                    <button type="button" className="font-semibold text-amber-700 underline" onClick={() => openCandidatePdfWithEvidence(location)} title="Open a copy of this CV with the source block highlighted">
+                                      Highlight
                                     </button>
                                   ) : null}
                                 </span>;
