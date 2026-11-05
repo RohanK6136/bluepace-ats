@@ -112,6 +112,10 @@ from app.security import JWT_SECRET, USING_DEVELOPMENT_JWT_FALLBACK, create_acce
 from app.services.document_limits import MAX_DOCUMENT_SIZE_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
 from app.services.private_storage import private_storage
 from app.services.candidate_documents import record_candidate_document
+from app.services.pdf_evidence_highlights import (
+    PdfEvidenceHighlightError,
+    annotate_pdf_with_evidence,
+)
 from app.services.request_limits import read_request_body_limited
 from app.services.extractor import DocumentExtractionError, extractor_service
 from app.services.email_notifications import deliver_outbox_email, disable_pending_email_records
@@ -4898,6 +4902,73 @@ async def upload_candidate_resume(
     db.commit()
     db.refresh(candidate)
     return candidate
+
+
+class CandidateEvidencePreviewRequest(BaseModel):
+    source_locations: list[dict]
+
+
+@app.post(
+    "/candidates/{candidate_id}/documents/{document_id}/evidence-preview",
+    response_class=Response,
+)
+def preview_candidate_document_evidence(
+    candidate_id: int,
+    document_id: int,
+    request: CandidateEvidencePreviewRequest,
+    user: User = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(get_db),
+):
+    """Return an authenticated, in-memory PDF copy with selected source blocks highlighted."""
+    candidate = _get_org_record(db, Candidate, candidate_id, user.organization_id)
+    document = db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.id == document_id,
+            CandidateDocument.organization_id == user.organization_id,
+            CandidateDocument.candidate_id == candidate.id,
+        )
+    )
+    if document is None:
+        raise HTTPException(status_code=404, detail="Candidate document not found")
+    if document.storage_key != candidate.resume_storage_key:
+        raise HTTPException(
+            status_code=409,
+            detail="Evidence highlights are available only for the current CV version.",
+        )
+    if not (
+        str(document.content_type or "").lower().startswith("application/pdf")
+        or str(document.name or "").lower().endswith(".pdf")
+    ):
+        raise HTTPException(status_code=415, detail="Evidence highlights are supported for PDF resumes only.")
+    if document.size_bytes > MAX_DOCUMENT_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="The source PDF exceeds the 5 MB document limit.")
+    if not request.source_locations or len(request.source_locations) > 10:
+        raise HTTPException(status_code=422, detail="Provide between 1 and 10 source locations.")
+
+    try:
+        original = private_storage.read_bytes(document.storage_key)
+    except Exception as error:
+        raise HTTPException(status_code=404, detail="Candidate document is unavailable.") from error
+
+    if len(original) > MAX_DOCUMENT_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="The source PDF exceeds the 5 MB document limit.")
+
+    try:
+        highlighted = annotate_pdf_with_evidence(original, request.source_locations)
+    except PdfEvidenceHighlightError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    safe_name = f"candidate-{candidate.id}-evidence-preview.pdf"
+    return Response(
+        content=highlighted,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{safe_name}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+        },
+    )
 
 
 @app.get("/candidates/{candidate_id}/documents", response_class=JSONResponse)
