@@ -1894,26 +1894,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 <Field label="Job description or brief" hint={`${jdText.length.toLocaleString()} characters · API input limit is deployment-configured`}>
                   <textarea value={jdText} onChange={(event) => { setJdText(event.target.value); setJdResult(null); setJdError(""); setRubricError(""); }} rows={13} maxLength={60000} placeholder={"Example: Senior Data Engineer\nLocation: Hyderabad / Hybrid\nRequired: Python, SQL, Airflow, cloud data platforms\nResponsibilities: Build reliable data pipelines, own data quality, and partner with analytics teams."} className={`${fieldClass} resize-y leading-6`} />
                 </Field>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Writing mode">
-                    <select value={jdMode} onChange={(event) => setJdMode(event.target.value)} className={fieldClass}>
-                      <option value="verbatim">Verbatim · preserve source</option>
-                      <option value="light">Light edit · improve clarity</option>
-                      <option value="rewrite">Rewrite · restructure language</option>
-                    </select>
-                  </Field>
-                  <Field label="Fast draft detail">
-                    <select value={jdDetail} onChange={(event) => setJdDetail(event.target.value)} className={fieldClass}>
-                      <option value="detailed">Detailed draft</option>
-                      <option value="concise">Concise draft</option>
-                    </select>
-                  </Field>
+                <div className="rounded-md border border-ink-100 bg-[#fafaf8] px-3 py-2.5">
+                  <p className="text-xs leading-5 text-ink-600">Source-preserving standardization · deterministic extraction · zero model calls. Missing or conflicting details are flagged for recruiter confirmation.</p>
                 </div>
                 <ErrorNotice>{jdError}</ErrorNotice>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className={primaryButton} onClick={() => runJD("fast")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Deterministic NLP extraction, taxonomy matching and source validation. No generative model is called.">{jdLoading ? "Standardizing…" : "Standardize JD"}</button>
-                  <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || !jdText.trim()} title={!jdText.trim() ? "Add or import a job description to enable setup" : "Prepare the JD and source-grounded match rubric together"}>{jdPrepareLoading ? "Preparing JD & rubric…" : "Automate JD + match setup"}</button>
-                  <button type="button" className={secondaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Run deterministic source-quality, conflict and completeness checks.">{jdLoading ? "Processing…" : "Full validation (slower)"}</button>
+                  <button type="button" className={primaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Extract structured JD fields, identify source-backed skills and check completeness.">{jdLoading ? "Standardizing…" : "Standardize JD"}</button>
+                  <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || !jdText.trim()} title={!jdText.trim() ? "Add or import a job description to enable setup" : "Standardize the JD and prepare its applicant-match rubric"}>{jdPrepareLoading ? "Preparing JD & rubric…" : "Automate JD + match setup"}</button>
                   <button type="button" className={secondaryButton} onClick={() => { setJdText(""); setJdResult(null); setJdError(""); setNotice(""); }}>Clear</button>
                 </div>
               </div>
@@ -1937,6 +1924,19 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                       {jdResult.meta?.latency_ms != null && <Pill>{(jdResult.meta.latency_ms / 1000).toFixed(1)}s</Pill>}
                       {jdResult.meta?.llm_calls != null && <Pill>{jdResult.meta.llm_calls} model calls</Pill>}
                     </div>
+                    {jdResult.quality && <div className="rounded-lg border border-ink-100 bg-white p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-ink-900">JD source coverage</p>
+                        <Pill tone={jdResult.quality.score >= 80 ? "good" : jdResult.quality.score >= 60 ? "warn" : "neutral"}>{jdResult.quality.score}% · {(jdResult.quality.band || "").replaceAll("_", " ")}</Pill>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <ScoreMetric label="Source lines" value={jdResult.quality.total_source_lines ?? "—"} detail="Parsed from the original JD" />
+                        <ScoreMetric label="Skills identified" value={jdResult.quality.extracted_skill_count ?? 0} detail="Curated skill taxonomy" />
+                      </div>
+                      {Array.isArray(jdResult.extracted_skills) && jdResult.extracted_skills.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">
+                        {jdResult.extracted_skills.map((skill) => <span key={skill} className="rounded-full border border-ink-200 bg-[#fafaf8] px-2.5 py-1 text-[11px] text-ink-700">{skill}</span>)}
+                      </div>}
+                    </div>}
                     {Array.isArray(jdResult.publish_blockers) && jdResult.publish_blockers.length > 0 && <div className="rounded-md border border-rose-200 bg-rose-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-rose-900">Publication blockers</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-900">{jdResult.publish_blockers.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
                     {Array.isArray(jdResult.flags) && jdResult.flags.length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Review flags</p><ul className="mt-2 space-y-2 text-sm text-amber-950">{jdResult.flags.map((flag, index) => <li key={index}><span className="font-semibold">{flag.severity || "info"}:</span> {flag.message || flag.code}</li>)}</ul></div>}
                     <div className="rounded-lg border border-ink-100 bg-white p-4">
@@ -1947,8 +1947,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                         <ScoreMetric label="JD model cost" value={jdResult.meta?.cost_usd != null ? `$${Number(jdResult.meta.cost_usd).toFixed(4)}` : "—"} detail="No generative inference is used" />
                       </div>
                     </div>
-                    {(jdResult.needs_input || []).length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-sm font-semibold text-amber-950">Details to confirm</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">{jdResult.needs_input.map((item, index) => <li key={index}>{item.field}: {item.reason}</li>)}</ul></div>}
-                    {(jdResult.sections || []).map((section) => <div key={section.id} className="rounded-lg border border-ink-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{section.heading}</h3><Pill>{section.status}</Pill></div><ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-6 text-ink-700">{(section.items || []).map((item, index) => <li key={index}>{item.text}{item.origin === "ai_draft" && <span className="ml-2 text-[10px] font-semibold uppercase text-amber-700">AI draft</span>}</li>)}</ul></div>)}
+                    {(jdResult.needs_input || []).length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-sm font-semibold text-amber-950">Details to confirm</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">{jdResult.needs_input.map((item, index) => <li key={index}><span className="font-semibold">{item.field}:</span> {item.reason}{Array.isArray(item.candidates) && item.candidates.length > 0 && <span className="block pl-2 text-xs">Source values: {item.candidates.map((candidate) => typeof candidate.value === "object" ? JSON.stringify(candidate.value) : candidate.value).join(" · ")}</span>}</li>)}</ul></div>}
+                    {(jdResult.sections || []).map((section) => <div key={section.id} className="rounded-lg border border-ink-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{section.heading}</h3><Pill>{section.status}</Pill></div><ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-6 text-ink-700">{(section.items || []).map((item, index) => <li key={index}><span>{item.text}</span>{item.origin === "ai_draft" && <span className="ml-2 text-[10px] font-semibold uppercase text-amber-700">AI draft</span>}{Array.isArray(item.lines) && item.lines.length > 0 && <span className="ml-2 text-[10px] text-ink-400">Source {item.lines.join(", ")}</span>}</li>)}</ul></div>)}
                     {descriptionOutput && <details open className="rounded-lg border border-ink-100 bg-white p-4"><summary className="cursor-pointer text-sm font-semibold">Full job description</summary><pre className="mt-3 max-h-[520px] overflow-auto whitespace-pre-wrap text-sm leading-6 text-ink-700">{descriptionOutput}</pre></details>}
                     <button type="button" className={primaryButton} onClick={() => { setActiveTab("match"); setRubricError(""); }} disabled={!descriptionOutput && !jdText.trim()}>Continue to Applicant Match</button>
                   </div>
