@@ -109,7 +109,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          api_url="https://bluepace-ats-frontend.vercel.app/v1/models"
+          api_url="https://bluepace-ats-frontend.vercel.app/api/v1/models"
           response="$(curl --silent --show-error --location --max-time 20 --fail "$api_url")"
           node -e '
             const fs = require("node:fs");
@@ -125,3 +125,67 @@ jobs:
             }
             console.log("JD & Applicant Match API passed: live model list is served from Vercel with current hosted model profiles.");
           ' <<< "$response"
+
+          # Exercise each hosted feature route without calling a paid model.
+          node --input-type=module <<'NODE'
+          const api = "https://bluepace-ats-frontend.vercel.app/api/v1";
+          async function postJson(path, payload) {
+            const response = await fetch(api + path, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(path + " returned HTTP " + response.status + ": " + JSON.stringify(body));
+            return body;
+          }
+
+          const jdText = [
+            "Senior Software Engineer",
+            "Responsibilities:",
+            "- Build REST APIs with Python and FastAPI",
+            "Requirements:",
+            "- 5 years of experience with Python, SQL and AWS",
+          ].join("\n");
+
+          const standardized = await postJson("/jd/standardize", {
+            text: jdText,
+            options: { profile: "rules", mode: "light" },
+          });
+          if (standardized.meta?.profile !== "rules" || standardized.fields?.title?.value !== "Senior Software Engineer") {
+            throw new Error("JD standardize endpoint returned an unexpected result.");
+          }
+
+          const rubricResult = await postJson("/match/rubrics", {
+            jd_text: jdText,
+            options: { profile: "rules" },
+          });
+          const rubric = rubricResult.rubric;
+          if (!rubric?.rubric_id || !Array.isArray(rubric.items) || rubric.items.length === 0) {
+            throw new Error("Applicant Match rubric endpoint returned no rubric.");
+          }
+
+          const form = new FormData();
+          form.append("rubric", JSON.stringify(rubric));
+          form.append("text", "Senior software engineer with 6 years of experience. Built REST APIs using Python and FastAPI. Worked with SQL databases and AWS cloud deployments.");
+          form.append("profile", "rules");
+          form.append("rubric_id", rubric.rubric_id);
+          const analysisResponse = await fetch(api + "/match/analyze", { method: "POST", body: form });
+          const analysis = await analysisResponse.json().catch(() => ({}));
+          if (!analysisResponse.ok || analysis.status !== "complete" || analysis.versions?.profile !== "rules") {
+            throw new Error("Applicant Match analysis route returned HTTP " + analysisResponse.status + ": " + JSON.stringify(analysis));
+          }
+
+          // Confirm /test exists without submitting a provider request or spending credits.
+          const testResponse = await fetch(api + "/test", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          });
+          const testBody = await testResponse.json().catch(() => ({}));
+          if (testResponse.status !== 400 || !/API key/i.test(testBody.detail || "")) {
+            throw new Error("/test route did not return the expected missing-key validation: HTTP " + testResponse.status + " " + JSON.stringify(testBody));
+          }
+
+          console.log("JD Standardizer, Applicant Match rubric/analysis, and OpenRouter test routes are present and responding on production. No paid model inference was triggered.");
+          NODE
