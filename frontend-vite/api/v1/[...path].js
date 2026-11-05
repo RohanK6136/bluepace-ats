@@ -406,7 +406,11 @@ function normalizeJD(raw, profile, usage, mode) {
 
   const factWithSource = (value, sourceField) => {
     const evidence = raw.field_evidence && raw.field_evidence[sourceField] ? raw.field_evidence[sourceField] : {};
-    const present = value !== null && value !== undefined && value !== "";
+    const present = Array.isArray(value)
+      ? value.length > 0
+      : value && typeof value === "object"
+        ? Object.values(value).some((entry) => entry !== null && entry !== undefined && entry !== "")
+        : value !== null && value !== undefined && value !== "";
     const status = evidence.status || (present ? "verified" : "missing");
     return {
       value: present ? value : null,
@@ -429,13 +433,24 @@ function normalizeJD(raw, profile, usage, mode) {
     state: factWithSource(loc.state || raw.state || null, "state"),
     city: factWithSource(loc.city || raw.city || null, "city"),
     work_mode: factWithSource(loc.work_mode || raw.work_mode || null, "work_mode"),
-    experience: factWithSource({ min_years: Number.isFinite(minYears) ? minYears : null, max_years: Number.isFinite(maxYears) ? maxYears : null, scope: exp.scope || "unspecified" }, "experience"),
+    experience: factWithSource(
+      minYears != null || maxYears != null
+        ? { min_years: Number.isFinite(minYears) ? minYears : null, max_years: Number.isFinite(maxYears) ? maxYears : null, scope: exp.scope || "unspecified" }
+        : null,
+      "experience"
+    ),
     duration_months: factWithSource(raw.duration_months == null ? null : raw.duration_months, "duration_months")
   };
   const conflicts = Array.isArray(raw.conflicts) ? raw.conflicts : [];
   for (const conflict of conflicts) {
-    const existing = missing.find((item) => item.field === String(conflict.field || "").replaceAll("_", " "));
-    if (!existing) missing.push({ field: String(conflict.field || "field"), reason: "conflicting source values require recruiter review", candidates: conflict.candidates || [] });
+    const field = String(conflict.field || "field").replaceAll("_", " ");
+    const existing = missing.find((item) => item.field === field);
+    if (existing) {
+      existing.reason = "conflicting source values require recruiter review";
+      existing.candidates = conflict.candidates || [];
+    } else {
+      missing.push({ field, reason: "conflicting source values require recruiter review", candidates: conflict.candidates || [] });
+    }
   }
   const blockers = [];
   if (!deterministic) blockers.push("Recruiter review required before publishing this AI-assisted draft.");
