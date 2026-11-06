@@ -20,11 +20,9 @@ function readSessionValue(key) {
 }
 function storedProvider() {
   const saved = readSessionValue("bluepace_ai_provider");
-  const savedKeyProvider = PROVIDER_OPTIONS.find((option) => option.id !== "ollama" && readSessionValue("bluepace_ai_" + option.id + "_key"));
-  if (saved === "ollama") return "ollama";
-  if (PROVIDER_BY_ID[saved] && (readSessionValue("bluepace_ai_" + saved + "_key") || (saved === "openrouter" && readSessionValue("bluepace_openrouter_key")))) return saved;
-  if (savedKeyProvider) return savedKeyProvider.id;
-  return PROVIDER_BY_ID[saved] ? saved : "openrouter";
+  const explicitlyChosen = readSessionValue("bluepace_ai_provider_choice_v2") === "true";
+  // Ignore legacy saved paid-provider selections once; a current-session user choice is preserved.
+  return explicitlyChosen && PROVIDER_BY_ID[saved] ? saved : "openrouter";
 }
 function hasSavedProviderPreference() {
   const current = storedProvider();
@@ -237,6 +235,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   }
 
   function persistSettings() {
+    sessionStorage.setItem("bluepace_ai_provider_choice_v2", "true");
     sessionStorage.setItem("bluepace_ai_provider", provider);
     const keyName = "bluepace_ai_" + provider + "_key";
     if (apiKey.trim()) sessionStorage.setItem(keyName, apiKey.trim());
@@ -255,6 +254,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     const next = PROVIDER_BY_ID[nextProvider];
     if (!next) return;
     setProviderDiscoveryComplete(true);
+    try { sessionStorage.setItem("bluepace_ai_provider_choice_v2", "true"); } catch { /* Keep this selection in component state. */ }
     setProvider(nextProvider);
     setApiKey(readSessionValue("bluepace_ai_" + nextProvider + "_key")
       || (nextProvider === "openrouter" ? readSessionValue("bluepace_openrouter_key") : ""));
@@ -1020,7 +1020,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
             <label className="block text-sm font-semibold text-slate-700">Model identifier<input className={fieldClass + " mt-1.5 font-mono"} value={provider === "openrouter" ? DEFAULT_MODEL : model} readOnly={provider === "openrouter"} onChange={(event) => { setModel(event.target.value); setConnection(null); }} placeholder={selectedProvider.defaultModel}/><span className="mt-1 block text-xs font-normal text-slate-500">{provider === "openrouter" ? "Free-only routing is enforced. OpenRouter selects an available free model; paid models are not requested." : "Default: " + selectedProvider.defaultModel + ". Enter another model ID if your provider supports it. Qwen is a model family, not a separate API provider."}</span></label>
             <div className="flex flex-wrap gap-2"><button type="button" onClick={saveSettings} className={btnSecondary}>Save for this tab session</button><button type="button" onClick={() => void testConnection()} disabled={Boolean(busy)} className={btnPrimary}>{busy === "test" ? "Testing…" : "Test " + selectedProvider.label + " connection"}</button></div>
             {connection && <div className={"rounded-xl border p-4 " + (connection.status === "connected" && connection.model_listed !== false ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")}><div className="flex flex-wrap items-center gap-2"><MetaPill tone={connection.status === "connected" && connection.model_listed !== false ? "good" : "warn"}>{connection.status === "degraded" ? "Free models temporarily unavailable" : connection.status === "connected" && connection.model_listed !== false ? "Connection successful" : "Check the selected model"}</MetaPill><MetaPill>{connection.latency_ms} ms</MetaPill></div><p className="mt-2 text-sm text-slate-800">{formatProviderMessageForDisplay(connection.message)}</p><p className="mt-1 text-xs text-slate-600">Selected model: {connection.model} · Provider: {connection.provider_label || selectedProvider.label} · Key source: {connection.key_source}</p></div>}
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p><strong className="text-slate-800">Hosted providers:</strong> OpenAI/ChatGPT, Google Gemini, Claude, DeepSeek, OpenRouter and Cloudflare send prompts to the selected provider. Confirm your organisation's data-use terms before processing candidate data. Requests may incur charges.</p><p className="mt-2"><strong className="text-slate-800">Local Ollama / Qwen 3.5:</strong> Install Ollama where the backend runs and execute <code>ollama pull qwen3.5:4b</code>. Keep the URL at <code>http://localhost:11434/v1</code>.</p><p className="mt-2"><strong className="text-slate-800">Hosted deployment limitation:</strong> On Railway, localhost means the Railway container, not your PC. The production ATS cannot reach Ollama on your computer using localhost. For local inference run the backend and Ollama on the same computer, or build a separately secured local bridge. Never put API keys in Vite environment variables or commit them to GitHub.</p><p className="mt-2">“Qwen 3.4.5” did not identify a model tag that I could verify; the model field defaults to the published Qwen 3.5 family and remains editable.</p></div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p><strong className="text-slate-800">Hosted providers:</strong> OpenRouter is configured for free-only model routing in this workspace, with shared quotas and availability limits. OpenAI/ChatGPT, Google Gemini, Claude, DeepSeek and Cloudflare may incur provider charges. Confirm your organisation's data-use terms before processing candidate data.</p><p className="mt-2"><strong className="text-slate-800">Local Ollama / Qwen 3.5:</strong> Install Ollama where the backend runs and execute <code>ollama pull qwen3.5:4b</code>. Keep the URL at <code>http://localhost:11434/v1</code>.</p><p className="mt-2"><strong className="text-slate-800">Hosted deployment limitation:</strong> On Railway, localhost means the Railway container, not your PC. The production ATS cannot reach Ollama on your computer using localhost. For local inference run the backend and Ollama on the same computer, or build a separately secured local bridge. Never put API keys in Vite environment variables or commit them to GitHub.</p><p className="mt-2">“Qwen 3.4.5” did not identify a model tag that I could verify; the model field defaults to the published Qwen 3.5 family and remains editable.</p></div>
           </div>}
 
           {tab === "rubric" && <div className="space-y-5">
