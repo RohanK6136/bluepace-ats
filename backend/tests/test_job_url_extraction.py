@@ -16,7 +16,7 @@ def test_existing_extraction_still_wins_when_usable(monkeypatch):
     def unexpected_extraction(*args, **kwargs):
         raise AssertionError("Trafilatura should not run when existing extraction is usable")
 
-    monkeypatch.setattr(api.trafilatura, "extract", unexpected_extraction)
+    monkeypatch.setattr(api, "_extract_with_trafilatura", unexpected_extraction)
 
     assert api._extract_job_description(html, parser) == description
 
@@ -36,7 +36,7 @@ def test_trafilatura_fallback_extracts_text_when_existing_result_is_too_short(mo
         calls["kwargs"] = kwargs
         return extracted
 
-    monkeypatch.setattr(api.trafilatura, "extract", fake_extract)
+    monkeypatch.setattr(api, "_extract_with_trafilatura", fake_extract)
 
     result = api._extract_job_description(html, parser)
 
@@ -48,7 +48,7 @@ def test_trafilatura_fallback_extracts_text_when_existing_result_is_too_short(mo
 def test_trafilatura_empty_result_preserves_existing_partial_extraction(monkeypatch):
     html = "<html><body><p>Only a short title.</p></body></html>"
     parser = _parse_html(html)
-    monkeypatch.setattr(api.trafilatura, "extract", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api, "_extract_with_trafilatura", lambda *args, **kwargs: None)
 
     result = api._extract_job_description(html, parser)
 
@@ -62,7 +62,7 @@ def test_trafilatura_failure_does_not_break_existing_partial_extraction(monkeypa
     def fail_extraction(*args, **kwargs):
         raise RuntimeError("Extractor failure")
 
-    monkeypatch.setattr(api.trafilatura, "extract", fail_extraction)
+    monkeypatch.setattr(api, "_extract_with_trafilatura", fail_extraction)
 
     assert api._extract_job_description(html, parser) == "Only a short title."
 
@@ -83,7 +83,7 @@ def test_jsonld_jobposting_description_remains_preferred(monkeypatch):
     def unexpected_extraction(*args, **kwargs):
         raise AssertionError("Trafilatura should not run for a usable JobPosting description")
 
-    monkeypatch.setattr(api.trafilatura, "extract", unexpected_extraction)
+    monkeypatch.setattr(api, "_extract_with_trafilatura", unexpected_extraction)
 
     assert api._extract_job_description(html, parser) == description
 
@@ -138,7 +138,7 @@ def test_fetch_job_page_preserves_metadata_with_trafilatura_fallback(monkeypatch
 
     monkeypatch.setattr(api, "_validate_public_job_url", lambda value: value)
     monkeypatch.setattr(api.urllib.request, "urlopen", lambda request, timeout: FakeResponse())
-    monkeypatch.setattr(api.trafilatura, "extract", lambda *args, **kwargs: description)
+    monkeypatch.setattr(api, "_extract_with_trafilatura", lambda *args, **kwargs: description)
 
     final_url, title, payload = api._fetch_job_page(url)
 
