@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildBulkMatchCsv,
+  BULK_MATCH_CONCURRENCY,
+  runWithConcurrency,
   MAX_BULK_RESUMES,
   MAX_RESUME_BYTES,
   validateBulkResume,
@@ -67,4 +69,35 @@ test("escapes formula-like values before spreadsheet export", () => {
   }]);
   assert.match(csv, /"'=HYPERLINK\(""https:\/\/example\.test""\)"/);
   assert.match(csv, /"'\+2\+2"/);
+});
+
+
+test("limits concurrent bulk work to the configured low parallelism", async () => {
+  assert.equal(BULK_MATCH_CONCURRENCY, 2);
+  let active = 0;
+  let peak = 0;
+  const completed = [];
+
+  await runWithConcurrency([0, 1, 2, 3, 4, 5], BULK_MATCH_CONCURRENCY, async (item) => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    completed.push(item);
+    active -= 1;
+  });
+
+  assert.equal(peak, 2);
+  assert.deepEqual(completed.sort((a, b) => a - b), [0, 1, 2, 3, 4, 5]);
+});
+
+test("stops claiming queued work after a systemic batch failure", async () => {
+  const completed = [];
+  let stop = false;
+
+  await runWithConcurrency([1, 2, 3, 4], 2, async (item) => {
+    completed.push(item);
+    if (item === 1) stop = true;
+  }, () => stop);
+
+  assert.deepEqual(completed, [1]);
 });
