@@ -161,7 +161,7 @@ test("OpenRouter inference test verifies a real completion without exposing the 
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
     assert.equal(response.body.status, "connected");
     assert.equal(response.body.completion_verified, true);
-    assert.equal(response.body.model, "google/gemini-3.8-flash");
+    assert.equal(response.body.model, "openrouter/free");
     assert.equal(response.body.prompt_tokens, 9);
     assert.equal(response.body.completion_tokens, 4);
     assert.equal(capturedUrl, "https://openrouter.ai/api/v1/chat/completions");
