@@ -322,6 +322,7 @@ test("rubric classifier assigns stable categories and confidence from explicit s
     ["Strong stakeholder communication and collaboration", "requirements", "soft_skill", "high"],
     ["Recruitment and payroll domain knowledge", "requirements", "domain_knowledge", "high"],
     ["Build and maintain REST API services", "responsibilities", "responsibility", "medium"],
+    ["Hyderabad, India", "work_arrangement", "work_arrangement", "medium"],
     ["Health insurance and paid leave", "benefits", "job_context", "high"],
   ];
   for (const [text, section, category, confidence] of cases) {
