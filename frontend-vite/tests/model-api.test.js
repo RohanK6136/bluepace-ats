@@ -346,7 +346,7 @@ test("rules rubric splits compound requirements and excludes job-offer context",
     "- Build and maintain REST API services",
     "Benefits:",
     "- Health insurance and paid leave",
-  ].join("\\n");
+  ].join("\n");
   const response = await invoke(
     { host: "ats.vercel.app", "content-type": "application/json" },
     "POST",
@@ -410,7 +410,7 @@ test("model rubric categories are normalized from the cited source instead of tr
       "POST",
       ["match", "rubrics"],
       JSON.stringify({
-        jd_text: "Software Engineer\\nRequirements:\\n- Python and 3 years of experience",
+        jd_text: "Software Engineer\nRequirements:\n- Python and 3 years of experience",
         options: { profile: "openrouter" },
       }),
     );
@@ -443,7 +443,7 @@ test("rubric generation rejects benefit-only text rather than treating it as app
       "POST",
       ["match", "rubrics"],
       JSON.stringify({
-        jd_text: "Software Engineer\\nBenefits:\\n- Health insurance and paid leave",
+        jd_text: "Software Engineer\nBenefits:\n- Health insurance and paid leave",
         options: { profile: "openrouter" },
       }),
     );
@@ -670,7 +670,7 @@ test("PDF extraction decodes ASCII85 then Flate streams and preserves JD heading
   const encoded = encodeAscii85(deflateSync(Buffer.from(content, "latin1")));
   const pdf = Buffer.from(
     "%PDF-1.4\n1 0 obj\n<< /Length " + encoded.length + " /Filter [ /ASCII85Decode /FlateDecode ] >>\nstream\n" +
-    encoded + "endstream\\nendobj\\n%%EOF\\n",
+    encoded + "endstream\nendobj\n%%EOF\n",
     "latin1",
   );
 
