@@ -20,9 +20,13 @@ def test_provider_aliases_and_defaults(monkeypatch):
     assert ai_providers.provider_name("google") == "gemini"
     assert ai_providers.provider_name("google_genai") == "gemini"
     assert ai_providers.default_model("gemini") == "gemini-2.5-flash"
-    assert ai_providers.default_model("openrouter") == "google/gemini-2.5-flash"
+    assert ai_providers.default_model("openrouter") == "openrouter/free"
     monkeypatch.setenv("OPENROUTER_MODEL", "openrouter/free")
-    assert ai_providers.default_model("openrouter") == "google/gemini-2.5-flash"
+    assert ai_providers.default_model("openrouter") == "openrouter/free"
+    monkeypatch.setenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+    assert ai_providers.default_model("openrouter") == "openrouter/free"
+    assert ai_providers.model_name("google/gemini-2.5-flash", "openrouter") == "openrouter/free"
+    assert ai_providers.model_name("qwen/qwen3-4b:free", "openrouter") == "qwen/qwen3-4b:free"
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
     assert ai_providers.default_model("ollama") == "qwen3.5:4b"
     assert ai_providers.default_model("deepseek") == "deepseek-chat"
@@ -259,8 +263,48 @@ def test_openrouter_connection_test_runs_a_real_completion(monkeypatch):
     assert len(calls) == 2
     assert calls[0]["method"] == "GET"
     assert calls[1]["method"] == "POST"
-    assert calls[1]["body"]["model"] == "google/gemini-2.5-flash"
+    assert result["model"] == "openrouter/free"
+    assert calls[1]["body"]["model"] == "openrouter/free"
     assert "test-openrouter-key" not in repr(result)
+
+
+def test_openrouter_free_router_credit_limit_returns_degraded_status(monkeypatch):
+    from urllib.error import HTTPError
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = json.dumps(payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return self.payload
+
+    calls = []
+    def fake_urlopen(request, timeout=45):
+        calls.append(request.full_url)
+        if request.full_url.endswith("/models"):
+            return FakeResponse({"data": []})
+        raise HTTPError(request.full_url, 402, "Payment Required", {}, None)
+
+    monkeypatch.setattr("app.routers.ai_hiring_studio.urllib.request.urlopen", fake_urlopen)
+    result = run_provider_connection_test(
+        OpenRouterRequest(provider="openrouter", api_key="test-openrouter-key"),
+        user=SimpleNamespace(id="test-user"),
+    )
+
+    assert result["status"] == "degraded"
+    assert result["model"] == "openrouter/free"
+    assert result["completion_verified"] is False
+    assert "No paid model" in result["message"]
+    assert calls == [
+        "https://openrouter.ai/api/v1/models",
+        "https://openrouter.ai/api/v1/chat/completions",
+    ]
 
 
 def test_openrouter_connection_test_rejects_unlisted_model_before_inference(monkeypatch):
@@ -286,7 +330,7 @@ def test_openrouter_connection_test_rejects_unlisted_model_before_inference(monk
             OpenRouterRequest(
                 provider="openrouter",
                 api_key="test-openrouter-key",
-                model="made-up/missing-model",
+                model="made-up/missing-model:free",
             ),
             user=SimpleNamespace(id="test-user"),
         )
