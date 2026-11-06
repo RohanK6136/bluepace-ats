@@ -513,11 +513,10 @@ export default function AtsWorkspace() {
     setAuthError("");
     setAuthLoading(true);
     try {
-      // Do the readiness check before credential verification. If the login page
-      // has already warmed the API, this resolves immediately. If Render has
-      // spun down the Free instance, this makes the wake-up happen once instead
-      // of racing the credential request against the cold start.
-      await ensureApiReady();
+      // Start the readiness probe in parallel, but do not make a healthy API
+      // wait for the health endpoint before accepting credentials. The probe
+      // still gives a cold instance time to wake if the first auth request fails.
+      const readinessCheck = ensureApiReady().catch(() => null);
 
       const credentials = new URLSearchParams();
       credentials.set("username", authForm.email);
@@ -531,15 +530,15 @@ export default function AtsWorkspace() {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
         });
       } catch (firstError) {
-        // The API preflight normally removes the cold-start race. Keep one retry
-        // for transient gateway failures so a brief Render/network hiccup does
-        // not force the recruiter to submit the form again.
+        // If the first auth attempt reaches a waking API, wait for the
+        // parallel health probe before retrying once. Credential errors are not
+        // retried, and a slow health endpoint never delays a successful login.
         const transientAuthFailure = !firstError.response
           || [502, 503, 504].includes(firstError.response.status)
           || ["ECONNABORTED", "ETIMEDOUT"].includes(firstError.code)
           || firstError.name === "AbortError";
         if (!transientAuthFailure) throw firstError;
-        await ensureApiReady();
+        await readinessCheck;
         response = await apiRequest(null, "post", "/auth/token", {
           data: credentials,
           timeout: AUTH_TIMEOUT_MS,
