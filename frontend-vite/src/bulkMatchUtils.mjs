@@ -1,4 +1,5 @@
 export const MAX_BULK_RESUMES = 50;
+export const BULK_MATCH_CONCURRENCY = 2;
 export const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 export const RESUME_ACCEPT = ".pdf,.docx,.txt,.md";
 
@@ -94,4 +95,31 @@ export function buildBulkMatchCsv(rows) {
   });
 
   return "\uFEFF" + [headers, ...records].map((record) => record.map(csvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+
+/**
+ * Run queued work with a fixed concurrency limit.
+ * shouldStop is checked before each new item is claimed, so a systemic failure
+ * can stop unstarted work while allowing already-running tasks to finish.
+ */
+export async function runWithConcurrency(items, concurrency, worker, shouldStop = () => false) {
+  if (typeof worker !== "function") throw new TypeError("worker must be a function");
+  const rows = Array.from(items || []);
+  const requested = Number(concurrency);
+  const limit = rows.length
+    ? Math.min(rows.length, Math.max(1, Number.isInteger(requested) ? requested : 1))
+    : 0;
+  let nextIndex = 0;
+
+  const runWorker = async () => {
+    while (!shouldStop()) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= rows.length) return;
+      await worker(rows[index], index);
+    }
+  };
+
+  await Promise.all(Array.from({ length: limit }, () => runWorker()));
 }
