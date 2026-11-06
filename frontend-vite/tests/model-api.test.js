@@ -768,3 +768,36 @@ test("reviewable rubric is built immediately from JD source lines without hosted
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("instant rubric separates technical skills, captures experience and education, and keeps JD sources", async () => {
+  const jd = [
+    "Senior Data Engineer",
+    "Responsibilities:",
+    "- Build Python and SQL pipelines using Airflow and AWS",
+    "Requirements:",
+    "- Minimum 5 years of relevant experience",
+    "- Bachelor's degree in Computer Science",
+    "- Strong stakeholder communication and problem solving",
+    "Preferred:",
+    "- Experience with dbt and Databricks",
+  ].join("\n");
+  const response = await invoke(
+    { host: "ats.vercel.app", "content-type": "application/json" },
+    "POST",
+    ["match", "rubrics"],
+    JSON.stringify({ jd_text: jd, options: { profile: "rules" } }),
+  );
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  const rubric = response.body.rubric;
+  const labels = rubric.items.map((item) => item.label.toLowerCase());
+  for (const term of ["python", "sql", "airflow", "aws", "stakeholder management", "problem solving", "dbt", "databricks"]) {
+    assert.ok(labels.includes(term), "missing extracted criterion: " + term);
+  }
+  assert.equal(rubric.required_years, 5);
+  assert.equal(rubric.education.min_level, "bachelor");
+  assert.ok(rubric.education.source_line);
+  assert.ok(rubric.items.filter((item) => ["dbt", "databricks"].includes(item.label.toLowerCase())).every((item) => item.importance === "nice"));
+  assert.ok(rubric.items.every((item) => item.source_line && item.source_text));
+  assert.equal(labels.includes("senior data engineer"), false);
+});
