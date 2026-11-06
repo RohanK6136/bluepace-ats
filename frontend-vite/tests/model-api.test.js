@@ -791,7 +791,7 @@ test("instant rubric separates technical skills, captures experience and educati
   assert.equal(response.statusCode, 200, JSON.stringify(response.body));
   const rubric = response.body.rubric;
   const labels = rubric.items.map((item) => item.label.toLowerCase());
-  for (const term of ["python", "sql", "airflow", "aws", "stakeholder management", "problem solving", "dbt", "databricks"]) {
+  for (const term of ["python", "sql", "airflow", "aws", "stakeholder communication", "problem solving", "dbt", "databricks"]) {
     assert.ok(labels.includes(term), "missing extracted criterion: " + term);
   }
   assert.equal(rubric.required_years, 5);
