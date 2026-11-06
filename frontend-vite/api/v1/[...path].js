@@ -419,12 +419,16 @@ function normalizeJD(raw, profile, usage, mode, fallback = null) {
 function sourceLines(text) {
   const lines = [];
   let section = "must";
-  const headings = /^(?:required\s+(?:qualifications?|skills?)|minimum\s+qualifications?|requirements?|qualifications?|must[- ]haves?|key\s+responsibilities|responsibilities|preferred|nice to have|bonus|benefits|what we offer|about the role|experience|skills)\b/i;
+  // Match standalone heading lines only. "Experience with Python" is a
+  // requirement, not a section heading; matching only the first word used to
+  // drop legitimate requirements beginning with "Experience".
+  const headings = /^(?:required\s+(?:qualifications?|skills?)|minimum\s+qualifications?|requirements?|qualifications?|must[- ]haves?|key\s+responsibilities|responsibilities|preferred(?:\s+(?:skills?|qualifications?))?|nice to have(?:\s+skills?)?|bonus|benefits|what we offer|about the role|experience|skills)\s*:?\s*$/i;
+  const preferredHeading = /^(?:preferred(?:\s+(?:skills?|qualifications?))?|nice to have(?:\s+skills?)?|bonus)\s*:?\s*$/i;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/^\s*[-*•]\s*/, "").trim();
     if (!line) continue;
-    if (/preferred|nice to have|bonus/i.test(line)) section = "nice";
-    else if (headings.test(line) && line.length < 55) { section = /preferred|nice to have|bonus/i.test(line) ? "nice" : "must"; continue; }
+    if (preferredHeading.test(line)) { section = "nice"; continue; }
+    if (headings.test(line)) { section = "must"; continue; }
     if (line.length < 5) continue;
     lines.push({ id: "J" + String(lines.length + 1).padStart(2, "0"), section, text: line.slice(0, 400), origin: "source" });
     if (lines.length >= 80) break;
