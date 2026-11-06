@@ -5,7 +5,7 @@ import time
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from app.services.model_router import ASSISTANT_MODEL, DEEP_REASONING_MODEL, PROMPT_VERSION, VALIDATION_MODEL
+from app.services.model_router import (\n    ASSISTANT_MODEL, DEEP_REASONING_MODEL, PROMPT_VERSION, VALIDATION_MODEL, free_openrouter_model,\n)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,13 +25,9 @@ class LLMValidator:
             max_retries=0,
         )
         self.model = VALIDATION_MODEL
-        configured_fallbacks = os.getenv(
-            "OPENROUTER_FALLBACK_MODELS",
-            "meta-llama/llama-3.3-70b-instruct,google/gemini-2.5-flash",
-        )
-        self.fallback_models = list(
-            dict.fromkeys(model.strip() for model in configured_fallbacks.split(",") if model.strip())
-        )[:3]
+        # Do not send an explicit fallback-model array: legacy arrays often contain
+        # paid model IDs, and OpenRouter may bill those fallbacks. The openrouter/free
+        # router selects only currently available free endpoints.
         try:
             configured_retries = int(os.getenv("OPENROUTER_429_RETRIES", "1"))
         except ValueError:
@@ -47,6 +43,16 @@ class LLMValidator:
         return bool(re.search(r"\b429\b", str(error)))
 
     @staticmethod
+    def _is_credit_limited(error):
+        if getattr(error, "status_code", None) == 402:
+            return True
+        return bool(re.search(
+            r"\\b402\\b|insufficient credits|payment required",
+            str(error),
+            flags=re.IGNORECASE,
+        ))
+
+    @staticmethod
     def _retry_delay(error, attempt):
         response = getattr(error, "response", None)
         headers = getattr(response, "headers", {}) or {}
@@ -56,17 +62,16 @@ class LLMValidator:
         except (TypeError, ValueError):
             return min(0.5 * (2 ** attempt), 2.0)
 
-    def _request_completion(self, prompt, model=None, temperature=0.1, max_tokens=3000):
-        selected_model = model or self.model
+    def _request_completion(self, prompt, model=None, temperature=0.1, max_tokens=1800):
+        # Sanitize at the request boundary so stale configuration cannot route a
+        # task to a paid OpenRouter model.
+        selected_model = free_openrouter_model(model or self.model)
         extra_body = {
             "provider": {
                 "sort": "throughput",
                 "allow_fallbacks": True,
             }
         }
-        if self.fallback_models:
-            extra_body["models"] = self.fallback_models
-
         self.last_call_meta = {}
         started = time.perf_counter()
         attempted_models = []
@@ -232,8 +237,16 @@ class LLMValidator:
                     "All configured AI providers are temporarily rate-limited. "
                     "Please retry shortly or configure an OpenRouter provider key."
                 )
+            elif self._is_credit_limited(error):
+                safe_error = (
+                    "AI-assisted validation is temporarily unavailable. "
+                    "No AI score was produced; please review the candidate manually."
+                )
             else:
-                safe_error = str(error)[:1000]
+                safe_error = (
+                    "AI-assisted validation is unavailable right now. "
+                    "Please review the candidate manually."
+                )
             print(f"Resume validation unavailable: {safe_error}")
             return {
                 "error": safe_error,
