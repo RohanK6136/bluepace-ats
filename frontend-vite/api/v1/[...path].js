@@ -562,6 +562,30 @@ function normalEducation(value) {
   return ["none", "high_school", "diploma", "associate", "bachelor", "master", "phd"].includes(value) ? value : "none";
 }
 
+function inferEducationRequirement(lines) {
+  const ranks = { high_school: 1, diploma: 2, associate: 3, bachelor: 4, master: 5, phd: 6 };
+  const patterns = [
+    ["phd", /\b(?:ph\.?\s?d\.?|doctorate|doctoral degree)\b/i],
+    ["master", /\b(?:master'?s?|mba|m\.?\s?tech|m\.?\s?sc)\b/i],
+    ["bachelor", /\b(?:bachelor'?s?|b\.?\s?tech|b\.?\s?e\.?|b\.?\s?sc)\b/i],
+    ["associate", /\bassociate(?:'s)? degree\b/i],
+    ["diploma", /\bdiploma\b/i],
+    ["high_school", /\bhigh school\b/i],
+  ];
+  const requiredLines = lines.filter((line) => line.section !== "nice"
+    && (line.source_section === "education" || patterns.some(([, pattern]) => pattern.test(line.text))));
+  let selected = null;
+  for (const line of requiredLines) {
+    const found = patterns.filter(([, pattern]) => pattern.test(line.text)).map(([level]) => level);
+    if (!found.length) continue;
+    const minimum = found.sort((left, right) => ranks[left] - ranks[right])[0];
+    if (!selected || ranks[minimum] < ranks[selected.min_level]) {
+      selected = { min_level: minimum, source_line: line.id, equivalent_experience_ok: /\b(or|and)\s+equivalent experience\b/i.test(line.text) };
+    }
+  }
+  return selected || { min_level: "none", source_line: null, equivalent_experience_ok: false };
+}
+
 function ruleCriteriaForLine(line, title) {
   if (["about_role", "company_context", "benefits", "compensation"].includes(line.source_section)) return [];
   if (String(title || "").trim().toLowerCase() === line.text.trim().toLowerCase()) return [];
@@ -636,8 +660,12 @@ function normalizeRubric(raw, jdText) {
 
   if (!items.length) throw Object.assign(new Error("No source-backed applicant requirements could be identified. Add explicit qualifications, skills or experience requirements to the JD."), { statusCode: 422 });
 
-  const yearsMatch = String(jdText || "").match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+)?experience\b/i);
+  const requiredExperienceLine = lines.find((line) => line.section !== "nice" && /\b\d+(?:\.\d+)?\s*(?:\+|plus)?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+)?experience\b/i.test(line.text));
+  const yearsMatch = requiredExperienceLine && requiredExperienceLine.text.match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+)?experience\b/i);
   const years = yearsMatch ? Number(yearsMatch[1]) : null;
+  const inferredEducation = inferEducationRequirement(lines);
+  const modelEducation = normalEducation(raw.education && raw.education.min_level || raw.education_min_level);
+  const educationMinimum = inferredEducation.min_level !== "none" ? inferredEducation : { min_level: modelEducation, source_line: raw.education && raw.education.source_line || null, equivalent_experience_ok: Boolean(raw.education && raw.education.equivalent_experience_ok) };
   return {
     rubric_id: null,
     rubric_hash: null,
@@ -645,7 +673,7 @@ function normalizeRubric(raw, jdText) {
     title,
     weights: { required_skills: 50, experience: 25, preferred_skills: 15, education: 10, ...(raw.weights && typeof raw.weights === "object" ? raw.weights : {}) },
     required_years: Number.isFinite(years) ? Math.max(0, Math.min(40, years)) : null,
-    education: { min_level: normalEducation(raw.education && raw.education.min_level || raw.education_min_level), equivalent_experience_ok: Boolean(raw.education && raw.education.equivalent_experience_ok), source_line: raw.education && raw.education.source_line || null },
+    education: educationMinimum,
     items,
     job_lines: lines,
     created_at: null,
@@ -828,7 +856,20 @@ function applicantCard(raw, rubric, profile, usage, resume, filename) {
   });
   const gaps = evidence.filter((entry) => entry.status !== "met").map((entry) => ({ item_id: entry.item_id, label: entry.label, importance: entry.importance, status: entry.status, note: entry.note }));
   const must = evidence.filter((entry) => entry.importance === "must"), nice = evidence.filter((entry) => entry.importance === "nice");
-  const requiredPct = scorePct(must.map((entry) => entry.status)), preferredPct = scorePct(nice.map((entry) => entry.status));
+  const scoredMust = must.filter((entry) => !["experience", "education"].includes(entry.category));
+  const requiredPct = scorePct(scoredMust.map((entry) => entry.status)), preferredPct = scorePct(nice.map((entry) => entry.status));
+  const requirementCategories = [];
+  for (const entry of evidence) {
+    const category = entry.category || "other";
+    let row = requirementCategories.find((item) => item.category === category);
+    if (!row) {
+      row = { category, label: entry.category_label || category.replaceAll("_", " "), total: 0, must_have: 0, preferred: 0, met: 0, partial: 0, unclear: 0, not_evidenced: 0 };
+      requirementCategories.push(row);
+    }
+    row.total++;
+    if (entry.importance === "nice") row.preferred++; else row.must_have++;
+    row[entry.status] = (row[entry.status] || 0) + 1;
+  }
   const relYears = Number.isFinite(Number(p.relevant_years)) ? Number(p.relevant_years) : null, totalYears = Number.isFinite(Number(p.total_years)) ? Number(p.total_years) : null;
   const experiencePct = rubric.required_years != null && relYears != null ? Math.round(Math.min(1, relYears / Math.max(1, rubric.required_years)) * 100) : null;
   const level = normalEducation(p.education_level || "none"), requiredLevel = normalEducation(rubric.education && rubric.education.min_level || "none");
@@ -838,7 +879,7 @@ function applicantCard(raw, rubric, profile, usage, resume, filename) {
   const totalWeight = pairs.reduce((sum, pair) => sum + pair[1], 0);
   const score = totalWeight ? Math.round(pairs.reduce((sum, pair) => sum + pair[0] * pair[1], 0) / totalWeight) : null;
   const groups = ["coding", "cloud_tools", "domain", "soft", "other"].map((group) => {
-    const subset = must.filter((entry) => entry.group === group);
+    const subset = scoredMust.filter((entry) => entry.group === group);
     return subset.length ? { name: group, label: group.replaceAll("_", " "), pct: scorePct(subset.map((entry) => entry.status)), met: subset.filter((entry) => entry.status === "met").length, partial: subset.filter((entry) => entry.status === "partial").length, total: subset.length } : null;
   }).filter(Boolean);
   return {
@@ -846,7 +887,7 @@ function applicantCard(raw, rubric, profile, usage, resume, filename) {
     rubric: { id: rubric.rubric_id, hash: rubric.rubric_hash, title: rubric.title },
     file: { name: filename || null, source_type: filename ? "file" : "text", chars: redacted.length, lines: resumeLines.length, redactions: redacted === resume ? [] : ["personal identifiers"], truncated: resume.length > MAX_TEXT },
     profile: { latest_title: String(p.latest_title || "").trim() || null, latest_company: null, total_years: totalYears, relevant_years: relYears, education_level: level, location: String(p.location || "").trim() || null, roles: Array.isArray(p.roles) ? p.roles : [], education: Array.isArray(p.education) ? p.education : [], certifications: list(p.certifications), languages: list(p.languages) },
-    scores: { match: score, required_skills: { pct: requiredPct, met: must.filter((entry) => entry.status === "met").length, partial: must.filter((entry) => entry.status === "partial").length, total: must.length }, groups, experience: { pct: experiencePct, relevant_years: relYears, total_years: totalYears, required_years: rubric.required_years == null ? null : rubric.required_years }, preferred_skills: { pct: preferredPct, met: nice.filter((entry) => entry.status === "met").length, partial: nice.filter((entry) => entry.status === "partial").length, total: nice.length }, education: { pct: educationPct, level, required: requiredLevel }, weights_used: { required_skills: Number(w.required_skills == null ? 50 : w.required_skills), experience: Number(w.experience == null ? 25 : w.experience), preferred_skills: Number(w.preferred_skills == null ? 15 : w.preferred_skills), education: Number(w.education == null ? 10 : w.education) } },
+    scores: { match: score, required_skills: { pct: requiredPct, met: scoredMust.filter((entry) => entry.status === "met").length, partial: scoredMust.filter((entry) => entry.status === "partial").length, total: scoredMust.length }, requirement_categories: requirementCategories, groups, experience: { pct: experiencePct, relevant_years: relYears, total_years: totalYears, required_years: rubric.required_years == null ? null : rubric.required_years }, preferred_skills: { pct: preferredPct, met: nice.filter((entry) => entry.status === "met").length, partial: nice.filter((entry) => entry.status === "partial").length, total: nice.length }, education: { pct: educationPct, level, required: requiredLevel }, weights_used: { required_skills: Number(w.required_skills == null ? 50 : w.required_skills), experience: Number(w.experience == null ? 25 : w.experience), preferred_skills: Number(w.preferred_skills == null ? 15 : w.preferred_skills), education: Number(w.education == null ? 10 : w.education) } },
     evidence, gaps, flags: [...list(raw.flags, 15), "Model-assisted evidence review only. Verify cited evidence; this is not a hiring decision."],
     summary: { value: String(raw.summary || "Review cited evidence and unresolved items before deciding.").slice(0, 1200), status: "generated", reason: null },
     as_of: new Date().toISOString().slice(0, 10), versions: { pipeline: "vercel-model-api-1", prompts: { applicant_match: 1 }, profile: profile.id, model: usage.model, rubric_hash: rubric.rubric_hash },
