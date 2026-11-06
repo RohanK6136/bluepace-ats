@@ -343,15 +343,27 @@ export default function AtsWorkspace() {
   const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
 
   useEffect(() => {
-    if (token) return undefined;
-    // Keep the login screen's ATS connection warm. The first request may wake a
-    // sleeping Render instance; subsequent checks reuse this connection.
-    void ensureApiReady().catch(() => {});
-    const intervalId = window.setInterval(() => {
-      void ensureApiReady().catch(() => {});
-    }, 10 * 60 * 1000);
-    return () => window.clearInterval(intervalId);
-  }, [token]);
+    // Keep the API warm while this app tab is in use, including after sign-in.
+    // Render Free services sleep after 15 minutes without traffic. This
+    // session-scoped health request has no auth side effects and prevents an
+    // idle recruiter tab from making its next action pay the cold-start delay.
+    const warmApi = () => {
+      if (document.visibilityState === "visible") {
+        void ensureApiReady().catch(() => {});
+      }
+    };
+
+    warmApi();
+    const intervalId = window.setInterval(warmApi, 10 * 60 * 1000);
+    document.addEventListener("visibilitychange", warmApi);
+    window.addEventListener("focus", warmApi);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", warmApi);
+      window.removeEventListener("focus", warmApi);
+    };
+  }, []);
 
   useEffect(() => {
     if (token || accessMode !== "public") {
