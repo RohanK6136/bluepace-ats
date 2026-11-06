@@ -1,5 +1,6 @@
 import asyncio
 from datetime import date
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -30,7 +31,7 @@ class UnavailableLLM:
         return ModelInfo(
             profile=profile_id or "openrouter-default",
             provider="openrouter",
-            model="google/gemini-2.5-flash",
+            model="openrouter/free",
             label="OpenRouter test profile",
             fingerprint="test",
         )
@@ -52,8 +53,11 @@ def test_openrouter_402_is_non_retryable_provider_unavailability():
         text='{"error":{"message":"insufficient credits"}}',
     )
 
+    provider = object.__new__(OpenAICompatibleProvider)
+    provider.profile = SimpleNamespace(base_url="https://openrouter.ai/api/v1")
+
     with pytest.raises(LLMUnavailable, match="HTTP 402"):
-        OpenAICompatibleProvider._raise_for_status(response, response.text)
+        provider._raise_for_status(response, response.text)
 
     assert LLMUnavailable.retryable is False
 
