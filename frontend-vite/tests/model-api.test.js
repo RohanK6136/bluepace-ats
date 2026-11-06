@@ -456,6 +456,55 @@ test("rubric generation rejects benefit-only text rather than treating it as app
 });
 
 
+test("experience and education are scored separately from must-have skills", async () => {
+  const jd = [
+    "Software Engineer",
+    "Requirements:",
+    "- Python and AWS",
+    "Experience:",
+    "- 5 years of experience",
+    "Education:",
+    "- Bachelor's degree in Computer Science",
+    "Benefits:",
+    "- Health insurance and paid leave",
+  ].join("\n");
+  const rubricResponse = await invoke(
+    { host: "ats.vercel.app", "content-type": "application/json" },
+    "POST",
+    ["match", "rubrics"],
+    JSON.stringify({ jd_text: jd, options: { profile: "rules" } }),
+  );
+  assert.equal(rubricResponse.statusCode, 200, JSON.stringify(rubricResponse.body));
+  const rubric = rubricResponse.body.rubric;
+  assert.equal(rubric.required_years, 5);
+  assert.equal(rubric.education.min_level, "bachelor");
+  assert.equal(rubric.items.some((item) => /health insurance/i.test(item.label)), false);
+
+  const boundary = "separate-score-categories";
+  const resume = "Software Engineer with 6 years of experience. Python and AWS. Bachelor's degree in Computer Science.";
+  const multipart = [
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric\"\r\n\r\n" + JSON.stringify(rubric) + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\n" + resume + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"profile\"\r\n\r\nrules\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric_id\"\r\n\r\n" + rubric.rubric_id + "\r\n",
+    "--" + boundary + "--\r\n",
+  ].join("");
+  const analysis = await invoke(
+    { host: "ats.vercel.app", "content-type": "multipart/form-data; boundary=" + boundary },
+    "POST",
+    ["match", "analyze"],
+    multipart,
+  );
+  assert.equal(analysis.statusCode, 200, JSON.stringify(analysis.body));
+  assert.equal(analysis.body.scores.required_skills.total, 2);
+  assert.equal(analysis.body.scores.required_skills.pct, 100);
+  assert.equal(analysis.body.scores.experience.pct, 100);
+  assert.equal(analysis.body.scores.education.pct, 100);
+  assert.ok(analysis.body.scores.requirement_categories.some((row) => row.category === "experience" && row.total === 1));
+  assert.ok(analysis.body.scores.requirement_categories.some((row) => row.category === "education" && row.total === 1));
+});
+
+
 test("JD standardization stays deterministic even when a hosted model key is supplied", async () => {
   const originalFetch = globalThis.fetch;
   let providerCallMade = false;
