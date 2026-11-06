@@ -74,6 +74,10 @@ export function classifyRubricCriterion(value, sourceSection = "requirements") {
     category = "job_context";
     confidence = "high";
     reason = "The source heading identifies descriptive or employment-offer context, not an applicant qualification.";
+  } else if (section === "work_arrangement") {
+    category = "work_arrangement";
+    confidence = "medium";
+    reason = "The source is under a location or work-mode heading; confirm whether it should be assessed against resume evidence.";
   } else if (exactSkill && /\b(?:aws|azure|gcp|google cloud|amazon web services|microsoft azure|docker|kubernetes|terraform)\b/i.test(text)) {
     category = "cloud_platform";
     confidence = "high";
