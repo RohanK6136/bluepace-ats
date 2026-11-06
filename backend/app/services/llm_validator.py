@@ -245,10 +245,7 @@ class LLMValidator:
                     "No AI score was produced; please review the candidate manually."
                 )
             else:
-                safe_error = (
-                    "AI-assisted validation is unavailable right now. "
-                    "Please review the candidate manually."
-                )
+                safe_error = str(error)[:1000]
             print(f"Resume validation unavailable: {safe_error}")
             return {
                 "error": safe_error,
