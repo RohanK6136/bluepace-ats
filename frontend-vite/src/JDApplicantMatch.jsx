@@ -2008,7 +2008,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                       </div>
                       <div className="space-y-2">
                         {(rubric.items || []).map((item, index) => <div key={item.id || index} className="grid gap-3 rounded-md border border-ink-100 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_130px_100px] sm:items-center">
-                          <div><p className="text-sm font-medium text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.type} · {item.group}</p></div>
+                          <div className="min-w-0">
+                            <Field label="Requirement">
+                              <input className={fieldClass} maxLength={120} value={item.label} onChange={(event) => updateRubricItem(index, { label: event.target.value })} />
+                            </Field>
+                            <p className="mt-1 text-xs text-ink-500">{item.type} · {item.group} · Source {item.source_line || "not linked"}</p>
+                            {item.source_text && <p className="mt-1 text-xs leading-5 text-ink-400">JD: {item.source_text}</p>}
+                          </div>
                           <Field label="Importance"><select className={fieldClass} value={item.importance} onChange={(event) => updateRubricItem(index, { importance: event.target.value })}><option value="must">Must-have</option><option value="nice">Preferred</option></select></Field>
                           <Field label="Weight"><select className={fieldClass} value={item.weight || 1} onChange={(event) => updateRubricItem(index, { weight: Number(event.target.value) })}><option value="1">1 · Base</option><option value="2">2 · High</option><option value="3">3 · Critical</option></select></Field>
                         </div>)}
