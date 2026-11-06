@@ -15,7 +15,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-import trafilatura
 from html import unescape
 from html.parser import HTMLParser
 from contextlib import asynccontextmanager
@@ -966,6 +965,17 @@ def _html_to_plain_text(value) -> str:
         return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", unescape(str(value)))).strip()
 
 
+def _extract_with_trafilatura(html: str):
+    """Load Trafilatura only for the uncommon URL-extraction fallback."""
+    import trafilatura
+
+    return trafilatura.extract(
+        html,
+        include_comments=False,
+        include_tables=True,
+    )
+
+
 def _extract_job_description(html: str, parser: _JobPageParser) -> str:
     """Prefer the existing extraction path and use Trafilatura only as a fallback."""
     posting = _jsonld_jobposting(parser.jsonld_blocks)
@@ -980,11 +990,7 @@ def _extract_job_description(html: str, parser: _JobPageParser) -> str:
         return description
 
     try:
-        extracted = trafilatura.extract(
-            html,
-            include_comments=False,
-            include_tables=True,
-        )
+        extracted = _extract_with_trafilatura(html)
     except Exception:
         # A third-party extractor failure must not break the existing fallback.
         extracted = None
