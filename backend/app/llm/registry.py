@@ -78,14 +78,14 @@ class ModelRegistry:
             return "no model id configured"
         if profile.provider in ("openai_compatible", "ollama") and not profile.base_url:
             return "no base_url configured"
+        if profile.api_key_env and not self._api_key_configured(profile):
+            alternate = " or GITHUB_TOKEN" if profile.api_key_env == "GITHUB_MODELS_TOKEN" else ""
+            return f"set {profile.api_key_env}{alternate} to enable"
         if (profile.provider == "openai_compatible"
                 and (profile.base_url or "").rstrip("/").lower() == "https://openrouter.ai/api/v1"
                 and profile.model != "openrouter/free"
                 and not profile.model.lower().endswith(":free")):
             return "paid OpenRouter models are disabled; select OpenRouter Free Models (automatic)"
-        if profile.api_key_env and not self._api_key_configured(profile):
-            alternate = " or GITHUB_TOKEN" if profile.api_key_env == "GITHUB_MODELS_TOKEN" else ""
-            return f"set {profile.api_key_env}{alternate} to enable"
         if profile.provider == "anthropic" and importlib.util.find_spec("anthropic") is None:
             return "install the 'anthropic' extra (pip install -e .[anthropic])"
         return None
