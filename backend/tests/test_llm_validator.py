@@ -43,7 +43,7 @@ class FakeClient:
 def test_validator_sends_ordered_fallback_models_and_throughput_routing(monkeypatch):
     monkeypatch.setenv(
         "OPENROUTER_FALLBACK_MODELS",
-        "meta-llama/llama-3.3-70b-instruct, google/gemini-2.5-flash",
+        "meta-llama/llama-3.3-70b-instruct:free, google/gemini-2.5-flash",
     )
     validator = LLMValidator()
     validator.client = FakeClient()
@@ -54,11 +54,11 @@ def test_validator_sends_ordered_fallback_models_and_throughput_routing(monkeypa
     request = validator.client.chat.completions.calls[0]
     assert request["model"] == VALIDATION_MODEL
     assert request["extra_body"]["models"] == [
-        "meta-llama/llama-3.3-70b-instruct",
-        "google/gemini-2.5-flash",
+        "meta-llama/llama-3.3-70b-instruct:free",
     ]
     assert request["extra_body"]["provider"]["sort"] == "throughput"
     assert request["extra_body"]["provider"]["allow_fallbacks"] is True
+    assert request["max_tokens"] <= 2048
 
 
 class SimulatedRateLimit(Exception):
@@ -143,3 +143,46 @@ def test_validator_records_non_sensitive_request_telemetry(monkeypatch):
     assert validator.last_call_meta["attempts"] == 1
     assert validator.last_call_meta["latency_ms"] >= 0
     assert "api_key" not in validator.last_call_meta
+
+
+
+def test_validator_forces_free_model_and_caps_large_token_requests():
+    validator = LLMValidator()
+    validator.client = FakeClient()
+
+    validator._request_completion(
+        "Return a small JSON object.", model="google/gemini-2.5-flash", max_tokens=6000
+    )
+
+    request = validator.client.chat.completions.calls[0]
+    assert request["model"] == "openrouter/free"
+    assert request["max_tokens"] == 2048
+
+
+class SimulatedPaymentRequired(Exception):
+    status_code = 402
+
+    def __str__(self):
+        return "Model request failed (402): This request requires more credits, or fewer max_tokens."
+
+
+class PaymentRequiredOnce:
+    def __init__(self):
+        self.calls = 0
+
+    def create(self, **_kwargs):
+        self.calls += 1
+        raise SimulatedPaymentRequired()
+
+
+def test_credit_error_is_sanitized_and_does_not_retry():
+    validator = LLMValidator()
+    completions = PaymentRequiredOnce()
+    validator.client = FakeClient(completions)
+
+    result = validator.validate_resume({"skills": ["Python"]}, "Python engineer")
+
+    assert completions.calls == 1
+    assert result["recommendation"] == "Manual Review"
+    assert "free-only model routing" in result["error"]
+    assert "Model request failed (402)" not in result["error"]
