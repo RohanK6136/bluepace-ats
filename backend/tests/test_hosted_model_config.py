@@ -14,7 +14,7 @@ def test_openrouter_is_the_safe_hosted_default() -> None:
     assert data["default_profile"] == "${LLM_PROFILE:-openrouter}"
     profile = data["profiles"]["openrouter"]
     assert profile["base_url"] == "https://openrouter.ai/api/v1"
-    assert profile["model"] == "${OPENROUTER_MODEL:-google/gemini-2.5-flash}"
+    assert profile["model"] == "openrouter/free"
     assert profile["api_key_env"] == "OPENROUTER_API_KEY"
     assert profile["pricing"]["input_per_mtok"] == "${OPENROUTER_INPUT_PRICE:-0}"
     assert profile["pricing"]["output_per_mtok"] == "${OPENROUTER_OUTPUT_PRICE:-0}"
@@ -28,7 +28,7 @@ def test_openrouter_profile_is_disabled_without_provider_secret(monkeypatch) -> 
     registry = ModelRegistry.from_file(config_path)
 
     profile = registry.get("openrouter")
-    assert profile.model == "google/gemini-2.5-flash"
+    assert profile.model == "openrouter/free"
     assert registry.disabled_reason(profile) == "set OPENROUTER_API_KEY to enable"
 
 def test_direct_provider_profiles_are_registered_and_disabled_without_keys(monkeypatch) -> None:
@@ -57,8 +57,11 @@ def test_direct_provider_profiles_are_registered_and_disabled_without_keys(monke
     monkeypatch.setenv("GITHUB_TOKEN", "test-token")
     assert registry.disabled_reason(registry.get("github-models")) is None
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-token")
-    for profile_id in ("openrouter", "gemini", "deepseek", "grok", "openrouter-openai"):
-        assert registry.disabled_reason(registry.get(profile_id)) is None
+    assert registry.disabled_reason(registry.get("openrouter")) is None
+    for profile_id in ("gemini", "deepseek", "grok", "openrouter-openai"):
+        assert registry.disabled_reason(registry.get(profile_id)) == (
+            "paid OpenRouter models are disabled; select OpenRouter Free Models (automatic)"
+        )
 
 
 def test_local_ollama_profile_is_ready_without_a_provider_key(monkeypatch) -> None:
