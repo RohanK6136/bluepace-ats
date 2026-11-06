@@ -725,7 +725,7 @@ function classifyRubricLine(text) {
     { group: "coding", terms: ["TypeScript", "JavaScript", "Python", "Java", "Kotlin", "Swift", "C++", "C#", ".NET", "React", "Next.js", "Node.js", "FastAPI", "Django", "Flask", "Spring Boot", "REST API", "GraphQL", "SQL", "PostgreSQL", "MySQL", "MongoDB", "HTML", "CSS", "PHP", "Ruby", "Go", "Rust"] },
     { group: "cloud_tools", terms: ["GitHub Actions", "CI/CD", "Kubernetes", "Terraform", "Databricks", "Snowflake", "Airflow", "dbt", "Kafka", "Spark", "Docker", "Jenkins", "AWS", "Azure", "GCP", "Google Cloud", "Linux", "Git", "Power BI", "Tableau", "Excel", "Salesforce", "SAP"] },
     { group: "domain", terms: ["data engineering", "machine learning", "artificial intelligence", "cybersecurity", "financial services", "banking", "healthcare", "insurance", "e-commerce", "logistics", "supply chain", "data analytics", "business analysis", "recruitment", "talent acquisition", "customer support", "project management", "product management"] },
-    { group: "soft", terms: ["stakeholder management", "problem solving", "analytical thinking", "critical thinking", "time management", "presentation skills", "communication", "leadership", "teamwork", "collaboration", "mentoring", "negotiation"] },
+    { group: "soft", terms: ["stakeholder management", "stakeholder communication", "problem solving", "analytical thinking", "critical thinking", "time management", "presentation skills", "communication", "leadership", "teamwork", "collaboration", "mentoring", "negotiation"] },
   ];
   const found = [];
   const seen = new Set();
@@ -768,6 +768,7 @@ function createRulesRubric(jdText) {
         educationLevel = level;
         educationSource = line.id;
       }
+      if (level !== "none") continue;
     }
 
     // Experience years are stored in the dedicated rubric field, not repeated
