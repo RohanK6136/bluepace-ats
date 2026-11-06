@@ -716,20 +716,107 @@ function createRulesJD(text) {
     review_flags: ["Built-in rules engine extracted text sections only; review the original JD for omissions and context."]
   };
 }
+function classifyRubricLine(text) {
+  const value = String(text || "");
+  if (/\b(?:certification|certified|licen[cs]e|PMP|CISSP|CISA|CPA|CFA|ITIL|CompTIA)\b/i.test(value)) {
+    return [{ label: value.slice(0, 120), type: "certification", group: "other" }];
+  }
+  const groups = [
+    { group: "coding", terms: ["TypeScript", "JavaScript", "Python", "Java", "Kotlin", "Swift", "C++", "C#", ".NET", "React", "Next.js", "Node.js", "FastAPI", "Django", "Flask", "Spring Boot", "REST API", "GraphQL", "SQL", "PostgreSQL", "MySQL", "MongoDB", "HTML", "CSS", "PHP", "Ruby", "Go", "Rust"] },
+    { group: "cloud_tools", terms: ["GitHub Actions", "CI/CD", "Kubernetes", "Terraform", "Databricks", "Snowflake", "Airflow", "dbt", "Kafka", "Spark", "Docker", "Jenkins", "AWS", "Azure", "GCP", "Google Cloud", "Linux", "Git", "Power BI", "Tableau", "Excel", "Salesforce", "SAP"] },
+    { group: "domain", terms: ["data engineering", "machine learning", "artificial intelligence", "cybersecurity", "financial services", "banking", "healthcare", "insurance", "e-commerce", "logistics", "supply chain", "data analytics", "business analysis", "recruitment", "talent acquisition", "customer support", "project management", "product management"] },
+    { group: "soft", terms: ["stakeholder management", "problem solving", "analytical thinking", "critical thinking", "time management", "presentation skills", "communication", "leadership", "teamwork", "collaboration", "mentoring", "negotiation"] },
+  ];
+  const found = [];
+  const seen = new Set();
+  for (const entry of groups) {
+    for (const term of entry.terms) {
+      if (includesRuleToken(value, term) && !seen.has(term.toLowerCase())) {
+        found.push({ label: term, group: entry.group, type: "skill" });
+        seen.add(term.toLowerCase());
+      }
+    }
+  }
+  return found;
+}
+function inferEducationLevel(text) {
+  if (/\b(?:ph\.?d\.?|doctorate|doctoral degree)\b/i.test(text)) return "phd";
+  if (/\b(?:master'?s?|M\.?Sc|M\.?Tech|MBA|MCA|postgraduate)\b/i.test(text)) return "master";
+  if (/\b(?:bachelor'?s?|B\.?Sc|B\.?Tech|B\.?E\.?|BCA|B\.?Com|undergraduate degree)\b/i.test(text)) return "bachelor";
+  if (/\b(?:associate'?s? degree)\b/i.test(text)) return "associate";
+  if (/\b(?:diploma|higher national diploma)\b/i.test(text)) return "diploma";
+  if (/\b(?:high school|secondary school|12th grade|class XII|A-levels|GCSE)\b/i.test(text)) return "high_school";
+  return "none";
+}
 function createRulesRubric(jdText) {
   const lines = sourceLines(jdText);
-  const raw = {
-    title: inferTitle(jdText),
-    required_years: (String(jdText).match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\b/i) || [])[1] || null,
-    items: lines.slice(0, 40).map((line) => ({
-      label: line.text.slice(0, 120),
-      source_line: line.id,
-      type: /certif|license/i.test(line.text) ? "certification" : "skill",
-      group: /python|java|sql|react|node|aws|azure|cloud|docker|kubernetes|api|database|software|code|program/i.test(line.text) ? "coding" : /customer|sales|recruit|marketing|account/i.test(line.text) ? "domain" : "other",
+  const title = inferTitle(jdText);
+  const excluded = /^(?:location|based in|work mode|employment type|job type|salary|compensation|benefits|equal opportunity|about us|company overview|apply now|how to apply|visa sponsorship|work authorization)\b/i;
+  const candidates = [];
+  const seen = new Set();
+  let educationLevel = "none";
+  let educationSource = null;
+  const rank = { none: 0, high_school: 1, diploma: 2, associate: 3, bachelor: 4, master: 5, phd: 6 };
+
+  for (const line of lines) {
+    const value = line.text.trim();
+    if ((title && value.toLowerCase() === title.toLowerCase()) || excluded.test(value)) continue;
+
+    if (line.section !== "nice") {
+      const level = inferEducationLevel(value);
+      if (rank[level] > rank[educationLevel]) {
+        educationLevel = level;
+        educationSource = line.id;
+      }
+    }
+
+    // Experience years are stored in the dedicated rubric field, not repeated
+    // as a second weighted criterion.
+    if (/\b\d+(?:\.\d+)?\s*(?:\+|plus)?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+)?experience\b/i.test(value)) continue;
+
+    const classified = classifyRubricLine(value);
+    if (classified.length) {
+      for (const found of classified) {
+        const key = found.label.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        candidates.push({
+          label: found.label.slice(0, 120), source_line: line.id, type: found.type, group: found.group,
+          importance: line.section === "nice" ? "nice" : "must",
+          weight: line.section === "nice" ? 1 : /\b(?:critical|mandatory|must[- ]have|essential)\b/i.test(value) ? 3 : 2,
+          aliases: [],
+        });
+      }
+      continue;
+    }
+
+    // Preserve requirements without a known skill taxonomy, but avoid converting
+    // generic job prose and administrative details into assessment criteria.
+    const isActionOrRequirement = /\b(?:experience|knowledge|ability|proficien|familiar|responsible|build|develop|design|implement|manage|lead|maintain|support|deliver|coordinate|analy[sz]e|create|optimi[sz]e|ensure|oversee|degree|diploma|communication|leadership|teamwork|collaborat)\b/i.test(value);
+    if (!isActionOrRequirement || value.length < 8) continue;
+    const key = value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const type = /\b(?:certification|certified|licen[cs]e)\b/i.test(value) ? "certification"
+      : /\b(?:communication|leadership|teamwork|collaborat|stakeholder|problem.solving)\b/i.test(value) ? "skill" : "other";
+    candidates.push({
+      label: value.slice(0, 120), source_line: line.id, type, group: type === "skill" ? "soft" : "other",
       importance: line.section === "nice" ? "nice" : "must",
-      weight: line.section === "nice" ? 1 : 2,
-      aliases: []
-    }))
+      weight: line.section === "nice" ? 1 : /\b(?:critical|mandatory|must[- ]have|essential)\b/i.test(value) ? 3 : 2,
+      aliases: [],
+    });
+  }
+
+  const yearsMatch = String(jdText).match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+)?experience\b/i);
+  const raw = {
+    title,
+    required_years: yearsMatch ? yearsMatch[1] : null,
+    education: {
+      min_level: educationLevel,
+      source_line: educationSource,
+      equivalent_experience_ok: /equivalent experience|or equivalent/i.test(jdText),
+    },
+    items: candidates.slice(0, 40),
   };
   return freezeRubric(normalizeRubric(raw, jdText));
 }
