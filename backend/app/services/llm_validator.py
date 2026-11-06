@@ -5,7 +5,9 @@ import time
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from app.services.model_router import (\n    ASSISTANT_MODEL, DEEP_REASONING_MODEL, PROMPT_VERSION, VALIDATION_MODEL, free_openrouter_model,\n)
+from app.services.model_router import (
+    ASSISTANT_MODEL, DEEP_REASONING_MODEL, PROMPT_VERSION, VALIDATION_MODEL, free_openrouter_model,
+)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -47,7 +49,7 @@ class LLMValidator:
         if getattr(error, "status_code", None) == 402:
             return True
         return bool(re.search(
-            r"\\b402\\b|insufficient credits|payment required",
+            r"\b402\b|insufficient credits|payment required",
             str(error),
             flags=re.IGNORECASE,
         ))
