@@ -5,12 +5,16 @@ import time
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from app.services.model_router import ASSISTANT_MODEL, DEEP_REASONING_MODEL, PROMPT_VERSION, VALIDATION_MODEL
+from app.services.model_router import (
+    ASSISTANT_MODEL, DEEP_REASONING_MODEL, PROMPT_VERSION, VALIDATION_MODEL,
+    is_free_openrouter_model,
+)
 
 # Load environment variables from .env file
 load_dotenv()
 
 OPENROUTER_TIMEOUT_SECONDS = 20.0
+MAX_OUTPUT_TOKENS = 2048
 
 class LLMValidator:
     def __init__(self):
@@ -25,13 +29,13 @@ class LLMValidator:
             max_retries=0,
         )
         self.model = VALIDATION_MODEL
-        configured_fallbacks = os.getenv(
-            "OPENROUTER_FALLBACK_MODELS",
-            "meta-llama/llama-3.3-70b-instruct,google/gemini-2.5-flash",
-        )
-        self.fallback_models = list(
-            dict.fromkeys(model.strip() for model in configured_fallbacks.split(",") if model.strip())
-        )[:3]
+        # Only explicitly free model IDs are accepted. Never let a stale environment
+        # variable add a paid fallback behind the free router.
+        configured_fallbacks = os.getenv("OPENROUTER_FALLBACK_MODELS", "")
+        self.fallback_models = list(dict.fromkeys(
+            model.strip() for model in configured_fallbacks.split(",")
+            if is_free_openrouter_model(model)
+        ))[:3]
         try:
             configured_retries = int(os.getenv("OPENROUTER_429_RETRIES", "1"))
         except ValueError:
@@ -56,8 +60,22 @@ class LLMValidator:
         except (TypeError, ValueError):
             return min(0.5 * (2 ** attempt), 2.0)
 
-    def _request_completion(self, prompt, model=None, temperature=0.1, max_tokens=3000):
+    @staticmethod
+    def _is_payment_required(error):
+        if getattr(error, "status_code", None) == 402:
+            return True
+        return bool(re.search(r"\\b402\\b", str(error)))
+
+    def _request_completion(self, prompt, model=None, temperature=0.1, max_tokens=2048):
         selected_model = model or self.model
+        if not is_free_openrouter_model(selected_model):
+            selected_model = "openrouter/free"
+        # Keep completion budgets bounded even when an old client or env setting
+        # asks OpenRouter for an unnecessarily large response.
+        try:
+            effective_max_tokens = max(1, min(int(max_tokens), MAX_OUTPUT_TOKENS))
+        except (TypeError, ValueError):
+            effective_max_tokens = 1200
         extra_body = {
             "provider": {
                 "sort": "throughput",
@@ -78,7 +96,7 @@ class LLMValidator:
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
                     temperature=temperature,
-                    max_tokens=max_tokens,
+                    max_tokens=effective_max_tokens,
                     extra_body=extra_body,
                 )
                 usage = getattr(response, "usage", None)
@@ -89,6 +107,7 @@ class LLMValidator:
                     "prompt_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
                     "completion_tokens": getattr(usage, "completion_tokens", None) if usage else None,
                     "prompt_version": PROMPT_VERSION,
+                    "max_tokens": effective_max_tokens,
                 }
                 return response
             except Exception as error:
@@ -229,11 +248,17 @@ class LLMValidator:
         except Exception as error:
             if self._is_rate_limited(error):
                 safe_error = (
-                    "All configured AI providers are temporarily rate-limited. "
-                    "Please retry shortly or configure an OpenRouter provider key."
+                    "Free AI capacity is temporarily rate-limited. "
+                    "The assessment needs manual review; retry later."
+                )
+            elif self._is_payment_required(error):
+                safe_error = (
+                    "OpenRouter could not serve this request within the account's current credit budget. "
+                    "BluePace uses free-only model routing; check that the OpenRouter balance is not negative. "
+                    "The assessment needs manual review."
                 )
             else:
-                safe_error = str(error)[:1000]
+                safe_error = str(error)[:350]
             print(f"Resume validation unavailable: {safe_error}")
             return {
                 "error": safe_error,
