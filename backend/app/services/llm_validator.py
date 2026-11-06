@@ -64,7 +64,7 @@ class LLMValidator:
     def _is_payment_required(error):
         if getattr(error, "status_code", None) == 402:
             return True
-        return bool(re.search(r"\\b402\\b", str(error)))
+        return bool(re.search(r"\b402\b", str(error)))
 
     def _request_completion(self, prompt, model=None, temperature=0.1, max_tokens=2048):
         selected_model = model or self.model
