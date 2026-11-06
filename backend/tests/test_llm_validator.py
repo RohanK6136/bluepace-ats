@@ -40,7 +40,7 @@ class FakeClient:
         self.chat = SimpleNamespace(completions=completions or FakeChatCompletions())
 
 
-def test_validator_sends_ordered_fallback_models_and_throughput_routing(monkeypatch):
+def test_validator_ignores_paid_fallback_configuration_and_uses_free_router(monkeypatch):
     monkeypatch.setenv(
         "OPENROUTER_FALLBACK_MODELS",
         "meta-llama/llama-3.3-70b-instruct, google/gemini-2.5-flash",
@@ -52,13 +52,20 @@ def test_validator_sends_ordered_fallback_models_and_throughput_routing(monkeypa
 
     assert result["match_score"] == 82
     request = validator.client.chat.completions.calls[0]
-    assert request["model"] == VALIDATION_MODEL
-    assert request["extra_body"]["models"] == [
-        "meta-llama/llama-3.3-70b-instruct",
-        "google/gemini-2.5-flash",
-    ]
+    assert request["model"] == "openrouter/free"
+    assert "models" not in request["extra_body"]
     assert request["extra_body"]["provider"]["sort"] == "throughput"
     assert request["extra_body"]["provider"]["allow_fallbacks"] is True
+
+
+def test_validator_sanitizes_a_paid_model_passed_by_a_caller():
+    validator = LLMValidator()
+    validator.client = FakeClient()
+
+    validator._request_completion("small test prompt", model="openai/gpt-5.5", max_tokens=32)
+
+    request = validator.client.chat.completions.calls[0]
+    assert request["model"] == "openrouter/free"
 
 
 class SimulatedRateLimit(Exception):
@@ -84,6 +91,30 @@ class RateLimitedOnce:
 class AlwaysRateLimited:
     def create(self, **_kwargs):
         raise SimulatedRateLimit()
+
+
+class SimulatedCreditLimit(Exception):
+    status_code = 402
+
+    def __init__(self):
+        super().__init__("402: This request requires more credits; you can only afford 460 tokens.")
+
+
+class AlwaysCreditLimited:
+    def create(self, **_kwargs):
+        raise SimulatedCreditLimit()
+
+
+def test_credit_limit_returns_manual_review_without_exposing_provider_error():
+    validator = LLMValidator()
+    validator.client = FakeClient(AlwaysCreditLimited())
+
+    result = validator.validate_resume({"skills": ["Python"]}, "Python engineer")
+
+    assert result["recommendation"] == "Manual Review"
+    assert "No AI score was produced" in result["error"]
+    assert "402" not in result["error"]
+    assert "460 tokens" not in result["summary"]
 
 
 def test_validator_retries_transient_rate_limit(monkeypatch):
