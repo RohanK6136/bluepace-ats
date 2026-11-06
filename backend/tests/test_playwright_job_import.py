@@ -39,7 +39,7 @@ def test_fetch_job_page_uses_rendered_browser_fallback_when_raw_html_is_a_shell(
 
     monkeypatch.setattr(api, "_validate_public_job_url", lambda value: value)
     monkeypatch.setattr(api.urllib.request, "urlopen", lambda request, timeout: FakeResponse())
-    monkeypatch.setattr(api.trafilatura, "extract", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api, "_extract_with_trafilatura", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         api,
         "_render_job_page",
