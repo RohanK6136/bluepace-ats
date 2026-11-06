@@ -5,6 +5,7 @@ import handler, { extractPdfText } from "../api/v1/[...path].js";
 import explicitTestHandler from "../api/v1/test.js";
 import { deflateSync } from "node:zlib";
 import { onRequest as pagesFunction } from "../functions/v1/[[path]].js";
+import { classifyRubricCriterion, extractKnownSkills } from "../api/rubric-classifier.mjs";
 
 function invoke(headers = {}, method = "GET", pathParts = ["models"], body = "") {
   const req = {
@@ -307,6 +308,150 @@ test("built-in rules engine builds a rubric and returns evidence-based resume ma
   assert.equal(matchResponse.body.status, "complete");
   assert.ok(matchResponse.body.evidence.length > 0);
   assert.match(matchResponse.body.flags.join(" "), /not generative AI/i);
+});
+
+
+test("rubric classifier assigns stable categories and confidence from explicit source text", () => {
+  const cases = [
+    ["AWS", "requirements", "cloud_platform", "high"],
+    ["Python", "requirements", "technical_skill", "high"],
+    ["5 years of experience", "experience", "experience", "high"],
+    ["Bachelor's degree in Computer Science", "education", "education", "high"],
+    ["PMP certification required", "certifications", "certification", "high"],
+    ["English fluency", "languages", "language", "high"],
+    ["Strong stakeholder communication and collaboration", "requirements", "soft_skill", "high"],
+    ["Recruitment and payroll domain knowledge", "requirements", "domain_knowledge", "high"],
+    ["Build and maintain REST API services", "responsibilities", "responsibility", "medium"],
+    ["Health insurance and paid leave", "benefits", "job_context", "high"],
+  ];
+  for (const [text, section, category, confidence] of cases) {
+    const result = classifyRubricCriterion(text, section);
+    assert.equal(result.category, category, text);
+    assert.equal(result.classification_confidence, confidence, text);
+    assert.equal(result.requires_review, confidence !== "high", text);
+  }
+  assert.deepEqual(extractKnownSkills("Built Python services with SQL on AWS").sort(), ["AWS", "Python", "SQL"]);
+});
+
+test("rules rubric splits compound requirements and excludes job-offer context", async () => {
+  const jd = [
+    "Senior Software Engineer",
+    "Requirements:",
+    "- 5 years of experience with Python, SQL and AWS",
+    "- Bachelor's degree in Computer Science",
+    "- PMP certification required",
+    "Preferred:",
+    "- Kubernetes",
+    "Responsibilities:",
+    "- Build and maintain REST API services",
+    "Benefits:",
+    "- Health insurance and paid leave",
+  ].join("\\n");
+  const response = await invoke(
+    { host: "ats.vercel.app", "content-type": "application/json" },
+    "POST",
+    ["match", "rubrics"],
+    JSON.stringify({ jd_text: jd, options: { profile: "rules" } }),
+  );
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  const rubric = response.body.rubric;
+  assert.equal(rubric.required_years, 5);
+  assert.equal(rubric.items.some((item) => item.label === "Senior Software Engineer"), false);
+  assert.equal(rubric.items.some((item) => /health insurance|paid leave/i.test(item.label)), false);
+
+  const python = rubric.items.find((item) => item.label === "Python");
+  const sql = rubric.items.find((item) => item.label === "SQL");
+  const aws = rubric.items.find((item) => item.label === "AWS");
+  const experience = rubric.items.find((item) => item.category === "experience");
+  const education = rubric.items.find((item) => item.category === "education");
+  const certification = rubric.items.find((item) => item.category === "certification");
+  const kubernetes = rubric.items.find((item) => item.label === "Kubernetes");
+  const responsibility = rubric.items.find((item) => item.category === "responsibility");
+
+  assert.equal(python?.category, "technical_skill");
+  assert.equal(python?.source_line, "J02");
+  assert.equal(python?.source_section, "requirements");
+  assert.equal(python?.classification_confidence, "high");
+  assert.equal(sql?.category, "technical_skill");
+  assert.equal(aws?.category, "cloud_platform");
+  assert.equal(experience?.label, "5 years of experience");
+  assert.equal(experience?.importance, "must");
+  assert.equal(education?.source_line, "J03");
+  assert.equal(certification?.source_line, "J04");
+  assert.equal(kubernetes?.importance, "nice");
+  assert.equal(kubernetes?.importance_source, "source_heading");
+  assert.equal(kubernetes?.category, "cloud_platform");
+  assert.equal(responsibility?.source_section, "responsibilities");
+  assert.equal(responsibility?.classification_confidence, "medium");
+});
+
+test("model rubric categories are normalized from the cited source instead of trusted from model output", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    model: "google/gemini-3.8-flash",
+    choices: [{ message: { content: JSON.stringify({
+      title: "Software Engineer",
+      required_years: 3,
+      items: [{
+        label: "Python",
+        source_line: "J02",
+        category: "soft_skill",
+        type: "other",
+        group: "soft",
+        importance: "nice",
+        weight: 3,
+      }],
+    }) }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 20, completion_tokens: 30 },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-category-key" },
+      "POST",
+      ["match", "rubrics"],
+      JSON.stringify({
+        jd_text: "Software Engineer\\nRequirements:\\n- Python and 3 years of experience",
+        options: { profile: "openrouter" },
+      }),
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    const item = response.body.rubric.items[0];
+    assert.equal(item.category, "technical_skill");
+    assert.equal(item.type, "skill");
+    assert.equal(item.group, "coding");
+    assert.equal(item.importance, "must");
+    assert.equal(item.importance_source, "source_heading");
+    assert.equal(item.source_line, "J02");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rubric generation rejects benefit-only text rather than treating it as applicant criteria", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    model: "google/gemini-3.8-flash",
+    choices: [{ message: { content: JSON.stringify({
+      title: "Software Engineer",
+      items: [{ label: "Health insurance", source_line: "J02", importance: "must", weight: 2 }],
+    }) }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 10, completion_tokens: 10 },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-context-key" },
+      "POST",
+      ["match", "rubrics"],
+      JSON.stringify({
+        jd_text: "Software Engineer\\nBenefits:\\n- Health insurance and paid leave",
+        options: { profile: "openrouter" },
+      }),
+    );
+    assert.equal(response.statusCode, 422);
+    assert.match(response.body.detail, /No source-backed applicant requirements/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 
