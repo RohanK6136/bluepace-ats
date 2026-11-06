@@ -1,3 +1,6 @@
+import sys
+from types import SimpleNamespace
+
 import app.main as api
 
 
@@ -36,7 +39,7 @@ def test_trafilatura_fallback_extracts_text_when_existing_result_is_too_short(mo
         calls["kwargs"] = kwargs
         return extracted
 
-    monkeypatch.setattr(api, "_extract_with_trafilatura", fake_extract)
+    monkeypatch.setitem(sys.modules, "trafilatura", SimpleNamespace(extract=fake_extract))
 
     result = api._extract_job_description(html, parser)
 
