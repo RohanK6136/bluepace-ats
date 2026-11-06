@@ -18,7 +18,7 @@ PROVIDER_LABELS = {
     "xai": "xAI Grok", "github_models": "GitHub Models",
 }
 DEFAULT_MODELS = {
-    "openrouter": "google/gemini-2.5-flash", "openai": "gpt-5.4",
+    "openrouter": "openrouter/free", "openai": "gpt-5.4",
     "claude": "claude-sonnet-4-6", "deepseek": "deepseek-chat",
     "cloudflare": "@cf/qwen/qwen3.8-27b", "ollama": "qwen3.5:4b", "gemini": "gemini-2.5-flash",
     "xai": "grok-3-mini", "github_models": "openai/gpt-4.1",
@@ -58,22 +58,31 @@ def provider_label(provider: str) -> str:
     return PROVIDER_LABELS[provider_name(provider)]
 
 
+def _is_free_openrouter_model(value: str) -> bool:
+    candidate = str(value or "").strip().lower()
+    return candidate == "openrouter/free" or candidate.endswith(":free")
+
+
 def default_model(provider: str) -> str:
     provider = provider_name(provider)
     for name in MODEL_ENV[provider]:
         configured = os.getenv(name, "").strip()
         if configured:
-            # Migrate the retired generic free-router alias to a concrete model.
-            if provider == "openrouter" and configured == "openrouter/free":
-                return DEFAULT_MODELS[provider]
-            return configured
+            # OpenRouter must remain free-only even when a paid model was configured previously.
+            if provider != "openrouter" or _is_free_openrouter_model(configured):
+                return configured
     return DEFAULT_MODELS[provider]
 
 
 def model_name(value: str | None, provider: str) -> str:
+    provider = provider_name(provider)
     name = (value or default_model(provider)).strip()
     if not name or len(name) > 200:
         raise HTTPException(422, "Enter a valid model identifier.")
+    # Ignore stale browser settings that still point at paid OpenRouter models.
+    # Explicit :free model variants remain selectable; otherwise use the free router.
+    if provider == "openrouter" and not _is_free_openrouter_model(name):
+        return default_model(provider)
     return name
 
 

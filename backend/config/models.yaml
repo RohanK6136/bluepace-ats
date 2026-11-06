@@ -94,11 +94,11 @@ profiles:
       output_per_mtok: 20.00
 
   openrouter:
-    label: OpenRouter (hosted)
-    description: Uses the configured hosted model through OpenRouter. Requires OPENROUTER_API_KEY. Text is sent to OpenRouter.
+    label: OpenRouter Free Models (automatic)
+    description: Free-only routing through OpenRouter's current free model pool. No paid model is selected; availability and rate limits depend on the free pool.
     provider: openai_compatible
     base_url: https://openrouter.ai/api/v1
-    model: ${OPENROUTER_MODEL:-google/gemini-2.5-flash}
+    model: openrouter/free
     api_key_env: OPENROUTER_API_KEY
     structured_output: json_schema
     schema_drop_keywords: [maxLength, minLength, minItems, maxItems, pattern]

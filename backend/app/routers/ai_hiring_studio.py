@@ -41,7 +41,7 @@ router = APIRouter(prefix="/ai-hiring", tags=["AI Hiring Studio"])
 WRITE_ROLES = (Role.admin, Role.recruiter, Role.hiring_manager)
 CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
-DEFAULT_MODEL = "google/gemini-2.5-flash"
+DEFAULT_MODEL = "openrouter/free"
 MAX_TEXT_CHARS = 50000
 
 _SENSITIVE_RESUME_KEYS = frozenset({
@@ -243,11 +243,11 @@ def _provider_error(body: str, code: int) -> str:
     if code == 401:
         return "OpenRouter rejected the API key. Check the key in AI Hiring Studio settings."
     if code == 402:
-        return "OpenRouter reports insufficient credits or account balance."
+        return "OpenRouter free-model routing is unavailable for this account right now. No paid model will be selected."
     if code == 403:
         return "OpenRouter denied access to this model. Check model permissions."
     if code == 429:
-        return "OpenRouter rate limit reached. Wait briefly or select another model."
+        return "OpenRouter free-model capacity is temporarily rate-limited. BluePace will use a local fallback where supported."
     return str(message)[:350] if message else f"OpenRouter request failed with HTTP {code}."
 
 
@@ -300,7 +300,8 @@ def _call_openrouter(key: str, model: str, system_prompt: str, user_prompt: str,
             body = error.read(2048).decode("utf-8", errors="replace")
             if structured and error.code == 400 and "response_format" in body.lower():
                 continue
-            raise HTTPException(502, _provider_error(body, error.code)) from None
+            status_code = 503 if error.code in (402, 429) else 502
+            raise HTTPException(status_code, _provider_error(body, error.code)) from None
         except (urllib.error.URLError, TimeoutError):
             raise HTTPException(504, "OpenRouter is unreachable or timed out. Retry or choose a faster model.") from None
     raise HTTPException(502, "OpenRouter could not return a structured response for this model.")
@@ -538,7 +539,11 @@ def test_provider_connection(request: OpenRouterRequest, user: User = Depends(re
         except (urllib.error.URLError, TimeoutError):
             raise HTTPException(504, "OpenRouter connection timed out or is unreachable.") from None
         models = data.get("data") or []
-        available = any(item.get("id") == model for item in models if isinstance(item, dict))
+        # openrouter/free is a routing alias, not a concrete model in /models.
+        # Its completion probe below verifies that the free router is actually usable.
+        available = model == "openrouter/free" or any(
+            item.get("id") == model for item in models if isinstance(item, dict)
+        )
         if not available:
             raise HTTPException(
                 422,
@@ -548,13 +553,25 @@ def test_provider_connection(request: OpenRouterRequest, user: User = Depends(re
 
         # A models-list response only validates the key. Run a tiny completion as well so
         # the UI's connection check proves the chosen model can actually generate output.
-        smoke_result = _call_openrouter(
-            key,
-            model,
-            'You are validating the BluePace AI provider connection. Return only JSON: {"status":"ok"}.',
-            'Return exactly this JSON object: {"status":"ok"}.',
-            max_tokens=16,
-        )
+        try:
+            smoke_result = _call_openrouter(
+                key,
+                model,
+                'You are validating the BluePace AI provider connection. Return only JSON: {"status":"ok"}.',
+                'Return exactly this JSON object: {"status":"ok"}.',
+                max_tokens=16,
+            )
+        except HTTPException as error:
+            if model == "openrouter/free" and error.status_code in (503, 504):
+                return {
+                    "status": "degraded", "provider": provider, "provider_label": _provider_label(provider),
+                    "model": model, "model_listed": True, "completion_verified": False,
+                    "available_model_count": len(models), "usage": {},
+                    "latency_ms": int((perf_counter() - started) * 1000),
+                    "key_source": "browser" if request.api_key else "server environment",
+                    "message": str(error.detail),
+                }
+            raise
         return {
             "status": "connected", "provider": provider, "provider_label": _provider_label(provider),
             "model": model, "model_listed": True, "completion_verified": True,

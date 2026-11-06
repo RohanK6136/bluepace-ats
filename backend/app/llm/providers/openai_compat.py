@@ -64,8 +64,7 @@ class OpenAICompatibleProvider:
         body.update(p.extra_body)
         return body
 
-    @staticmethod
-    def _raise_for_status(resp: httpx.Response, body_text: str) -> None:
+    def _raise_for_status(self, resp: httpx.Response, body_text: str) -> None:
         code = resp.status_code
         if code < 400:
             return
@@ -75,6 +74,11 @@ class OpenAICompatibleProvider:
         if code == 404:
             raise LLMConfigError(f"model or endpoint not found ({detail})")
         if code == 429:
+            if (self.profile.base_url or "").rstrip("/").lower() == "https://openrouter.ai/api/v1":
+                raise LLMUnavailable(
+                    "OpenRouter free-model capacity is temporarily rate-limited; "
+                    "the feature will use its rules-based fallback."
+                )
             raise LLMRateLimited(detail)
         if code == 402:
             # Treat payment/credit limits as non-retryable so features can degrade to rules.

@@ -46,7 +46,19 @@ class ModelRegistry:
         defaults = data.get("defaults") or {}
         profiles = [ModelProfile(id=pid, **{**defaults.get("profile", {}), **(spec or {})})
                     for pid, spec in (data.get("profiles") or {}).items()]
-        return cls(profiles, default_override or data.get("default_profile", ""),
+        selected_default = default_override or data.get("default_profile", "")
+        # A stale deployment override must not silently switch the ATS back to a paid
+        # OpenRouter model. Keep explicit local and other-provider overrides intact.
+        by_id = {profile.id: profile for profile in profiles}
+        selected_profile = by_id.get(selected_default)
+        if (selected_profile is not None
+                and selected_profile.provider == "openai_compatible"
+                and (selected_profile.base_url or "").rstrip("/").lower() == "https://openrouter.ai/api/v1"
+                and selected_profile.model != "openrouter/free"
+                and not selected_profile.model.lower().endswith(":free")
+                and "openrouter" in by_id):
+            selected_default = "openrouter"
+        return cls(profiles, selected_default,
                    defaults.get("json_instruction", "Return JSON only, matching this JSON schema exactly:"))
 
     @classmethod
@@ -81,6 +93,11 @@ class ModelRegistry:
         if profile.api_key_env and not self._api_key_configured(profile):
             alternate = " or GITHUB_TOKEN" if profile.api_key_env == "GITHUB_MODELS_TOKEN" else ""
             return f"set {profile.api_key_env}{alternate} to enable"
+        if (profile.provider == "openai_compatible"
+                and (profile.base_url or "").rstrip("/").lower() == "https://openrouter.ai/api/v1"
+                and profile.model != "openrouter/free"
+                and not profile.model.lower().endswith(":free")):
+            return "paid OpenRouter models are disabled; select OpenRouter Free Models (automatic)"
         if profile.provider == "anthropic" and importlib.util.find_spec("anthropic") is None:
             return "install the 'anthropic' extra (pip install -e .[anthropic])"
         return None

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { assessResumeLocally, buildLocalRubric } from "./aiLocalFallbacks.mjs";
 
-const DEFAULT_MODEL = "google/gemini-2.5-flash";
+const DEFAULT_MODEL = "openrouter/free";
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const PROVIDER_OPTIONS = [
-  { id: "openrouter", label: "OpenRouter", defaultModel: "google/gemini-2.5-flash", keyPlaceholder: "sk-or-v1-…", keyEnvVar: "OPENROUTER_API_KEY" },
+  { id: "openrouter", label: "OpenRouter · Free models", defaultModel: "openrouter/free", keyPlaceholder: "sk-or-v1-…", keyEnvVar: "OPENROUTER_API_KEY" },
   { id: "gemini", label: "Google Gemini", defaultModel: "gemini-2.5-flash", keyPlaceholder: "Google AI API key", keyEnvVar: "GOOGLE_API_KEY (or GEMINI_API_KEY)" },
   { id: "openai", label: "OpenAI / ChatGPT API", defaultModel: "gpt-5.4", keyPlaceholder: "OpenAI API key", keyEnvVar: "OPENAI_API_KEY" },
   { id: "claude", label: "Claude (Anthropic)", defaultModel: "claude-sonnet-4-6", keyPlaceholder: "Anthropic API key", keyEnvVar: "ANTHROPIC_API_KEY (or CLAUDE_API_KEY)" },
@@ -20,11 +20,9 @@ function readSessionValue(key) {
 }
 function storedProvider() {
   const saved = readSessionValue("bluepace_ai_provider");
-  const savedKeyProvider = PROVIDER_OPTIONS.find((option) => option.id !== "ollama" && readSessionValue("bluepace_ai_" + option.id + "_key"));
-  if (saved === "ollama") return "ollama";
-  if (PROVIDER_BY_ID[saved] && (readSessionValue("bluepace_ai_" + saved + "_key") || (saved === "openrouter" && readSessionValue("bluepace_openrouter_key")))) return saved;
-  if (savedKeyProvider) return savedKeyProvider.id;
-  return PROVIDER_BY_ID[saved] ? saved : "openrouter";
+  const explicitlyChosen = readSessionValue("bluepace_ai_provider_choice_v2") === "true";
+  // Ignore legacy saved paid-provider selections once; a current-session user choice is preserved.
+  return explicitlyChosen && PROVIDER_BY_ID[saved] ? saved : "openrouter";
 }
 function hasSavedProviderPreference() {
   const current = storedProvider();
@@ -53,6 +51,11 @@ function formatProviderMessageForDisplay(message) {
     return "AI provider is not connected. Open Settings and connect a provider to continue.";
   }
   return text;
+}
+
+function isFreeInferenceUnavailable(value) {
+  const message = typeof value === "string" ? value : explainError(value);
+  return /insufficient credits|account balance|(?:http\s*)?402|rate.?limit|(?:http\s*)?429|free[- ]model.*(?:unavailable|limited|capacity)|no endpoints|temporarily unavailable/i.test(message);
 }
 
 function buildLocalJDFallback(sourceText, overrides = {}, mode = "detailed", fallbackReason = "no AI provider key is configured") {
@@ -149,7 +152,8 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     const current = storedProvider();
     const saved = readSessionValue("bluepace_ai_" + current + "_model")
       || (current === "openrouter" ? readSessionValue("bluepace_openrouter_model") : "");
-    return !saved || saved === "openai/gpt-4o-mini" || (current === "openrouter" && saved === "openrouter/free") ? PROVIDER_BY_ID[current].defaultModel : saved;
+    if (current === "openrouter") return DEFAULT_MODEL;
+    return !saved || saved === "openai/gpt-4o-mini" ? PROVIDER_BY_ID[current].defaultModel : saved;
   });
   const [baseUrl, setBaseUrl] = useState(() => readSessionValue("bluepace_ai_ollama_base_url") || "http://localhost:11434/v1");
   const [accountId, setAccountId] = useState(() => readSessionValue("bluepace_ai_cloudflare_account_id"));
@@ -189,7 +193,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   const selectedProvider = PROVIDER_BY_ID[provider] || PROVIDER_BY_ID.openrouter;
   const credentials = () => ({
     provider,
-    model: model.trim() || selectedProvider.defaultModel,
+    model: provider === "openrouter" ? DEFAULT_MODEL : (model.trim() || selectedProvider.defaultModel),
     ...(provider !== "ollama" && apiKey.trim() ? { api_key: apiKey.trim() } : {}),
     ...(provider === "ollama" ? { base_url: baseUrl.trim() || selectedProvider.baseUrl } : {}),
     ...(provider === "cloudflare" && accountId.trim() ? { account_id: accountId.trim() } : {}),
@@ -231,17 +235,18 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
   }
 
   function persistSettings() {
+    sessionStorage.setItem("bluepace_ai_provider_choice_v2", "true");
     sessionStorage.setItem("bluepace_ai_provider", provider);
     const keyName = "bluepace_ai_" + provider + "_key";
     if (apiKey.trim()) sessionStorage.setItem(keyName, apiKey.trim());
     else sessionStorage.removeItem(keyName);
-    sessionStorage.setItem("bluepace_ai_" + provider + "_model", model.trim() || selectedProvider.defaultModel);
+    sessionStorage.setItem("bluepace_ai_" + provider + "_model", provider === "openrouter" ? DEFAULT_MODEL : (model.trim() || selectedProvider.defaultModel));
     if (provider === "ollama") sessionStorage.setItem("bluepace_ai_ollama_base_url", baseUrl.trim() || selectedProvider.baseUrl);
     if (provider === "cloudflare") sessionStorage.setItem("bluepace_ai_cloudflare_account_id", accountId.trim());
     if (provider === "openrouter") {
       if (apiKey.trim()) sessionStorage.setItem("bluepace_openrouter_key", apiKey.trim());
       else sessionStorage.removeItem("bluepace_openrouter_key");
-      sessionStorage.setItem("bluepace_openrouter_model", model.trim() || DEFAULT_MODEL);
+      sessionStorage.setItem("bluepace_openrouter_model", DEFAULT_MODEL);
     }
   }
 
@@ -249,12 +254,13 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     const next = PROVIDER_BY_ID[nextProvider];
     if (!next) return;
     setProviderDiscoveryComplete(true);
+    try { sessionStorage.setItem("bluepace_ai_provider_choice_v2", "true"); } catch { /* Keep this selection in component state. */ }
     setProvider(nextProvider);
     setApiKey(readSessionValue("bluepace_ai_" + nextProvider + "_key")
       || (nextProvider === "openrouter" ? readSessionValue("bluepace_openrouter_key") : ""));
-    setModel(readSessionValue("bluepace_ai_" + nextProvider + "_model")
-      || (nextProvider === "openrouter" && readSessionValue("bluepace_openrouter_model") && readSessionValue("bluepace_openrouter_model") !== "openrouter/free"
-        ? readSessionValue("bluepace_openrouter_model") : next.defaultModel));
+    setModel(nextProvider === "openrouter"
+      ? DEFAULT_MODEL
+      : (readSessionValue("bluepace_ai_" + nextProvider + "_model") || next.defaultModel));
     if (nextProvider === "ollama") setBaseUrl(readSessionValue("bluepace_ai_ollama_base_url") || next.baseUrl);
     if (nextProvider === "cloudflare") setAccountId(readSessionValue("bluepace_ai_cloudflare_account_id"));
     setServerKeyConfigured(null); setServerAccountIdConfigured(null);
@@ -280,7 +286,18 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       try { persistSettings(); } catch { /* Browser storage is optional; the current UI state remains usable. */ }
       setNotice(response.data?.message || (selectedProvider.label + " connection checked."));
     } catch (requestError) {
-      setError(explainError(requestError));
+      if (isFreeInferenceUnavailable(requestError)) {
+        setConnection({
+          status: "degraded", provider, provider_label: selectedProvider.label,
+          model: provider === "openrouter" ? DEFAULT_MODEL : model,
+          model_listed: true, latency_ms: 0,
+          message: "Free inference is temporarily unavailable or rate-limited. No paid OpenRouter model will be selected; local rule-based fallbacks remain available.",
+        });
+        setNotice("Free model capacity is temporarily unavailable. BluePace will use a local rule-based fallback where supported.");
+        setError("");
+      } else {
+        setError(explainError(requestError));
+      }
     } finally { setBusy(""); }
   }
 
@@ -346,7 +363,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       status: item.resumeData ? "ready" : item.status, error: "",
     })));
     setError("");
-    setNotice("AI generation was unavailable because " + fallbackReason + ". A local template draft was created from your notes; it is not AI-generated. Connect a funded provider in Settings and retry for AI-generated content.");
+    setNotice("Hosted AI inference was unavailable (" + fallbackReason + "). A local template draft was created from your notes; it is not AI-generated. Review and complete the details before saving.");
   }
 
   async function generateJD(overrides = null) {
@@ -416,11 +433,11 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       const message = explainError(requestError);
       const missingProviderKey = /^Add an? .+ API key in settings\b/i.test(message)
         || /API key is not configured/i.test(message);
-      const insufficientCredits = /insufficient credits|account balance|(?:HTTP\s*)?402/i.test(message);
+      const freeInferenceUnavailable = isFreeInferenceUnavailable(message);
       if (missingProviderKey) {
         applyLocalJDFallback(chosenDetails);
-      } else if (insufficientCredits) {
-        applyLocalJDFallback(chosenDetails, selectedProvider.label + " reports insufficient credits or account balance");
+      } else if (freeInferenceUnavailable) {
+        applyLocalJDFallback(chosenDetails, "free hosted model capacity is unavailable or rate-limited");
       } else {
         setError(message);
       }
@@ -478,6 +495,21 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     }
   }
 
+  function applyLocalRubricFallback(reason) {
+    const localRubric = buildLocalRubric(jobDescription.trim(), jobDetails.job_title || rubricTitle);
+    setRubric(localRubric);
+    setRubricTitle(String(localRubric.title || jobDetails.job_title || "Assessment rubric"));
+    setSavedRubricId("");
+    setRubricVersionBaseId("");
+    setRubricMeta({ model: "local-rule-based-template (not AI)", latency_ms: 0, generation_mode: "local_rule_based_fallback" });
+    setResumeBatch((previous) => previous.map((item) => ({
+      ...item, analysis: null, meta: null,
+      status: item.resumeData ? "ready" : item.status, error: "",
+    })));
+    setError("");
+    setNotice(reason + ". A local rule-based rubric draft was created; it is not AI-generated. Review the criteria and save the rubric version before assessing resumes.");
+  }
+
   async function buildRubric() {
     if (jobDescription.trim().length < 10) {
       setError("Generate or paste a job description before building the rubric.");
@@ -487,15 +519,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     setError("");
     setNotice("");
     if (!(await ensureProviderConfigured({ quiet: true }))) {
-      const localRubric = buildLocalRubric(jobDescription.trim(), jobDetails.job_title || rubricTitle);
-      setRubric(localRubric);
-      setRubricTitle(String(localRubric.title || jobDetails.job_title || "Assessment rubric"));
-      setSavedRubricId("");
-      setRubricVersionBaseId("");
-      setRubricMeta({ model: "local-rule-based-template (not AI)", latency_ms: 0, generation_mode: "local_rule_based_fallback" });
-      setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
-      setError("");
-      setNotice("No AI provider key is available. A local rule-based rubric draft was created, not AI-generated. Review the criteria and save the rubric version before assessing resumes.");
+      applyLocalRubricFallback("No AI provider key is configured");
       setBusy("");
       return;
     }
@@ -519,7 +543,11 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
       setResumeBatch((previous) => previous.map((item) => ({ ...item, analysis: null, meta: null, status: item.resumeData ? "ready" : item.status, error: "" })));
       setNotice("Rubric created. Edit the criteria, then save the version before assessing resumes.");
     } catch (requestError) {
-      setError(explainError(requestError));
+      if (isFreeInferenceUnavailable(requestError)) {
+        applyLocalRubricFallback("Free hosted inference is temporarily unavailable or rate-limited");
+      } else {
+        setError(explainError(requestError));
+      }
     } finally {
       setBusy("");
     }
@@ -645,6 +673,7 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
     let nextIndex = 0;
     let successes = 0;
     let failures = 0;
+    let localFallbacks = 0;
     const workers = Array.from({ length: Math.min(2, pending.length) }, async () => {
       while (true) {
         const index = nextIndex++;
@@ -659,14 +688,36 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
           updateResumeRow(item.id, { analysis: response.data?.analysis || null, meta: response.data, status: "complete", error: "" });
           successes += 1;
         } catch (requestError) {
-          updateResumeRow(item.id, { status: "failed", error: explainError(requestError) });
-          failures += 1;
+          if (isFreeInferenceUnavailable(requestError)) {
+            try {
+              const analysis = assessResumeLocally(item.resumeData, rubric);
+              updateResumeRow(item.id, {
+                analysis,
+                meta: {
+                  model: "local-keyword-match (not AI)", latency_ms: 0, token_usage: null,
+                  model_call_count: 0, analysis_mode: "local_keyword_fallback",
+                  rubric_id: savedRubricId, rubric_version: selectedRubricSnapshot?.version || 1,
+                  rubric_hash: selectedRubricSnapshot?.content_hash || "",
+                },
+                status: "complete", error: "",
+              });
+              successes += 1;
+              localFallbacks += 1;
+            } catch (localError) {
+              updateResumeRow(item.id, { status: "failed", error: explainError(localError) });
+              failures += 1;
+            }
+          } else {
+            updateResumeRow(item.id, { status: "failed", error: explainError(requestError) });
+            failures += 1;
+          }
         }
       }
     });
     await Promise.all(workers);
     setBusy("");
-    setNotice("Assessment finished: " + successes + " completed, " + failures + " failed. Scores are decision support only and need human review.");
+    setError("");
+    setNotice("Assessment finished: " + successes + " completed" + (localFallbacks ? " (" + localFallbacks + " using local keyword evidence, not AI)" : "") + ", " + failures + " failed. All scores are decision support only and require human review.");
   }
 
   async function loadSavedRubric(id) {
@@ -966,10 +1017,10 @@ export default function AIHiringStudio({ token, apiRequest, jobs = [], onSaved }
             {provider !== "ollama" && <label className="block text-sm font-semibold text-slate-700">{provider === "claude" ? "Anthropic API key" : provider === "cloudflare" ? "Cloudflare API token" : selectedProvider.label + " API key"}<input type="password" autoComplete="new-password" className={fieldClass + " mt-1.5 font-mono"} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnection(null); }} placeholder={selectedProvider.keyPlaceholder}/><span className="mt-1 block text-xs font-normal text-slate-500">Leave empty to use the matching backend environment variable.</span></label>}
             {provider === "cloudflare" && <label className="block text-sm font-semibold text-slate-700">Cloudflare Account ID<input className={fieldClass + " mt-1.5 font-mono"} value={accountId} onChange={(event) => { setAccountId(event.target.value); setConnection(null); }} placeholder="Cloudflare account ID" autoComplete="off"/><span className="mt-1 block text-xs font-normal text-slate-500">Required for the Workers AI account endpoint.</span></label>}
             {provider === "ollama" && <label className="block text-sm font-semibold text-slate-700">Local Ollama base URL<input className={fieldClass + " mt-1.5 font-mono"} value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setConnection(null); }} placeholder="http://localhost:11434/v1" autoComplete="url"/><span className="mt-1 block text-xs font-normal text-slate-500">Only loopback URLs are accepted; remote host URLs are rejected.</span></label>}
-            <label className="block text-sm font-semibold text-slate-700">Model identifier<input className={fieldClass + " mt-1.5 font-mono"} value={model} onChange={(event) => { setModel(event.target.value); setConnection(null); }} placeholder={selectedProvider.defaultModel}/><span className="mt-1 block text-xs font-normal text-slate-500">Default: {selectedProvider.defaultModel}. Enter another model ID if your provider supports it. Qwen is a model family, not a separate API provider.</span></label>
+            <label className="block text-sm font-semibold text-slate-700">Model identifier<input className={fieldClass + " mt-1.5 font-mono"} value={provider === "openrouter" ? DEFAULT_MODEL : model} readOnly={provider === "openrouter"} onChange={(event) => { setModel(event.target.value); setConnection(null); }} placeholder={selectedProvider.defaultModel}/><span className="mt-1 block text-xs font-normal text-slate-500">{provider === "openrouter" ? "Free-only routing is enforced. OpenRouter selects an available free model; paid models are not requested." : "Default: " + selectedProvider.defaultModel + ". Enter another model ID if your provider supports it. Qwen is a model family, not a separate API provider."}</span></label>
             <div className="flex flex-wrap gap-2"><button type="button" onClick={saveSettings} className={btnSecondary}>Save for this tab session</button><button type="button" onClick={() => void testConnection()} disabled={Boolean(busy)} className={btnPrimary}>{busy === "test" ? "Testing…" : "Test " + selectedProvider.label + " connection"}</button></div>
-            {connection && <div className={"rounded-xl border p-4 " + (connection.status === "connected" && connection.model_listed !== false ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")}><div className="flex flex-wrap items-center gap-2"><MetaPill tone={connection.status === "connected" && connection.model_listed !== false ? "good" : "warn"}>{connection.status === "connected" && connection.model_listed !== false ? "Connection successful" : "Check the selected model"}</MetaPill><MetaPill>{connection.latency_ms} ms</MetaPill></div><p className="mt-2 text-sm text-slate-800">{formatProviderMessageForDisplay(connection.message)}</p><p className="mt-1 text-xs text-slate-600">Selected model: {connection.model} · Provider: {connection.provider_label || selectedProvider.label} · Key source: {connection.key_source}</p></div>}
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p><strong className="text-slate-800">Hosted providers:</strong> OpenAI/ChatGPT, Google Gemini, Claude, DeepSeek, OpenRouter and Cloudflare send prompts to the selected provider. Confirm your organisation's data-use terms before processing candidate data. Requests may incur charges.</p><p className="mt-2"><strong className="text-slate-800">Local Ollama / Qwen 3.5:</strong> Install Ollama where the backend runs and execute <code>ollama pull qwen3.5:4b</code>. Keep the URL at <code>http://localhost:11434/v1</code>.</p><p className="mt-2"><strong className="text-slate-800">Hosted deployment limitation:</strong> On Railway, localhost means the Railway container, not your PC. The production ATS cannot reach Ollama on your computer using localhost. For local inference run the backend and Ollama on the same computer, or build a separately secured local bridge. Never put API keys in Vite environment variables or commit them to GitHub.</p><p className="mt-2">“Qwen 3.4.5” did not identify a model tag that I could verify; the model field defaults to the published Qwen 3.5 family and remains editable.</p></div>
+            {connection && <div className={"rounded-xl border p-4 " + (connection.status === "connected" && connection.model_listed !== false ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")}><div className="flex flex-wrap items-center gap-2"><MetaPill tone={connection.status === "connected" && connection.model_listed !== false ? "good" : "warn"}>{connection.status === "degraded" ? "Free models temporarily unavailable" : connection.status === "connected" && connection.model_listed !== false ? "Connection successful" : "Check the selected model"}</MetaPill><MetaPill>{connection.latency_ms} ms</MetaPill></div><p className="mt-2 text-sm text-slate-800">{formatProviderMessageForDisplay(connection.message)}</p><p className="mt-1 text-xs text-slate-600">Selected model: {connection.model} · Provider: {connection.provider_label || selectedProvider.label} · Key source: {connection.key_source}</p></div>}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p><strong className="text-slate-800">Hosted providers:</strong> OpenRouter is configured for free-only model routing in this workspace, with shared quotas and availability limits. OpenAI/ChatGPT, Google Gemini, Claude, DeepSeek and Cloudflare may incur provider charges. Confirm your organisation's data-use terms before processing candidate data.</p><p className="mt-2"><strong className="text-slate-800">Local Ollama / Qwen 3.5:</strong> Install Ollama where the backend runs and execute <code>ollama pull qwen3.5:4b</code>. Keep the URL at <code>http://localhost:11434/v1</code>.</p><p className="mt-2"><strong className="text-slate-800">Hosted deployment limitation:</strong> On Railway, localhost means the Railway container, not your PC. The production ATS cannot reach Ollama on your computer using localhost. For local inference run the backend and Ollama on the same computer, or build a separately secured local bridge. Never put API keys in Vite environment variables or commit them to GitHub.</p><p className="mt-2">“Qwen 3.4.5” did not identify a model tag that I could verify; the model field defaults to the published Qwen 3.5 family and remains editable.</p></div>
           </div>}
 
           {tab === "rubric" && <div className="space-y-5">
