@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, MAX_BULK_RESUMES, validateBulkResume } from "./bulkMatchUtils.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
+import { RUBRIC_CATEGORY_OPTIONS, getRubricCategory } from "../api/rubric-classifier.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -220,7 +221,7 @@ function EvidenceRatingCard({ item, onOverride, reviewerName, onRecordRating, on
   return (
     <div className="rounded-lg border border-ink-100 bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><p className="text-sm font-semibold text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.importance === "must" ? "Must-have" : "Preferred"} · {item.group}</p></div>
+        <div><p className="text-sm font-semibold text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.importance === "must" ? "Must-have" : "Preferred"} · {item.category_label || item.group} · JD {item.source_line || "source not linked"}</p></div>
         <div className="flex flex-wrap items-center gap-2"><span className="text-[11px] text-ink-500">AI rating</span><Pill tone={item.status === "met" ? "good" : item.status === "partial" ? "warn" : "neutral"}>{String(item.status || "unclear").replaceAll("_", " ")}</Pill></div>
       </div>
       {item.note && <p className="mt-2 text-sm leading-6 text-ink-700">{item.note}</p>}
@@ -2013,8 +2014,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                         </Field>)}
                       </div>
                       <div className="space-y-2">
-                        {(rubric.items || []).map((item, index) => <div key={item.id || index} className="grid gap-3 rounded-md border border-ink-100 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_130px_100px] sm:items-center">
+                        {(rubric.items || []).map((item, index) => <div key={item.id || index} className="grid gap-3 rounded-md border border-ink-100 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_160px_130px_100px] sm:items-center>
                           <div><p className="text-sm font-medium text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.type} · {item.group}</p></div>
+                          <Field label="Category"><select className={fieldClass} value={item.category || "other"} onChange={(event) => {
+                            const category = event.target.value;
+                            const meta = getRubricCategory(category);
+                            updateRubricItem(index, { category, category_label: meta.label, type: meta.type, group: meta.group, classification_confidence: "recruiter_confirmed", classification_reason: "Category confirmed by recruiter.", requires_review: false });
+                          }}>{RUBRIC_CATEGORY_OPTIONS.filter((option) => option.value !== "job_context").map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
                           <Field label="Importance"><select className={fieldClass} value={item.importance} onChange={(event) => updateRubricItem(index, { importance: event.target.value })}><option value="must">Must-have</option><option value="nice">Preferred</option></select></Field>
                           <Field label="Weight"><select className={fieldClass} value={item.weight || 1} onChange={(event) => updateRubricItem(index, { weight: Number(event.target.value) })}><option value="1">1 · Base</option><option value="2">2 · High</option><option value="3">3 · Critical</option></select></Field>
                         </div>)}
