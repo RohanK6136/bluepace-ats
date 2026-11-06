@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from "react";
-import { buildBulkMatchCsv, MAX_BULK_RESUMES, validateBulkResume } from "./bulkMatchUtils.mjs";
+import { buildBulkMatchCsv, BULK_MATCH_CONCURRENCY, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
@@ -1623,11 +1623,17 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     let manual = 0;
     let rulesOnly = 0;
     let failed = 0;
+    let processed = 0;
+    let stopQueue = false;
+    let fatalMessage = "";
+    const activeNames = new Set();
+    const syncActiveNames = () => setBatchCurrentName(Array.from(activeNames).join(" · ").slice(0, 180));
 
-    for (let index = 0; index < queue.length; index += 1) {
-      const row = queue[index];
-      setBatchCurrentName(row.file.name);
+    await runWithConcurrency(queue, BULK_MATCH_CONCURRENCY, async (row) => {
+      activeNames.add(row.file.name);
+      syncActiveNames();
       updateBatchRow(row.id, { status: "processing", error: "" });
+
       const body = new FormData();
       body.append("rubric_id", selectedRubricId);
       if (rubric) body.append("rubric", JSON.stringify(rubric));
@@ -1638,7 +1644,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         const response = await request("post", "/v1/match/analyze", body, { timeout: 120000 });
         const result = response.data;
         const rulesOnlyResult = result?.versions?.assessment_mode === "rules_only"
-          || result?.flags?.includes("rules_only_assessment");
+          || result?.versions?.profile === "rules"
+          || result?.flags?.includes("rules_only_assessment")
+          || Number(result?.usage?.llm_calls) === 0;
         const status = rulesOnlyResult ? "rules_only" : result?.status === "manual" ? "manual" : "complete";
         updateBatchRow(row.id, { status, result, error: "" });
         if (status === "rules_only") rulesOnly += 1;
@@ -1649,25 +1657,28 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         updateBatchRow(row.id, { status: "failed", error: message, result: null });
         failed += 1;
 
-        // Authentication, route, and service-availability errors affect the whole batch.
-        // Mark the remaining rows so users can see and retry them without sending
-        // dozens of identical requests to an unavailable API.
+        // Stop claiming new files when an error indicates the whole API route
+        // or authentication is unavailable. Already-running requests finish.
         const httpStatus = error?.response?.status;
         if ([401, 403, 404, 503].includes(httpStatus)) {
-          for (const remaining of queue.slice(index + 1)) {
-            updateBatchRow(remaining.id, { status: "failed", error: message });
-            failed += 1;
-          }
-          setBatchProgress({ done: queue.length, total: queue.length });
-          break;
+          stopQueue = true;
+          fatalMessage = fatalMessage || message;
         }
+      } finally {
+        activeNames.delete(row.file.name);
+        syncActiveNames();
+        processed += 1;
+        setBatchProgress({ done: processed, total: queue.length });
       }
-      setBatchProgress({ done: index + 1, total: queue.length });
-    }
+    }, () => stopQueue);
 
     setBatchCurrentName("");
     setBatchRunning(false);
-    setNotice(`Bulk match finished: ${complete} complete, ${rulesOnly} rules-only, ${manual} requiring manual review, ${failed} failed. Rules-only results use direct text evidence and do not assess experience dates or fuzzy criteria. Review every result before making a recruiting decision.`);
+    setNotice(`Bulk match finished: ${complete} complete, ${rulesOnly} rules-only, ${manual} requiring manual review, ${failed} failed. ${processed} of ${queue.length} queued resumes processed with up to ${BULK_MATCH_CONCURRENCY} running at once. Rules-only results use direct text evidence and do not assess experience dates or fuzzy criteria. Review every result before making a recruiting decision.`);
+    if (fatalMessage) {
+      const unstarted = queue.length - processed;
+      setBatchError(`${fatalMessage} ${unstarted} unstarted resume(s) remain in the queue. Restore the API connection, then run the batch again.`);
+    }
   }
 
   function updateRubricItem(index, patch) {
