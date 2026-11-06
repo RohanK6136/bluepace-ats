@@ -146,7 +146,7 @@ test("OpenRouter inference test verifies a real completion without exposing the 
     capturedUrl = String(url);
     capturedAuthorization = String(init.headers?.Authorization || "");
     return new Response(JSON.stringify({
-      model: "google/gemini-3.8-flash",
+      model: "openrouter/free",
       choices: [{ message: { content: '{"status":"ok"}' } }],
       usage: { prompt_tokens: 9, completion_tokens: 4 },
     }), { status: 200, headers: { "content-type": "application/json" } });
@@ -199,17 +199,18 @@ test("retired GitHub Models API remains visibly disabled", async () => {
   assert.equal(profile.enabled, false);
   assert.match(profile.disabled_reason, /retired/i);
 });
-test("one OpenRouter key enables Gemini, DeepSeek, Grok, and OpenAI profile choices", async () => {
+test("a shared OpenRouter key routes hosted model choices through the free router", async () => {
   const response = await invoke({ host: "ats.vercel.app", "x-openrouter-api-key": "test-key-not-used-in-this-test" });
   const byId = Object.fromEntries(response.body.map((row) => [row.id, row]));
   assert.equal(byId.gemini.enabled, true);
-  assert.equal(byId.gemini.model, "google/gemini-3.8-flash");
+  assert.equal(byId.gemini.model, "openrouter/free");
+  assert.match(byId.gemini.label, /OpenRouter Free Router/);
   assert.equal(byId.deepseek.enabled, true);
-  assert.equal(byId.deepseek.model, "deepseek/deepseek-v4.1-flash-1017");
+  assert.equal(byId.deepseek.model, "openrouter/free");
   assert.equal(byId.grok.enabled, true);
-  assert.equal(byId.grok.model, "x-ai/grok-4.7");
+  assert.equal(byId.grok.model, "openrouter/free");
   assert.equal(byId.openai.enabled, true);
-  assert.equal(byId.openai.model, "openai/gpt-5.4");
+  assert.equal(byId.openai.model, "openrouter/free");
 });
 test("Vercel environment credentials also enable provider choices without browser keys", async () => {
   const previousOpenRouter = process.env.OPENROUTER_API_KEY;
@@ -330,7 +331,7 @@ test("hosted model requests enable JSON mode before parsing structured JD output
   globalThis.fetch = async (_url, init = {}) => {
     requestBody = JSON.parse(init.body);
     return new Response(JSON.stringify({
-      model: "google/gemini-3.8-flash",
+      model: "openrouter/free",
       choices: [{ message: { content: JSON.stringify({
         title: "Software Engineer",
         responsibilities: ["Build and maintain APIs"],
@@ -353,8 +354,10 @@ test("hosted model requests enable JSON mode before parsing structured JD output
     );
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
     assert.deepEqual(requestBody.response_format, { type: "json_object" });
+    assert.equal(requestBody.model, "openrouter/free");
+    assert.ok(requestBody.max_tokens <= 2048);
     assert.equal(response.body.fields.title.value, "Software Engineer");
-    assert.equal(response.body.meta.model, "google/gemini-3.8-flash");
+    assert.equal(response.body.meta.model, "openrouter/free");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -377,7 +380,7 @@ test("OpenRouter requests enable response healing and retry malformed structured
           experience: { min_years: 3, max_years: null },
         });
     return new Response(JSON.stringify({
-      model: "google/gemini-3.8-flash",
+      model: "openrouter/free",
       choices: [{ message: { content }, finish_reason: "stop" }],
       usage: { prompt_tokens: 20, completion_tokens: 30 },
     }), { status: 200, headers: { "content-type": "application/json" } });
@@ -397,8 +400,11 @@ test("OpenRouter requests enable response healing and retry malformed structured
     assert.deepEqual(requests[0].response_format, { type: "json_object" });
     assert.deepEqual(requests[0].plugins, [{ id: "response-healing" }]);
     assert.match(requests[1].messages[0].content, /OUTPUT CONTRACT/);
+    assert.ok(requests.every((request) => request.model === "openrouter/free"));
+    assert.ok(requests.every((request) => request.max_tokens <= 2048));
+    assert.equal(requests.some((request) => request.max_tokens >= 6000), false);
     assert.equal(response.body.fields.title.value, "Software Engineer");
-    assert.equal(response.body.meta.model, "google/gemini-3.8-flash");
+    assert.equal(response.body.meta.model, "openrouter/free");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -637,7 +643,7 @@ test("explicit OpenRouter test route and Vercel catch-all path variants complete
   globalThis.fetch = async (_url, init = {}) => {
     capturedAuthorization = String(init.headers?.Authorization || "");
     return new Response(JSON.stringify({
-      model: "google/gemini-3.8-flash",
+      model: "openrouter/free",
       choices: [{ message: { content: '{"status":"ok"}' } }],
       usage: { prompt_tokens: 9, completion_tokens: 4 },
     }), { status: 200, headers: { "content-type": "application/json" } });
@@ -662,7 +668,7 @@ test("explicit OpenRouter test route and Vercel catch-all path variants complete
       assert.equal(response.statusCode, 200, label + ": " + JSON.stringify(response.body));
       assert.equal(response.body.status, "connected", label);
       assert.equal(response.body.completion_verified, true, label);
-      assert.equal(response.body.model, "google/gemini-3.8-flash", label);
+      assert.equal(response.body.model, "openrouter/free", label);
       assert.equal(response.body.prompt_tokens, 9, label);
       assert.equal(response.body.completion_tokens, 4, label);
       assert.equal(JSON.stringify(response.body).includes("test-secret-never-returned"), false, label);
@@ -671,4 +677,52 @@ test("explicit OpenRouter test route and Vercel catch-all path variants complete
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+
+test("OpenRouter 402 falls back to the rules JD draft without exposing a model error", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody = null;
+  globalThis.fetch = async (_url, init = {}) => {
+    requestBody = JSON.parse(init.body || "{}");
+    return new Response(JSON.stringify({
+      error: { code: 402, message: "This request requires more credits, or fewer max_tokens. You requested up to 6000 tokens, but can only afford 456." },
+    }), { status: 402, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-free-key" },
+      "POST",
+      ["jd", "standardize"],
+      JSON.stringify({
+        text: "Software Engineer\\nResponsibilities\\nBuild Python APIs\\nRequirements\\nPython and SQL experience",
+        options: { profile: "openrouter", mode: "light" },
+      }),
+    );
+    assert.equal(requestBody.model, "openrouter/free");
+    assert.ok(requestBody.max_tokens <= 2048);
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(response.body.meta.profile, "rules");
+    assert.equal(response.body.meta.model, "rule-match-v1");
+    assert.equal(response.body.meta.llm_calls, 0);
+    assert.equal(response.body.meta.cost_usd, 0);
+    assert.match(response.body.flags[0].message, /deterministic rules-based draft, not AI-generated/i);
+    assert.equal(response.body.sections.some((section) => section.items.some((item) => item.origin === "ai_draft")), false);
+    assert.equal(JSON.stringify(response.body).includes("Model request failed (402)"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("paid OpenRouter model ids cannot be selected through the hosted API", async () => {
+  const response = await invoke(
+    { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-free-key" },
+    "POST",
+    ["jd", "standardize"],
+    JSON.stringify({
+      text: "Software Engineer\\nRequirements\\nPython experience",
+      options: { profile: "openrouter:google/gemini-3.8-flash", mode: "light" },
+    }),
+  );
+  assert.equal(response.statusCode, 422);
 });
