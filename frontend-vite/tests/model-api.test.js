@@ -726,3 +726,45 @@ test("paid OpenRouter model ids cannot be selected through the hosted API", asyn
   );
   assert.equal(response.statusCode, 422);
 });
+
+
+test("reviewable rubric is built immediately from JD source lines without hosted inference", async () => {
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = async () => {
+    providerCalls += 1;
+    throw new Error("Rubric drafting must not call a hosted model.");
+  };
+  const jd = [
+    "Senior Data Engineer",
+    "Responsibilities:",
+    "- Build and maintain Python and SQL data pipelines",
+    "- Work with Airflow and AWS services",
+    "Requirements:",
+    "- 5 years of experience in data engineering",
+    "- Strong Python and SQL skills",
+    "Nice to have:",
+    "- Experience with dbt",
+  ].join("\n");
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-key" },
+      "POST",
+      ["match", "rubrics"],
+      JSON.stringify({ jd_text: jd, options: { profile: "openrouter" } }),
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(providerCalls, 0);
+    assert.equal(response.body.profile, "rules");
+    assert.equal(response.body.model, "rule-match-v1");
+    assert.equal(response.body.generation_mode, "instant_rules");
+    assert.equal(response.body.prompt_tokens, 0);
+    assert.equal(response.body.completion_tokens, 0);
+    assert.ok(response.body.rubric.rubric_id);
+    assert.ok(response.body.rubric.items.length > 0);
+    assert.ok(response.body.rubric.items.every((item) => item.source_line && item.source_text));
+    assert.ok(response.body.notes[0].includes("without external AI inference"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
