@@ -64,6 +64,15 @@ def test_direct_provider_profiles_are_registered_and_disabled_without_keys(monke
         )
 
 
+def test_stale_paid_openrouter_profile_override_falls_back_to_free_default() -> None:
+    config_path = Path(__file__).parents[1] / "config" / "models.yaml"
+
+    registry = ModelRegistry.from_file(config_path, default_override="gemini")
+
+    assert registry.default_id == "openrouter"
+    assert registry.get(registry.default_id).model == "openrouter/free"
+
+
 def test_local_ollama_profile_is_ready_without_a_provider_key(monkeypatch) -> None:
     config_path = Path(__file__).parents[1] / "config" / "models.yaml"
     monkeypatch.setenv("LLM_PROFILE", "local-ollama")
