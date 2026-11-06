@@ -2014,8 +2014,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                         </Field>)}
                       </div>
                       <div className="space-y-2">
-                        {(rubric.items || []).map((item, index) => <div key={item.id || index} className="grid gap-3 rounded-md border border-ink-100 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_160px_130px_100px] sm:items-center>
-                          <div><p className="text-sm font-medium text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.type} · {item.group}</p></div>
+                        {(rubric.items || []).map((item, index) => <div key={item.id || index} className="grid gap-3 rounded-md border border-ink-100 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_160px_130px_100px] sm:items-center">
+                          <div className="min-w-0"><p className="text-sm font-medium text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.category_label || item.type} · {item.group} · {item.source_section || "unlabelled"} · JD {item.source_line || "unlinked"} · {item.classification_confidence === "recruiter_confirmed" ? "recruiter confirmed" : (item.classification_confidence || "low") + " confidence"}</p>{item.requires_review && <p className="mt-1 text-xs text-amber-700">Please verify this category before saving.</p>}</div>
                           <Field label="Category"><select className={fieldClass} value={item.category || "other"} onChange={(event) => {
                             const category = event.target.value;
                             const meta = getRubricCategory(category);
