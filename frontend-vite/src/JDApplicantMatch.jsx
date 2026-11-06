@@ -1249,13 +1249,14 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const response = await request("post", "/v1/match/rubrics", {
         jd_text: currentJD,
-        options: selectedProfile ? { profile: selectedProfile } : {},
-      }, { timeout: 120000 });
+        // Rubric drafting is a fast, source-grounded local rules pass and does
+        // not need a hosted model connection or a provider token budget.
+      }, { timeout: 15000 });
       const nextRubric = response.data?.rubric || response.data;
       setRubric(nextRubric);
       setSelectedRubricId(nextRubric?.rubric_id || "");
       setRubricNotes(response.data?.notes || []);
-      setNotice("Rubric draft created. Review the requirements and weights before saving.");
+      setNotice(response.data?.notes?.[0] || "Instant source-based rubric draft created. Review requirements and weights before saving.");
       await refreshSavedRubrics();
     } catch (error) {
       setRubricError(explainError(error));
@@ -1974,11 +1975,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     </select>
                   </Field>
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" className={primaryButton} onClick={compileRubric} disabled={rubricLoading || connection !== "connected" || !jdText.trim()}>{rubricLoading ? "Building…" : "Build rubric from current JD"}</button>
+                    <button type="button" className={primaryButton} onClick={compileRubric} disabled={rubricLoading || !jdText.trim()}>{rubricLoading ? "Building…" : "Build rubric from current JD"}</button>
                     <button type="button" className={secondaryButton} onClick={refreshSavedRubrics} disabled={connection !== "connected" || rubricLoading}>Refresh saved rubrics</button>
                   </div>
                   <ErrorNotice>{rubricError}</ErrorNotice>
-                  {rubricNotes.length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Compiler notes</p><ul className="mt-2 space-y-1 text-sm text-amber-950">{rubricNotes.map((note, index) => <li key={index}>{note.message || note.code}</li>)}</ul></div>}
+                  {rubricNotes.length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Compiler notes</p><ul className="mt-2 space-y-1 text-sm text-amber-950">{rubricNotes.map((note, index) => <li key={index}>{typeof note === "string" ? note : note.message || note.code}</li>)}</ul></div>}
                   {rubric && (
                     <div className="space-y-4 rounded-lg border border-ink-100 bg-[#fafaf8] p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
