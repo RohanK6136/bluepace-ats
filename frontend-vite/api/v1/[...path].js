@@ -499,7 +499,7 @@ const JD_SECTION_HEADINGS = new Map([
   ["preferred", "preferred"], ["preferred qualifications", "preferred"], ["desired qualifications", "preferred"],
   ["nice to have", "preferred"], ["nice-to-have", "preferred"], ["bonus", "preferred"], ["bonus points", "preferred"],
   ["responsibilities", "responsibilities"], ["key responsibilities", "responsibilities"], ["what you will do", "responsibilities"],
-  ["what you'll do", "responsibilities"], ["duties", "responsibilities"], ["accountabilities", "responsibilities"],
+  ["what youll do", "responsibilities"], ["duties", "responsibilities"], ["accountabilities", "responsibilities"],
   ["experience", "experience"], ["experience requirements", "experience"],
   ["education", "education"], ["educational qualifications", "education"], ["academic qualifications", "education"],
   ["certification", "certifications"], ["certifications", "certifications"], ["licenses", "certifications"], ["licences", "certifications"],
@@ -594,6 +594,7 @@ function normalizeRubric(raw, jdText) {
   const seen = new Set();
 
   for (const item of rawItems) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const source = byId.get(String(item.source_line || item.line || ""));
     let label = String(item.label || "").trim().replace(/[.;,\s]+$/, "");
     if (source && !source.text.toLowerCase().includes(label.toLowerCase())) label = "";
@@ -632,6 +633,8 @@ function normalizeRubric(raw, jdText) {
       source_section: line.source_section,
     });
   }
+
+  if (!items.length) throw Object.assign(new Error("No source-backed applicant requirements could be identified. Add explicit qualifications, skills or experience requirements to the JD."), { statusCode: 422 });
 
   const yearsMatch = String(jdText || "").match(/\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+)?experience\b/i);
   const years = yearsMatch ? Number(yearsMatch[1]) : null;
