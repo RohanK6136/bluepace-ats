@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, MAX_BULK_RESUMES, validateBulkResume } from "./bulkMatchUtils.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
+import { RUBRIC_CATEGORY_OPTIONS, getRubricCategory } from "../api/rubric-classifier.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -220,7 +221,7 @@ function EvidenceRatingCard({ item, onOverride, reviewerName, onRecordRating, on
   return (
     <div className="rounded-lg border border-ink-100 bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><p className="text-sm font-semibold text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.importance === "must" ? "Must-have" : "Preferred"} · {item.group}</p></div>
+        <div><p className="text-sm font-semibold text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.importance === "must" ? "Must-have" : "Preferred"} · {item.category_label || item.group} · JD {item.source_line || "source not linked"}</p></div>
         <div className="flex flex-wrap items-center gap-2"><span className="text-[11px] text-ink-500">AI rating</span><Pill tone={item.status === "met" ? "good" : item.status === "partial" ? "warn" : "neutral"}>{String(item.status || "unclear").replaceAll("_", " ")}</Pill></div>
       </div>
       {item.note && <p className="mt-2 text-sm leading-6 text-ink-700">{item.note}</p>}
@@ -691,13 +692,16 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const request = useCallback((method, path, data, options = {}) => {
     const headers = { ...(options.headers || {}) };
     const isFeatureRoute = String(path || "").startsWith("/v1/");
+    const isDeterministicJdRoute = String(path || "").startsWith("/v1/jd/");
     const explicitBaseURL = options.baseURL ? String(options.baseURL).replace(/\/$/, "") : "";
     const usingLocalAi = Boolean(
-      localAiApiUrl && isFeatureRoute
+      !isDeterministicJdRoute && localAiApiUrl && isFeatureRoute
       && (explicitBaseURL === localAiApiUrl || (!explicitBaseURL && selectedProfile === "local-ollama"))
     );
+    // JD Standardizer always uses the same-origin deterministic NLP endpoint.
+    // The selected model profile only affects Applicant Match and the assistant.
     const featureApiBase = explicitBaseURL || (usingLocalAi ? localAiApiUrl : window.location.origin);
-    const usingHostedModelProxy = isFeatureRoute && featureApiBase === window.location.origin;
+    const usingHostedModelProxy = isFeatureRoute && !isDeterministicJdRoute && featureApiBase === window.location.origin;
 
     if (apiKey.trim() && !usingLocalAi) headers["X-API-Key"] = apiKey.trim();
     // Hosted provider keys are sent only to this app's same-origin model proxy.
@@ -1078,10 +1082,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const payload = {
         text: jdText.trim(),
-        options: { mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) },
+        options: { mode: jdMode, detail: jdDetail, profile: "rules" },
         overrides: {},
       };
-      const response = await request("post", mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
+      const response = await request("post", mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, {
+        timeout: 120000,
+        baseURL: window.location.origin,
+      });
       setJdResult(response.data);
       if (response.data?.request_id) setNotice(`Run completed · ${response.data.request_id}`);
     } catch (error) {
@@ -1100,9 +1107,12 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const form = new FormData();
       form.append("file", file);
-      form.append("options", JSON.stringify({ mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) }));
+      form.append("options", JSON.stringify({ mode: jdMode, detail: jdDetail, profile: "rules" }));
       form.append("overrides", JSON.stringify({}));
-      const response = await request("post", "/v1/jd/generate/upload", form, { timeout: 120000 });
+      const response = await request("post", "/v1/jd/generate/upload", form, {
+        timeout: 120000,
+        baseURL: window.location.origin,
+      });
       const result = response.data || {};
       const uploadError = getJdUploadError(result);
       if (uploadError) throw new Error(uploadError);
@@ -1172,23 +1182,21 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("");
     setCandidateCard(null);
     try {
-      const options = {
+      const rubricOptions = {
         mode: jdMode === "verbatim" ? "verbatim" : jdMode === "rewrite" ? "rewrite" : "light",
         detail: jdDetail,
         ...(selectedProfile ? { profile: selectedProfile } : {}),
       };
-      setNotice("Preparing the standardized JD and source-grounded match rubric…");
+      setNotice("Standardizing the JD with deterministic NLP and preparing the applicant rubric…");
 
-      // These tasks are independent: JD generation can add clearly-marked draft prose,
-      // while the rubric must be built from the original recruiter-supplied requirements.
-      // Hosted profiles can process both requests concurrently; local Ollama safely
-      // serializes them through its one-model concurrency limit.
+      // JD parsing is deterministic and same-origin. The chosen model profile
+      // applies only to Applicant Match rubric assistance, not JD standardization.
       const [jdResponse, rubricResponse] = await Promise.all([
         request("post", "/v1/jd/generate", {
           text: sourceJD,
-          options,
+          options: { mode: rubricOptions.mode, detail: rubricOptions.detail, profile: "rules" },
           overrides: {},
-        }, { timeout: 120000 }),
+        }, { timeout: 120000, baseURL: window.location.origin }),
         request("post", "/v1/match/rubrics", {
           jd_text: sourceJD,
           options: selectedProfile ? { profile: selectedProfile } : {},
@@ -1219,10 +1227,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       // Switching to the Match tab triggers the saved-rubric refresh effect. Avoid
       // making the same list request here and then again in the tab effect.
       setNotice(localAiApiUrl
-        ? "JD standardized and source-grounded match rubric generated with local Ollama. The rubric is saved in this local workspace; shared ATS job linking is not available in local mode. Continue with resume-file matching."
+        ? "JD standardized with deterministic NLP. The applicant rubric was generated using the selected local model and saved in this browser workspace; shared ATS job linking is not available in local mode."
         : jobId
-          ? "JD standardized, source-grounded match rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
-          : "JD standardized and source-grounded match rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
+          ? "JD standardized with deterministic NLP; applicant rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
+          : "JD standardized with deterministic NLP; applicant rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
       setActiveTab("match");
     } catch (error) {
       const message = explainError(error);
@@ -1777,8 +1785,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           <button type="button" role="tab" aria-selected={activeTab === "jd"} onClick={() => setActiveTab("jd")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "jd" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>1 · JD Standardizer</button>
           <button type="button" role="tab" aria-selected={activeTab === "match"} onClick={() => setActiveTab("match")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "match" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>2 · Applicant Match</button>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            <span className="hidden text-xs text-ink-500 sm:inline">Model</span>
-            <select aria-label="AI model profile" value={selectedProfile} onChange={(event) => setSelectedProfile(event.target.value)} className="max-w-[230px] rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs text-ink-700">
+            <span className="hidden text-xs text-ink-500 sm:inline">Applicant Match model</span>
+            <select aria-label="Applicant Match model profile" value={selectedProfile} onChange={(event) => setSelectedProfile(event.target.value)} className="max-w-[230px] rounded-md border border-ink-200 bg-white px-2.5 py-2 text-xs text-ink-700">
               <option value="">Backend default</option>
               {models.some((model) => model.free_endpoint) && (
                 <optgroup label="Free OpenRouter models">
@@ -1800,8 +1808,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-emerald-950">Local Ollama connection</p>
-                <p className="mt-1 text-xs leading-5 text-emerald-900">Run Qwen3 8B on this computer for JD Standardizer and Applicant Match. No provider key, OpenRouter credits or cloud inference charges.</p>
+                <p className="text-sm font-semibold text-emerald-950">Local Ollama connection for Applicant Match</p>
+                <p className="mt-1 text-xs leading-5 text-emerald-900">Run Qwen3 8B on this computer for Applicant Match and workflow guidance. JD Standardizer uses deterministic NLP and does not call a generative model.</p>
               </div>
               {localAiApiUrl && <Pill tone="good">Local mode active</Pill>}
             </div>
@@ -1815,7 +1823,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               {localAiApiUrl && <button type="button" className={secondaryButton} onClick={useHostedAiApi}>Use hosted AI</button>}
             </div>
             {localAiApiTest.message && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${localAiApiTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : localAiApiTest.status === "success" ? "border-emerald-200 bg-white text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{localAiApiTest.message}</p>}
-            <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. Chrome may request Loopback network access on your first click; allow it. Keep the local service running while using local inference.</p>
+            <p className="mt-2 text-[11px] leading-5 text-emerald-900">Applicant Match and optional workflow-assistant calls switch to this computer. JD Standardizer remains on the hosted deterministic NLP endpoint. ATS login, jobs and applications continue using the hosted ATS API. Chrome may request Loopback network access on your first click; allow it.</p>
           </div>
         </div>
         <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
@@ -1887,26 +1895,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 <Field label="Job description or brief" hint={`${jdText.length.toLocaleString()} characters · API input limit is deployment-configured`}>
                   <textarea value={jdText} onChange={(event) => { setJdText(event.target.value); setJdResult(null); setJdError(""); setRubricError(""); }} rows={13} maxLength={60000} placeholder={"Example: Senior Data Engineer\nLocation: Hyderabad / Hybrid\nRequired: Python, SQL, Airflow, cloud data platforms\nResponsibilities: Build reliable data pipelines, own data quality, and partner with analytics teams."} className={`${fieldClass} resize-y leading-6`} />
                 </Field>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Writing mode">
-                    <select value={jdMode} onChange={(event) => setJdMode(event.target.value)} className={fieldClass}>
-                      <option value="verbatim">Verbatim · preserve source</option>
-                      <option value="light">Light edit · improve clarity</option>
-                      <option value="rewrite">Rewrite · restructure language</option>
-                    </select>
-                  </Field>
-                  <Field label="Fast draft detail">
-                    <select value={jdDetail} onChange={(event) => setJdDetail(event.target.value)} className={fieldClass}>
-                      <option value="detailed">Detailed draft</option>
-                      <option value="concise">Concise draft</option>
-                    </select>
-                  </Field>
+                <div className="rounded-md border border-ink-100 bg-[#fafaf8] px-3 py-2.5">
+                  <p className="text-xs leading-5 text-ink-600">Source-preserving standardization · deterministic extraction · zero model calls. Missing or conflicting details are flagged for recruiter confirmation.</p>
                 </div>
                 <ErrorNotice>{jdError}</ErrorNotice>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className={primaryButton} onClick={() => runJD("fast")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Fast path: rule-based parsing plus one model call.">{jdLoading ? "Standardizing…" : "Standardize JD"}</button>
-                  <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || !jdText.trim()} title={!jdText.trim() ? "Add or import a job description to enable setup" : "Prepare the JD and source-grounded match rubric together"}>{jdPrepareLoading ? "Preparing JD & rubric…" : "Automate JD + match setup"}</button>
-                  <button type="button" className={secondaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Full 12-stage validation; takes longer than the fast standardization path.">{jdLoading ? "Processing…" : "Full validation (slower)"}</button>
+                  <button type="button" className={primaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Extract structured JD fields, identify source-backed skills and check completeness.">{jdLoading ? "Standardizing…" : "Standardize JD"}</button>
+                  <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || !jdText.trim()} title={!jdText.trim() ? "Add or import a job description to enable setup" : "Standardize the JD and prepare its applicant-match rubric"}>{jdPrepareLoading ? "Preparing JD & rubric…" : "Automate JD + match setup"}</button>
                   <button type="button" className={secondaryButton} onClick={() => { setJdText(""); setJdResult(null); setJdError(""); setNotice(""); }}>Clear</button>
                 </div>
               </div>
@@ -1930,6 +1925,19 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                       {jdResult.meta?.latency_ms != null && <Pill>{(jdResult.meta.latency_ms / 1000).toFixed(1)}s</Pill>}
                       {jdResult.meta?.llm_calls != null && <Pill>{jdResult.meta.llm_calls} model calls</Pill>}
                     </div>
+                    {jdResult.quality && <div className="rounded-lg border border-ink-100 bg-white p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-ink-900">JD source coverage</p>
+                        <Pill tone={jdResult.quality.score >= 80 ? "good" : jdResult.quality.score >= 60 ? "warn" : "neutral"}>{jdResult.quality.score}% · {(jdResult.quality.band || "").replaceAll("_", " ")}</Pill>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <ScoreMetric label="Source lines" value={jdResult.quality.total_source_lines ?? "—"} detail="Parsed from the original JD" />
+                        <ScoreMetric label="Skills identified" value={jdResult.quality.extracted_skill_count ?? 0} detail="Curated skill taxonomy" />
+                      </div>
+                      {Array.isArray(jdResult.extracted_skills) && jdResult.extracted_skills.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">
+                        {jdResult.extracted_skills.map((skill) => <span key={skill} className="rounded-full border border-ink-200 bg-[#fafaf8] px-2.5 py-1 text-[11px] text-ink-700">{skill}</span>)}
+                      </div>}
+                    </div>}
                     {Array.isArray(jdResult.publish_blockers) && jdResult.publish_blockers.length > 0 && <div className="rounded-md border border-rose-200 bg-rose-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-rose-900">Publication blockers</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-900">{jdResult.publish_blockers.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
                     {Array.isArray(jdResult.flags) && jdResult.flags.length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Review flags</p><ul className="mt-2 space-y-2 text-sm text-amber-950">{jdResult.flags.map((flag, index) => <li key={index}><span className="font-semibold">{flag.severity || "info"}:</span> {flag.message || flag.code}</li>)}</ul></div>}
                     <div className="rounded-lg border border-ink-100 bg-white p-4">
@@ -1937,11 +1945,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                       <p className="mt-1 text-xs text-ink-500">Request ID: {jdResult.request_id || "not supplied"}</p>
                       <div className="mt-4 grid grid-cols-2 gap-3">
                         <ScoreMetric label="Status" value={jdResult.status || "—"} detail="Pipeline outcome" />
-                        <ScoreMetric label="Est. model cost" value={jdResult.meta?.cost_usd != null ? `$${Number(jdResult.meta.cost_usd).toFixed(4)}` : "—"} detail="Provider-reported / configured estimate" />
+                        <ScoreMetric label="JD model cost" value={jdResult.meta?.cost_usd != null ? `$${Number(jdResult.meta.cost_usd).toFixed(4)}` : "—"} detail="No generative inference is used" />
                       </div>
                     </div>
-                    {(jdResult.needs_input || []).length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-sm font-semibold text-amber-950">Details to confirm</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">{jdResult.needs_input.map((item, index) => <li key={index}>{item.field}: {item.reason}</li>)}</ul></div>}
-                    {(jdResult.sections || []).map((section) => <div key={section.id} className="rounded-lg border border-ink-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{section.heading}</h3><Pill>{section.status}</Pill></div><ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-6 text-ink-700">{(section.items || []).map((item, index) => <li key={index}>{item.text}{item.origin === "ai_draft" && <span className="ml-2 text-[10px] font-semibold uppercase text-amber-700">AI draft</span>}</li>)}</ul></div>)}
+                    {(jdResult.needs_input || []).length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-sm font-semibold text-amber-950">Details to confirm</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">{jdResult.needs_input.map((item, index) => <li key={index}><span className="font-semibold">{item.field}:</span> {item.reason}{Array.isArray(item.candidates) && item.candidates.length > 0 && <span className="block pl-2 text-xs">Source values: {item.candidates.map((candidate) => typeof candidate.value === "object" ? JSON.stringify(candidate.value) : candidate.value).join(" · ")}</span>}</li>)}</ul></div>}
+                    {(jdResult.sections || []).map((section) => <div key={section.id} className="rounded-lg border border-ink-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{section.heading}</h3><Pill>{section.status}</Pill></div><ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-6 text-ink-700">{(section.items || []).map((item, index) => <li key={index}><span>{item.text}</span>{item.origin === "ai_draft" && <span className="ml-2 text-[10px] font-semibold uppercase text-amber-700">AI draft</span>}{Array.isArray(item.lines) && item.lines.length > 0 && <span className="ml-2 text-[10px] text-ink-400">Source {item.lines.join(", ")}</span>}</li>)}</ul></div>)}
                     {descriptionOutput && <details open className="rounded-lg border border-ink-100 bg-white p-4"><summary className="cursor-pointer text-sm font-semibold">Full job description</summary><pre className="mt-3 max-h-[520px] overflow-auto whitespace-pre-wrap text-sm leading-6 text-ink-700">{descriptionOutput}</pre></details>}
                     <button type="button" className={primaryButton} onClick={() => { setActiveTab("match"); setRubricError(""); }} disabled={!descriptionOutput && !jdText.trim()}>Continue to Applicant Match</button>
                   </div>
@@ -2006,8 +2014,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                         </Field>)}
                       </div>
                       <div className="space-y-2">
-                        {(rubric.items || []).map((item, index) => <div key={item.id || index} className="grid gap-3 rounded-md border border-ink-100 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_130px_100px] sm:items-center">
-                          <div><p className="text-sm font-medium text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.type} · {item.group}</p></div>
+                        {(rubric.items || []).map((item, index) => <div key={item.id || index} className="grid gap-3 rounded-md border border-ink-100 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_160px_130px_100px] sm:items-center">
+                          <div className="min-w-0"><p className="text-sm font-medium text-ink-900">{item.label}</p><p className="mt-1 text-xs text-ink-500">{item.category_label || item.type} · {item.group} · {item.source_section || "unlabelled"} · JD {item.source_line || "unlinked"} · {item.classification_confidence === "recruiter_confirmed" ? "recruiter confirmed" : (item.classification_confidence || "low") + " confidence"}</p>{item.requires_review && <p className="mt-1 text-xs text-amber-700">Please verify this category before saving.</p>}</div>
+                          <Field label="Category"><select className={fieldClass} value={item.category || "other"} onChange={(event) => {
+                            const category = event.target.value;
+                            const meta = getRubricCategory(category);
+                            updateRubricItem(index, { category, category_label: meta.label, type: meta.type, group: meta.group, classification_confidence: "recruiter_confirmed", classification_reason: "Category confirmed by recruiter.", requires_review: false });
+                          }}>{RUBRIC_CATEGORY_OPTIONS.filter((option) => option.value !== "job_context").map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
                           <Field label="Importance"><select className={fieldClass} value={item.importance} onChange={(event) => updateRubricItem(index, { importance: event.target.value })}><option value="must">Must-have</option><option value="nice">Preferred</option></select></Field>
                           <Field label="Weight"><select className={fieldClass} value={item.weight || 1} onChange={(event) => updateRubricItem(index, { weight: Number(event.target.value) })}><option value="1">1 · Base</option><option value="2">2 · High</option><option value="3">3 · Critical</option></select></Field>
                         </div>)}
@@ -2190,6 +2203,19 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     <ScoreMetric label="Required skills" value={candidateCard.scores?.required_skills?.pct == null ? "—" : `${candidateCard.scores.required_skills.pct}%`} detail={`${candidateCard.scores?.required_skills?.met ?? 0} of ${candidateCard.scores?.required_skills?.total ?? 0} evidenced`} />
                     <ScoreMetric label="Education" value={candidateCard.scores?.education?.pct == null ? "—" : `${candidateCard.scores.education.pct}%`} detail={candidateCard.profile?.education_level || "Not established"} />
                   </div>
+                  {Array.isArray(candidateCard.scores?.requirement_categories) && candidateCard.scores.requirement_categories.length > 0 && (
+                    <details className="rounded-lg border border-ink-100 bg-white p-4">
+                      <summary className="cursor-pointer text-sm font-semibold text-ink-800">Criteria by category · {candidateCard.scores.requirement_categories.reduce((sum, item) => sum + item.total, 0)} total</summary>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {candidateCard.scores.requirement_categories.map((item) => (
+                          <div key={item.category} className="flex items-start justify-between gap-3 border-t border-ink-100 pt-2 text-xs">
+                            <span className="font-medium text-ink-700">{item.label}</span>
+                            <span className="text-right tabular-nums text-ink-500">{item.met}/{item.total} met · {item.partial} partial · {(item.not_evidenced || 0) + (item.unclear || 0)} to review</span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"><strong>Recruiter review required.</strong> This assessment is based on resume-derived evidence; verify any important claim directly and apply the same criteria consistently across applicants.</div>
                   <div className="rounded-lg border border-ink-200 bg-white p-4 sm:p-5">
                     <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-500">Evidence-first workflow</p><h3 className="mt-1 text-sm font-semibold text-ink-950">Save verified assessment to ATS</h3><p className="mt-1 max-w-2xl text-xs leading-5 text-ink-500">Attach this recorded run to the matching application. Rubric versions are linked to the job first; the server verifies the run and stores a privacy-minimised snapshot.</p></div><Pill tone="gold">Human decision required</Pill></div>

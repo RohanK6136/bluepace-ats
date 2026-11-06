@@ -5,6 +5,7 @@ import handler, { extractPdfText } from "../api/v1/[...path].js";
 import explicitTestHandler from "../api/v1/test.js";
 import { deflateSync } from "node:zlib";
 import { onRequest as pagesFunction } from "../functions/v1/[[path]].js";
+import { classifyRubricCriterion, extractKnownSkills } from "../api/rubric-classifier.mjs";
 
 function invoke(headers = {}, method = "GET", pathParts = ["models"], body = "") {
   const req = {
@@ -97,26 +98,12 @@ test("curated free OpenRouter models are visible and use the shared OpenRouter k
   }
 });
 
-test("free Cohere profile uses its model id and omits unsupported JSON response_format", async () => {
+test("selecting a free OpenRouter model does not change deterministic JD standardization", async () => {
   const originalFetch = globalThis.fetch;
-  let capturedBody = null;
-  globalThis.fetch = async (_url, init = {}) => {
-    capturedBody = JSON.parse(init.body || "{}");
-    return new Response(JSON.stringify({
-      model: "cohere/north-mini-code:free",
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            title: "Python Developer",
-            role_type: "Full-Time",
-            location: { country: "India", city: "Hyderabad" },
-            responsibilities: ["Build and maintain Python APIs"],
-            requirements: ["Python and SQL experience"],
-          }),
-        },
-      }],
-      usage: { prompt_tokens: 20, completion_tokens: 30 },
-    }), { status: 200, headers: { "content-type": "application/json" } });
+  let providerCallMade = false;
+  globalThis.fetch = async () => {
+    providerCallMade = true;
+    throw new Error("JD standardization must not invoke a selected model.");
   };
   try {
     const response = await invoke(
@@ -124,15 +111,15 @@ test("free Cohere profile uses its model id and omits unsupported JSON response_
       "POST",
       ["jd", "standardize"],
       JSON.stringify({
-        text: "Python Developer\\nResponsibilities\\nBuild Python APIs\\nRequirements\\nPython and SQL experience",
+        text: "Python Developer\nResponsibilities\nBuild Python APIs\nRequirements\nPython and SQL experience",
         options: { profile: "openrouter:cohere/north-mini-code:free", mode: "light" },
       }),
     );
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
-    assert.equal(response.body.meta.profile, "openrouter:cohere/north-mini-code:free");
-    assert.equal(response.body.meta.model, "cohere/north-mini-code:free");
-    assert.equal(capturedBody.model, "cohere/north-mini-code:free");
-    assert.equal(Object.hasOwn(capturedBody, "response_format"), false);
+    assert.equal(response.body.meta.profile, "rules");
+    assert.equal(response.body.meta.llm_calls, 0);
+    assert.equal(response.body.fields.title.value, "Python Developer");
+    assert.equal(providerCallMade, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -270,7 +257,7 @@ test("built-in rules engine standardizes a job description without an external p
   assert.equal(response.body.meta.profile, "rules");
   assert.equal(response.body.fields.title.value, "Senior Software Engineer");
   assert.ok(response.body.sections.some((section) => section.items.length));
-  assert.match(response.body.flags.map((flag) => flag.message).join(" "), /rules engine/i);
+  assert.match(response.body.flags.map((flag) => flag.message).join(" "), /deterministic NLP/i);
 });
 
 test("built-in rules engine builds a rubric and returns evidence-based resume matching", async () => {
@@ -324,44 +311,260 @@ test("built-in rules engine builds a rubric and returns evidence-based resume ma
 });
 
 
-test("hosted model requests enable JSON mode before parsing structured JD output", async () => {
+test("rubric classifier assigns stable categories and confidence from explicit source text", () => {
+  const cases = [
+    ["AWS", "requirements", "cloud_platform", "high"],
+    ["Python", "requirements", "technical_skill", "high"],
+    ["5 years of experience", "experience", "experience", "high"],
+    ["Bachelor's degree in Computer Science", "education", "education", "high"],
+    ["PMP certification required", "certifications", "certification", "high"],
+    ["English fluency", "languages", "language", "high"],
+    ["Strong stakeholder communication and collaboration", "requirements", "soft_skill", "high"],
+    ["Recruitment and payroll domain knowledge", "requirements", "domain_knowledge", "high"],
+    ["Build and maintain REST API services", "responsibilities", "responsibility", "medium"],
+    ["Hyderabad, India", "work_arrangement", "work_arrangement", "medium"],
+    ["Health insurance and paid leave", "benefits", "job_context", "high"],
+  ];
+  for (const [text, section, category, confidence] of cases) {
+    const result = classifyRubricCriterion(text, section);
+    assert.equal(result.category, category, text);
+    assert.equal(result.classification_confidence, confidence, text);
+    assert.equal(result.requires_review, confidence !== "high", text);
+  }
+  assert.deepEqual(extractKnownSkills("Built Python services with SQL on AWS").sort(), ["AWS", "Python", "SQL"]);
+});
+
+test("rules rubric splits compound requirements and excludes job-offer context", async () => {
+  const jd = [
+    "Senior Software Engineer",
+    "Requirements:",
+    "- 5 years of experience with Python, SQL and AWS",
+    "- Bachelor's degree in Computer Science",
+    "- PMP certification required",
+    "Preferred:",
+    "- Kubernetes",
+    "Responsibilities:",
+    "- Build and maintain REST API services",
+    "Benefits:",
+    "- Health insurance and paid leave",
+  ].join("\n");
+  const response = await invoke(
+    { host: "ats.vercel.app", "content-type": "application/json" },
+    "POST",
+    ["match", "rubrics"],
+    JSON.stringify({ jd_text: jd, options: { profile: "rules" } }),
+  );
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  const rubric = response.body.rubric;
+  assert.equal(rubric.required_years, 5);
+  assert.equal(rubric.items.some((item) => item.label === "Senior Software Engineer"), false);
+  assert.equal(rubric.items.some((item) => /health insurance|paid leave/i.test(item.label)), false);
+
+  const python = rubric.items.find((item) => item.label === "Python");
+  const sql = rubric.items.find((item) => item.label === "SQL");
+  const aws = rubric.items.find((item) => item.label === "AWS");
+  const experience = rubric.items.find((item) => item.category === "experience");
+  const education = rubric.items.find((item) => item.category === "education");
+  const certification = rubric.items.find((item) => item.category === "certification");
+  const kubernetes = rubric.items.find((item) => item.label === "Kubernetes");
+  const responsibility = rubric.items.find((item) => item.category === "responsibility");
+
+  assert.equal(python?.category, "technical_skill");
+  assert.equal(python?.source_line, "J02");
+  assert.equal(python?.source_section, "requirements");
+  assert.equal(python?.classification_confidence, "high");
+  assert.equal(sql?.category, "technical_skill");
+  assert.equal(aws?.category, "cloud_platform");
+  assert.equal(experience?.label, "5 years of experience");
+  assert.equal(experience?.importance, "must");
+  assert.equal(education?.source_line, "J03");
+  assert.equal(certification?.source_line, "J04");
+  assert.equal(kubernetes?.importance, "nice");
+  assert.equal(kubernetes?.importance_source, "source_heading");
+  assert.equal(kubernetes?.category, "cloud_platform");
+  assert.equal(responsibility?.source_section, "responsibilities");
+  assert.equal(responsibility?.classification_confidence, "medium");
+});
+
+test("model rubric categories are normalized from the cited source instead of trusted from model output", async () => {
   const originalFetch = globalThis.fetch;
-  let requestBody;
-  globalThis.fetch = async (_url, init = {}) => {
-    requestBody = JSON.parse(init.body);
-    return new Response(JSON.stringify({
-      model: "google/gemini-3.8-flash",
-      choices: [{ message: { content: JSON.stringify({
-        title: "Software Engineer",
-        responsibilities: ["Build and maintain APIs"],
-        requirements: ["Python"],
-        experience: { min_years: 3, max_years: null },
-        location: { work_mode: "hybrid" },
-      }) } }],
-      usage: { prompt_tokens: 20, completion_tokens: 30 },
-    }), { status: 200, headers: { "content-type": "application/json" } });
-  };
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    model: "google/gemini-3.8-flash",
+    choices: [{ message: { content: JSON.stringify({
+      title: "Software Engineer",
+      required_years: 3,
+      items: [{
+        label: "Python",
+        source_line: "J02",
+        category: "soft_skill",
+        type: "other",
+        group: "soft",
+        importance: "nice",
+        weight: 3,
+      }],
+    }) }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 20, completion_tokens: 30 },
+  }), { status: 200, headers: { "content-type": "application/json" } });
   try {
     const response = await invoke(
-      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-json-mode-key" },
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-category-key" },
       "POST",
-      ["jd", "standardize"],
+      ["match", "rubrics"],
       JSON.stringify({
-        text: "Software Engineer\nRequirements:\n- Python and 3 years of experience",
-        options: { profile: "openrouter", mode: "light" },
+        jd_text: "Software Engineer\nRequirements:\n- Python and 3 years of experience",
+        options: { profile: "openrouter" },
       }),
     );
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
-    assert.deepEqual(requestBody.response_format, { type: "json_object" });
-    assert.equal(response.body.fields.title.value, "Software Engineer");
-    assert.equal(response.body.meta.model, "google/gemini-3.8-flash");
+    const item = response.body.rubric.items[0];
+    assert.equal(item.category, "technical_skill");
+    assert.equal(item.type, "skill");
+    assert.equal(item.group, "coding");
+    assert.equal(item.importance, "must");
+    assert.equal(item.importance_source, "source_heading");
+    assert.equal(item.source_line, "J02");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rubric generation rejects benefit-only text rather than treating it as applicant criteria", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    model: "google/gemini-3.8-flash",
+    choices: [{ message: { content: JSON.stringify({
+      title: "Software Engineer",
+      items: [{ label: "Health insurance", source_line: "J02", importance: "must", weight: 2 }],
+    }) }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 10, completion_tokens: 10 },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-context-key" },
+      "POST",
+      ["match", "rubrics"],
+      JSON.stringify({
+        jd_text: "Software Engineer\nBenefits:\n- Health insurance and paid leave",
+        options: { profile: "openrouter" },
+      }),
+    );
+    assert.equal(response.statusCode, 422);
+    assert.match(response.body.detail, /No source-backed applicant requirements/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
 
-test("OpenRouter requests enable response healing and retry malformed structured output once", async () => {
+test("experience and education are scored separately from must-have skills", async () => {
+  const jd = [
+    "Software Engineer",
+    "Requirements:",
+    "- Python and AWS",
+    "Experience:",
+    "- 5 years of experience",
+    "Education:",
+    "- Bachelor's degree in Computer Science",
+    "Benefits:",
+    "- Health insurance and paid leave",
+  ].join("\n");
+  const rubricResponse = await invoke(
+    { host: "ats.vercel.app", "content-type": "application/json" },
+    "POST",
+    ["match", "rubrics"],
+    JSON.stringify({ jd_text: jd, options: { profile: "rules" } }),
+  );
+  assert.equal(rubricResponse.statusCode, 200, JSON.stringify(rubricResponse.body));
+  const rubric = rubricResponse.body.rubric;
+  assert.equal(rubric.required_years, 5);
+  assert.equal(rubric.education.min_level, "bachelor");
+  assert.equal(rubric.items.some((item) => /health insurance/i.test(item.label)), false);
+
+  const boundary = "separate-score-categories";
+  const resume = "Software Engineer with 6 years of experience. Python and AWS. Bachelor's degree in Computer Science.";
+  const multipart = [
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric\"\r\n\r\n" + JSON.stringify(rubric) + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\n" + resume + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"profile\"\r\n\r\nrules\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric_id\"\r\n\r\n" + rubric.rubric_id + "\r\n",
+    "--" + boundary + "--\r\n",
+  ].join("");
+  const analysis = await invoke(
+    { host: "ats.vercel.app", "content-type": "multipart/form-data; boundary=" + boundary },
+    "POST",
+    ["match", "analyze"],
+    multipart,
+  );
+  assert.equal(analysis.statusCode, 200, JSON.stringify(analysis.body));
+  assert.equal(analysis.body.scores.required_skills.total, 2);
+  assert.equal(analysis.body.scores.required_skills.pct, 100);
+  assert.equal(analysis.body.scores.experience.pct, 100);
+  assert.equal(analysis.body.scores.education.pct, 100);
+  assert.ok(analysis.body.scores.requirement_categories.some((row) => row.category === "experience" && row.total === 1));
+  assert.ok(analysis.body.scores.requirement_categories.some((row) => row.category === "education" && row.total === 1));
+});
+
+
+test("JD standardization stays deterministic even when a hosted model key is supplied", async () => {
+  const originalFetch = globalThis.fetch;
+  let providerCallMade = false;
+  globalThis.fetch = async () => {
+    providerCallMade = true;
+    throw new Error("JD standardization must never call a model provider.");
+  };
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-jd-provider-key" },
+      "POST",
+      ["jd", "standardize"],
+      JSON.stringify({
+        text: "Software Engineer\nResponsibilities:\n- Build and maintain APIs\nRequirements:\n- Python and 3 years of experience",
+        options: { profile: "openrouter", mode: "light" },
+      }),
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(response.body.fields.title.value, "Software Engineer");
+    assert.equal(response.body.meta.profile, "rules");
+    assert.equal(response.body.meta.model, "deterministic-nlp-rules-v1");
+    assert.equal(response.body.meta.llm_calls, 0);
+    assert.equal(response.body.meta.prompt_tokens, 0);
+    assert.equal(response.body.meta.completion_tokens, 0);
+    assert.equal(response.body.meta.cost_usd, 0);
+    assert.equal(providerCallMade, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("JD fast generation also uses source-grounded deterministic output with zero inference cost", async () => {
+  const originalFetch = globalThis.fetch;
+  let providerCallMade = false;
+  globalThis.fetch = async () => {
+    providerCallMade = true;
+    throw new Error("Fast JD generation must not call a model provider.");
+  };
+  try {
+    const response = await invoke(
+      { host: "ats.vercel.app", "content-type": "application/json" },
+      "POST",
+      ["jd", "generate"],
+      JSON.stringify({
+        text: "QA Automation Engineer\nResponsibilities\n- Maintain Playwright test suites\nRequirements\n- 4 years of test automation experience",
+        options: { profile: "openrouter", mode: "rewrite" },
+      }),
+    );
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(response.body.fields.title.value, "QA Automation Engineer");
+    assert.equal(response.body.meta.llm_calls, 0);
+    assert.equal(response.body.meta.cost_usd, 0);
+    assert.equal(response.body.sections.find((section) => section.id === "responsibilities").items[0].origin, "source");
+    assert.equal(providerCallMade, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("OpenRouter rubric requests enable response healing and retry malformed structured output once", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (_url, init = {}) => {
@@ -371,10 +574,16 @@ test("OpenRouter requests enable response healing and retry malformed structured
       ? "I will structure this response now."
       : JSON.stringify({
           title: "Software Engineer",
-          responsibilities: ["Build REST APIs"],
-          requirements: ["Python"],
-          location: { work_mode: "hybrid" },
-          experience: { min_years: 3, max_years: null },
+          required_years: 3,
+          items: [{
+            label: "Python",
+            source_line: "J02",
+            type: "skill",
+            group: "coding",
+            importance: "must",
+            weight: 2,
+            aliases: ["Python 3"],
+          }],
         });
     return new Response(JSON.stringify({
       model: "google/gemini-3.8-flash",
@@ -386,10 +595,10 @@ test("OpenRouter requests enable response healing and retry malformed structured
     const response = await invoke(
       { host: "ats.vercel.app", "content-type": "application/json", "x-openrouter-api-key": "test-repair-key" },
       "POST",
-      ["jd", "standardize"],
+      ["match", "rubrics"],
       JSON.stringify({
-        text: "Software Engineer\\nRequirements:\\n- Python and 3 years of experience",
-        options: { profile: "openrouter", mode: "light" },
+        jd_text: "Software Engineer\nRequirements:\n- Python and 3 years of experience",
+        options: { profile: "openrouter" },
       }),
     );
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
@@ -397,8 +606,8 @@ test("OpenRouter requests enable response healing and retry malformed structured
     assert.deepEqual(requests[0].response_format, { type: "json_object" });
     assert.deepEqual(requests[0].plugins, [{ id: "response-healing" }]);
     assert.match(requests[1].messages[0].content, /OUTPUT CONTRACT/);
-    assert.equal(response.body.fields.title.value, "Software Engineer");
-    assert.equal(response.body.meta.model, "google/gemini-3.8-flash");
+    assert.equal(response.body.rubric.title, "Software Engineer");
+    assert.equal(response.body.model, "google/gemini-3.8-flash");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -511,7 +720,7 @@ test("PDF extraction decodes ASCII85 then Flate streams and preserves JD heading
   const encoded = encodeAscii85(deflateSync(Buffer.from(content, "latin1")));
   const pdf = Buffer.from(
     "%PDF-1.4\n1 0 obj\n<< /Length " + encoded.length + " /Filter [ /ASCII85Decode /FlateDecode ] >>\nstream\n" +
-    encoded + "endstream\\nendobj\\n%%EOF\\n",
+    encoded + "endstream\nendobj\n%%EOF\n",
     "latin1",
   );
 

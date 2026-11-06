@@ -92,6 +92,10 @@ jobs:
         working-directory: frontend-vite
         run: npm run test:jd-match-api
 
+      - name: Test deterministic JD extraction, source mapping and quality checks
+        working-directory: frontend-vite
+        run: npm run test:jd-standardizer
+
       - name: Test JD document upload extraction and diagnostics
         working-directory: frontend-vite
         run: npm run test:jd-upload
