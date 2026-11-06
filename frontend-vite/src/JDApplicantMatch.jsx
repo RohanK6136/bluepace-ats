@@ -2203,6 +2203,19 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     <ScoreMetric label="Required skills" value={candidateCard.scores?.required_skills?.pct == null ? "—" : `${candidateCard.scores.required_skills.pct}%`} detail={`${candidateCard.scores?.required_skills?.met ?? 0} of ${candidateCard.scores?.required_skills?.total ?? 0} evidenced`} />
                     <ScoreMetric label="Education" value={candidateCard.scores?.education?.pct == null ? "—" : `${candidateCard.scores.education.pct}%`} detail={candidateCard.profile?.education_level || "Not established"} />
                   </div>
+                  {Array.isArray(candidateCard.scores?.requirement_categories) && candidateCard.scores.requirement_categories.length > 0 && (
+                    <details className="rounded-lg border border-ink-100 bg-white p-4">
+                      <summary className="cursor-pointer text-sm font-semibold text-ink-800">Criteria by category · {candidateCard.scores.requirement_categories.reduce((sum, item) => sum + item.total, 0)} total</summary>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {candidateCard.scores.requirement_categories.map((item) => (
+                          <div key={item.category} className="flex items-start justify-between gap-3 border-t border-ink-100 pt-2 text-xs">
+                            <span className="font-medium text-ink-700">{item.label}</span>
+                            <span className="text-right tabular-nums text-ink-500">{item.met}/{item.total} met · {item.partial} partial · {(item.not_evidenced || 0) + (item.unclear || 0)} to review</span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"><strong>Recruiter review required.</strong> This assessment is based on resume-derived evidence; verify any important claim directly and apply the same criteria consistently across applicants.</div>
                   <div className="rounded-lg border border-ink-200 bg-white p-4 sm:p-5">
                     <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-500">Evidence-first workflow</p><h3 className="mt-1 text-sm font-semibold text-ink-950">Save verified assessment to ATS</h3><p className="mt-1 max-w-2xl text-xs leading-5 text-ink-500">Attach this recorded run to the matching application. Rubric versions are linked to the job first; the server verifies the run and stores a privacy-minimised snapshot.</p></div><Pill tone="gold">Human decision required</Pill></div>
