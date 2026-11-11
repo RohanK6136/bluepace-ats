@@ -84,8 +84,14 @@ export function normalizeJdPublicationGate(result) {
  */
 export function getUnsupportedJdOptionFields(error) {
   const detail = error?.response?.data?.detail;
-  if (!Array.isArray(detail)) return [];
   const allowed = new Set(["profile", "detail"]);
+  if (!Array.isArray(detail)) {
+    const message = String(detail || "");
+    return [...allowed].filter((field) => new RegExp(
+      `(?:^|\\n)\\s*${field}\\s*\\n[\\s\\S]{0,180}?Extra inputs are not permitted`,
+      "i",
+    ).test(message));
+  }
   return [...new Set(detail.flatMap((item) => {
     const location = Array.isArray(item?.loc) ? item.loc : [];
     const field = location[0] === "body" && location[1] === "options" ? location[2] : null;
