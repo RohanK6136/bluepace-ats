@@ -59,3 +59,33 @@ test("normalizes arrays without leaking object string representations", () => {
   assert.equal(normalizeJdText(["Python", { text: "Build APIs" }, {}]), "Python\n\nBuild APIs");
   assert.equal(normalizeJdText({ unrelated: true }).includes("[object Object]"), false);
 });
+
+
+test("treats a legacy LLM-unavailable diagnostic as a warning, not a publication blocker", async () => {
+  const { normalizeJdPublicationGate } = await import("./jdUploadUtils.mjs");
+  const result = normalizeJdPublicationGate({
+    publishable: false,
+    publish_blockers: ["flag: llm_unavailable"],
+    flags: [{ code: "llm_unavailable", severity: "warn", message: "Rules-based extraction was used." }],
+  });
+  assert.equal(result.publishable, true);
+  assert.deepEqual(result.publish_blockers, []);
+  assert.equal(result.flags[0].code, "llm_unavailable");
+});
+
+test("keeps genuine publication blockers when LLM is unavailable", async () => {
+  const { normalizeJdPublicationGate } = await import("./jdUploadUtils.mjs");
+  const result = normalizeJdPublicationGate({
+    publishable: false,
+    publish_blockers: ["title: missing", "flag: llm_unavailable", "requirements: empty"],
+  });
+  assert.equal(result.publishable, false);
+  assert.deepEqual(result.publish_blockers, ["title: missing", "requirements: empty"]);
+});
+
+test("leaves modern publication responses and invalid values unchanged", async () => {
+  const { normalizeJdPublicationGate } = await import("./jdUploadUtils.mjs");
+  const modern = { publishable: false, publish_blockers: ["requirements: empty"] };
+  assert.equal(normalizeJdPublicationGate(modern), modern);
+  assert.equal(normalizeJdPublicationGate(null), null);
+});
