@@ -84,7 +84,9 @@ export function normalizeJdPublicationGate(result) {
  */
 export function getUnsupportedJdOptionFields(error) {
   const detail = error?.response?.data?.detail;
-  const allowed = new Set(["profile", "detail"]);
+  // These are optional controls with backend defaults. If an older companion
+  // rejects one as an extra field, retry without it; never strip JD content.
+  const allowed = new Set(["profile", "detail", "mode", "fast", "use_cache", "draft_gaps", "debug"]);
   if (!Array.isArray(detail)) {
     const message = String(detail || "");
     return [...allowed].filter((field) => new RegExp(
