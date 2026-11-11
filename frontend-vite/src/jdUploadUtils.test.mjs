@@ -139,7 +139,7 @@ test("identifies only explicitly rejected optional multipart fields", () => {
 
 test("recognizes legacy multipart extra-field validation text", () => {
   const error = { response: { data: {
-    detail: "1 validation error for Request\\nprofile\\n  Extra inputs are not permitted [type=extra_forbidden]",
+    detail: "1 validation error for Request\nprofile\n  Extra inputs are not permitted [type=extra_forbidden]",
   } } };
   assert.deepEqual(getUnsupportedFormFields(error, ["profile"]), ["profile"]);
 });
