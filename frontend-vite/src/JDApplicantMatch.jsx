@@ -4,6 +4,8 @@ import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jd
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
 import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
+import { SAMPLE_JOB_DESCRIPTION, SAMPLE_MANUAL_REFERENCE, SAMPLE_RESUME_TEXT } from "./sampleApplicantMatchScenario.mjs";
+import MatchAssessmentInsights from "./MatchAssessmentInsights.jsx";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -440,6 +442,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [candidateCard, setCandidateCard] = useState(() => initialWorkspace?.candidateCard || null);
   const [candidateReview, setCandidateReview] = useState(() => initialWorkspace?.candidateReview || { stage: "new", history: [] });
   const [matchLoading, setMatchLoading] = useState(false);
+  const [sampleAssessmentLoading, setSampleAssessmentLoading] = useState(false);
   const [matchError, setMatchError] = useState("");
   const [batchFiles, setBatchFiles] = useState([]);
   const [batchRunning, setBatchRunning] = useState(false);
@@ -1419,6 +1422,84 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
 
+
+  async function runSampleAssessment() {
+    if (connection !== "connected") {
+      setMatchError("Connect to a working AI profile before running the sample assessment.");
+      setActiveTab("match");
+      return;
+    }
+    if (localAiApiUrl && !localAiApiVerified) {
+      setMatchError("Reconnect and verify the local BluePace AI service before running the sample assessment.");
+      setActiveTab("match");
+      return;
+    }
+
+    setSampleAssessmentLoading(true);
+    setMatchError("");
+    setRubricError("");
+    setNotice("Building the sample rubric and assessing the sample resume with the selected AI profile…");
+    setCandidateCard(null);
+    setCandidateReview({ stage: "new", history: [] });
+    try {
+      const draftResponse = await request("post", "/v1/match/rubrics", {
+        jd_text: SAMPLE_JOB_DESCRIPTION,
+        options: { fast: true, ...(selectedProfile ? { profile: selectedProfile } : {}) },
+      }, { timeout: 30000 });
+      const draft = unwrapRubricDraft(draftResponse.data);
+      const saveResponse = await request("post", "/v1/match/rubrics", { rubric: draft }, { timeout: 30000 });
+      const savedRubric = saveResponse.data?.rubric || saveResponse.data;
+      if (!savedRubric?.rubric_id || !Array.isArray(savedRubric.items)) {
+        throw new Error("The sample rubric was generated, but the API did not confirm that it was saved.");
+      }
+
+      const existing = readSavedRubrics().filter((item) => item.rubric_id !== savedRubric.rubric_id);
+      const savedRows = [savedRubric, ...existing].slice(0, 50);
+      const storage = writeSavedRubrics(savedRows);
+      if (!storage.ok) {
+        throw new Error("The sample rubric was saved by the API, but this browser could not save its local copy. Allow site storage and retry.");
+      }
+
+      const body = new FormData();
+      body.append("rubric_id", savedRubric.rubric_id);
+      const sampleFile = typeof File === "function"
+        ? new File([SAMPLE_RESUME_TEXT], "Aarav_Sharma_Sample_Resume.txt", { type: "text/plain" })
+        : null;
+      if (sampleFile) body.append("file", sampleFile);
+      else body.append("text", SAMPLE_RESUME_TEXT);
+      if (selectedProfile) body.append("profile", selectedProfile);
+
+      const analysisStartedAt = Date.now();
+      const analysisResponse = await request("post", "/v1/match/analyze", body, { timeout: 120000 });
+      const result = {
+        ...analysisResponse.data,
+        performance: {
+          ...(analysisResponse.data?.performance || {}),
+          client_round_trip_ms: Date.now() - analysisStartedAt,
+        },
+        sampleScenario: "aarav-sharma",
+      };
+
+      setJdText(SAMPLE_JOB_DESCRIPTION);
+      setJdResult(null);
+      setRubric(savedRubric);
+      setRubricNotes(draftResponse.data?.notes || []);
+      setSavedRubrics(savedRows.map(savedRubricOption));
+      setSelectedRubricId(savedRubric.rubric_id);
+      setResumeFile(sampleFile);
+      setResumeText(sampleFile ? "" : SAMPLE_RESUME_TEXT);
+      setCandidateCard(result);
+      setActiveTab("match");
+      setNotice(`Sample assessment completed using ${selectedProfile || "the default AI profile"}. Actual match: ${result.scores?.match == null ? "manual review required" : result.scores.match + "%"}.`);
+    } catch (error) {
+      setMatchError(explainError(error));
+      setNotice("The sample assessment did not complete. Review the error and keep the local AI terminal open.");
+      setActiveTab("match");
+    } finally {
+      setSampleAssessmentLoading(false);
+    }
+  }
+
   function handleBatchFileSelection(event) {
     const selected = Array.from(event.target.files || []);
     event.target.value = "";
@@ -1954,7 +2035,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
           {activeTab === "jd" && (
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(330px,0.9fr)]">
               <div className="space-y-4">
-                <SectionHeading eyebrow="Step 01" title="Job description input" detail="Load the description from an existing ATS job, or use the manual field for an external role." />
+                <SectionHeading eyebrow="Step 01" title="Job description input" detail="Load the description from an existing ATS job, or use the manual field for an external role." action={<button type="button" className={secondaryButton} onClick={runSampleAssessment} disabled={sampleAssessmentLoading || matchLoading || connection !== "connected"}>{sampleAssessmentLoading ? "Running sample…" : "Run end-to-end sample"}</button>} />
                 <Field label="Import from existing ATS job" hint="Selecting a job automatically loads its saved description below.">
                   <select value={jdSourceJobId} onChange={(event) => { setJdSourceJobId(event.target.value); setJdSourceMessage(""); }} className={fieldClass}>
                     <option value="">Choose an ATS job to import…</option>
@@ -2316,9 +2397,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className={secondaryButton} disabled={localAiApiUrl || atsResumeMatchLoading || !atsApplicationId || !selectedRubricId} title={localAiApiUrl ? "Upload the resume in Applicant Match to use local Ollama. This private ATS-resume endpoint remains hosted." : "Use the resume already stored on the ATS candidate profile."} onClick={matchExistingAtsResume}>{atsResumeMatchLoading ? "Matching stored resume…" : "Match existing ATS resume"}</button><button type="button" className={primaryButton} disabled={localAiApiUrl || assessmentSaving || !atsJobId || !atsApplicationId || !selectedRubricId || !(candidateCard?.request_id || candidateCard?.run_id)} title={localAiApiUrl ? "Local AI run IDs cannot yet be verified by the hosted ATS assessment store." : "Save the verified assessment to the ATS application."} onClick={saveAssessmentToATS}>{assessmentSaving ? "Saving verified assessment…" : "Save assessment to application"}</button><span className="text-[11px] text-ink-500">Uses the private resume already stored on the candidate profile. No email is sent.</span></div>
                   </div>
                   {candidateCard.versions?.assessment_mode === "rules_only" && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><p className="text-sm font-semibold text-amber-950">Rules-only assessment</p><p className="mt-1 text-xs leading-5 text-amber-900">{candidateCard.reason || "AI is unavailable. Only direct resume text matches are scored; experience dates and fuzzy criteria need recruiter review."}</p></div>}
-                  {candidateCard.summary?.value && <div className="rounded-lg border border-ink-100 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Evidence summary · {candidateCard.summary.status}</p><p className="mt-2 text-sm leading-6 text-ink-800">{candidateCard.summary.value}</p>{candidateCard.summary.reason && <p className="mt-2 text-xs text-ink-500">{candidateCard.summary.reason}</p>}</div>}
+                  <MatchAssessmentInsights result={candidateCard} sampleReference={candidateCard.sampleScenario ? SAMPLE_MANUAL_REFERENCE : null} />
                   {(candidateCard.evidence || []).map((item) => <EvidenceRatingCard key={`${activeWorkspaceId}:${item.item_id}`} item={item} reviewerName={calibrationReviewerName} onOverride={(status) => overrideCandidateEvidence(item.item_id, status)} onRecordRating={(status, reviewer) => recordCandidateCalibrationRating(item.item_id, status, reviewer)} onResolve={(status, note) => resolveCandidateCalibration(item.item_id, status, note)} />)}
-                  {candidateCard.gaps?.length > 0 && <div className="rounded-lg border border-ink-100 bg-white p-4"><h3 className="text-sm font-semibold text-ink-900">Gaps and items to verify</h3><ul className="mt-3 space-y-2">{candidateCard.gaps.map((gap) => <li key={gap.item_id} className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-100 pb-2 last:border-0"><span className="text-sm text-ink-800">{gap.label}{gap.note && <span className="mt-1 block text-xs leading-5 text-ink-500">{gap.note}</span>}</span><Pill tone={gap.importance === "must" ? "warn" : "neutral"}>{gap.status.replaceAll("_", " ")}</Pill></li>)}</ul></div>}
+                  
                   {candidateCard.flags?.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><h3 className="text-sm font-semibold text-amber-950">Review flags</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">{candidateCard.flags.map((flag, index) => <li key={index}>{flag}</li>)}</ul></div>}
                 </section>
               )}
