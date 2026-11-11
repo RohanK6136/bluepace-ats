@@ -244,6 +244,11 @@ def publish_gate(fields: dict[str, Fact], sections: list[SectionResult], flags: 
                 it.origin == "ai_draft" and it.accepted is not True for it in s.items):
             blockers.append(f"{s.id}: ai_draft items need acceptance")
     for f in flags:
+        # Provider availability is diagnostic, not a content-quality condition.
+        # Ignore legacy/block-severity llm_unavailable flags as well as the new
+        # warning form; missing facts and unreviewed AI drafts remain hard gates.
+        if f.code == "llm_unavailable":
+            continue
         if f.severity == "block":
             blockers.append(f"flag: {f.code}")
     if short is None:
