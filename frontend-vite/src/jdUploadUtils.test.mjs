@@ -109,3 +109,15 @@ test("does not retry or hide unrelated JD request validation errors", () => {
   ] } } };
   assert.deepEqual(getUnsupportedJdOptionFields(error), []);
 });
+
+
+test("recognizes legacy multipart option-validation text", () => {
+  const error = {
+    response: {
+      data: {
+        detail: "invalid options: 1 validation error for Options\\ndetail\\n  Extra inputs are not permitted [type=extra_forbidden]",
+      },
+    },
+  };
+  assert.deepEqual(getUnsupportedJdOptionFields(error), ["detail"]);
+});
