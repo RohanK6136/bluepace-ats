@@ -92,13 +92,15 @@ test("identifies only unsupported optional JD options in Pydantic extra-field er
   const error = { response: { data: { detail: [
     { type: "extra_forbidden", loc: ["body", "options", "detail"], msg: "Extra inputs are not permitted" },
     { type: "extra_forbidden", loc: ["body", "options", "profile"], msg: "Extra inputs are not permitted" },
+    { type: "extra_forbidden", loc: ["body", "options", "mode"], msg: "Extra inputs are not permitted" },
+    { type: "extra_forbidden", loc: ["body", "options", "fast"], msg: "Extra inputs are not permitted" },
     { type: "extra_forbidden", loc: ["body", "text"], msg: "Extra inputs are not permitted" },
     { type: "value_error", loc: ["body", "options", "mode"], msg: "Invalid mode" },
   ] } } };
-  assert.deepEqual(getUnsupportedJdOptionFields(error), ["detail", "profile"]);
+  assert.deepEqual(getUnsupportedJdOptionFields(error), ["detail", "profile", "mode", "fast"]);
   assert.equal(
     formatJdValidationErrors(error),
-    "options.detail: Extra inputs are not permitted; options.profile: Extra inputs are not permitted; text: Extra inputs are not permitted; options.mode: Invalid mode",
+    "options.detail: Extra inputs are not permitted; options.profile: Extra inputs are not permitted; options.mode: Extra inputs are not permitted; options.fast: Extra inputs are not permitted; text: Extra inputs are not permitted; options.mode: Invalid mode",
   );
 });
 
