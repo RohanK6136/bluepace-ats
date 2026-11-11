@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, BULK_MATCH_CONCURRENCY, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
+import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -831,17 +832,34 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setLocalAiApiTest({ status: "error", message: error.message });
       return;
     }
-    setLocalAiApiTest({ status: "checking", message: "Checking the local API and Ollama inference…" });
+    setLocalAiApiTest({ status: "checking", message: "Checking browser permission, the local API and Ollama…" });
     try {
+      // Query permission state only from this explicit button action. If the
+      // browser is in "prompt" state, the health request below triggers its
+      // native permission prompt while the user gesture is active.
+      const permission = await getLoopbackNetworkPermission();
+      if (permission.state === "denied") {
+        throw Object.assign(new Error(localAiPermissionHelp(window.location.origin)), { code: "LOCAL_NETWORK_PERMISSION_DENIED" });
+      }
+
+      // Check the companion process before checking its model registry. This
+      // separates a stopped PowerShell/Uvicorn process from model health errors.
+      const serviceHealth = await apiRequest(null, "get", "/healthz", {
+        baseURL, timeout: 6000, skipAuth: true,
+      });
+      if (serviceHealth.data?.status !== "ok" || serviceHealth.data?.service !== "bluepace-local-ai") {
+        throw Object.assign(new Error("A service answered on this address, but it is not the BluePace local AI API. Check that the URL is http://127.0.0.1:8000."), { code: "LOCAL_AI_WRONG_SERVICE" });
+      }
+
       const response = await apiRequest(null, "get", "/v1/models", { baseURL, timeout: 10000, skipAuth: true });
       const rows = Array.isArray(response.data) ? response.data : [];
       const profile = rows.find((model) => model.id === "local-ollama");
       if (!profile || !profile.enabled) {
-        throw new Error(profile?.disabled_reason || "Local AI API is online, but its local-ollama model profile is not enabled.");
+        throw new Error(profile?.disabled_reason || "The BluePace local API is online, but its local-ollama profile is not enabled. Restart backend/start-local-ai.ps1 and check Ollama.");
       }
       const health = await apiRequest(null, "get", "/v1/models/local-ollama/health", { baseURL, timeout: 200000, skipAuth: true });
-      if (!health.data?.ok) throw new Error(health.data?.detail || "Ollama did not answer the inference health check.");
-      try { localStorage.setItem(LOCAL_AI_API_STORAGE_KEY, baseURL); } catch { /* Keep the selected URL in memory for this tab. */ }
+      if (!health.data?.ok) throw new Error(health.data?.detail || "The local API is online, but Ollama did not answer the model health check.");
+      try { localStorage.setItem(LOCAL_AI_API_STORAGE_KEY, baseURL); } catch { /* Keep the selected URL in memory. */ }
       setLocalAiApiUrl(baseURL);
       setLocalAiApiDraft(baseURL);
       setLocalAiApiVerified(true);
@@ -868,13 +886,20 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setNotice("Local Ollama connected. Choose Local Ollama for on-device inference or a free OpenRouter model for hosted inference.");
     } catch (error) {
       setLocalAiApiVerified(false);
-      const detail = error?.request || /failed to fetch|load failed|networkerror/i.test(String(error?.message || ""))
-        ? "The browser could not reach the local AI service. Keep the local PowerShell window open and approve the browser's Loopback network access prompt for BluePace ATS, then reconnect."
-        : explainError(error);
+      let detail = explainError(error);
+      if (error?.code === "LOCAL_NETWORK_PERMISSION_DENIED" || error?.code === "LOCAL_AI_WRONG_SERVICE") {
+        detail = error.message;
+      } else {
+        const permissionAfterFailure = await getLoopbackNetworkPermission();
+        if (permissionAfterFailure.state === "denied") {
+          detail = localAiPermissionHelp(window.location.origin);
+        } else if (error?.request || /failed to fetch|load failed|networkerror|network error/i.test(String(error?.message || ""))) {
+          detail = localAiServiceHelp();
+        }
+      }
       setLocalAiApiTest({ status: "error", message: detail });
     }
   }
-
   function useHostedAiApi() {
     try { localStorage.removeItem(LOCAL_AI_API_STORAGE_KEY); } catch { /* Ignore unavailable storage. */ }
     setLocalAiApiUrl("");
@@ -1833,7 +1858,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               {localAiApiUrl && <Pill tone="good">Local mode active</Pill>}
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
-              <Field label="Local AI API URL" hint="Start backend/start-local-ai.ps1 first. On connect, Chrome may ask to allow this site to access your local network; choose Allow.">
+              <Field label="Local AI API URL" hint="Start backend/start-local-ai.ps1 first. On connect, Edge or Chrome may ask to allow this HTTPS site to access the local computer; choose Allow.">
                 <input value={localAiApiDraft} onChange={(event) => setLocalAiApiDraft(event.target.value)} placeholder="http://127.0.0.1:8000" className={fieldClass} />
               </Field>
               <button type="button" className={primaryButton} onClick={() => void connectLocalAiApi()} disabled={localAiApiTest.status === "checking"}>
@@ -1842,7 +1867,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               {localAiApiUrl && <button type="button" className={secondaryButton} onClick={useHostedAiApi}>Use hosted AI</button>}
             </div>
             {localAiApiTest.message && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${localAiApiTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : localAiApiTest.status === "success" ? "border-emerald-200 bg-white text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{localAiApiTest.message}</p>}
-            <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. Chrome may request Loopback network access on your first click; allow it. Keep the local service running while using local inference.</p>
+            <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. Edge or Chrome may request Local Network Access on your first click; choose Allow. If blocked, open the browser site permissions and allow Local network access for this BluePace site. Keep the local service running while using local inference.</p>
           </div>
         </div>
         <div className="border-b border-ink-100 px-5 py-4 sm:px-6">
