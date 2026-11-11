@@ -216,6 +216,18 @@ def render_markdown(fields: dict[str, Fact], sections: list[SectionResult], std:
 
 
 # ------------------------------------------------------------ gate/status
+def llm_unavailable_warning(message: str) -> Flag:
+    """Record provider outages without making otherwise valid source-based JDs unpublishable."""
+    return Flag(
+        code="llm_unavailable",
+        severity="warn",
+        message=(
+            f"{message.rstrip('. ')}. The source-based draft is available; review all extracted "
+            "facts and requirements against the original JD before publishing."
+        ),
+    )
+
+
 def publish_gate(fields: dict[str, Fact], sections: list[SectionResult], flags: list[Flag],
                  short: ShortDescription | None, policy: Policy) -> list[str]:
     blockers: list[str] = []
