@@ -7,9 +7,10 @@ from app.features.jd_standardizer.pipeline.clean import clean
 from app.features.jd_standardizer.pipeline.generate import (
     _company_profile_only,
     parse_streamed_generation,
+    should_skip_generation,
     title_guess,
 )
-from app.features.jd_standardizer.pipeline.models import Overrides
+from app.features.jd_standardizer.pipeline.models import Fact, Overrides
 from app.features.jd_standardizer.pipeline.policy import load_policy
 from app.features.jd_standardizer.pipeline.segment import segment
 from app.features.jd_standardizer.pipeline.validate import validate
@@ -129,3 +130,33 @@ def test_stream_parser_strips_qwen_think_block_before_json_parse():
 
     assert parsed["title"] == "Python Full Stack Developer"
     assert parsed["facts"]["employment_type"] == "Full-Time"
+
+
+def test_fast_generation_skips_model_when_source_jd_is_complete():
+    fields = {
+        "role_type": Fact(value="Full-Time", status="verified"),
+        "country": Fact(value={"iso2": "IN", "name": "India"}, status="verified"),
+    }
+    assert should_skip_generation({}, "Python Developer", Overrides(), fields, ["title", "role_type", "country"])
+
+
+def test_fast_generation_does_not_skip_when_a_required_fact_is_missing():
+    fields = {
+        "role_type": Fact(value="Full-Time", status="verified"),
+        "country": Fact(),
+    }
+    assert not should_skip_generation({}, "Python Developer", Overrides(), fields, ["title", "role_type", "country"])
+
+
+def test_fast_generation_does_not_skip_when_content_gaps_need_drafting():
+    fields = {
+        "role_type": Fact(value="Full-Time", status="verified"),
+        "country": Fact(value={"iso2": "IN", "name": "India"}, status="verified"),
+    }
+    assert not should_skip_generation(
+        {"responsibilities": {"count": 3}},
+        "Python Developer",
+        Overrides(),
+        fields,
+        ["title", "role_type", "country"],
+    )
