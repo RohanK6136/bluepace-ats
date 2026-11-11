@@ -113,3 +113,39 @@ export function formatJdValidationErrors(error) {
     return path ? `${path}: ${message}` : message;
   }).join("; ");
 }
+
+
+/**
+ * Legacy rubric schemas may predate optional source-trace metadata. Only remove
+ * metadata fields that the server explicitly rejects; never remove scoring
+ * criteria, weights, experience requirements, or education requirements.
+ */
+export function removeUnsupportedRubricMetadata(rubric, error) {
+  const detail = error?.response?.data?.detail;
+  if (!rubric || typeof rubric !== "object" || !Array.isArray(detail)) return null;
+  const topLevel = new Set(["rubric_id", "rubric_hash", "job_ref", "job_lines", "created_at"]);
+  const itemFields = new Set(["source_line", "source_text"]);
+  const next = { ...rubric };
+  let removed = 0;
+
+  for (const issue of detail) {
+    if (issue?.type !== "extra_forbidden" && !/extra inputs are not permitted/i.test(String(issue?.msg || ""))) continue;
+    const loc = Array.isArray(issue?.loc) ? issue.loc : [];
+    if (loc[0] !== "body" || loc[1] !== "rubric") continue;
+    if (typeof loc[2] === "string" && topLevel.has(loc[2]) && Object.hasOwn(next, loc[2])) {
+      delete next[loc[2]];
+      removed += 1;
+      continue;
+    }
+    if (loc[2] === "items" && Number.isInteger(loc[3]) && itemFields.has(loc[4])) {
+      const index = loc[3];
+      if (Array.isArray(next.items) && next.items[index] && Object.hasOwn(next.items[index], loc[4])) {
+        next.items = next.items.slice();
+        next.items[index] = { ...next.items[index] };
+        delete next.items[index][loc[4]];
+        removed += 1;
+      }
+    }
+  }
+  return removed ? { rubric: next, removed } : null;
+}
