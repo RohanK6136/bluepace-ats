@@ -47,9 +47,9 @@ export function readSavedRubrics(
   }
 
   const merged = mergeRows(persistentRows, legacyRows);
-  if (legacyRows.length) {
+  if (legacyRows.length && typeof persistentStorage?.setItem === "function") {
     try {
-      persistentStorage?.setItem(SAVED_RUBRICS_STORAGE_KEY, JSON.stringify(merged));
+      persistentStorage.setItem(SAVED_RUBRICS_STORAGE_KEY, JSON.stringify(merged));
       legacyStorage?.removeItem(SAVED_RUBRICS_STORAGE_KEY);
     } catch {
       // Keep the legacy session copy when migration cannot be written.
