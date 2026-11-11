@@ -139,3 +139,14 @@ export async function runWithConcurrency(items, concurrency, worker, shouldStop 
 
   await Promise.all(Array.from({ length: limit }, () => runWorker()));
 }
+
+
+
+/**
+ * Local Ollama is configured for one inference at a time. Sending multiple
+ * full resume requests concurrently only builds a queue and increases memory
+ * pressure; hosted providers retain the bounded parallel path.
+ */
+export function getBulkMatchConcurrency(profile, fallback = BULK_MATCH_CONCURRENCY) {
+  return profile === "local-ollama" ? 1 : fallback;
+}
