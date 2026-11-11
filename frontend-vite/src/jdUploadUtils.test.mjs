@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate } from "./jdUploadUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors } from "./jdUploadUtils.mjs";
 
 test("surfaces the backend extraction reason for image-only or empty-text uploads", () => {
   const message = getJdUploadError({
@@ -85,4 +85,27 @@ test("leaves modern publication responses and invalid values unchanged", () => {
   const modern = { publishable: false, publish_blockers: ["requirements: empty"] };
   assert.equal(normalizeJdPublicationGate(modern), modern);
   assert.equal(normalizeJdPublicationGate(null), null);
+});
+
+
+test("identifies only unsupported optional JD options in Pydantic extra-field errors", () => {
+  const error = { response: { data: { detail: [
+    { type: "extra_forbidden", loc: ["body", "options", "detail"], msg: "Extra inputs are not permitted" },
+    { type: "extra_forbidden", loc: ["body", "options", "profile"], msg: "Extra inputs are not permitted" },
+    { type: "extra_forbidden", loc: ["body", "text"], msg: "Extra inputs are not permitted" },
+    { type: "value_error", loc: ["body", "options", "mode"], msg: "Invalid mode" },
+  ] } } };
+  assert.deepEqual(getUnsupportedJdOptionFields(error), ["detail", "profile"]);
+  assert.equal(
+    formatJdValidationErrors(error),
+    "options.detail: Extra inputs are not permitted; options.profile: Extra inputs are not permitted; text: Extra inputs are not permitted; options.mode: Invalid mode",
+  );
+});
+
+test("does not retry or hide unrelated JD request validation errors", () => {
+  const error = { response: { data: { detail: [
+    { type: "extra_forbidden", loc: ["body", "text"], msg: "Extra inputs are not permitted" },
+    { type: "value_error", loc: ["body", "options", "mode"], msg: "Invalid mode" },
+  ] } } };
+  assert.deepEqual(getUnsupportedJdOptionFields(error), []);
 });
