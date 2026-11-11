@@ -30,7 +30,12 @@ from app.core.ids import new_request_id
 from app.core.ingest import ingest_file, ingest_text, text_chars
 from app.core.logging import log_event
 from app.features.jd_standardizer.llm_schemas import generate_schema
-from app.features.jd_standardizer.pipeline.assemble import format_experience, headings, source_items
+from app.features.jd_standardizer.pipeline.assemble import (
+    format_experience,
+    headings,
+    llm_unavailable_warning,
+    source_items,
+)
 from app.features.jd_standardizer.pipeline.candidates import experience_matches, find_candidates
 from app.features.jd_standardizer.pipeline.checks import (
     banned_pattern_hits,
@@ -641,7 +646,7 @@ def build_result(rid: str, prep: Prepared, gen: dict[str, Any] | None, *, final:
         if fields[name].status == "conflict" and not any(n.field == name for n in needs):
             needs.append(NeedsInput(field=name, reason="conflict", candidates=fields[name].candidates))
     if llm_problem:
-        flags.append(Flag(code="llm_unavailable", severity="block", message=llm_problem))
+        flags.append(llm_unavailable_warning(llm_problem))
     elif final and not gen and not prep.message:
         flags.append(Flag(code="generation_failed", severity="warn",
                           message="the model's answer could not be used; showing what was found in the text"))
