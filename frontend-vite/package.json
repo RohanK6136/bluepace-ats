@@ -9,6 +9,7 @@
     "start": "node server.mjs",
     "test:server": "node --test server.test.mjs",
     "test:bulk-match": "node --test src/bulkMatchUtils.test.mjs",
+    "test:local-network": "node --test src/localNetworkAccess.test.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test:jd-match-api": "node --test tests/model-api.test.js",
