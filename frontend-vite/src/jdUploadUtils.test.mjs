@@ -123,3 +123,43 @@ test("recognizes legacy multipart option-validation text", () => {
   };
   assert.deepEqual(getUnsupportedJdOptionFields(error), ["detail"]);
 });
+
+
+test("strips only explicitly rejected optional rubric provenance fields", () => {
+  const rubric = {
+    rubric_id: null,
+    rubric_hash: null,
+    job_ref: "text:abc",
+    title: "Python Developer",
+    items: [{
+      id: "R01",
+      label: "Python",
+      type: "skill",
+      group: "coding",
+      importance: "must",
+      weight: 3,
+      source_line: "J01",
+      source_text: "Strong Python experience",
+    }],
+    job_lines: [{ id: "J01", section: "must", text: "Strong Python experience" }],
+  };
+  const error = { response: { data: { detail: [
+    { type: "extra_forbidden", loc: ["body", "rubric", "job_lines"], msg: "Extra inputs are not permitted" },
+    { type: "extra_forbidden", loc: ["body", "rubric", "items", 0, "source_text"], msg: "Extra inputs are not permitted" },
+  ] } } };
+  const compatible = removeUnsupportedRubricMetadata(rubric, error);
+  assert.equal(compatible.removed, 2);
+  assert.equal("job_lines" in compatible.rubric, false);
+  assert.equal("source_text" in compatible.rubric.items[0], false);
+  assert.equal(compatible.rubric.items[0].weight, 3);
+  assert.equal(compatible.rubric.items[0].label, "Python");
+  assert.equal(rubric.job_lines.length, 1, "original draft remains immutable");
+});
+
+test("does not strip rubric scoring fields or retry unrelated validation failures", () => {
+  const rubric = { title: "Python Developer", items: [{ id: "R01", label: "Python", weight: 3 }] };
+  const error = { response: { data: { detail: [
+    { type: "extra_forbidden", loc: ["body", "rubric", "items", 0, "weight"], msg: "Extra inputs are not permitted" },
+  ] } } };
+  assert.equal(removeUnsupportedRubricMetadata(rubric, error), null);
+});
