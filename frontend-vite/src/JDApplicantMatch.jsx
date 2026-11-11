@@ -1282,7 +1282,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setSelectedRubricId(nextRubric?.rubric_id || "");
       setRubricNotes(response.data?.notes || []);
       setNotice(response.data?.notes?.[0] || "Instant source-based rubric draft created. Review requirements and weights before saving.");
-      await refreshSavedRubrics();
+      // The draft is ready now. Do not keep the builder spinner active while a
+      // separate saved-rubric list request waits on a hosted/serverless response.
+      void refreshSavedRubrics();
     } catch (error) {
       setRubricError(explainError(error));
     } finally {
@@ -1331,7 +1333,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setRubric(saved);
       setSelectedRubricId(saved.rubric_id || "");
       setNotice(`Rubric version saved in this browser session · ${saved.rubric_id || "saved"}`);
-      await refreshSavedRubrics();
+      // Saving is complete; refresh the picker in the background rather than
+      // making the save button wait for a second network request.
+      void refreshSavedRubrics();
     } catch (error) {
       setRubricError(explainError(error));
     } finally {
