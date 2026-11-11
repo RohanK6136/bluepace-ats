@@ -147,3 +147,14 @@ test("accepts a frozen rubric returned directly by the hosted API", () => {
 test("rejects an empty rubric response with an actionable error", () => {
   assert.throws(() => unwrapRubricDraft({ rubric: { items: [] } }), /clear requirements/);
 });
+
+
+test("accepts a valid rubric with an experience requirement and no skill items", () => {
+  const experienceOnly = { rubric_id: null, required_years: 5, items: [] };
+  assert.equal(unwrapRubricDraft({ rubric: experienceOnly }).required_years, 5);
+});
+
+test("accepts a valid rubric with an education requirement and no skill items", () => {
+  const educationOnly = { rubric_id: null, education: { min_level: "bachelor" }, items: [] };
+  assert.equal(unwrapRubricDraft({ rubric: educationOnly }).education.min_level, "bachelor");
+});
