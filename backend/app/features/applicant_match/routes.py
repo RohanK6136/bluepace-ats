@@ -80,7 +80,7 @@ async def list_jobs(limit: int = Query(default=30, ge=1, le=100), p: Platform = 
 
 
 @router.post("/rubrics", response_model=RubricDraft | Rubric,
-             description="Body {jd_run_id} | {jd_text} | {job} → a draft rubric for review (one model call). "
+             description="Body {jd_run_id} | {jd_text} | {job} → a fast source-grounded rules draft by default (no model call); set options.fast=false for an AI-assisted draft. "
                          "Body {rubric} (the reviewed draft) → saves an immutable version and returns it with "
                          "rubric_id and rubric_hash. Identical content always gets the same id.")
 async def rubrics(body: RubricRequest, p: Platform = Depends(platform)) -> RubricDraft | Rubric:
@@ -94,7 +94,9 @@ async def rubrics(body: RubricRequest, p: Platform = Depends(platform)) -> Rubri
         stored = p.store.get_rubric(frozen.rubric_id)
         return Rubric.model_validate_json(stored["rubric_json"]) if stored else frozen
 
-    ensure_profile(p, body.options.profile)
+    # A fast source-grounded rubric draft does not need an enabled model profile or provider key.
+    if not body.options.fast:
+        ensure_profile(p, body.options.profile)
     try:
         if body.jd_run_id:
             row = p.store.get_run(body.jd_run_id)
