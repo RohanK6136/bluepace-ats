@@ -1,7 +1,7 @@
-const SECTION_HEADINGS = /^(?:required\\s+(?:qualifications?|skills?)|minimum\\s+qualifications?|requirements?|qualifications?|must[- ]haves?|key\\s+responsibilities|responsibilities|preferred(?:\\s+(?:skills?|qualifications?))?|nice to have(?:\\s+skills?)?|bonus|benefits|what we offer|about the role|experience|skills)\\s*:?\\s*$/i;
-const PREFERRED_HEADINGS = /^(?:preferred(?:\\s+(?:skills?|qualifications?))?|nice to have(?:\\s+skills?)?|bonus)\\s*:?\\s*$/i;
-const EXCLUDED_PREFIX = /^(?:location|based in|work mode|employment type|job type|salary|compensation|benefits|equal opportunity|about us|company overview|apply now|how to apply|visa sponsorship|work authorization)\\b/i;
-const EXPERIENCE_YEARS = /\\b(\\d+(?:\\.\\d+)?)\\s*(?:\\+|plus)?\\s*(?:years?|yrs?)\\s*(?:of\\s+)?(?:relevant\\s+)?experience\\b/i;
+const SECTION_HEADINGS = /^(?:required\s+(?:qualifications?|skills?)|minimum\s+qualifications?|requirements?|qualifications?|must[- ]haves?|key\s+responsibilities|responsibilities|preferred(?:\s+(?:skills?|qualifications?))?|nice to have(?:\s+skills?)?|bonus|benefits|what we offer|about the role|experience|skills)\s*:?\s*$/i;
+const PREFERRED_HEADINGS = /^(?:preferred(?:\s+(?:skills?|qualifications?))?|nice to have(?:\s+skills?)?|bonus)\s*:?\s*$/i;
+const EXCLUDED_PREFIX = /^(?:location|based in|work mode|employment type|job type|salary|compensation|benefits|equal opportunity|about us|company overview|apply now|how to apply|visa sponsorship|work authorization)\b/i;
+const EXPERIENCE_YEARS = /\b(\d+(?:\.\d+)?)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+)?experience\b/i;
 
 const SKILL_GROUPS = [
   { group: "coding", terms: ["TypeScript", "JavaScript", "Python", "Java", "Kotlin", "Swift", "C++", "C#", ".NET", "React", "Next.js", "Node.js", "FastAPI", "Django", "Flask", "Spring Boot", "REST API", "GraphQL", "SQL", "PostgreSQL", "MySQL", "MongoDB", "HTML", "CSS", "PHP", "Ruby", "Go", "Rust"] },
@@ -14,8 +14,8 @@ const EDUCATION_LEVELS = ["none", "high_school", "diploma", "associate", "bachel
 function splitSourceLines(text) {
   const rows = [];
   let section = "must";
-  for (const raw of String(text || "").split(/\\r?\\n/)) {
-    const line = raw.replace(/^\\s*[-*•]\\s*/, "").trim();
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const line = raw.replace(/^\s*[-*•]\s*/, "").trim();
     if (!line) continue;
     if (PREFERRED_HEADINGS.test(line)) { section = "nice"; continue; }
     if (SECTION_HEADINGS.test(line)) { section = "must"; continue; }
@@ -24,7 +24,7 @@ function splitSourceLines(text) {
     if (rows.length >= 80) break;
   }
   if (!rows.length) {
-    for (const part of String(text || "").split(/[.!?]\\s+/).slice(0, 60)) {
+    for (const part of String(text || "").split(/[.!?]\s+/).slice(0, 60)) {
       if (part.trim().length >= 8) rows.push({ id: "J" + String(rows.length + 1).padStart(2, "0"), section: "must", text: part.trim().slice(0, 400), origin: "source" });
     }
   }
@@ -32,9 +32,9 @@ function splitSourceLines(text) {
 }
 
 function inferTitle(text) {
-  const lines = String(text || "").split(/\\r?\\n/).map((line) => line.replace(/^\\s*[-*•#]+\\s*/, "").trim()).filter(Boolean);
+  const lines = String(text || "").split(/\r?\n/).map((line) => line.replace(/^\s*[-*•#]+\s*/, "").trim()).filter(Boolean);
   for (const line of lines.slice(0, 5)) {
-    const labelled = /^(?:job\\s*)?title\\s*[:-]\\s*(.+)$/i.exec(line);
+    const labelled = /^(?:job\s*)?title\s*[:-]\s*(.+)$/i.exec(line);
     if (labelled) return labelled[1].slice(0, 120);
     if (line.length >= 4 && line.length <= 90 && !/^(job description|about the role|responsibilities|requirements|qualifications|what you'll do|what you need)$/i.test(line)) return line;
   }
@@ -42,12 +42,12 @@ function inferTitle(text) {
 }
 
 function inferEducationLevel(text) {
-  if (/\\b(?:ph\\.?d\\.?|doctorate|doctoral degree)\\b/i.test(text)) return "phd";
-  if (/\\b(?:master'?s?|M\\.?Sc|M\\.?Tech|MBA|MCA|postgraduate)\\b/i.test(text)) return "master";
-  if (/\\b(?:bachelor'?s?|B\\.?Sc|B\\.?Tech|B\\.?E\\.?|BCA|B\\.?Com|undergraduate degree)\\b/i.test(text)) return "bachelor";
-  if (/\\b(?:associate'?s? degree)\\b/i.test(text)) return "associate";
-  if (/\\b(?:diploma|higher national diploma)\\b/i.test(text)) return "diploma";
-  if (/\\b(?:high school|secondary school|12th grade|class XII|A-levels|GCSE)\\b/i.test(text)) return "high_school";
+  if (/\b(?:ph\.?d\.?|doctorate|doctoral degree)\b/i.test(text)) return "phd";
+  if (/\b(?:master'?s?|M\.?Sc|M\.?Tech|MBA|MCA|postgraduate)\b/i.test(text)) return "master";
+  if (/\b(?:bachelor'?s?|B\.?Sc|B\.?Tech|B\.?E\.?|BCA|B\.?Com|undergraduate degree)\b/i.test(text)) return "bachelor";
+  if (/\b(?:associate'?s? degree)\b/i.test(text)) return "associate";
+  if (/\b(?:diploma|higher national diploma)\b/i.test(text)) return "diploma";
+  if (/\b(?:high school|secondary school|12th grade|class XII|A-levels|GCSE)\b/i.test(text)) return "high_school";
   return "none";
 }
 
@@ -64,7 +64,7 @@ function includesRuleToken(haystack, token) {
 
 function classifyRubricLine(text) {
   const value = String(text || "");
-  if (/\\b(?:certification|certified|licen[cs]e|PMP|CISSP|CISA|CPA|CFA|ITIL|CompTIA)\\b/i.test(value)) {
+  if (/\b(?:certification|certified|licen[cs]e|PMP|CISSP|CISA|CPA|CFA|ITIL|CompTIA)\b/i.test(value)) {
     return [{ label: value.slice(0, 120), type: "certification", group: "other" }];
   }
   const found = [];
@@ -123,27 +123,27 @@ export function buildSourceGroundedRubric(jdText) {
           type: item.type,
           group: item.group,
           importance: line.section === "nice" ? "nice" : "must",
-          weight: line.section === "nice" ? 1 : /\\b(?:critical|mandatory|must[- ]have|essential)\\b/i.test(value) ? 3 : 2,
+          weight: line.section === "nice" ? 1 : /\b(?:critical|mandatory|must[- ]have|essential)\b/i.test(value) ? 3 : 2,
           aliases: [],
         });
       }
       continue;
     }
 
-    const actionable = /\\b(?:experience|knowledge|ability|proficien|familiar|responsible|build|develop|design|implement|manage|lead|maintain|support|deliver|coordinate|analy[sz]e|create|optimi[sz]e|ensure|oversee|degree|diploma|communication|leadership|teamwork|collaborat)\\b/i.test(value);
+    const actionable = /\b(?:experience|knowledge|ability|proficien|familiar|responsible|build|develop|design|implement|manage|lead|maintain|support|deliver|coordinate|analy[sz]e|create|optimi[sz]e|ensure|oversee|degree|diploma|communication|leadership|teamwork|collaborat)\b/i.test(value);
     if (!actionable || value.length < 8) continue;
     const key = value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    const type = /\\b(?:certification|certified|licen[cs]e)\\b/i.test(value) ? "certification"
-      : /\\b(?:communication|leadership|teamwork|collaborat|stakeholder|problem.solving)\\b/i.test(value) ? "skill" : "other";
+    const type = /\b(?:certification|certified|licen[cs]e)\b/i.test(value) ? "certification"
+      : /\b(?:communication|leadership|teamwork|collaborat|stakeholder|problem.solving)\b/i.test(value) ? "skill" : "other";
     candidates.push({
       label: value.slice(0, 120),
       source_line: line.id,
       type,
       group: type === "skill" ? "soft" : "other",
       importance: line.section === "nice" ? "nice" : "must",
-      weight: line.section === "nice" ? 1 : /\\b(?:critical|mandatory|must[- ]have|essential)\\b/i.test(value) ? 3 : 2,
+      weight: line.section === "nice" ? 1 : /\b(?:critical|mandatory|must[- ]have|essential)\b/i.test(value) ? 3 : 2,
       aliases: [],
     });
   }
