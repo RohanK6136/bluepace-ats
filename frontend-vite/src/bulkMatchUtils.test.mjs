@@ -101,3 +101,25 @@ test("stops claiming queued work after a systemic batch failure", async () => {
 
   assert.deepEqual(completed, [1]);
 });
+
+
+test("exports Applicant Match timing breakdown for batch comparison", () => {
+  const csv = buildBulkMatchCsv([{
+    file: { name: "candidate.pdf" },
+    status: "complete",
+    result: {
+      performance: {
+        resume_extraction_ms: 12,
+        preprocessing_ms: 3,
+        provider_round_trip_ms: 840,
+        model_inference_ms: 838,
+        total_ms: 860,
+        client_round_trip_ms: 1120,
+        assessment_mode: "model",
+        input_mode: "uploaded_file",
+      },
+    },
+  }]);
+  assert.match(csv, /"Resume extraction \(ms\)"/);
+  assert.match(csv, /"12","3","840","838","860","1120","model","uploaded_file"/);
+});
