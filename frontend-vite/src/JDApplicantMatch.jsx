@@ -1211,7 +1211,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       // while the rubric must be built from the original recruiter-supplied requirements.
       // Hosted profiles can process both requests concurrently; local Ollama safely
       // serializes them through its one-model concurrency limit.
-      const [jdResponse, rubricResponse] = await Promise.all([
+      const [jdOutcome, rubricOutcome] = await Promise.allSettled([
         request("post", "/v1/jd/generate", {
           text: sourceJD,
           options,
@@ -1223,12 +1223,24 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         }, { timeout: 30000 }),
       ]);
 
-      const standardized = jdResponse.data;
-      if (!standardized || !Array.isArray(standardized.sections) || !standardized.sections.length) {
-        throw new Error("JD Standardizer returned no structured sections. Review the job description and try again.");
+      // The source-grounded rubric is independent of the model-assisted JD
+      // standardizer. Keep a successful rubric even when standardization is down.
+      let standardizationIssue = "";
+      if (jdOutcome.status === "fulfilled") {
+        const standardized = jdOutcome.value.data;
+        if (standardized && Array.isArray(standardized.sections) && standardized.sections.length) {
+          setJdResult(standardized);
+        } else {
+          standardizationIssue = "JD Standardizer returned no structured sections.";
+          setJdError(standardizationIssue + " The original job description remains available for review.");
+        }
+      } else {
+        standardizationIssue = "JD standardization could not complete: " + explainError(jdOutcome.reason);
+        setJdError(standardizationIssue + " The original job description remains available for review.");
       }
-      setJdResult(standardized);
 
+      if (rubricOutcome.status === "rejected") throw rubricOutcome.reason;
+      const rubricResponse = rubricOutcome.value;
       const draft = rubricResponse.data?.rubric || rubricResponse.data;
       if (!draft?.rubric_id || !Array.isArray(draft.items) || !draft.items.length) {
         throw new Error("The match rubric could not be generated. Check that the original JD contains clear requirements and qualifications.");
@@ -1250,11 +1262,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       }
       // Switching to the Match tab triggers the saved-rubric refresh effect. Avoid
       // making the same list request here and then again in the tab effect.
-      setNotice(localAiApiUrl
-        ? "JD standardized and source-grounded match rubric generated with local Ollama. The rubric is saved in this local workspace; shared ATS job linking is not available in local mode. Continue with resume-file matching."
-        : jobId
-          ? "JD standardized, source-grounded match rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
-          : "JD standardized and source-grounded match rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
+      setNotice(standardizationIssue
+        ? (localAiApiUrl
+          ? "Source-grounded match rubric generated and saved locally. JD standardization was unavailable; review the original JD and continue with resume matching. " + standardizationIssue
+          : "Source-grounded match rubric generated and saved. JD standardization was unavailable; review the original JD and continue with resume matching. " + standardizationIssue)
+        : localAiApiUrl
+          ? "JD standardized and source-grounded match rubric generated with local Ollama. The rubric is saved in this local workspace; shared ATS job linking is not available in local mode. Continue with resume-file matching."
+          : jobId
+            ? "JD standardized, source-grounded match rubric generated and saved, and linked to the ATS job. Select an application in Applicant Match to assess its stored resume."
+            : "JD standardized and source-grounded match rubric generated and saved. Select an ATS job later to link this rubric, or continue with resume matching.");
       setActiveTab("match");
     } catch (error) {
       const message = explainError(error);
