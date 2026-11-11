@@ -34,7 +34,7 @@ from app.features.applicant_match.profile import VProfile, extract_profile, resu
 from app.features.applicant_match.resume import ResumeText, looks_like_resume, prepare_resume
 from app.features.applicant_match.rubric import JobSource, compile_rubric
 from app.features.applicant_match.scoring import evaluate, judged_items
-from app.features.applicant_match.summary import summary_facts, template as summary_template, write_summary
+from app.features.applicant_match.summary import summary_facts, template as summary_template
 from app.features.jd_standardizer.pipeline.policy import Policy
 from app.llm.client import CallContext, ChatLLM
 from app.observability.runs import RunRecorder
@@ -82,7 +82,7 @@ async def draft_rubric(job: JobSource, options: MatchOptions, deps: MatchDeps) -
     rec.start(source_type="jd_run" if not job.job_ref.startswith("text:") else "text",
               input_text="\n".join(f"{ln.id} [{ln.section}] {ln.text}" for ln in job.lines))
     try:
-        rubric, notes = await compile_rubric(job, deps.llm, ctx, deps.settings, load_match_policy())
+        rubric, notes = await compile_rubric(job, deps.llm, ctx, deps.settings, load_match_policy(), fast=options.fast)
     except LLMError as e:
         rec.finish(status="llm_unavailable" if isinstance(e, LLMUnavailable) else "llm_failed", outcome="error",
                    error=f"{type(e).__name__}: {e}", trace={"llm_calls": ctx.records})
@@ -269,7 +269,13 @@ async def _analyze(rubric: Rubric, inp: ResumeInput, as_of: date, deps: MatchDep
     profile = _profile_model(prof, resume, ev.total_years, ev.relevant_years)
     facts = summary_facts(ev, (profile.latest_title, profile.latest_company), rubric.required_years,
                           prof.education_level)
-    summary = await write_summary(facts, deps.llm, ctx, s, mp)
+    # A second summary-generation call adds latency but no new evidence. Keep this
+    # concise summary deterministic and derived only from the verified assessment facts.
+    summary = Summary(
+        value=summary_template(facts),
+        status="template",
+        reason="Generated from verified assessment facts without an extra model call for a faster review.",
+    )
     flags += prof.flags + ev.flags + (["summary_fallback"] if summary.status == "fallback" else [])
     card = Card(request_id=rid, applicant_id=applicant_id, status="complete", reason=None,
                 rubric={"id": rubric.rubric_id, "hash": rubric.rubric_hash, "title": rubric.title}, file=file,
