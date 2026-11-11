@@ -103,6 +103,33 @@ export function getUnsupportedJdOptionFields(error) {
   }))];
 }
 
+
+/**
+ * Identify rejected optional multipart fields on older local/hosted API builds.
+ * Required resume inputs are never candidates; callers provide a short allowlist.
+ */
+export function getUnsupportedFormFields(error, allowedFields = ["profile"]) {
+  const detail = error?.response?.data?.detail;
+  const allowed = new Set(allowedFields);
+  if (!allowed.size) return [];
+
+  if (Array.isArray(detail)) {
+    return [...new Set(detail.flatMap((item) => {
+      const location = Array.isArray(item?.loc) ? item.loc : [];
+      const field = location[0] === "body" && location.length === 2 ? location[1] : null;
+      const isExtra = item?.type === "extra_forbidden"
+        || /extra inputs are not permitted/i.test(String(item?.msg || ""));
+      return isExtra && allowed.has(field) ? [field] : [];
+    }))];
+  }
+
+  const message = String(detail?.message || detail || "");
+  return [...allowed].filter((field) => (
+    new RegExp("(?:^|\\n)\\s*" + field + "\\s*\\n[\\s\\S]{0,220}?Extra inputs are not permitted", "i").test(message)
+    || new RegExp("(?:body\\.)" + field + "[^\\n]{0,160}Extra inputs are not permitted", "i").test(message)
+  ));
+}
+
 export function formatJdValidationErrors(error) {
   const detail = error?.response?.data?.detail;
   if (!Array.isArray(detail)) return "";
