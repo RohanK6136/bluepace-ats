@@ -104,6 +104,7 @@ class RubricSummary(Model):
 class MatchOptions(Model):
     profile: str | None = Field(default=None, description="Model profile id from /v1/models; default if omitted")
     use_cache: bool = True
+    fast: bool = Field(default=True, description="Use deterministic source-grounded rubric drafting without an extra model call")
 
 
 # ------------------------------------------------------------------ card
@@ -194,7 +195,7 @@ class Scores(Model):
 
 class Summary(Model):
     value: str
-    status: Literal["generated", "fallback"]
+    status: Literal["generated", "fallback", "template"]
     reason: str | None = None
 
 
