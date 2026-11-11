@@ -1441,8 +1441,6 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("Building the sample rubric and assessing the sample resume with the selected AI profile…");
     setCandidateCard(null);
     setCandidateReview({ stage: "new", history: [] });
-    const requestStartedAt = Date.now();
-
     try {
       const draftResponse = await request("post", "/v1/match/rubrics", {
         jd_text: SAMPLE_JOB_DESCRIPTION,
@@ -1471,12 +1469,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       else body.append("text", SAMPLE_RESUME_TEXT);
       if (selectedProfile) body.append("profile", selectedProfile);
 
+      const analysisStartedAt = Date.now();
       const analysisResponse = await request("post", "/v1/match/analyze", body, { timeout: 120000 });
       const result = {
         ...analysisResponse.data,
         performance: {
           ...(analysisResponse.data?.performance || {}),
-          client_round_trip_ms: Date.now() - requestStartedAt,
+          client_round_trip_ms: Date.now() - analysisStartedAt,
         },
         sampleScenario: "aarav-sharma",
       };
