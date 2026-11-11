@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, getBulkMatchConcurrency, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
-import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata } from "./jdUploadUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata, getUnsupportedFormFields } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
 import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
@@ -1151,6 +1151,26 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
 
+
+  async function requestFormWithCompatibility(path, form, requestOptions = {}) {
+    try {
+      return await request("post", path, form, requestOptions);
+    } catch (error) {
+      // A selected profile is optional: older companions can use their
+      // configured default profile when this field is not in their schema.
+      const unsupported = getUnsupportedFormFields(error, ["profile"]);
+      if (!unsupported.length) throw error;
+      const retryForm = new FormData();
+      for (const [key, value] of form.entries()) {
+        if (!unsupported.includes(key)) retryForm.append(key, value);
+      }
+      setNotice(
+        "The connected AI API does not support the selected profile field. Retrying with its configured default model.",
+      );
+      return request("post", path, retryForm, requestOptions);
+    }
+  }
+
   async function runJD(mode) {
     if (!jdText.trim()) {
       setJdError("Paste a job description or a role brief before running the standardizer.");
@@ -1450,12 +1470,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const body = new FormData();
       body.append("rubric_id", selectedRubricId);
-      if (rubric) body.append("rubric", JSON.stringify(rubric));
       if (resumeFile) body.append("file", resumeFile);
       else body.append("text", resumeText.trim());
       if (selectedProfile) body.append("profile", selectedProfile);
       const requestStartedAt = Date.now();
-      const response = await request("post", "/v1/match/analyze", body, { timeout: 120000 });
+      const response = await requestFormWithCompatibility("/v1/match/analyze", body, { timeout: 120000 });
       const result = {
         ...response.data,
         performance: {
@@ -1520,7 +1539,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       if (selectedProfile) body.append("profile", selectedProfile);
 
       const analysisStartedAt = Date.now();
-      const analysisResponse = await request("post", "/v1/match/analyze", body, { timeout: 120000 });
+      const analysisResponse = await requestFormWithCompatibility("/v1/match/analyze", body, { timeout: 120000 });
       const result = {
         ...analysisResponse.data,
         performance: {
@@ -1837,7 +1856,6 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
       const body = new FormData();
       body.append("rubric_id", selectedRubricId);
-      if (rubric) body.append("rubric", JSON.stringify(rubric));
       body.append("file", row.file);
       if (selectedProfile) body.append("profile", selectedProfile);
 
