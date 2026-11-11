@@ -4,6 +4,7 @@ import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJd
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
 import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
+import { buildSourceGroundedRubric, isExtraInputValidationError } from "./rubricFallback.mjs";
 import { SAMPLE_JOB_DESCRIPTION, SAMPLE_MANUAL_REFERENCE, SAMPLE_RESUME_TEXT } from "./sampleApplicantMatchScenario.mjs";
 import MatchAssessmentInsights from "./MatchAssessmentInsights.jsx";
 
@@ -1363,16 +1364,36 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("");
     setCandidateCard(null);
     try {
-      // The endpoint defaults to deterministic fast rubric drafting; avoid
-      // sending optional options fields to older local AI companions.
-      const response = await request("post", "/v1/match/rubrics", {
-        jd_text: currentJD,
-      }, { timeout: 15000 });
-      const nextRubric = response.data?.rubric || response.data;
+      let nextRubric;
+      let notes = [];
+      try {
+        // Keep the request to the one required source field. The current backend
+        // drafts deterministically by default and does not need a model profile.
+        const response = await request("post", "/v1/match/rubrics", {
+          jd_text: currentJD,
+        }, { timeout: 30000 });
+        nextRubric = unwrapRubricDraft(response.data);
+        notes = response.data?.notes || [];
+      } catch (error) {
+        // Older local Ollama companions may run the previous AI rubric compiler.
+        // If that server responds with Pydantic's explicit extra-input validation
+        // error, use the source-text rules compiler rather than retrying a paid or
+        // unreliable model call. Other API failures remain visible to the recruiter.
+        if (!isExtraInputValidationError(error)) throw error;
+        nextRubric = buildSourceGroundedRubric(currentJD);
+        notes = [{
+          code: "local_rules_compatibility",
+          message: "Compatibility draft created directly from the current JD because this AI API version rejected its rubric request schema. Every criterion below is linked to original JD text; no model call or extra input was used. Review the draft before saving.",
+        }];
+        setNotice("A source-grounded compatibility draft was created locally. Review its criteria and weights, then save the rubric version.");
+      }
+
       setRubric(nextRubric);
       setSelectedRubricId(nextRubric?.rubric_id || "");
-      setRubricNotes(response.data?.notes || []);
-      setNotice(response.data?.notes?.[0] || "Instant source-based rubric draft created. Review requirements and weights before saving.");
+      setRubricNotes(notes);
+      if (!notes.some((note) => note?.code === "local_rules_compatibility")) {
+        setNotice(notes?.[0]?.message || notes?.[0] || "Source-based rubric draft created. Review requirements and weights before saving.");
+      }
       // The draft is ready now. Do not keep the builder spinner active while a
       // separate saved-rubric list request waits on a hosted/serverless response.
       void refreshSavedRubrics();
