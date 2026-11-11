@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import handler, { extractPdfText } from "../api/v1/[...path].js";
 import explicitTestHandler from "../api/v1/test.js";
+import explicitRubricsHandler from "../api/v1/match/rubrics.js";
 import { deflateSync } from "node:zlib";
 import { onRequest as pagesFunction } from "../functions/v1/[[path]].js";
 
@@ -698,6 +699,41 @@ test("server-side Applicant Match timings separate parsing from inference", asyn
 test("Vercel model API rewrite preserves the requested path", () => {
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   assert.ok(config.rewrites.some((rule) => rule.source === "/v1/:path*" && rule.destination === "/api/v1/:path*"));
+});
+
+
+
+test("explicit Vercel Applicant Match rubric route serves GET and POST without relying on catch-all registration", async () => {
+  const headers = { host: "ats.vercel.app", "content-type": "application/json" };
+  const jd = [
+    "Software Engineer",
+    "Responsibilities:",
+    "- Build REST APIs using Python and FastAPI",
+    "Requirements:",
+    "- 4 years of experience with Python and SQL",
+  ].join("\\n");
+
+  const draft = await invokeHandler(
+    explicitRubricsHandler,
+    headers,
+    "POST",
+    "/api/v1/match/rubrics",
+    {},
+    JSON.stringify({ jd_text: jd }),
+  );
+  assert.equal(draft.statusCode, 200, JSON.stringify(draft.body));
+  assert.ok(draft.body.rubric?.items?.length > 0);
+  assert.ok(draft.body.rubric.rubric_id);
+
+  const savedList = await invokeHandler(
+    explicitRubricsHandler,
+    { host: "ats.vercel.app" },
+    "GET",
+    "/api/v1/match/rubrics",
+    {},
+  );
+  assert.equal(savedList.statusCode, 200, JSON.stringify(savedList.body));
+  assert.ok(Array.isArray(savedList.body));
 });
 
 test("explicit OpenRouter test route and Vercel catch-all path variants complete inference", async () => {
