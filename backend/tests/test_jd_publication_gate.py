@@ -56,3 +56,14 @@ def test_llm_warning_does_not_bypass_missing_requirements_or_hard_blockers():
     hard_blocker = Flag(code="source_integrity_failure", severity="block", message="Invalid source evidence")
     blockers = publish_gate(fields, sections, [warning, hard_blocker], short, policy)
     assert "flag: source_integrity_failure" in blockers
+
+
+def test_legacy_block_severity_llm_unavailable_is_not_a_publication_blocker():
+    policy, fields, sections, short = _source_complete_draft()
+    legacy_flag = Flag(
+        code="llm_unavailable",
+        severity="block",
+        message="Legacy local Qwen timeout flag",
+    )
+
+    assert publish_gate(fields, sections, [legacy_flag], short, policy) == []
