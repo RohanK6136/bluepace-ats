@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate } from "./jdUploadUtils.mjs";
 
 test("surfaces the backend extraction reason for image-only or empty-text uploads", () => {
   const message = getJdUploadError({
@@ -61,8 +61,7 @@ test("normalizes arrays without leaking object string representations", () => {
 });
 
 
-test("treats a legacy LLM-unavailable diagnostic as a warning, not a publication blocker", async () => {
-  const { normalizeJdPublicationGate } = await import("./jdUploadUtils.mjs");
+test("treats a legacy LLM-unavailable diagnostic as a warning, not a publication blocker", () => {
   const result = normalizeJdPublicationGate({
     publishable: false,
     publish_blockers: ["flag: llm_unavailable"],
@@ -73,8 +72,7 @@ test("treats a legacy LLM-unavailable diagnostic as a warning, not a publication
   assert.equal(result.flags[0].code, "llm_unavailable");
 });
 
-test("keeps genuine publication blockers when LLM is unavailable", async () => {
-  const { normalizeJdPublicationGate } = await import("./jdUploadUtils.mjs");
+test("keeps genuine publication blockers when LLM is unavailable", () => {
   const result = normalizeJdPublicationGate({
     publishable: false,
     publish_blockers: ["title: missing", "flag: llm_unavailable", "requirements: empty"],
@@ -83,8 +81,7 @@ test("keeps genuine publication blockers when LLM is unavailable", async () => {
   assert.deepEqual(result.publish_blockers, ["title: missing", "requirements: empty"]);
 });
 
-test("leaves modern publication responses and invalid values unchanged", async () => {
-  const { normalizeJdPublicationGate } = await import("./jdUploadUtils.mjs");
+test("leaves modern publication responses and invalid values unchanged", () => {
   const modern = { publishable: false, publish_blockers: ["requirements: empty"] };
   assert.equal(normalizeJdPublicationGate(modern), modern);
   assert.equal(normalizeJdPublicationGate(null), null);
