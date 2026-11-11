@@ -9,6 +9,7 @@ import {
   MAX_RESUME_BYTES,
   validateBulkResume,
 } from "./bulkMatchUtils.mjs";
+import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
 
 function file(name, size = 120, lastModified = 10) {
   return { name, size, lastModified };
@@ -130,4 +131,19 @@ test("uses one bulk worker for local Ollama and bounded parallelism for hosted m
   assert.equal(getBulkMatchConcurrency("local-ollama"), 1);
   assert.equal(getBulkMatchConcurrency("openrouter"), BULK_MATCH_CONCURRENCY);
   assert.equal(getBulkMatchConcurrency(""), BULK_MATCH_CONCURRENCY);
+});
+
+
+test("unwraps the local Python API rubric draft before saving", () => {
+  const draft = { rubric_id: null, items: [{ id: "R01", label: "Python" }] };
+  assert.equal(unwrapRubricDraft({ run_id: "run-1", rubric: draft, notes: [] }), draft);
+});
+
+test("accepts a frozen rubric returned directly by the hosted API", () => {
+  const saved = { rubric_id: "rb_123", items: [{ id: "R01", label: "Python" }] };
+  assert.equal(unwrapRubricDraft(saved), saved);
+});
+
+test("rejects an empty rubric response with an actionable error", () => {
+  assert.throws(() => unwrapRubricDraft({ rubric: { items: [] } }), /clear requirements/);
 });
