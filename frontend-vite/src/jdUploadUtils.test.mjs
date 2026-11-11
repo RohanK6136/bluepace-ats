@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors } from "./jdUploadUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata } from "./jdUploadUtils.mjs";
 
 test("surfaces the backend extraction reason for image-only or empty-text uploads", () => {
   const message = getJdUploadError({
