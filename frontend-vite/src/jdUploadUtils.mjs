@@ -57,3 +57,22 @@ export function normalizeJdText(value) {
   if (directText) return directText.trim();
   return extractJdTextFromResult(value);
 }
+
+
+/**
+ * Compatibility guard for older local/hosted JD Standardizer instances.
+ * Provider availability is a diagnostic warning, not a content publication
+ * blocker. Keep every other blocker untouched and retain the warning in flags.
+ */
+export function normalizeJdPublicationGate(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+  const blockers = Array.isArray(result.publish_blockers) ? result.publish_blockers : null;
+  if (!blockers) return result;
+  const normalized = blockers.filter((item) => String(item).trim() !== "flag: llm_unavailable");
+  if (normalized.length === blockers.length) return result;
+  return {
+    ...result,
+    publish_blockers: normalized,
+    publishable: normalized.length === 0,
+  };
+}
