@@ -630,6 +630,69 @@ test("direct /api/v1 function URLs serve JD Standardizer and Applicant Match wit
   assert.equal(analysis.body.versions.profile, "rules");
   assert.equal(analysis.body.status, "complete");
   assert.ok(analysis.body.evidence.length > 0);
+  assert.equal(analysis.body.performance.assessment_mode, "rules");
+  assert.equal(analysis.body.performance.input_mode, "pasted_text");
+  assert.equal(analysis.body.performance.resume_extraction_ms, 0);
+  assert.equal(analysis.body.performance.provider_round_trip_ms, 0);
+  assert.equal(analysis.body.performance.model_inference_ms, null);
+  assert.ok(analysis.body.performance.total_ms >= analysis.body.performance.preprocessing_ms);
+});
+
+test("server-side Applicant Match timings separate parsing from inference", async () => {
+  const originalFetch = globalThis.fetch;
+  const hostHeaders = {
+    host: "ats.vercel.app",
+    "content-type": "multipart/form-data; boundary=timing-boundary",
+    "x-openrouter-api-key": "timing-test-key",
+  };
+  const rubric = {
+    rubric_id: "rb_timing",
+    rubric_hash: "timing-hash",
+    title: "Software Engineer",
+    required_years: null,
+    education: { min_level: "none" },
+    weights: { required_skills: 100, experience: 0, preferred_skills: 0, education: 0 },
+    items: [{ id: "R01", label: "Python", importance: "must", group: "coding", min_years: null, source_text: "Python" }],
+  };
+  const resume = "Software engineer with Python experience. Built services using Python and REST APIs.";
+  const boundary = "timing-boundary";
+  const multipart = [
+    "--" + boundary + "\r\nContent-Disposition: form-data; name="rubric"\r\n\r\n" + JSON.stringify(rubric) + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name="text"\r\n\r\n" + resume + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name="profile"\r\n\r\nopenrouter\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name="rubric_id"\r\n\r\n" + rubric.rubric_id + "\r\n",
+    "--" + boundary + "--\r\n",
+  ].join("");
+
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    model: "openrouter/free",
+    choices: [{
+      message: {
+        content: JSON.stringify({
+          profile: { latest_title: "Software Engineer", total_years: 2, relevant_years: 2, education_level: "none", roles: [], education: [], certifications: [], languages: [] },
+          evidence: [{ item_id: "R01", status: "met", note: "Python is explicitly listed.", evidence_lines: ["Built services using Python and REST APIs."] }],
+          summary: "Python experience is explicitly evidenced.",
+          flags: [],
+        }),
+      },
+    }],
+    usage: { prompt_tokens: 120, completion_tokens: 80 },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+
+  try {
+    const response = await invokeHandler(handler, hostHeaders, "POST", "/api/v1/match/analyze", {}, multipart);
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(response.body.performance.assessment_mode, "model");
+    assert.equal(response.body.performance.input_mode, "pasted_text");
+    assert.equal(response.body.performance.resume_extraction_ms, 0);
+    assert.ok(response.body.performance.preprocessing_ms >= 0);
+    assert.ok(response.body.performance.provider_round_trip_ms >= response.body.performance.model_inference_ms);
+    assert.ok(response.body.performance.model_inference_ms >= 0);
+    assert.ok(response.body.performance.total_ms >= response.body.performance.provider_round_trip_ms);
+    assert.equal(response.body.usage.llm_calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("Vercel model API rewrite preserves the requested path", () => {
