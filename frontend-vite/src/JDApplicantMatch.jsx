@@ -1113,6 +1113,31 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
 
+  async function requestJdUploadWithCompatibility(path, form, requestOptions = {}) {
+    try {
+      return await request("post", path, form, requestOptions);
+    } catch (error) {
+      const unsupported = getUnsupportedJdOptionFields(error);
+      if (!unsupported.length) throw error;
+      let compatibleOptions;
+      try {
+        compatibleOptions = JSON.parse(String(form.get("options") || "{}"));
+      } catch {
+        throw error;
+      }
+      unsupported.forEach((field) => { delete compatibleOptions[field]; });
+      const retryForm = new FormData();
+      for (const [key, value] of form.entries()) {
+        if (key !== "options") retryForm.append(key, value);
+      }
+      retryForm.append("options", JSON.stringify(compatibleOptions));
+      setNotice(
+        `The connected AI API does not support the optional ${unsupported.join(", ")} setting(s). Retrying with its default values.`,
+      );
+      return request("post", path, retryForm, requestOptions);
+    }
+  }
+
   async function runJD(mode) {
     if (!jdText.trim()) {
       setJdError("Paste a job description or a role brief before running the standardizer.");
@@ -1149,7 +1174,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       form.append("file", file);
       form.append("options", JSON.stringify({ mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) }));
       form.append("overrides", JSON.stringify({}));
-      const response = await request("post", "/v1/jd/generate/upload", form, { timeout: 120000 });
+      const response = await requestJdUploadWithCompatibility("/v1/jd/generate/upload", form, { timeout: 120000 });
       const result = response.data || {};
       const uploadError = getJdUploadError(result);
       if (uploadError) throw new Error(uploadError);
