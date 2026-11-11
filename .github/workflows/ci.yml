@@ -92,6 +92,10 @@ jobs:
         working-directory: frontend-vite
         run: npm run test:local-network
 
+      - name: Test saved rubric persistence across browser sessions
+        working-directory: frontend-vite
+        run: npm run test:saved-rubrics
+
       - name: Test Vercel JD & Applicant Match model API
         working-directory: frontend-vite
         run: npm run test:jd-match-api
