@@ -11,21 +11,34 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import AuthSession, Role, User
-from app.services.security_config import resolve_jwt_secret
+from app.services.security_config import resolve_candidate_portal_secret, resolve_jwt_secret
 
 APP_ENV = os.getenv("APP_ENV", "development")
+RAILWAY_ENVIRONMENT_NAME = os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip()
 JWT_SECRET, USING_DEVELOPMENT_JWT_FALLBACK = resolve_jwt_secret(
     os.getenv("JWT_SECRET"),
     APP_ENV,
+    RAILWAY_ENVIRONMENT_NAME,
 )
-if (
-    USING_DEVELOPMENT_JWT_FALLBACK
-    and os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip().lower() == "production"
-):
+CANDIDATE_PORTAL_JWT_SECRET, USING_CANDIDATE_PORTAL_JWT_FALLBACK = (
+    resolve_candidate_portal_secret(
+        os.getenv("CANDIDATE_PORTAL_JWT_SECRET"),
+        JWT_SECRET,
+        APP_ENV,
+        RAILWAY_ENVIRONMENT_NAME,
+    )
+)
+if USING_DEVELOPMENT_JWT_FALLBACK:
     print(
-        "[security] WARNING: the development-only JWT fallback is active in the "
-        "Railway production environment. Configure JWT_SECRET after coordinating "
-        "the impact on active sessions and candidate-portal links.",
+        "[security] WARNING: the development-only recruiter JWT fallback is active. "
+        "Use explicit signing keys in production.",
+        flush=True,
+    )
+if USING_CANDIDATE_PORTAL_JWT_FALLBACK and RAILWAY_ENVIRONMENT_NAME.lower() == "production":
+    # Normally blocked by resolve_candidate_portal_secret; retain a guarded
+    # diagnostic if platform environment metadata changes unexpectedly.
+    print(
+        "[security] WARNING: candidate portal signing is using a fallback key.",
         flush=True,
     )
 JWT_ALGORITHM = "HS256"
@@ -61,13 +74,13 @@ def create_candidate_portal_token(application_id: int) -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(days=30)
     return jwt.encode(
         {"application_id": int(application_id), "kind": "candidate_portal", "exp": expires_at},
-        JWT_SECRET,
+        CANDIDATE_PORTAL_JWT_SECRET,
         algorithm=JWT_ALGORITHM,
     )
 
 
 def decode_candidate_portal_token(token: str) -> int:
-    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    payload = jwt.decode(token, CANDIDATE_PORTAL_JWT_SECRET, algorithms=[JWT_ALGORITHM])
     if payload.get("kind") != "candidate_portal" or "application_id" not in payload:
         raise jwt.InvalidTokenError("Invalid candidate portal token")
     return int(payload["application_id"])
