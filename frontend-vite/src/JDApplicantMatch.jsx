@@ -1098,7 +1098,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
 
-  async function requestJdWithCompatibility(path, payload, requestOptions = {}) {
+  async function requestWithOptionsCompatibility(path, payload, requestOptions = {}) {
     try {
       return await request("post", path, payload, requestOptions);
     } catch (error) {
@@ -1153,7 +1153,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         options: { mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) },
         overrides: {},
       };
-      const response = await requestJdWithCompatibility(mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
+      const response = await requestWithOptionsCompatibility(mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
       setJdResult(response.data);
       if (response.data?.request_id) setNotice(`Run completed · ${response.data.request_id}`);
     } catch (error) {
@@ -1256,15 +1256,14 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       // Hosted profiles can process both requests concurrently; local Ollama safely
       // serializes them through its one-model concurrency limit.
       const [jdOutcome, rubricOutcome] = await Promise.allSettled([
-        requestJdWithCompatibility("/v1/jd/generate", {
+        requestWithOptionsCompatibility("/v1/jd/generate", {
           text: sourceJD,
           options,
           overrides: {},
         }, { timeout: 120000 }),
-        request("post", "/v1/match/rubrics", {
-          jd_text: sourceJD,
-          options: { fast: true, ...(selectedProfile ? { profile: selectedProfile } : {}) },
-        }, { timeout: 30000 }),
+        // The rubric compiler defaults to deterministic fast mode; no model
+        // profile or options are needed, which also keeps older companions compatible.
+        request("post", "/v1/match/rubrics", { jd_text: sourceJD }, { timeout: 30000 }),
       ]);
 
       // The source-grounded rubric is independent of the model-assisted JD
@@ -1336,11 +1335,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("");
     setCandidateCard(null);
     try {
+      // The endpoint defaults to deterministic fast rubric drafting; avoid
+      // sending optional options fields to older local AI companions.
       const response = await request("post", "/v1/match/rubrics", {
         jd_text: currentJD,
-        options: { fast: true },
-        // Fast rubric drafting is a deterministic source-grounded rules pass;
-        // it does not wait for an LLM or consume provider credits.
       }, { timeout: 15000 });
       const nextRubric = response.data?.rubric || response.data;
       setRubric(nextRubric);
@@ -1484,7 +1482,6 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const draftResponse = await request("post", "/v1/match/rubrics", {
         jd_text: SAMPLE_JOB_DESCRIPTION,
-        options: { fast: true, ...(selectedProfile ? { profile: selectedProfile } : {}) },
       }, { timeout: 30000 });
       const draft = unwrapRubricDraft(draftResponse.data);
       const saveResponse = await request("post", "/v1/match/rubrics", { rubric: draft }, { timeout: 30000 });
