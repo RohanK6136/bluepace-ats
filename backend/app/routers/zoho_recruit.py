@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import DateTime, Integer, String, UniqueConstraint, select
@@ -127,7 +127,7 @@ def _settings():
 
 
 def _http_json(url: str, data: bytes | None = None, headers: dict | None = None) -> dict:
-    request = Request(url, data=data, headers=headers or {}, method="POST" if data is not None else "GET")
+    request = URLRequest(url, data=data, headers=headers or {}, method="POST" if data is not None else "GET")
     try:
         with urlopen(request, timeout=25) as response:
             import json

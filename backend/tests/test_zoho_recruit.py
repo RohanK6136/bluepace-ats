@@ -184,3 +184,40 @@ def test_execute_sync_persists_sanitized_failure(monkeypatch):
     assert run.error_type == "RuntimeError"
     assert run.completed_at is not None
     assert not hasattr(run, "error_message")
+
+
+def test_http_json_uses_urllib_request_not_fastapi_request(monkeypatch):
+    from urllib.request import Request as UrllibRequest
+
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return b'{"access_token":"test-token"}'
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(zoho_recruit, "urlopen", fake_urlopen)
+    result = zoho_recruit._http_json(
+        "https://accounts.zoho.in/oauth/v2/token",
+        data=b"grant_type=refresh_token",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+    request = captured["request"]
+    assert isinstance(request, UrllibRequest)
+    assert isinstance(zoho_recruit.Request, type)  # FastAPI Request remains reserved for webhook handling.
+    assert request.full_url == "https://accounts.zoho.in/oauth/v2/token"
+    assert request.get_method() == "POST"
+    assert request.data == b"grant_type=refresh_token"
+    assert captured["timeout"] == 25
+    assert result == {"access_token": "test-token"}
