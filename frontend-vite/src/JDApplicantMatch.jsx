@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, getBulkMatchConcurrency, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
-import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate } from "./jdUploadUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
 import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
@@ -167,7 +167,7 @@ function explainError(error) {
   if (typeof detail === "string") return detail;
   if (detail?.message) return detail.message;
   if (detail?.detail) return String(detail.detail);
-  if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join("; ");
+  if (Array.isArray(detail)) return formatJdValidationErrors(error) || detail.map((item) => item.msg || String(item)).join("; ");
   if (status === 401 || status === 403) return "The backend rejected this request. Check the optional X-API-Key in API access settings.";
   if (error?.response) return `AI Feature API returned HTTP ${status}.`;
   if (error?.request) return "The backend could not be reached. Confirm the API service is running and configured for this frontend.";
@@ -642,7 +642,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       updatedAt: now,
       jdText: "",
       jdMode: "light",
-      jdDetail: "detailed",
+      jdDetail: "concise",
       jdResult: null,
       rubric: null,
       rubricNotes: [],
@@ -675,7 +675,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       setCalibrationReviewerName("");
       setJdText("");
       setJdMode("light");
-      setJdDetail("detailed");
+      setJdDetail("concise");
       setJdResult(null);
       setRubric(null);
       setRubricNotes([]);
@@ -1098,6 +1098,21 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
 
+  async function requestJdWithCompatibility(path, payload, requestOptions = {}) {
+    try {
+      return await request("post", path, payload, requestOptions);
+    } catch (error) {
+      const unsupported = getUnsupportedJdOptionFields(error);
+      if (!unsupported.length || !payload?.options || typeof payload.options !== "object") throw error;
+      const compatibleOptions = { ...payload.options };
+      unsupported.forEach((field) => { delete compatibleOptions[field]; });
+      setNotice(
+        `The connected AI API does not support the optional ${unsupported.join(", ")} setting(s). Retrying with its default values.`,
+      );
+      return request("post", path, { ...payload, options: compatibleOptions }, requestOptions);
+    }
+  }
+
   async function runJD(mode) {
     if (!jdText.trim()) {
       setJdError("Paste a job description or a role brief before running the standardizer.");
@@ -1113,7 +1128,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         options: { mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) },
         overrides: {},
       };
-      const response = await request("post", mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
+      const response = await requestJdWithCompatibility(mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
       setJdResult(response.data);
       if (response.data?.request_id) setNotice(`Run completed · ${response.data.request_id}`);
     } catch (error) {
@@ -1216,7 +1231,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       // Hosted profiles can process both requests concurrently; local Ollama safely
       // serializes them through its one-model concurrency limit.
       const [jdOutcome, rubricOutcome] = await Promise.allSettled([
-        request("post", "/v1/jd/generate", {
+        requestJdWithCompatibility("/v1/jd/generate", {
           text: sourceJD,
           options,
           overrides: {},
@@ -2068,10 +2083,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                       <option value="rewrite">Rewrite · restructure language</option>
                     </select>
                   </Field>
-                  <Field label="Fast draft detail">
+                  <Field label="Output detail" hint="Concise is faster. Detailed adds more AI-generated content.">
                     <select value={jdDetail} onChange={(event) => setJdDetail(event.target.value)} className={fieldClass}>
-                      <option value="detailed">Detailed draft</option>
-                      <option value="concise">Concise draft</option>
+                      <option value="detailed">Detailed</option>
+                      <option value="concise">Concise · faster</option>
                     </select>
                   </Field>
                 </div>
