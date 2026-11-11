@@ -472,7 +472,7 @@ test("Cloudflare Pages adapter builds a rubric and assesses resume evidence with
   const resume = "Software engineer with 4 years of experience. Built REST APIs in Python and SQL; maintained production services.";
   const multipart = [
     "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric\"\r\n\r\n" + JSON.stringify(rubric) + "\r\n",
-    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\n" + resume + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"candidate.txt\"\r\nContent-Type: text/plain\r\n\r\n" + resume + "\r\n",
     "--" + boundary + "\r\nContent-Disposition: form-data; name=\"profile\"\r\n\r\nrules\r\n",
     "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric_id\"\r\n\r\n" + rubric.rubric_id + "\r\n",
     "--" + boundary + "--\r\n",
@@ -631,8 +631,8 @@ test("direct /api/v1 function URLs serve JD Standardizer and Applicant Match wit
   assert.equal(analysis.body.status, "complete");
   assert.ok(analysis.body.evidence.length > 0);
   assert.equal(analysis.body.performance.assessment_mode, "rules");
-  assert.equal(analysis.body.performance.input_mode, "pasted_text");
-  assert.equal(analysis.body.performance.resume_extraction_ms, 0);
+  assert.equal(analysis.body.performance.input_mode, "uploaded_file");
+  assert.ok(analysis.body.performance.resume_extraction_ms >= 0);
   assert.equal(analysis.body.performance.provider_round_trip_ms, 0);
   assert.equal(analysis.body.performance.model_inference_ms, null);
   assert.ok(analysis.body.performance.total_ms >= analysis.body.performance.preprocessing_ms);
@@ -657,10 +657,10 @@ test("server-side Applicant Match timings separate parsing from inference", asyn
   const resume = "Software engineer with Python experience. Built services using Python and REST APIs.";
   const boundary = "timing-boundary";
   const multipart = [
-    "--" + boundary + "\r\nContent-Disposition: form-data; name="rubric"\r\n\r\n" + JSON.stringify(rubric) + "\r\n",
-    "--" + boundary + "\r\nContent-Disposition: form-data; name="text"\r\n\r\n" + resume + "\r\n",
-    "--" + boundary + "\r\nContent-Disposition: form-data; name="profile"\r\n\r\nopenrouter\r\n",
-    "--" + boundary + "\r\nContent-Disposition: form-data; name="rubric_id"\r\n\r\n" + rubric.rubric_id + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric\"\r\n\r\n" + JSON.stringify(rubric) + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\n" + resume + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"profile\"\r\n\r\nopenrouter\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric_id\"\r\n\r\n" + rubric.rubric_id + "\r\n",
     "--" + boundary + "--\r\n",
   ].join("");
 
