@@ -184,8 +184,23 @@ def build_items(raw_items: list[dict[str, Any]], lines: list[JobLine], mp: Match
 
 
 # ------------------------------------------------------------------ compile + freeze
+def _rule_split_items(lines: list[JobLine]) -> list[dict[str, str]]:
+    """Split source requirement lines without inference or a model request."""
+    raw_items: list[dict[str, str]] = []
+    for line in lines:
+        chunks = re.split(r"[,;|]|\s+(?:and|or)\s+|\s*/\s*", line.text, flags=re.I)
+        for chunk in chunks:
+            label = re.sub(
+                r"^(?:experience with|proficiency in|knowledge of|familiarity with|hands[- ]on experience with|strong knowledge of|skills in)\s+",
+                "", chunk.strip(" .:-•\t"), flags=re.I,
+            ).strip()
+            if len(label) >= 2:
+                raw_items.append({"line": line.id, "label": label, "type": "skill", "group": "other"})
+    return raw_items
+
+
 async def compile_rubric(job: JobSource, llm: ChatLLM, ctx: CallContext, settings: Settings,
-                         mp: MatchPolicy) -> tuple[Rubric, list[CompileNote]]:
+                         mp: MatchPolicy, *, fast: bool = True) -> tuple[Rubric, list[CompileNote]]:
     notes = list(job.notes)
     cfg = mp.settings
     lines = job.lines[: cfg["llm"]["max_rubric_lines"]]
@@ -194,29 +209,26 @@ async def compile_rubric(job: JobSource, llm: ChatLLM, ctx: CallContext, setting
                                                                  "were split; add the rest by hand"))
     items: list[RubricItem] = []
     if lines:
-        tpl = load_prompt("rubric_compile")
-        system, user = tpl.render(title=job.title, lines=[{"id": ln.id, "text": ln.text[:300]} for ln in lines])
-        try:
-            res = await call_with_retry(llm, ctx, settings, "match_rubric", tpl.version, system, user,
-                                        rubric_schema(), cfg["llm"]["rubric_max_tokens"])
-            raw_items = res.parsed.get("items", [])
-        except LLMUnavailable as exc:
-            # Preserve source-grounded requirements without making paid model calls.
-            raw_items = []
-            for line in lines:
-                chunks = re.split(r"[,;|]|\s+(?:and|or)\s+|\s*/\s*", line.text, flags=re.I)
-                for chunk in chunks:
-                    label = re.sub(
-                        r"^(?:experience with|proficiency in|knowledge of|familiarity with|hands[- ]on experience with|strong knowledge of|skills in)\s+",
-                        "", chunk.strip(" .:-•\t"), flags=re.I,
-                    ).strip()
-                    if len(label) >= 2:
-                        raw_items.append({"line": line.id, "label": label, "type": "skill", "group": "other"})
+        if fast:
+            raw_items = _rule_split_items(lines)
             notes.append(CompileNote(
-                code="rules_fallback",
-                message="AI rubric generation is unavailable. This draft was built from original JD requirement text using deterministic rules. Review and adjust criteria before saving. "
-                        + str(exc)[:180],
+                code="fast_rules",
+                message="Fast draft: requirements were split directly from the original JD using deterministic rules; no model call was made. Review item boundaries and importance before saving.",
             ))
+        else:
+            tpl = load_prompt("rubric_compile")
+            system, user = tpl.render(title=job.title, lines=[{"id": ln.id, "text": ln.text[:300]} for ln in lines])
+            try:
+                res = await call_with_retry(llm, ctx, settings, "match_rubric", tpl.version, system, user,
+                                            rubric_schema(), cfg["llm"]["rubric_max_tokens"])
+                raw_items = res.parsed.get("items", [])
+            except LLMUnavailable as exc:
+                raw_items = _rule_split_items(lines)
+                notes.append(CompileNote(
+                    code="rules_fallback",
+                    message="AI rubric generation is unavailable. This draft was built from original JD requirement text using deterministic rules. Review and adjust criteria before saving. "
+                            + str(exc)[:180],
+                ))
         items = build_items(raw_items, lines, mp, notes)
         covered = {it.source_line for it in items}
         for ln in lines:
