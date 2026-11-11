@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, BULK_MATCH_CONCURRENCY, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
+import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -129,14 +130,13 @@ function formatLocalDate(date) {
   return Number.isNaN(parsed.getTime()) ? date : parsed.toLocaleDateString();
 }
 
-function readSavedRubrics() {
-  try {
-    const value = JSON.parse(sessionStorage.getItem("bluepace_feature_saved_rubrics") || "[]");
-    return Array.isArray(value) ? value : [];
-  } catch { return []; }
-}
-function writeSavedRubrics(rows) {
-  try { sessionStorage.setItem("bluepace_feature_saved_rubrics", JSON.stringify(rows.slice(0, 50))); } catch { /* session-only convenience */ }
+function savedRubricOption(row) {
+  return {
+    rubric_id: row.rubric_id,
+    title: row.title || null,
+    items: Array.isArray(row.items) ? row.items.length : Math.max(0, Number(row.items) || 0),
+    created_at: row.created_at || null,
+  };
 }
 function sessionProviderKey(provider) {
   try {
@@ -430,7 +430,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [jdError, setJdError] = useState("");
   const [rubric, setRubric] = useState(() => initialWorkspace?.rubric || null);
   const [rubricNotes, setRubricNotes] = useState(() => initialWorkspace?.rubricNotes || []);
-  const [savedRubrics, setSavedRubrics] = useState([]);
+  const [savedRubrics, setSavedRubrics] = useState(() => readSavedRubrics().map(savedRubricOption));
   const [selectedRubricId, setSelectedRubricId] = useState(() => initialWorkspace?.selectedRubricId || "");
   const [rubricLoading, setRubricLoading] = useState(false);
   const [rubricError, setRubricError] = useState("");
@@ -914,16 +914,19 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   const refreshSavedRubrics = useCallback(async () => {
     const localRows = readSavedRubrics();
-    setSavedRubrics(localRows);
+    const merged = localRows.map(savedRubricOption);
+    setSavedRubrics(merged);
     try {
       const response = await request("get", "/v1/match/rubrics", undefined, { params: { limit: 50 }, timeout: 10000 });
       const remoteRows = Array.isArray(response.data) ? response.data : [];
-      const merged = [...localRows];
-      for (const row of remoteRows) if (!merged.some((saved) => saved.rubric_id === row.rubric_id)) merged.push(row);
-      setSavedRubrics(merged.slice(0, 50));
+      const byId = new Map(merged.map((row) => [row.rubric_id, row]));
+      for (const row of remoteRows) {
+        if (row?.rubric_id && !byId.has(row.rubric_id)) byId.set(row.rubric_id, savedRubricOption(row));
+      }
+      setSavedRubrics(Array.from(byId.values()).slice(0, 50));
     } catch {
-      // Serverless deployment is stateless; reviewed rubric versions are kept in this tab's session.
-      setSavedRubrics(localRows);
+      // The Vercel feature API is stateless; the durable browser copy remains authoritative there.
+      setSavedRubrics(merged);
     }
   }, [request]);
 
@@ -1328,11 +1331,21 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const response = await request("post", "/v1/match/rubrics", { rubric }, { timeout: 30000 });
       const saved = response.data;
+      if (!saved?.rubric_id || !Array.isArray(saved.items)) {
+        throw new Error("The save service returned no complete rubric version. Your draft is still open; please retry.");
+      }
       const existing = readSavedRubrics().filter((item) => item.rubric_id !== saved.rubric_id);
-      writeSavedRubrics([saved, ...existing]);
+      const nextRows = [saved, ...existing].slice(0, 50);
+      const storage = writeSavedRubrics(nextRows);
+      if (!storage.ok) {
+        throw new Error("The AI service accepted the rubric, but this browser could not store it. Allow site storage or clear browser storage, then retry.");
+      }
+      setSavedRubrics(nextRows.map(savedRubricOption));
       setRubric(saved);
-      setSelectedRubricId(saved.rubric_id || "");
-      setNotice(`Rubric version saved in this browser session · ${saved.rubric_id || "saved"}`);
+      setSelectedRubricId(saved.rubric_id);
+      setNotice(storage.persistent
+        ? `Rubric version saved on this device · ${saved.rubric_id}`
+        : `Rubric saved for this tab only because persistent browser storage is unavailable · ${saved.rubric_id}`);
       // Saving is complete; refresh the picker in the background rather than
       // making the save button wait for a second network request.
       void refreshSavedRubrics();
@@ -2023,7 +2036,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               <div className="grid gap-5 xl:grid-cols-2">
                 <div className="space-y-4">
                   <SectionHeading eyebrow="Step 03" title="Build a reviewable rubric" detail="Create a draft from the job description, check the requirements, then save an immutable rubric version before assessing resumes." />
-                  <Field label="Saved rubric version">
+                  <Field label="Saved rubric version" hint="Saved on this device and retained after refresh. It is not yet shared across different devices or recruiter accounts.">
                     <select value={selectedRubricId} onChange={(event) => loadRubric(event.target.value)} className={fieldClass} disabled={rubricLoading}>
                       <option value="">Choose a saved rubric…</option>
                       {savedRubrics.map((item) => <option key={item.rubric_id} value={item.rubric_id}>{item.title || "Untitled role"} · {item.items} requirements · {item.rubric_id}</option>)}
