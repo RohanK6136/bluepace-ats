@@ -92,6 +92,10 @@ jobs:
         working-directory: frontend-vite
         run: npm run test:match-insights
 
+      - name: Test legacy API fallback for Step 03 rubric drafting
+        working-directory: frontend-vite
+        run: npm run test:rubric-fallback
+
       - name: Test local loopback permission diagnostics
         working-directory: frontend-vite
         run: npm run test:local-network
