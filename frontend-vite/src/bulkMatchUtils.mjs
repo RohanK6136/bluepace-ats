@@ -64,6 +64,14 @@ export function buildBulkMatchCsv(rows) {
     "Gaps to review",
     "Review flags",
     "Evidence summary",
+    "Resume extraction (ms)",
+    "Preprocessing (ms)",
+    "Provider round trip (ms)",
+    "Model inference (ms)",
+    "Server total (ms)",
+    "Browser round trip (ms)",
+    "Assessment mode",
+    "Input mode",
     "Error",
   ];
 
@@ -90,6 +98,14 @@ export function buildBulkMatchCsv(rows) {
       gaps,
       result.flags || [],
       result.summary?.value,
+      result.performance?.resume_extraction_ms,
+      result.performance?.preprocessing_ms,
+      result.performance?.provider_round_trip_ms,
+      result.performance?.model_inference_ms,
+      result.performance?.total_ms,
+      result.performance?.client_round_trip_ms,
+      result.performance?.assessment_mode,
+      result.performance?.input_mode,
       row?.error || "",
     ];
   });
