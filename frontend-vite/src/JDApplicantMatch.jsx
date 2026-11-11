@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, getBulkMatchConcurrency, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
-import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors } from "./jdUploadUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
 import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
@@ -1098,7 +1098,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
 
-  async function requestJdWithCompatibility(path, payload, requestOptions = {}) {
+  async function requestWithOptionsCompatibility(path, payload, requestOptions = {}) {
     try {
       return await request("post", path, payload, requestOptions);
     } catch (error) {
@@ -1138,6 +1138,19 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
 
+  async function saveRubricWithCompatibility(rubric, requestOptions = {}) {
+    try {
+      return await request("post", "/v1/match/rubrics", { rubric }, requestOptions);
+    } catch (error) {
+      const compatible = removeUnsupportedRubricMetadata(rubric, error);
+      if (!compatible) throw error;
+      setNotice(
+        `The connected AI API uses an older rubric schema. Retrying without ${compatible.removed} optional source-trace field(s); match criteria are unchanged.`,
+      );
+      return request("post", "/v1/match/rubrics", { rubric: compatible.rubric }, requestOptions);
+    }
+  }
+
   async function runJD(mode) {
     if (!jdText.trim()) {
       setJdError("Paste a job description or a role brief before running the standardizer.");
@@ -1153,7 +1166,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         options: { mode: jdMode, detail: jdDetail, ...(selectedProfile ? { profile: selectedProfile } : {}) },
         overrides: {},
       };
-      const response = await requestJdWithCompatibility(mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
+      const response = await requestWithOptionsCompatibility(mode === "fast" ? "/v1/jd/generate" : "/v1/jd/standardize", payload, { timeout: 120000 });
       setJdResult(response.data);
       if (response.data?.request_id) setNotice(`Run completed · ${response.data.request_id}`);
     } catch (error) {
@@ -1256,15 +1269,14 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       // Hosted profiles can process both requests concurrently; local Ollama safely
       // serializes them through its one-model concurrency limit.
       const [jdOutcome, rubricOutcome] = await Promise.allSettled([
-        requestJdWithCompatibility("/v1/jd/generate", {
+        requestWithOptionsCompatibility("/v1/jd/generate", {
           text: sourceJD,
           options,
           overrides: {},
         }, { timeout: 120000 }),
-        request("post", "/v1/match/rubrics", {
-          jd_text: sourceJD,
-          options: { fast: true, ...(selectedProfile ? { profile: selectedProfile } : {}) },
-        }, { timeout: 30000 }),
+        // The rubric compiler defaults to deterministic fast mode; no model
+        // profile or options are needed, which also keeps older companions compatible.
+        request("post", "/v1/match/rubrics", { jd_text: sourceJD }, { timeout: 30000 }),
       ]);
 
       // The source-grounded rubric is independent of the model-assisted JD
@@ -1286,7 +1298,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       if (rubricOutcome.status === "rejected") throw rubricOutcome.reason;
       const rubricResponse = rubricOutcome.value;
       const draft = unwrapRubricDraft(rubricResponse.data);
-      const saveResponse = await request("post", "/v1/match/rubrics", { rubric: draft }, { timeout: 30000 });
+      const saveResponse = await saveRubricWithCompatibility(draft, { timeout: 30000 });
       const saved = saveResponse.data?.rubric || saveResponse.data;
       if (!saved?.rubric_id) throw new Error("The rubric was generated but the API did not confirm that it was saved.");
       const existing = readSavedRubrics().filter((item) => item.rubric_id !== saved.rubric_id);
@@ -1336,11 +1348,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("");
     setCandidateCard(null);
     try {
+      // The endpoint defaults to deterministic fast rubric drafting; avoid
+      // sending optional options fields to older local AI companions.
       const response = await request("post", "/v1/match/rubrics", {
         jd_text: currentJD,
-        options: { fast: true },
-        // Fast rubric drafting is a deterministic source-grounded rules pass;
-        // it does not wait for an LLM or consume provider credits.
       }, { timeout: 15000 });
       const nextRubric = response.data?.rubric || response.data;
       setRubric(nextRubric);
@@ -1391,7 +1402,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setRubricError("");
     setNotice("");
     try {
-      const response = await request("post", "/v1/match/rubrics", { rubric }, { timeout: 30000 });
+      const response = await saveRubricWithCompatibility(rubric, { timeout: 30000 });
       const saved = response.data;
       if (!saved?.rubric_id || !Array.isArray(saved.items)) {
         throw new Error("The save service returned no complete rubric version. Your draft is still open; please retry.");
@@ -1484,10 +1495,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const draftResponse = await request("post", "/v1/match/rubrics", {
         jd_text: SAMPLE_JOB_DESCRIPTION,
-        options: { fast: true, ...(selectedProfile ? { profile: selectedProfile } : {}) },
       }, { timeout: 30000 });
       const draft = unwrapRubricDraft(draftResponse.data);
-      const saveResponse = await request("post", "/v1/match/rubrics", { rubric: draft }, { timeout: 30000 });
+      const saveResponse = await saveRubricWithCompatibility(draft, { timeout: 30000 });
       const savedRubric = saveResponse.data?.rubric || saveResponse.data;
       if (!savedRubric?.rubric_id || !Array.isArray(savedRubric.items)) {
         throw new Error("The sample rubric was generated, but the API did not confirm that it was saved.");
