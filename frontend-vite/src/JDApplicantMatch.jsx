@@ -1277,46 +1277,41 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice("");
     setCandidateCard(null);
     try {
+      // Keep the request contract deliberately small: the current JD and one supported
+      // standardization mode only. No recruiter-specific extra fields are required.
       const options = {
         mode: jdMode === "verbatim" ? "verbatim" : jdMode === "rewrite" ? "rewrite" : "light",
-        detail: jdDetail,
-        ...(selectedProfile ? { profile: selectedProfile } : {}),
       };
-      setNotice("Preparing the standardized JD and source-grounded match rubric…");
+      setJdResult(null);
+      setNotice("Step 1 of 2 · standardizing the current JD before setting up Applicant Match…");
 
-      // These tasks are independent: JD generation can add clearly-marked draft prose,
-      // while the rubric must be built from the original recruiter-supplied requirements.
-      // Hosted profiles can process both requests concurrently; local Ollama safely
-      // serializes them through its one-model concurrency limit.
-      const [jdOutcome, rubricOutcome] = await Promise.allSettled([
-        requestWithOptionsCompatibility("/v1/jd/generate", {
+      // Standardize first so the JD workflow is always completed before the rubric
+      // and candidate-analysis features are prepared. Rubric criteria still come
+      // from the original recruiter-supplied JD, not AI-added draft prose.
+      let standardizationIssue = "";
+      try {
+        const jdResponse = await requestWithOptionsCompatibility("/v1/jd/generate", {
           text: sourceJD,
           options,
-          overrides: {},
-        }, { timeout: 120000 }),
-        // The rubric compiler defaults to deterministic fast mode; no model
-        // profile or options are needed, which also keeps older companions compatible.
-        request("post", "/v1/match/rubrics", { jd_text: sourceJD }, { timeout: 30000 }),
-      ]);
-
-      // The source-grounded rubric is independent of the model-assisted JD
-      // standardizer. Keep a successful rubric even when standardization is down.
-      let standardizationIssue = "";
-      if (jdOutcome.status === "fulfilled") {
-        const standardized = jdOutcome.value.data;
+        }, { timeout: 120000 });
+        const standardized = jdResponse.data;
         if (standardized && Array.isArray(standardized.sections) && standardized.sections.length) {
           setJdResult(standardized);
         } else {
           standardizationIssue = "JD Standardizer returned no structured sections.";
           setJdError(standardizationIssue + " The original job description remains available for review.");
         }
-      } else {
-        standardizationIssue = "JD standardization could not complete: " + explainError(jdOutcome.reason);
+      } catch (error) {
+        standardizationIssue = "JD standardization could not complete: " + explainError(error);
         setJdError(standardizationIssue + " The original job description remains available for review.");
       }
 
-      if (rubricOutcome.status === "rejected") throw rubricOutcome.reason;
-      const rubricResponse = rubricOutcome.value;
+      setNotice("Step 2 of 2 · building and saving a rubric from the original JD…");
+      // The rubric compiler is deterministic by default and accepts only jd_text
+      // for a draft. Keeping this request to one field avoids extra-input schema errors.
+      const rubricResponse = await request("post", "/v1/match/rubrics", {
+        jd_text: sourceJD,
+      }, { timeout: 30000 });
       const draft = unwrapRubricDraft(rubricResponse.data);
       const saveResponse = await saveRubricWithCompatibility(draft, { timeout: 30000 });
       const saved = saveResponse.data?.rubric || saveResponse.data;
@@ -2014,6 +2009,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
             <textarea value={workspaceNotes} onChange={(event) => setWorkspaceNotes(event.target.value)} rows={3} maxLength={10000} placeholder="Add recruiter context, review reminders, or decisions to revisit." className={`${fieldClass} mt-2 resize-y leading-6`} />
           </details>
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 bg-white px-4 py-3 sm:px-6">
+          <div>
+            <p className="text-xs font-semibold text-ink-900">One-click JD preparation</p>
+            <p className="mt-1 text-[11px] leading-5 text-ink-500">Standardize the current job description first, then automatically build, save and select its source-grounded match rubric. No extra inputs are required.</p>
+          </div>
+          <button type="button" className={primaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || connection !== "connected" || !jdText.trim()}>
+            {jdPrepareLoading ? "Standardizing & setting up…" : "Standardize JD + auto setup"}
+          </button>
+        </div>
         <div className="flex flex-wrap gap-2 border-b border-ink-100 bg-[#fafaf8] px-4 py-3 sm:px-6" role="tablist" aria-label="AI feature workflows">
           <button type="button" role="tab" aria-selected={activeTab === "jd"} onClick={() => setActiveTab("jd")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "jd" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>1 · JD Standardizer</button>
           <button type="button" role="tab" aria-selected={activeTab === "match"} onClick={() => setActiveTab("match")} className={`rounded-md px-4 py-2 text-sm font-semibold ${activeTab === "match" ? "bg-ink-950 text-white" : "text-ink-600 hover:bg-ink-100"}`}>2 · Applicant Match</button>
@@ -2146,7 +2150,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 <ErrorNotice>{jdError}</ErrorNotice>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" className={primaryButton} onClick={() => runJD("fast")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Fast path: rule-based parsing plus one model call.">{jdLoading ? "Standardizing…" : "Standardize JD"}</button>
-                  <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || !jdText.trim()} title={!jdText.trim() ? "Add or import a job description to enable setup" : "Prepare the JD and source-grounded match rubric together"}>{jdPrepareLoading ? "Preparing JD & rubric…" : "Automate JD + match setup"}</button>
+                  <button type="button" className={secondaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || !jdText.trim()} title={!jdText.trim() ? "Add or import a job description to enable setup" : "Prepare the JD and source-grounded match rubric together"}>{jdPrepareLoading ? "Standardizing & setting up…" : "Standardize JD + auto setup"}</button>
                   <button type="button" className={secondaryButton} onClick={() => runJD("strict")} disabled={jdLoading || connection !== "connected" || !jdText.trim()} title="Full 12-stage validation; takes longer than the fast standardization path.">{jdLoading ? "Processing…" : "Full validation (slower)"}</button>
                   <button type="button" className={secondaryButton} onClick={() => { setJdText(""); setJdResult(null); setJdError(""); setNotice(""); }}>Clear</button>
                 </div>
@@ -2215,9 +2219,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     </select>
                   </Field>
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" className={primaryButton} onClick={compileRubric} disabled={rubricLoading || !jdText.trim()}>{rubricLoading ? "Building…" : "Build rubric from current JD"}</button>
+                    <button type="button" className={primaryButton} onClick={prepareSelectedJobForMatching} disabled={jdPrepareLoading || jdLoading || rubricLoading || connection !== "connected" || !jdText.trim()}>{jdPrepareLoading ? "Standardizing & setting up…" : "Standardize JD + auto setup"}</button>
+                    <button type="button" className={secondaryButton} onClick={compileRubric} disabled={rubricLoading || !jdText.trim()}>{rubricLoading ? "Building…" : "Build rubric from current JD"}</button>
                     <button type="button" className={secondaryButton} onClick={refreshSavedRubrics} disabled={connection !== "connected" || rubricLoading}>Refresh saved rubrics</button>
                   </div>
+                  <p className="text-[11px] leading-5 text-ink-500">The one-click action standardizes first, then creates the rubric from the original JD. The rubric request sends only the current JD text; no extra inputs are needed.</p>
                   <ErrorNotice>{rubricError}</ErrorNotice>
                   {rubricNotes.length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Compiler notes</p><ul className="mt-2 space-y-1 text-sm text-amber-950">{rubricNotes.map((note, index) => <li key={index}>{typeof note === "string" ? note : note.message || note.code}</li>)}</ul></div>}
                   {rubric && (
