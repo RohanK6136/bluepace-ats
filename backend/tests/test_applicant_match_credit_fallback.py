@@ -15,6 +15,7 @@ from app.features.applicant_match.models import (
     RubricItem,
 )
 from app.features.applicant_match.policy import load_match_policy
+from app.features.applicant_match.profile import VProfile
 from app.features.applicant_match.rubric import JobSource, compile_rubric
 from app.features.applicant_match.service import MatchDeps, ResumeInput, analyze
 from app.llm.providers.openai_compat import OpenAICompatibleProvider
@@ -73,7 +74,7 @@ def test_rubric_compiler_uses_source_grounded_rules_when_ai_is_unavailable():
 
     rubric, notes = asyncio.run(
         compile_rubric(job, llm, CallContext(request_id="rubric-fallback-test"),
-                       Settings(), load_match_policy())
+                       Settings(), load_match_policy(), fast=False)
     )
 
     assert {item.label for item in rubric.items} == {"Python", "SQL"}
@@ -146,3 +147,73 @@ Documented API behaviour and supported production releases.
     assert "directly matched resume text only" in card.reason
     # The fallback does not make a third provider call to generate a summary.
     assert sorted(llm.steps) == ["match_judge", "match_profile"]
+
+
+
+def test_rubric_compiler_fast_mode_uses_rules_without_calling_model():
+    llm = UnavailableLLM()
+    job = JobSource(
+        title="Backend Developer",
+        lines=[JobLine(id="J01", section="must", text="Python, FastAPI and SQL", origin="source")],
+        required_years=None,
+        job_ref="text:fast",
+    )
+
+    rubric, notes = asyncio.run(
+        compile_rubric(job, llm, CallContext(request_id="rubric-fast-test"),
+                       Settings(), load_match_policy(), fast=True)
+    )
+
+    assert {item.label for item in rubric.items} == {"Python", "FastAPI", "SQL"}
+    assert any(note.code == "fast_rules" for note in notes)
+    assert llm.steps == []
+
+
+def test_successful_applicant_match_uses_template_summary_without_extra_model_call(monkeypatch):
+    llm = UnavailableLLM()
+    resume_text = """Jordan Example
+Software Engineer
+Experience
+2020 - 2024
+Built Python services and SQL queries for internal reporting.
+Maintained data pipelines and APIs for internal teams.
+Improved automated test coverage and deployment reliability.
+Collaborated with product and engineering teams on delivery.
+Skills
+Python, SQL, Docker, REST APIs
+Education
+Bachelor's degree in Computer Science
+Projects
+Created a reporting service using Python and SQL.
+Documented API behaviour and supported production releases.
+"""
+
+    async def fake_profile(*_args, **_kwargs):
+        return VProfile()
+
+    async def fake_judgments(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr("app.features.applicant_match.service.extract_profile", fake_profile)
+    monkeypatch.setattr("app.features.applicant_match.service.judge_items", fake_judgments)
+
+    rubric = Rubric(
+        title="Backend Developer",
+        items=[
+            RubricItem(
+                id="R01", label="Python", type="skill", group="coding",
+                importance="must", aliases=["Python"],
+            ),
+        ],
+    )
+    deps = MatchDeps(llm=llm, store=None, settings=Settings(), jd_policy=None)
+
+    card = asyncio.run(
+        analyze(rubric, ResumeInput(text=resume_text), options=MatchOptions(),
+                as_of=date(2026, 11, 11), deps=deps)
+    )
+
+    assert card.summary.status == "template"
+    assert card.summary.reason and "without an extra model call" in card.summary.reason
+    assert "summary_fallback" not in card.flags
+    assert llm.steps == []
