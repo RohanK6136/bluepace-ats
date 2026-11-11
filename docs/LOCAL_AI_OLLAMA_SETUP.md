@@ -42,7 +42,14 @@ The local endpoint is saved in this browser's local storage. To return to hosted
 
 ## Troubleshooting
 
-**Local API is unreachable:** confirm the PowerShell window still shows Uvicorn running at port 8000. Do not close that window while using local AI.
+**Local API is unreachable:** confirm the PowerShell window still shows Uvicorn running at port 8000. In another PowerShell window, run:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/healthz
+Invoke-RestMethod http://127.0.0.1:11434/api/tags
+```
+
+The first command should return `status = ok` and `service = bluepace-local-ai`. The second should return the Ollama model list. Do not close the BluePace local AI PowerShell window while using local AI.
 
 **Ollama is unreachable:** open the Ollama desktop app. In another PowerShell window run `ollama list`; confirm `qwen3:8b` appears.
 
@@ -56,7 +63,11 @@ Local inference removes model-provider charges, but it still uses your computer'
 
 ## Browser permission for local access
 
-Open the BluePace ATS website over its normal HTTPS address. The first time you press **Connect local model**, Chrome may display a Loopback network / local-network permission prompt because the hosted site is connecting to a service on your computer. Choose **Allow**. The app intentionally does not probe the local service automatically during page load; use **Connect local model** or **Reconnect local model** to perform the check from a user action. Current Chrome versions gate public-site requests to loopback addresses behind this permission.
+Open the BluePace ATS website over its normal HTTPS address. The first time you press **Connect local model**, Microsoft Edge 143+ or a recent Chromium browser may display a Local Network Access / Loopback network permission prompt because the hosted site is connecting to a service on your computer. Choose **Allow**.
+
+If the prompt was previously blocked in Edge, open **Settings → Privacy, search, and services → Site permissions → All permissions → Local network access**, and allow access for the BluePace site. You can also open the site information icon beside the address bar and choose **Site permissions**. Then return to JD & Applicant Match and press **Reconnect local model**.
+
+The app checks permission only after you press the connection button. If `http://127.0.0.1:8000/healthz` works in a separate browser tab but the hosted site still cannot connect, check this browser permission and the local service's allowed frontend origins. If the health URL does not open, restart `backend/start-local-ai.ps1` and make sure Ollama is running. The local API is bound to `127.0.0.1` and is not exposed to other devices on your network.
 
 The local API is bound to `127.0.0.1` and is not exposed to other devices on your network. Keep the PowerShell window running while you use local inference. If you close it or stop Ollama, local AI requests will fail until you start the service again.
 
