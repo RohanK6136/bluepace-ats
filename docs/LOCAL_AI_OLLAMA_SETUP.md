@@ -40,6 +40,21 @@ The local endpoint is saved in this browser's local storage. To return to hosted
 - Only `/v1/*` JD & Applicant Match calls are sent to the local API. The main ATS backend continues to handle recruiter login, jobs, candidates and applications.
 - Resume text and job-description content are processed locally by Ollama. The local AI run store is in-memory and is cleared when the local service stops. The model weights remain installed in Ollama.
 
+## Updating the local companion after BluePace code changes
+
+The hosted Vercel frontend and the local Ollama companion are separate processes. A Vercel deployment does **not** update Python files already running from a Windows checkout. After pulling a BluePace backend fix, stop the old local service with Ctrl+C and restart it from the updated checkout:
+
+```powershell
+Set-Location "C:\Users\Rohan\Projects\bluepace-ats"
+git status --short
+git pull --ff-only origin main
+.\backend\start-local-ai.ps1
+```
+
+Keep the new PowerShell window open. If `git status --short` reports local edits, review them before pulling; do not discard them with a hard reset. Reconnect the local model in the browser after the service restarts.
+
+A local model can time out before its first streamed token. BluePace keeps the source-based JD draft and records the local model outage as a review warning; missing required job facts, missing qualifications, and unaccepted AI-generated content remain publication blockers. A timeout is not evidence that the model completed the generation.
+
 ## Troubleshooting
 
 **Local API is unreachable:** confirm the PowerShell window still shows Uvicorn running at port 8000. In another PowerShell window, run:
