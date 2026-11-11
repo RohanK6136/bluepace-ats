@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { buildBulkMatchCsv, getBulkMatchConcurrency, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
-import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
 import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
@@ -1865,6 +1865,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   const jdTitle = jdResult?.fields?.title?.value || jdResult?.fields?.title?.raw || jdResult?.title?.text || "Job description review";
   const descriptionOutput = jdResult?.description_markdown || jdResult?.long_description || jdResult?.long_description_annotated || jdResult?.long_description_text || "";
+  // Older local AI companions incorrectly returned provider availability as a blocker.
+  // Normalize only that diagnostic; genuine content blockers remain visible.
+  const jdPublicationResult = normalizeJdPublicationGate(jdResult);
   const matchScore = candidateCard?.scores?.match;
   const workspaceProgressState = { jdText, jdResult, rubric, applicants: [...savedApplicants, ...savedApplicantRows(batchFiles)], candidateCard };
   const batchQueuedCount = batchFiles.filter((row) => row.status === "queued").length;
@@ -2095,12 +2098,12 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 {jdResult && (
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Pill tone={jdResult.publishable ? "good" : jdResult.status === "ok" ? "warn" : "neutral"}>{jdResult.status || "complete"}</Pill>
-                      <Pill tone={jdResult.publishable ? "good" : "warn"}>{jdResult.publishable ? "Ready for recruiter review" : "Review required"}</Pill>
+                      <Pill tone={jdPublicationResult?.publishable ? "good" : jdResult.status === "ok" ? "warn" : "neutral"}>{jdResult.status || "complete"}</Pill>
+                      <Pill tone={jdPublicationResult?.publishable ? "good" : "warn"}>{jdPublicationResult?.publishable ? "Ready for recruiter review" : "Review required"}</Pill>
                       {jdResult.meta?.latency_ms != null && <Pill>{(jdResult.meta.latency_ms / 1000).toFixed(1)}s</Pill>}
                       {jdResult.meta?.llm_calls != null && <Pill>{jdResult.meta.llm_calls} model calls</Pill>}
                     </div>
-                    {Array.isArray(jdResult.publish_blockers) && jdResult.publish_blockers.length > 0 && <div className="rounded-md border border-rose-200 bg-rose-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-rose-900">Publication blockers</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-900">{jdResult.publish_blockers.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
+                    {Array.isArray(jdPublicationResult?.publish_blockers) && jdPublicationResult.publish_blockers.length > 0 && <div className="rounded-md border border-rose-200 bg-rose-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-rose-900">Publication blockers</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-900">{jdPublicationResult.publish_blockers.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
                     {Array.isArray(jdResult.flags) && jdResult.flags.length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Review flags</p><ul className="mt-2 space-y-2 text-sm text-amber-950">{jdResult.flags.map((flag, index) => <li key={index}><span className="font-semibold">{flag.severity || "info"}:</span> {flag.message || flag.code}</li>)}</ul></div>}
                     <div className="rounded-lg border border-ink-100 bg-white p-4">
                       <p className="text-sm font-semibold text-ink-900">{jdTitle}</p>
