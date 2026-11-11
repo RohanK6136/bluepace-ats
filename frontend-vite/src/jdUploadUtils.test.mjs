@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata } from "./jdUploadUtils.mjs";
+import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, getUnsupportedFormFields, formatJdValidationErrors, removeUnsupportedRubricMetadata } from "./jdUploadUtils.mjs";
 
 test("surfaces the backend extraction reason for image-only or empty-text uploads", () => {
   const message = getJdUploadError({
@@ -124,6 +124,32 @@ test("recognizes legacy multipart option-validation text", () => {
   assert.deepEqual(getUnsupportedJdOptionFields(error), ["detail"]);
 });
 
+
+
+test("identifies only explicitly rejected optional multipart fields", () => {
+  const error = { response: { data: { detail: [
+    { type: "extra_forbidden", loc: ["body", "profile"], msg: "Extra inputs are not permitted" },
+    { type: "extra_forbidden", loc: ["body", "rubric"], msg: "Extra inputs are not permitted" },
+    { type: "extra_forbidden", loc: ["body", "file"], msg: "Extra inputs are not permitted" },
+    { type: "value_error", loc: ["body", "profile"], msg: "Invalid profile" },
+  ] } } };
+  assert.deepEqual(getUnsupportedFormFields(error, ["profile", "rubric"]), ["profile", "rubric"]);
+  assert.deepEqual(getUnsupportedFormFields(error, ["profile"]), ["profile"]);
+});
+
+test("recognizes legacy multipart extra-field validation text", () => {
+  const error = { response: { data: {
+    detail: "1 validation error for Request\\nprofile\\n  Extra inputs are not permitted [type=extra_forbidden]",
+  } } };
+  assert.deepEqual(getUnsupportedFormFields(error, ["profile"]), ["profile"]);
+});
+
+test("does not treat required multipart fields as removable compatibility options", () => {
+  const error = { response: { data: { detail: [
+    { type: "extra_forbidden", loc: ["body", "rubric_id"], msg: "Extra inputs are not permitted" },
+  ] } } };
+  assert.deepEqual(getUnsupportedFormFields(error, ["profile", "rubric"]), []);
+});
 
 test("strips only explicitly rejected optional rubric provenance fields", () => {
   const rubric = {
