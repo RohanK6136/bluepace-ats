@@ -115,7 +115,7 @@ test("recognizes legacy multipart option-validation text", () => {
   const error = {
     response: {
       data: {
-        detail: "invalid options: 1 validation error for Options\\ndetail\\n  Extra inputs are not permitted [type=extra_forbidden]",
+        detail: "invalid options: 1 validation error for Options\ndetail\n  Extra inputs are not permitted [type=extra_forbidden]",
       },
     },
   };
