@@ -76,3 +76,32 @@ export function normalizeJdPublicationGate(result) {
     publishable: normalized.length === 0,
   };
 }
+
+
+/**
+ * Identify only optional JD request options rejected by older FastAPI/Pydantic
+ * companions. Do not retry unrelated validation errors or remove recruiter data.
+ */
+export function getUnsupportedJdOptionFields(error) {
+  const detail = error?.response?.data?.detail;
+  if (!Array.isArray(detail)) return [];
+  const allowed = new Set(["profile", "detail"]);
+  return [...new Set(detail.flatMap((item) => {
+    const location = Array.isArray(item?.loc) ? item.loc : [];
+    const field = location[0] === "body" && location[1] === "options" ? location[2] : null;
+    const isExtra = item?.type === "extra_forbidden"
+      || /extra inputs are not permitted/i.test(String(item?.msg || ""));
+    return isExtra && allowed.has(field) ? [field] : [];
+  }))];
+}
+
+export function formatJdValidationErrors(error) {
+  const detail = error?.response?.data?.detail;
+  if (!Array.isArray(detail)) return "";
+  return detail.map((item) => {
+    const location = Array.isArray(item?.loc) ? item.loc.filter((part) => part !== "body") : [];
+    const path = location.join(".");
+    const message = String(item?.msg || item || "Invalid request");
+    return path ? `${path}: ${message}` : message;
+  }).join("; ");
+}
