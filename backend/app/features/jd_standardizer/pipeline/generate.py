@@ -174,6 +174,7 @@ class Prepared:
     shift: str | None
     existing: list[str] = field(default_factory=list)
     message: str | None = None
+    generation_skipped: bool = False
 
 
 @dataclass
@@ -319,6 +320,19 @@ def plan_generation(v: ValidateResult, options: Options, gen_pol: dict[str, Any]
     if nice == "missing" and prof["preferred_skills"]:
         want["preferred_skills"] = {"count": prof["preferred_skills"], "words": prof["qualification_words"]}
     return want
+
+
+def should_skip_generation(want: dict[str, Any], title: str | None, overrides: Overrides,
+                           fields: dict[str, Fact], required_facts: list[str]) -> bool:
+    """Skip the model call when the source already contains a complete, publishable JD."""
+    if want or not (title or (overrides.title and overrides.title.strip())):
+        return False
+    return all(
+        name == "title" or (
+            name in fields and fields[name].status in ("verified", "override")
+        )
+        for name in required_facts
+    )
 
 
 def _location_text(fields: dict[str, Fact]) -> str | None:
@@ -647,7 +661,7 @@ def build_result(rid: str, prep: Prepared, gen: dict[str, Any] | None, *, final:
             needs.append(NeedsInput(field=name, reason="conflict", candidates=fields[name].candidates))
     if llm_problem:
         flags.append(llm_unavailable_warning(llm_problem))
-    elif final and not gen and not prep.message:
+    elif final and not gen and not prep.message and not prep.generation_skipped:
         flags.append(Flag(code="generation_failed", severity="warn",
                           message="the model's answer could not be used; showing what was found in the text"))
     flags.sort(key=lambda f: (f.code, f.message))
@@ -819,6 +833,9 @@ async def _generate_steps(inp: PipelineInput, options: Options, overrides: Overr
                            if ln.id in kept_ids or ln.id in cleaned.header_ids)
     guessed_title = title_guess(cleaned, v)
     profile_only = _company_profile_only(cleaned, v, fields, guessed_title)
+    skip_generation = not profile_only and should_skip_generation(
+        want, guessed_title, overrides, fields, policy.gap.get("required_facts", [])
+    )
     profile_message = (
         "This upload contains a company profile, not a role-specific job description. "
         "Add the job title, employment type, work country/location, responsibilities, and required qualifications. "
@@ -836,12 +853,19 @@ async def _generate_steps(inp: PipelineInput, options: Options, overrides: Overr
     prep = Prepared(cleaned=cleaned, v=v, fields=fields, flags=flags, want=want,
                     source_text=model_text[: gen_pol["max_source_chars"]], title_guess=guessed_title,
                     shift=_shift(v), existing=[b.text for b in v.blocks if b.kind in ("bullet", "paragraph")],
-                    message=profile_message)
+                    message=profile_message, generation_skipped=skip_generation)
 
     common = {"deps": deps, "options": options, "overrides": overrides, "ctx": ctx, "model": model,
               "t_start": t_start}
     yield {"event": "start", "want": want,
            "result": build_result(rid, prep, None, final=False, llm_problem=None, llm_ms=0, **common)}
+
+    if prep.generation_skipped:
+        res = build_result(rid, prep, None, final=True, llm_problem=None, llm_ms=0, **common)
+        yield {"event": "final", "result": finish(res, trace={"want": want,
+                                                               "generation_skipped": "source_complete",
+                                                               "llm_calls": 0})}
+        return
 
     if profile_only:
         res = build_result(rid, prep, {}, final=True, llm_problem=None, llm_ms=0, **common)
