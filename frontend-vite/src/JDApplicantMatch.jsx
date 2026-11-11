@@ -1339,8 +1339,16 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       if (resumeFile) body.append("file", resumeFile);
       else body.append("text", resumeText.trim());
       if (selectedProfile) body.append("profile", selectedProfile);
+      const requestStartedAt = Date.now();
       const response = await request("post", "/v1/match/analyze", body, { timeout: 120000 });
-      setCandidateCard(response.data);
+      const result = {
+        ...response.data,
+        performance: {
+          ...(response.data?.performance || {}),
+          client_round_trip_ms: Date.now() - requestStartedAt,
+        },
+      };
+      setCandidateCard(result);
       setNotice("Analysis complete. Review the evidence before making any recruiting decision.");
     } catch (error) {
       setMatchError(explainError(error));
@@ -1641,8 +1649,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       if (selectedProfile) body.append("profile", selectedProfile);
 
       try {
+        const requestStartedAt = Date.now();
         const response = await request("post", "/v1/match/analyze", body, { timeout: 120000 });
-        const result = response.data;
+        const result = {
+          ...response.data,
+          performance: {
+            ...(response.data?.performance || {}),
+            client_round_trip_ms: Date.now() - requestStartedAt,
+          },
+        };
         const rulesOnlyResult = result?.versions?.assessment_mode === "rules_only"
           || result?.versions?.profile === "rules"
           || result?.flags?.includes("rules_only_assessment")
@@ -2208,6 +2223,18 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     <ScoreMetric label="Required skills" value={candidateCard.scores?.required_skills?.pct == null ? "—" : `${candidateCard.scores.required_skills.pct}%`} detail={`${candidateCard.scores?.required_skills?.met ?? 0} of ${candidateCard.scores?.required_skills?.total ?? 0} evidenced`} />
                     <ScoreMetric label="Education" value={candidateCard.scores?.education?.pct == null ? "—" : `${candidateCard.scores.education.pct}%`} detail={candidateCard.profile?.education_level || "Not established"} />
                   </div>
+                  {candidateCard.performance && <div className="rounded-lg border border-ink-100 bg-white px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Processing diagnostics</p>
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3 xl:grid-cols-6">
+                      <div><p className="text-ink-500">Resume extraction</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.resume_extraction_ms ?? 0).toLocaleString()} ms</p></div>
+                      <div><p className="text-ink-500">Preprocessing</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.preprocessing_ms ?? 0).toLocaleString()} ms</p></div>
+                      <div><p className="text-ink-500">Provider round trip</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.provider_round_trip_ms ?? 0).toLocaleString()} ms</p></div>
+                      <div><p className="text-ink-500">Model inference</p><p className="mt-0.5 font-semibold text-ink-900">{candidateCard.performance.model_inference_ms == null ? "Not run" : `${Number(candidateCard.performance.model_inference_ms).toLocaleString()} ms`}</p></div>
+                      <div><p className="text-ink-500">Server total</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.total_ms ?? 0).toLocaleString()} ms</p></div>
+                      <div><p className="text-ink-500">Browser round trip</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.client_round_trip_ms ?? 0).toLocaleString()} ms</p></div>
+                    </div>
+                    <p className="mt-2 text-[11px] text-ink-500">Server timings exclude file upload transfer. Provider round trip includes network and response handling; it is not a measure of the model's internal compute time.</p>
+                  </div>}
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"><strong>Recruiter review required.</strong> This assessment is based on resume-derived evidence; verify any important claim directly and apply the same criteria consistently across applicants.</div>
                   <div className="rounded-lg border border-ink-200 bg-white p-4 sm:p-5">
                     <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-500">Evidence-first workflow</p><h3 className="mt-1 text-sm font-semibold text-ink-950">Save verified assessment to ATS</h3><p className="mt-1 max-w-2xl text-xs leading-5 text-ink-500">Attach this recorded run to the matching application. Rubric versions are linked to the job first; the server verifies the run and stores a privacy-minimised snapshot.</p></div><Pill tone="gold">Human decision required</Pill></div>
