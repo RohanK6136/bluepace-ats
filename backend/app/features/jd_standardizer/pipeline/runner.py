@@ -16,6 +16,7 @@ from app.features.jd_standardizer.pipeline.assemble import (
     build_sections,
     compute_status,
     headings,
+    llm_unavailable_warning,
     publish_gate,
     render_markdown,
     source_items,
@@ -265,8 +266,9 @@ async def _run_steps(run: _Run, inp: PipelineInput) -> Result:
         extra.append(Flag(code="rewrite_not_implemented", severity="info",
                           message="mode=rewrite (M7) not implemented; light normalization applied"))
     if not run.step_llm.available:
-        extra.append(Flag(code="llm_unavailable", severity="block",
-                          message="LM Studio unreachable: heuristics-only result"))
+        extra.append(llm_unavailable_warning(
+            "AI provider unavailable; rules-based extraction was used"
+        ))
     flags = sorted([*v.flags, *gp.flags, *gf.flags, *asm.flags, *extra], key=lambda f: (f.code, f.message))
     std = standard_blocks(v.fields, asm.sections, policy, s)
     needs_input = [*gp.plan.needs_input, *gf.needs_input]
