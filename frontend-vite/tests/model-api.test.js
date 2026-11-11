@@ -613,7 +613,7 @@ test("direct /api/v1 function URLs serve JD Standardizer and Applicant Match wit
   const resume = "Senior software engineer with 6 years of experience. Built REST APIs using Python and FastAPI. Worked with SQL databases and AWS cloud deployments.";
   const multipart = [
     "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric\"\r\n\r\n" + JSON.stringify(rubric) + "\r\n",
-    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\n" + resume + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"candidate.txt\"\r\nContent-Type: text/plain\r\n\r\n" + resume + "\r\n",
     "--" + boundary + "\r\nContent-Disposition: form-data; name=\"profile\"\r\n\r\nrules\r\n",
     "--" + boundary + "\r\nContent-Disposition: form-data; name=\"rubric_id\"\r\n\r\n" + rubric.rubric_id + "\r\n",
     "--" + boundary + "--\r\n",
