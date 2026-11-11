@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildBulkMatchCsv,
   BULK_MATCH_CONCURRENCY,
+  getBulkMatchConcurrency,
   runWithConcurrency,
   MAX_BULK_RESUMES,
   MAX_RESUME_BYTES,
@@ -122,4 +123,11 @@ test("exports Applicant Match timing breakdown for batch comparison", () => {
   }]);
   assert.match(csv, /"Resume extraction \(ms\)"/);
   assert.match(csv, /"12","3","840","838","860","1120","model","uploaded_file"/);
+});
+
+
+test("uses one bulk worker for local Ollama and bounded parallelism for hosted models", () => {
+  assert.equal(getBulkMatchConcurrency("local-ollama"), 1);
+  assert.equal(getBulkMatchConcurrency("openrouter"), BULK_MATCH_CONCURRENCY);
+  assert.equal(getBulkMatchConcurrency(""), BULK_MATCH_CONCURRENCY);
 });
