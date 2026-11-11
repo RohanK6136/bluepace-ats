@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from "react";
-import { buildBulkMatchCsv, BULK_MATCH_CONCURRENCY, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
+import { buildBulkMatchCsv, BULK_MATCH_CONCURRENCY, getBulkMatchConcurrency, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
@@ -1219,8 +1219,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         }, { timeout: 120000 }),
         request("post", "/v1/match/rubrics", {
           jd_text: sourceJD,
-          options: selectedProfile ? { profile: selectedProfile } : {},
-        }, { timeout: 120000 }),
+          options: { fast: true, ...(selectedProfile ? { profile: selectedProfile } : {}) },
+        }, { timeout: 30000 }),
       ]);
 
       const standardized = jdResponse.data;
@@ -1237,7 +1237,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       const saved = saveResponse.data?.rubric || saveResponse.data;
       if (!saved?.rubric_id) throw new Error("The rubric was generated but the API did not confirm that it was saved.");
       const existing = readSavedRubrics().filter((item) => item.rubric_id !== saved.rubric_id);
-      writeSavedRubrics([saved, ...existing]);
+      const storage = writeSavedRubrics([saved, ...existing]);
+      if (!storage.ok) {
+        throw new Error("The rubric was generated, but this browser could not save its version. Allow site storage or clear browser storage, then retry.");
+      }
+      setSavedRubrics([saved, ...existing].map(savedRubricOption));
       setRubric(saved);
       setSelectedRubricId(saved.rubric_id);
       setRubricNotes(rubricResponse.data?.notes || []);
@@ -1277,8 +1281,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try {
       const response = await request("post", "/v1/match/rubrics", {
         jd_text: currentJD,
-        // Rubric drafting is a fast, source-grounded local rules pass and does
-        // not need a hosted model connection or a provider token budget.
+        options: { fast: true },
+        // Fast rubric drafting is a deterministic source-grounded rules pass;
+        // it does not wait for an LLM or consume provider credits.
       }, { timeout: 15000 });
       const nextRubric = response.data?.rubric || response.data;
       setRubric(nextRubric);
@@ -1679,7 +1684,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     const activeNames = new Set();
     const syncActiveNames = () => setBatchCurrentName(Array.from(activeNames).join(" · ").slice(0, 180));
 
-    await runWithConcurrency(queue, BULK_MATCH_CONCURRENCY, async (row) => {
+    const concurrency = getBulkMatchConcurrency(selectedProfile);
+    await runWithConcurrency(queue, concurrency, async (row) => {
       activeNames.add(row.file.name);
       syncActiveNames();
       updateBatchRow(row.id, { status: "processing", error: "" });
@@ -1731,7 +1737,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
     setBatchCurrentName("");
     setBatchRunning(false);
-    setNotice(`Bulk match finished: ${complete} complete, ${rulesOnly} rules-only, ${manual} requiring manual review, ${failed} failed. ${processed} of ${queue.length} queued resumes processed with up to ${BULK_MATCH_CONCURRENCY} running at once. Rules-only results use direct text evidence and do not assess experience dates or fuzzy criteria. Review every result before making a recruiting decision.`);
+    setNotice(`Bulk match finished: ${complete} complete, ${rulesOnly} rules-only, ${manual} requiring manual review, ${failed} failed. ${processed} of ${queue.length} queued resumes processed with up to ${concurrency} running at once. Rules-only results use direct text evidence and do not assess experience dates or fuzzy criteria. Review every result before making a recruiting decision.`);
     if (fatalMessage) {
       const unstarted = queue.length - processed;
       setBatchError(`${fatalMessage} ${unstarted} unstarted resume(s) remain in the queue. Restore the API connection, then run the batch again.`);
