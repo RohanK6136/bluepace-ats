@@ -3,6 +3,7 @@ import { buildBulkMatchCsv, getBulkMatchConcurrency, MAX_BULK_RESUMES, runWithCo
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
+import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
 
 const primaryButton = "inline-flex items-center justify-center gap-2 rounded-md bg-[#c49a4a] px-4 py-2.5 text-sm font-semibold text-[#11141c] transition hover:bg-[#d4b06a] disabled:cursor-not-allowed disabled:opacity-50";
 const secondaryButton = "inline-flex items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-800 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -1241,10 +1242,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
       if (rubricOutcome.status === "rejected") throw rubricOutcome.reason;
       const rubricResponse = rubricOutcome.value;
-      const draft = rubricResponse.data?.rubric || rubricResponse.data;
-      if (!draft?.rubric_id || !Array.isArray(draft.items) || !draft.items.length) {
-        throw new Error("The match rubric could not be generated. Check that the original JD contains clear requirements and qualifications.");
-      }
+      const draft = unwrapRubricDraft(rubricResponse.data);
       const saveResponse = await request("post", "/v1/match/rubrics", { rubric: draft }, { timeout: 30000 });
       const saved = saveResponse.data?.rubric || saveResponse.data;
       if (!saved?.rubric_id) throw new Error("The rubric was generated but the API did not confirm that it was saved.");
