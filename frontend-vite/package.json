@@ -9,6 +9,7 @@
     "start": "node server.mjs",
     "test:server": "node --test server.test.mjs",
     "test:bulk-match": "node --test src/bulkMatchUtils.test.mjs",
+    "test:match-insights": "node --test src/matchAssessmentInsights.test.mjs",
     "test:local-network": "node --test src/localNetworkAccess.test.mjs",
     "test:saved-rubrics": "node --test src/savedRubricStorage.test.mjs",
     "lint": "eslint .",
