@@ -33,7 +33,7 @@ export async function getLoopbackNetworkPermission(
 }
 
 export function localAiPermissionHelp(origin = "this BluePace site") {
-  return `Edge is blocking ${origin} from reaching the local computer. In Edge, open Settings → Privacy, search, and services → Site permissions → All permissions → Local network access. Allow access for this BluePace site, then return here and reconnect. You can also use the site icon beside the address bar → Site permissions. The local API must still be running at http://127.0.0.1:8000.`;
+  return `Your browser is blocking ${origin} from reaching the local computer. In Edge, open Settings → Privacy, search, and services → Site permissions → All permissions → Local network access. Allow access for this BluePace site, then return here and reconnect. You can also use the site icon beside the address bar → Site permissions. The local API must still be running at http://127.0.0.1:8000.`;
 }
 
 export function localAiServiceHelp() {
