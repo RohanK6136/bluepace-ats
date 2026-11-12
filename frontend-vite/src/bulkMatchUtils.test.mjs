@@ -158,6 +158,23 @@ test("does not stop a batch for a resume-specific validation failure", () => {
   }
 });
 
+test("stops claiming new resumes after a shared provider block while active workers finish", async () => {
+  const started = [];
+  let stop = false;
+
+  await runWithConcurrency([1, 2, 3, 4], 2, async (item) => {
+    started.push(item);
+    if (item === 1) {
+      await Promise.resolve();
+      stop = Boolean(getBulkBatchStopReason({ response: { status: 402 } }));
+    }
+    await Promise.resolve();
+  }, () => stop);
+
+  // The second worker was already in flight and can finish; queued work is not claimed.
+  assert.deepEqual(started, [1, 2]);
+});
+
 
 test("unwraps the local Python API rubric draft before saving", () => {
   const draft = { rubric_id: null, items: [{ id: "R01", label: "Python" }] };
