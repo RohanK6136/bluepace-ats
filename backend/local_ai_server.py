@@ -91,6 +91,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins(),
+    # Match the same narrowly scoped BluePace frontend preview pattern used by
+    # the hosted ATS API. Preview URLs are ephemeral, so exact-origin entries
+    # would break local Ollama whenever Vercel creates a new deployment URL.
+    allow_origin_regex=r"^https://bluepace-ats-frontend-git-[a-z0-9-]+\\.vercel\\.app$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
