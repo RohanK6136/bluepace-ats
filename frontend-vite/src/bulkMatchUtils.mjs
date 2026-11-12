@@ -10,6 +10,19 @@ const SUPPORTED_RESUME_NAME = /\.(pdf|docx|txt|md)$/i;
  * one resume. Stop claiming more files after these responses so a provider
  * outage, exhausted credit balance, or rate limit is not repeated 50 times.
  */
+/**
+ * The backend may deliberately return HTTP 200 with a rules-only card when
+ * provider credits are exhausted. Pause on its explicit unavailable-provider
+ * flag; do not infer a provider outage from every rules-only assessment.
+ */
+export function getBulkResultStopReason(result) {
+  const flags = new Set(Array.isArray(result?.flags) ? result.flags : []);
+  if (flags.has("ai_profile_unavailable")) {
+    return "The selected AI provider is unavailable or out of credits. This resume has a limited rules-only result; the batch paused to avoid repeating unavailable AI calls.";
+  }
+  return "";
+}
+
 export function getBulkBatchStopReason(error) {
   const status = Number(error?.response?.status);
   if (status === 402) {
