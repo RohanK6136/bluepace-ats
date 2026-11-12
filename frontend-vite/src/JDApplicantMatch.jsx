@@ -604,11 +604,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     const existing = existingRows.find((workspace) => workspace.id === activeWorkspaceId);
     const id = existing?.id || newWorkspaceId();
     const title = workspaceName.trim() || jdTitle || "Untitled workspace";
-    if (!activeWorkspaceId && id !== UNSAVED_BULK_QUEUE_ID) {
+    if (!activeWorkspaceId && batchFiles.length && id !== UNSAVED_BULK_QUEUE_ID) {
       try {
         await moveBulkQueue(UNSAVED_BULK_QUEUE_ID, id);
       } catch (error) {
-        setBatchQueueMessage(`Workspace was saved, but the unsaved queue could not be moved: ${String(error?.message || error)}. Keep this workspace open to avoid losing the current queue.`);
+        setBatchQueueMessage(`Cannot move the unsaved queue into a workspace yet: ${String(error?.message || error)}. Keep this tab open or clear the queue before saving a new workspace.`);
         return existing || { id, title };
       }
     }
