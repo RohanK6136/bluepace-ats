@@ -4,7 +4,7 @@ import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJd
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
 import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
-import { buildSourceGroundedRubric, isExtraInputValidationError } from "./rubricFallback.mjs";
+import { buildSourceGroundedRubric } from "./rubricFallback.mjs";
 import { SAMPLE_JOB_DESCRIPTION, SAMPLE_MANUAL_REFERENCE, SAMPLE_RESUME_TEXT } from "./sampleApplicantMatchScenario.mjs";
 import MatchAssessmentInsights from "./MatchAssessmentInsights.jsx";
 
