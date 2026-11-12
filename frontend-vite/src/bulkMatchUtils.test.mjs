@@ -253,6 +253,9 @@ test("persists and restores bulk queue rows per workspace", async () => {
   assert.equal(loaded.rows[0].file.name, "candidate.pdf");
   assert.equal(loaded.rows[0].file.size, 2048);
   assert.equal(loaded.rows[1].status, "complete");
+  assert.equal(loaded.rows[1].file, null, "completed rows should not retain their original resume binary");
+  assert.equal(loaded.rows[1].fileName, "other.txt");
+  assert.equal(loaded.rows[1].fileSize, 512);
   assert.deepEqual(loaded.rows[1].result, { applicant_id: "A-2" });
   assert.equal((await loadBulkQueue("workspace-b", indexedDB)).rows.length, 0);
 });
