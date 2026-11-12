@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from "react";
-import { buildBulkMatchCsv, getBulkMatchConcurrency, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
+import { buildBulkMatchCsv, getBulkMatchConcurrency, getBulkBatchStopReason, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata, getUnsupportedFormFields } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
@@ -1905,12 +1905,13 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         updateBatchRow(row.id, { status: "failed", error: message, result: null });
         failed += 1;
 
-        // Stop claiming new files when an error indicates the whole API route
-        // or authentication is unavailable. Already-running requests finish.
-        const httpStatus = error?.response?.status;
-        if ([401, 403, 404, 503].includes(httpStatus)) {
+        // Stop claiming new files after a shared provider/API failure.
+        // In particular, 402 and 429 must not be repeated for every resume.
+        // Requests already in flight finish; all unstarted rows stay queued.
+        const stopReason = getBulkBatchStopReason(error);
+        if (stopReason) {
           stopQueue = true;
-          fatalMessage = fatalMessage || message;
+          fatalMessage = fatalMessage || stopReason;
         }
       } finally {
         activeNames.delete(row.file.name);
@@ -2366,6 +2367,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     </div>
                   </div>
                   {!selectedRubricId && <p className="mt-3 text-xs leading-5 text-amber-800">Choose a saved rubric above or save the reviewed draft before starting a batch.</p>}
+                  <p className="mt-2 text-[11px] leading-5 text-ink-500">If the shared AI service reports insufficient credits, rate limiting, or an API outage, new files stop being claimed. Completed results are kept and unstarted resumes remain queued for when service is restored.</p>
                   {batchError && <ErrorNotice>{batchError}</ErrorNotice>}
                   {batchRunning && (
                     <div className="mt-4" aria-live="polite">
