@@ -74,7 +74,7 @@ export default function RoleEvidenceMap({ analysis, onNotice }) {
           <p className="mt-1 max-w-3xl text-xs leading-5 text-ink-600">A requirement-by-requirement view of what the parsed profile supports and what still needs a conversation.</p>
         </div>
         <div className="rounded-lg border border-ink-100 bg-white px-3 py-2 text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Requirements supported</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Required skills with evidence</p>
           <p className="mt-0.5 text-xl font-semibold tabular-nums text-ink-950">{model.coverage.supported}<span className="text-sm font-medium text-ink-400"> / {model.coverage.total}</span></p>
         </div>
       </div>
@@ -83,7 +83,7 @@ export default function RoleEvidenceMap({ analysis, onNotice }) {
         <div>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h5 className="text-xs font-semibold uppercase tracking-wide text-ink-600">Required skill evidence</h5>
-            <span className="text-[11px] text-ink-500">{model.coverage.percent}% located in parsed fields</span>
+            <span className="text-[11px] text-ink-500">{model.coverage.percent}% of listed required skills have source support</span>
           </div>
           {model.requirements.length ? (
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
