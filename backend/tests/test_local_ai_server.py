@@ -29,6 +29,19 @@ def test_local_ai_service_cors_allows_supported_bluepace_frontends() -> None:
     assert "http://localhost:5173" in origins
 
 
+def test_local_ai_service_cors_allows_only_bluepace_vercel_frontend_previews() -> None:
+    import re
+
+    cors = next(middleware for middleware in app.user_middleware if middleware.cls.__name__ == "CORSMiddleware")
+    pattern = cors.kwargs["allow_origin_regex"]
+
+    preview_origin = "https://bluepace-ats-frontend-git-fe-336527-sukumarparamountpowers-1576.vercel.app"
+    unrelated_origin = "https://another-app-git-fe-336527-sukumarparamountpowers-1576.vercel.app"
+
+    assert re.fullmatch(pattern, preview_origin)
+    assert not re.fullmatch(pattern, unrelated_origin)
+
+
 def test_local_model_catalog_exposes_only_the_started_profile() -> None:
     from types import SimpleNamespace
 
