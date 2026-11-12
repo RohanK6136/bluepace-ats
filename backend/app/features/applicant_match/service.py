@@ -7,6 +7,7 @@ file and text are never written anywhere.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -21,6 +22,7 @@ from app.features.applicant_match.judge import Judgment, judge_items
 from app.features.applicant_match.models import (
     Card,
     MatchOptions,
+    Performance,
     Profile,
     Role,
     Rubric,
@@ -168,9 +170,13 @@ async def analyze(rubric: Rubric, inp: ResumeInput, options: MatchOptions, as_of
 
 async def _analyze(rubric: Rubric, inp: ResumeInput, as_of: date, deps: MatchDeps, ctx: CallContext,
                    rec: RunRecorder) -> Card:
+    analysis_started_at = time.perf_counter()
     mp: MatchPolicy = load_match_policy()
     s = deps.settings
+    extraction_started_at = time.perf_counter()
     raw, source_type = _ingest(inp, s)  # IngestError propagates before the run row exists
+    resume_extraction_ms = int((time.perf_counter() - extraction_started_at) * 1000)
+    preprocessing_started_at = time.perf_counter()
     resume = prepare_resume(raw, mp)
     redacted = "\n".join(f"{ln.id} {ln.text}" for ln in resume.lines)
     rec.start(source_type=source_type, input_text=redacted)
@@ -181,11 +187,32 @@ async def _analyze(rubric: Rubric, inp: ResumeInput, as_of: date, deps: MatchDep
                 "rubric_hash": rubric.rubric_hash, "profile": info.profile, "model": info.model,
                 "model_fingerprint": info.fingerprint}
     resume_text, truncated = resume_prompt_text(resume, mp.settings["resume"]["max_prompt_chars"])
+    preprocessing_ms = int((time.perf_counter() - preprocessing_started_at) * 1000)
+    provider_round_trip_ms = 0
+    input_mode = "uploaded_file" if inp.data is not None else "pasted_text"
     file = {"name": inp.filename, "source_type": source_type, "chars": resume.chars, "lines": len(resume.lines),
             "redactions": resume.redactions, "truncated": truncated}
     flags = list(resume.quality) + (["resume_truncated"] if truncated else [])
 
     def done(card: Card, outcome: str) -> Card:
+        failed_model_step = any(flag in {"profile_failed", "judge_failed"} for flag in card.flags)
+        if card.status == "manual":
+            assessment_mode = "manual"
+        elif "rules_only_assessment" in card.flags or card.versions.get("assessment_mode") == "rules_only":
+            assessment_mode = "rules_only"
+        elif failed_model_step:
+            assessment_mode = "partial_model"
+        else:
+            assessment_mode = "model"
+        card.performance = Performance(
+            resume_extraction_ms=resume_extraction_ms,
+            preprocessing_ms=preprocessing_ms,
+            provider_round_trip_ms=provider_round_trip_ms,
+            model_call_time_ms=sum(max(0, int(row.get("latency_ms") or 0)) for row in ctx.records),
+            total_ms=max(0, int((time.perf_counter() - analysis_started_at) * 1000)),
+            assessment_mode=assessment_mode,
+            input_mode=input_mode,
+        )
         card.usage.update(_usage(ctx, rec))
         title = card.profile.latest_title or (inp.filename or "pasted resume")
         rec.finish(status=card.status, outcome=outcome, title=f"{applicant_id} · {title}", result=card,  # type: ignore[arg-type]
@@ -202,10 +229,12 @@ async def _analyze(rubric: Rubric, inp: ResumeInput, as_of: date, deps: MatchDep
                          "skills section)")
 
     to_judge = judged_items(rubric)
+    provider_started_at = time.perf_counter()
     prof_res, judge_res = await asyncio.gather(
         extract_profile(resume, deps.llm, ctx, s, mp, as_of, resume_text),
         judge_items(to_judge, resume, resume_text, deps.llm, ctx, s, mp),
         return_exceptions=True)
+    provider_round_trip_ms = int((time.perf_counter() - provider_started_at) * 1000)
     if isinstance(prof_res, BaseException):
         if not isinstance(prof_res, LLMError):
             raise prof_res
