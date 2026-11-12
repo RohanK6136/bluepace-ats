@@ -27,7 +27,7 @@ function normalizeLocalAiApiUrl(value) {
   try {
     parsed = new URL(String(value || "").trim());
   } catch {
-    throw new Error("Enter a valid local API URL, for example http://127.0.0.1:8000.");
+    throw new Error("This is the optional local Ollama API URL, not your work email. Enter http://127.0.0.1:8000 only after starting the local AI service, or use hosted AI instead.");
   }
   const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (parsed.protocol !== "http:" || !["localhost", "127.0.0.1", "::1"].includes(host)
@@ -906,6 +906,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
   function useHostedAiApi() {
+    const hadLocalAiConnection = Boolean(localAiApiUrl);
     try { localStorage.removeItem(LOCAL_AI_API_STORAGE_KEY); } catch { /* Ignore unavailable storage. */ }
     setLocalAiApiUrl("");
     setLocalAiApiDraft("");
@@ -914,7 +915,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setSelectedProfile("");
     setConnection("checking");
     setConnectionMessage("Switching JD & Applicant Match back to the hosted AI API…");
-    // The connection effect will refresh the hosted model list after local mode is cleared.
+    // A connected local URL change triggers the effect. If local mode was never
+    // active, refresh explicitly because the URL state itself did not change.
+    if (!hadLocalAiConnection) void refreshConnection();
   }
 
   const refreshSavedRubrics = useCallback(async () => {
@@ -2072,13 +2075,24 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               {localAiApiUrl && <Pill tone="good">Local mode active</Pill>}
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
-              <Field label="Local AI API URL" hint="Start backend/start-local-ai.ps1 first. On connect, Edge or Chrome may ask to allow this HTTPS site to access the local computer; choose Allow.">
-                <input value={localAiApiDraft} onChange={(event) => setLocalAiApiDraft(event.target.value)} placeholder="http://127.0.0.1:8000" className={fieldClass} />
+              <Field label="Local AI API URL (optional)" hint="Only for Ollama running on this computer. Leave blank to use BluePace's hosted AI API. To connect locally, start backend/start-local-ai.ps1 first.">
+                <input
+                  type="url"
+                  name="bluepace_local_ai_api_url"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  inputMode="url"
+                  value={localAiApiDraft}
+                  onChange={(event) => setLocalAiApiDraft(event.target.value)}
+                  placeholder="http://127.0.0.1:8000"
+                  className={fieldClass}
+                />
               </Field>
               <button type="button" className={primaryButton} onClick={() => void connectLocalAiApi()} disabled={localAiApiTest.status === "checking"}>
                 {localAiApiTest.status === "checking" ? "Connecting…" : localAiApiUrl ? "Reconnect local model" : "Connect local model"}
               </button>
-              {localAiApiUrl && <button type="button" className={secondaryButton} onClick={useHostedAiApi}>Use hosted AI</button>}
+              <button type="button" className={secondaryButton} onClick={useHostedAiApi}>Use hosted AI</button>
             </div>
             {localAiApiTest.message && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${localAiApiTest.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : localAiApiTest.status === "success" ? "border-emerald-200 bg-white text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{localAiApiTest.message}</p>}
             <p className="mt-2 text-[11px] leading-5 text-emerald-900">Only JD & Applicant Match AI calls switch to the local computer. ATS login, jobs and applications continue using the hosted ATS API. Edge or Chrome may request Local Network Access on your first click; choose Allow. If blocked, open the browser site permissions and allow Local network access for this BluePace site. Keep the local service running while using local inference.</p>
