@@ -145,6 +145,9 @@ Documented API behaviour and supported production releases.
     assert evidence["stakeholder management"] == "unclear"
     assert card.summary.status == "fallback"
     assert "directly matched resume text only" in card.reason
+    assert card.performance.assessment_mode == "rules_only"
+    assert card.performance.input_mode == "pasted_text"
+    assert card.performance.total_ms >= card.performance.provider_round_trip_ms >= 0
     # The fallback does not make a third provider call to generate a summary.
     assert sorted(llm.steps) == ["match_judge", "match_profile"]
 
