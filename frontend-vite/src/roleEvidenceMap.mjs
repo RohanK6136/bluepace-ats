@@ -54,8 +54,8 @@ export function buildRoleEvidenceMap(analysis) {
   const experienceEvidence = evidence.experience || {};
   const parsedYearsValue = experienceEvidence.parsed_years ?? analysis.experience_years ?? analysis.experience_years_estimate;
   const requiredYearsValue = experienceEvidence.required_years ?? analysis.required_experience_years;
-  const parsedYears = Number.isFinite(Number(parsedYearsValue)) ? Number(parsedYearsValue) : null;
-  const requiredYears = Number.isFinite(Number(requiredYearsValue)) ? Number(requiredYearsValue) : null;
+  const parsedYears = parsedYearsValue !== null && parsedYearsValue !== undefined && Number.isFinite(Number(parsedYearsValue)) ? Number(parsedYearsValue) : null;
+  const requiredYears = requiredYearsValue !== null && requiredYearsValue !== undefined && Number.isFinite(Number(requiredYearsValue)) ? Number(requiredYearsValue) : null;
   const experience = parsedYears === null && requiredYears === null
     ? null
     : {
