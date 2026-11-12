@@ -12,7 +12,7 @@ import {
   validateBulkResume,
 } from "./bulkMatchUtils.mjs";
 import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
-import { deleteBulkQueue, loadBulkQueue, moveBulkQueue, saveBulkQueue } from "./bulkQueueStorage.mjs";
+import { deleteBulkQueue, loadBulkQueue, moveBulkQueue, restoreBulkQueueRows, saveBulkQueue } from "./bulkQueueStorage.mjs";
 
 function file(name, size = 120, lastModified = 10) {
   return { name, size, lastModified };
@@ -255,6 +255,19 @@ test("persists and restores bulk queue rows per workspace", async () => {
   assert.equal(loaded.rows[1].status, "complete");
   assert.deepEqual(loaded.rows[1].result, { applicant_id: "A-2" });
   assert.equal((await loadBulkQueue("workspace-b", indexedDB)).rows.length, 0);
+});
+
+test("rehydrates a stored Blob with its original resume filename", () => {
+  const blob = new Blob(["resume contents"], { type: "text/plain" });
+  const restored = restoreBulkQueueRows([{
+    id: "blob-row",
+    file: blob,
+    fileMeta: { name: "candidate.txt", size: blob.size, type: "text/plain", lastModified: 123 },
+    status: "queued",
+  }]);
+  assert.equal(restored.rows[0].file.name, "candidate.txt");
+  assert.equal(restored.rows[0].file.size, blob.size);
+  assert.equal(restored.rows[0].file.type, "text/plain");
 });
 
 test("returns interrupted processing rows to queued with an explicit warning", async () => {
