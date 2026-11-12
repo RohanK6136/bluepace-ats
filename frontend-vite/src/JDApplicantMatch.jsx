@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from "react";
-import { buildBulkMatchCsv, getBulkMatchConcurrency, getBulkBatchStopReason, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
+import { buildBulkMatchCsv, getBulkMatchConcurrency, getBulkBatchStopReason, getBulkResultStopReason, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata, getUnsupportedFormFields } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
@@ -1900,6 +1900,14 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         if (status === "rules_only") rulesOnly += 1;
         else if (status === "manual") manual += 1;
         else complete += 1;
+
+        // A 402 may be converted by the backend into HTTP 200 with an explicit
+        // rules-only fallback. Keep that result, then stop claiming new resumes.
+        const resultStopReason = getBulkResultStopReason(result);
+        if (resultStopReason) {
+          stopQueue = true;
+          fatalMessage = fatalMessage || resultStopReason;
+        }
       } catch (error) {
         const message = explainError(error);
         updateBatchRow(row.id, { status: "failed", error: message, result: null });
