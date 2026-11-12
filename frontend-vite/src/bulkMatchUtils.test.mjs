@@ -114,7 +114,7 @@ test("exports Applicant Match timing breakdown for batch comparison", () => {
         resume_extraction_ms: 12,
         preprocessing_ms: 3,
         provider_round_trip_ms: 840,
-        model_inference_ms: 838,
+        model_call_time_ms: 838,
         total_ms: 860,
         client_round_trip_ms: 1120,
         assessment_mode: "model",
