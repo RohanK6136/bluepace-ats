@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from "react";
-import { buildBulkMatchCsv, getBulkMatchConcurrency, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
+import { buildBulkMatchCsv, getBulkMatchConcurrency, getBulkBatchStopReason, getBulkResultStopReason, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata, getUnsupportedFormFields } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
@@ -1900,17 +1900,26 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
         if (status === "rules_only") rulesOnly += 1;
         else if (status === "manual") manual += 1;
         else complete += 1;
+
+        // A 402 may be converted by the backend into HTTP 200 with an explicit
+        // rules-only fallback. Keep that result, then stop claiming new resumes.
+        const resultStopReason = getBulkResultStopReason(result);
+        if (resultStopReason) {
+          stopQueue = true;
+          fatalMessage = fatalMessage || resultStopReason;
+        }
       } catch (error) {
         const message = explainError(error);
         updateBatchRow(row.id, { status: "failed", error: message, result: null });
         failed += 1;
 
-        // Stop claiming new files when an error indicates the whole API route
-        // or authentication is unavailable. Already-running requests finish.
-        const httpStatus = error?.response?.status;
-        if ([401, 403, 404, 503].includes(httpStatus)) {
+        // Stop claiming new files after a shared provider/API failure.
+        // In particular, 402 and 429 must not be repeated for every resume.
+        // Requests already in flight finish; all unstarted rows stay queued.
+        const stopReason = getBulkBatchStopReason(error);
+        if (stopReason) {
           stopQueue = true;
-          fatalMessage = fatalMessage || message;
+          fatalMessage = fatalMessage || stopReason;
         }
       } finally {
         activeNames.delete(row.file.name);
@@ -1925,7 +1934,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice(`Bulk match finished: ${complete} complete, ${rulesOnly} rules-only, ${manual} requiring manual review, ${failed} failed. ${processed} of ${queue.length} queued resumes processed with up to ${concurrency} running at once. Rules-only results use direct text evidence and do not assess experience dates or fuzzy criteria. Review every result before making a recruiting decision.`);
     if (fatalMessage) {
       const unstarted = queue.length - processed;
-      setBatchError(`${fatalMessage} ${unstarted} unstarted resume(s) remain in the queue. Restore the API connection, then run the batch again.`);
+      setBatchError(`${fatalMessage} ${unstarted} unstarted resume(s) remain queued. Resolve the shared provider/API issue, then use Run queued to continue.`);
     }
   }
 
@@ -2366,6 +2375,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     </div>
                   </div>
                   {!selectedRubricId && <p className="mt-3 text-xs leading-5 text-amber-800">Choose a saved rubric above or save the reviewed draft before starting a batch.</p>}
+                  <p className="mt-2 text-[11px] leading-5 text-ink-500">If the shared AI service reports insufficient credits, rate limiting, or an API outage, new files stop being claimed. Completed results are kept and unstarted resumes remain queued for when service is restored.</p>
                   {batchError && <ErrorNotice>{batchError}</ErrorNotice>}
                   {batchRunning && (
                     <div className="mt-4" aria-live="polite">

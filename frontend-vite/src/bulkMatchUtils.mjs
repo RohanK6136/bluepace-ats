@@ -5,6 +5,44 @@ export const RESUME_ACCEPT = ".pdf,.docx,.txt,.md";
 
 const SUPPORTED_RESUME_NAME = /\.(pdf|docx|txt|md)$/i;
 
+/**
+ * Classify failures that are shared across the batch rather than specific to
+ * one resume. Stop claiming more files after these responses so a provider
+ * outage, exhausted credit balance, or rate limit is not repeated 50 times.
+ */
+/**
+ * The backend may deliberately return HTTP 200 with a rules-only card when
+ * provider credits are exhausted. Pause on its explicit unavailable-provider
+ * flag; do not infer a provider outage from every rules-only assessment.
+ */
+export function getBulkResultStopReason(result) {
+  const flags = new Set(Array.isArray(result?.flags) ? result.flags : []);
+  if (flags.has("ai_profile_unavailable")) {
+    return "The selected AI provider is unavailable or out of credits. This resume has a limited rules-only result; the batch paused to avoid repeating unavailable AI calls.";
+  }
+  return "";
+}
+
+export function getBulkBatchStopReason(error) {
+  const status = Number(error?.response?.status);
+  if (status === 402) {
+    return "The AI provider reports insufficient credits (HTTP 402). The batch stopped to avoid repeating the same provider failure.";
+  }
+  if (status === 429) {
+    return "The AI service is rate-limiting requests (HTTP 429). The batch stopped; wait for the limit to reset before resuming.";
+  }
+  if (status === 401 || status === 403) {
+    return "The AI API rejected authentication or access (HTTP " + status + "). Restore access before resuming the batch.";
+  }
+  if (status === 404) {
+    return "The Applicant Match API route is unavailable (HTTP 404). Restore the deployed route before resuming the batch.";
+  }
+  if ([502, 503, 504].includes(status)) {
+    return "The shared AI service is unavailable or timing out (HTTP " + status + "). The batch stopped to preserve the remaining queue.";
+  }
+  return "";
+}
+
 function unwrapFile(item) {
   return item?.file || item;
 }

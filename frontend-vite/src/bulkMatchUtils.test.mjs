@@ -4,6 +4,8 @@ import {
   buildBulkMatchCsv,
   BULK_MATCH_CONCURRENCY,
   getBulkMatchConcurrency,
+  getBulkBatchStopReason,
+  getBulkResultStopReason,
   runWithConcurrency,
   MAX_BULK_RESUMES,
   MAX_RESUME_BYTES,
@@ -131,6 +133,63 @@ test("uses one bulk worker for local Ollama and bounded parallelism for hosted m
   assert.equal(getBulkMatchConcurrency("local-ollama"), 1);
   assert.equal(getBulkMatchConcurrency("openrouter"), BULK_MATCH_CONCURRENCY);
   assert.equal(getBulkMatchConcurrency(""), BULK_MATCH_CONCURRENCY);
+});
+
+test("stops remaining bulk work when the backend returns a rules-only AI-unavailable fallback", () => {
+  const reason = getBulkResultStopReason({
+    flags: ["rules_only_assessment", "ai_profile_unavailable", "experience_not_assessed"],
+    versions: { assessment_mode: "rules_only" },
+  });
+  assert.match(reason, /provider is unavailable/i);
+  assert.match(reason, /avoid repeating unavailable AI calls/i);
+});
+
+test("does not stop bulk work for an intentional rules-only assessment", () => {
+  assert.equal(getBulkResultStopReason({
+    flags: ["rules_only_assessment"],
+    versions: { profile: "rules" },
+  }), "");
+});
+
+test("stops remaining bulk work when the provider has no credits", () => {
+  const reason = getBulkBatchStopReason({ response: { status: 402 } });
+  assert.match(reason, /insufficient credits/i);
+  assert.match(reason, /avoid repeating/i);
+});
+
+test("stops remaining bulk work when the provider rate-limits requests", () => {
+  const reason = getBulkBatchStopReason({ response: { status: 429 } });
+  assert.match(reason, /rate-limiting/i);
+  assert.match(reason, /before resuming/i);
+});
+
+test("stops remaining bulk work on shared authentication, route and service failures", () => {
+  for (const status of [401, 403, 404, 502, 503, 504]) {
+    assert.notEqual(getBulkBatchStopReason({ response: { status } }), "", String(status));
+  }
+});
+
+test("does not stop a batch for a resume-specific validation failure", () => {
+  for (const status of [400, 413, 422]) {
+    assert.equal(getBulkBatchStopReason({ response: { status } }), "", String(status));
+  }
+});
+
+test("stops claiming new resumes after a shared provider block while active workers finish", async () => {
+  const started = [];
+  let stop = false;
+
+  await runWithConcurrency([1, 2, 3, 4], 2, async (item) => {
+    started.push(item);
+    if (item === 1) {
+      await Promise.resolve();
+      stop = Boolean(getBulkBatchStopReason({ response: { status: 402 } }));
+    }
+    await Promise.resolve();
+  }, () => stop);
+
+  // The second worker was already in flight and can finish; queued work is not claimed.
+  assert.deepEqual(started, [1, 2]);
 });
 
 
