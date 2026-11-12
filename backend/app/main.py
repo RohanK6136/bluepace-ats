@@ -1334,7 +1334,7 @@ allowed_origins = get_allowed_origins()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"^https://(?:[a-z0-9-]+\.onrender\.com|bluepace-ats-frontend-git-[a-z0-9-]+\.vercel\.app)$",
+    allow_origin_regex=r"^https://[a-z0-9-]+\.onrender\.com$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
