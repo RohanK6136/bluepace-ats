@@ -12,10 +12,56 @@ import {
   validateBulkResume,
 } from "./bulkMatchUtils.mjs";
 import { unwrapRubricDraft } from "./matchRubricUtils.mjs";
+import { deleteBulkQueue, loadBulkQueue, moveBulkQueue, restoreBulkQueueRows, saveBulkQueue } from "./bulkQueueStorage.mjs";
 
 function file(name, size = 120, lastModified = 10) {
   return { name, size, lastModified };
 }
+
+function fakeIndexedDB() {
+  const records = new Map();
+  let hasStore = false;
+  return {
+    open() {
+      const request = {};
+      queueMicrotask(() => {
+        const database = {
+          objectStoreNames: { contains: () => hasStore },
+          createObjectStore() { hasStore = true; },
+          close() {},
+          transaction() {
+            const transaction = {
+              objectStore: () => ({
+                get(key) {
+                  const result = {};
+                  queueMicrotask(() => {
+                    result.result = records.get(key);
+                    result.onsuccess?.();
+                  });
+                  return result;
+                },
+                put(value) {
+                  records.set(value.workspaceId, value);
+                  queueMicrotask(() => transaction.oncomplete?.());
+                },
+                delete(key) {
+                  records.delete(key);
+                  queueMicrotask(() => transaction.oncomplete?.());
+                },
+              }),
+            };
+            return transaction;
+          },
+        };
+        request.result = database;
+        request.onupgradeneeded?.();
+        request.onsuccess?.();
+      });
+      return request;
+    },
+  };
+}
+
 
 test("accepts supported resume extensions case-insensitively", () => {
   for (const name of ["candidate.PDF", "candidate.docx", "candidate.txt", "candidate.md"]) {
@@ -192,6 +238,91 @@ test("stops claiming new resumes after a shared provider block while active work
   assert.deepEqual(started, [1, 2]);
 });
 
+
+test("persists and restores bulk queue rows per workspace", async () => {
+  const indexedDB = fakeIndexedDB();
+  const rows = [
+    { id: "row-1", file: file("candidate.pdf", 2048, 77), status: "queued", result: null, error: "" },
+    { id: "row-2", file: file("other.txt", 512, 88), status: "complete", result: { applicant_id: "A-2" }, error: "" },
+  ];
+
+  await saveBulkQueue("workspace-a", rows, indexedDB);
+  const loaded = await loadBulkQueue("workspace-a", indexedDB);
+
+  assert.equal(loaded.rows.length, 2);
+  assert.equal(loaded.rows[0].file.name, "candidate.pdf");
+  assert.equal(loaded.rows[0].file.size, 2048);
+  assert.equal(loaded.rows[1].status, "complete");
+  assert.equal(loaded.rows[1].file, null, "completed rows should not retain their original resume binary");
+  assert.equal(loaded.rows[1].fileName, "other.txt");
+  assert.equal(loaded.rows[1].fileSize, 512);
+  assert.deepEqual(loaded.rows[1].result, { applicant_id: "A-2" });
+  assert.equal((await loadBulkQueue("workspace-b", indexedDB)).rows.length, 0);
+});
+
+test("rehydrates a stored Blob with its original resume filename", () => {
+  const blob = new Blob(["resume contents"], { type: "text/plain" });
+  const restored = restoreBulkQueueRows([{
+    id: "blob-row",
+    file: blob,
+    fileMeta: { name: "candidate.txt", size: blob.size, type: "text/plain", lastModified: 123 },
+    status: "queued",
+  }]);
+  assert.equal(restored.rows[0].file.name, "candidate.txt");
+  assert.equal(restored.rows[0].file.size, blob.size);
+  assert.equal(restored.rows[0].file.type, "text/plain");
+});
+
+test("returns interrupted processing rows to queued with an explicit warning", async () => {
+  const indexedDB = fakeIndexedDB();
+  await saveBulkQueue("workspace-a", [{
+    id: "row-1",
+    file: file("candidate.pdf"),
+    status: "processing",
+    result: null,
+  }], indexedDB);
+
+  const loaded = await loadBulkQueue("workspace-a", indexedDB);
+  assert.equal(loaded.interrupted, 1);
+  assert.equal(loaded.rows[0].status, "queued");
+  assert.match(loaded.rows[0].error, /previous browser session ended/i);
+});
+
+test("marks queue rows when the browser no longer has their binary file", async () => {
+  const indexedDB = fakeIndexedDB();
+  await saveBulkQueue("workspace-a", [{
+    id: "row-1",
+    file: null,
+    fileMeta: { name: "candidate.pdf", size: 2048, lastModified: 77 },
+    status: "queued",
+  }], indexedDB);
+
+  const loaded = await loadBulkQueue("workspace-a", indexedDB);
+  assert.equal(loaded.rows[0].status, "file_missing");
+  assert.equal(loaded.rows[0].fileName, "candidate.pdf");
+  assert.match(loaded.rows[0].error, /select the file again/i);
+});
+
+test("moves an unsaved queue when the recruiter saves a workspace", async () => {
+  const indexedDB = fakeIndexedDB();
+  await saveBulkQueue("__unsaved_workspace__", [{
+    id: "row-1",
+    file: file("candidate.pdf"),
+    status: "queued",
+  }], indexedDB);
+
+  await moveBulkQueue("__unsaved_workspace__", "workspace-a", indexedDB);
+
+  assert.equal((await loadBulkQueue("__unsaved_workspace__", indexedDB)).rows.length, 0);
+  assert.equal((await loadBulkQueue("workspace-a", indexedDB)).rows[0].file.name, "candidate.pdf");
+});
+
+test("deleting a workspace queue removes its saved files and progress", async () => {
+  const indexedDB = fakeIndexedDB();
+  await saveBulkQueue("workspace-a", [{ id: "row-1", file: file("candidate.pdf"), status: "queued" }], indexedDB);
+  await deleteBulkQueue("workspace-a", indexedDB);
+  assert.equal((await loadBulkQueue("workspace-a", indexedDB)).rows.length, 0);
+});
 
 test("unwraps the local Python API rubric draft before saving", () => {
   const draft = { rubric_id: null, items: [{ id: "R01", label: "Python" }] };

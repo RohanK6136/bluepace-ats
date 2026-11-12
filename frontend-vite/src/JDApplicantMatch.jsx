@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { buildBulkMatchCsv, getBulkMatchConcurrency, getBulkBatchStopReason, getBulkResultStopReason, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
+import { deleteBulkQueue, loadBulkQueue, moveBulkQueue, saveBulkQueue } from "./bulkQueueStorage.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata, getUnsupportedFormFields } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
@@ -20,6 +21,7 @@ const REVIEW_STAGES = [
 ];
 const WORKSPACE_STORAGE_KEY = "bluepace_jd_match_workspaces_v1";
 const ACTIVE_WORKSPACE_KEY = "bluepace_jd_match_active_workspace_v1";
+const UNSAVED_BULK_QUEUE_ID = "__unsaved_workspace__";
 const LOCAL_AI_API_STORAGE_KEY = "bluepace_jd_match_local_ai_api_v1";
 const DEFAULT_LOCAL_AI_API_URL = "http://127.0.0.1:8000";
 
@@ -447,11 +449,61 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [sampleAssessmentLoading, setSampleAssessmentLoading] = useState(false);
   const [matchError, setMatchError] = useState("");
   const [batchFiles, setBatchFiles] = useState([]);
+  const [batchQueueHydrated, setBatchQueueHydrated] = useState(false);
+  const [batchQueueMessage, setBatchQueueMessage] = useState("");
+  const batchQueueScopeRef = useRef({ scope: "", ready: false });
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchCurrentName, setBatchCurrentName] = useState("");
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
   const [batchError, setBatchError] = useState("");
   const [notice, setNotice] = useState("");
+
+  // Bulk resume binaries and queue state are kept in IndexedDB per workspace.
+  // An unsaved workspace uses a separate local-device queue key until it is saved.
+  useEffect(() => {
+    const scope = activeWorkspaceId || UNSAVED_BULK_QUEUE_ID;
+    let active = true;
+    batchQueueScopeRef.current = { scope, ready: false };
+    setBatchQueueHydrated(false);
+    loadBulkQueue(scope).then(({ rows, interrupted }) => {
+      if (!active || batchQueueScopeRef.current.scope !== scope) return;
+      setBatchFiles(rows);
+      batchQueueScopeRef.current = { scope, ready: true };
+      setBatchQueueHydrated(true);
+      if (interrupted) {
+        setBatchQueueMessage(`${interrupted} resume(s) were in progress when the previous session ended. They have been returned to the queue; rerun them to verify completion.`);
+      } else if (rows.length) {
+        setBatchQueueMessage(`Restored ${rows.length} queued resume(s) and their saved results from this browser. Files are stored on this device only.`);
+      } else {
+        setBatchQueueMessage("");
+      }
+    }).catch((error) => {
+      if (!active || batchQueueScopeRef.current.scope !== scope) return;
+      batchQueueScopeRef.current = { scope, ready: true };
+      setBatchQueueHydrated(true);
+      setBatchQueueMessage(`Local queue recovery is unavailable: ${String(error?.message || error)}. The current queue will remain in memory only.`);
+    });
+    return () => { active = false; };
+  }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    const scope = activeWorkspaceId || UNSAVED_BULK_QUEUE_ID;
+    if (!batchQueueHydrated || !batchQueueScopeRef.current.ready || batchQueueScopeRef.current.scope !== scope) return;
+    const timer = window.setTimeout(() => {
+      saveBulkQueue(scope, batchFiles).then(() => {
+        if (batchQueueScopeRef.current.scope !== scope) return;
+        setBatchQueueMessage((current) => current.startsWith("Local queue recovery is unavailable") || current.startsWith("Could not persist")
+          ? current
+          : batchFiles.length
+            ? `Queue recovery is on. ${batchFiles.length} file(s) and progress are saved in this browser only.`
+            : "");
+      }).catch((error) => {
+        if (batchQueueScopeRef.current.scope !== scope) return;
+        setBatchQueueMessage(`Could not persist the bulk queue: ${String(error?.message || error)}. Keep this tab open until the batch finishes or export your results.`);
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [activeWorkspaceId, batchFiles, batchQueueHydrated]);
 
   useEffect(() => {
     if (!jdSourceJobId) return;
@@ -547,11 +599,23 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try { localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspace.id); } catch { /* Workspace can still be used in memory. */ }
   }
 
-  function saveWorkspace() {
+  async function saveWorkspace() {
+    if (!batchQueueHydrated) {
+      setBatchQueueMessage("Wait for the current workspace's saved queue to finish restoring before saving or switching workspaces.");
+      return null;
+    }
     const existingRows = readWorkspaces();
     const existing = existingRows.find((workspace) => workspace.id === activeWorkspaceId);
     const id = existing?.id || newWorkspaceId();
     const title = workspaceName.trim() || jdTitle || "Untitled workspace";
+    if (!activeWorkspaceId && batchFiles.length && id !== UNSAVED_BULK_QUEUE_ID) {
+      try {
+        await moveBulkQueue(UNSAVED_BULK_QUEUE_ID, id);
+      } catch (error) {
+        setBatchQueueMessage(`Cannot move the unsaved queue into a workspace yet: ${String(error?.message || error)}. Keep this tab open or clear the queue before saving a new workspace.`);
+        return existing || { id, title };
+      }
+    }
     const applicantsById = new Map();
     for (const applicant of [...savedApplicants, ...savedApplicantRows(batchFiles)]) applicantsById.set(applicant.id, applicant);
     const workspace = {
@@ -593,7 +657,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
     setTeamWorkspaceBusy(true);
     try {
-      const workspace = saveWorkspace();
+      const workspace = await saveWorkspace();
+      if (!workspace) return;
       await request("put", `/ai-hiring/workspaces/${encodeURIComponent(workspace.id)}`, { workspace });
       setNotice(`Workspace “${workspace.title}” synced with your organization.`);
     } catch (error) {
@@ -634,8 +699,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
 
-  function createWorkspace() {
-    if (activeWorkspaceId || jdText.trim() || jdResult || rubric || candidateCard || batchFiles.length || workspaceNotes.trim()) saveWorkspace();
+  async function createWorkspace() {
+    if (!batchQueueHydrated) {
+      setNotice("Wait for the current workspace's saved queue to finish restoring before creating another workspace.");
+      return;
+    }
+    if (activeWorkspaceId || jdText.trim() || jdResult || rubric || candidateCard || batchFiles.length || workspaceNotes.trim()) {
+      const saved = await saveWorkspace();
+      if (!saved) return;
+    }
     const now = new Date().toISOString();
     const workspace = {
       id: newWorkspaceId(),
@@ -667,6 +739,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     const current = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
     if (!window.confirm(`Delete “${current?.title || "Untitled workspace"}” and its saved review data from this device?`)) return;
     const next = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId);
+    void deleteBulkQueue(activeWorkspaceId).catch((error) => setBatchQueueMessage(`Could not delete the saved local queue: ${String(error?.message || error)}`));
     const saved = writeWorkspaces(next);
     setWorkspaces(next);
     if (next.length) activateWorkspace(next[0]);
@@ -1751,11 +1824,16 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
   function clearBatchQueue() {
-    if (batchRunning) return;
+    if (batchRunning || !batchQueueHydrated) return;
+    if (!window.confirm("Remove all bulk queue entries and locally stored resume files for this workspace? Saved assessment summaries in the workspace will remain available.")) return;
+    const scope = activeWorkspaceId || UNSAVED_BULK_QUEUE_ID;
     setBatchFiles([]);
     setBatchCurrentName("");
     setBatchProgress({ done: 0, total: 0 });
     setBatchError("");
+    void deleteBulkQueue(scope).then(() => setBatchQueueMessage("")).catch((error) => {
+      setBatchQueueMessage(`Could not remove the saved local queue: ${String(error?.message || error)}`);
+    });
   }
 
   function downloadBulkCsv() {
@@ -1838,6 +1916,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
   async function runBatchMatches(retryOnly = false, onlyIds = null) {
+    if (!batchQueueHydrated) {
+      setBatchError("The saved bulk queue is still being restored. Retry once local storage finishes loading.");
+      return;
+    }
     if (!selectedRubricId) {
       setBatchError("Select a saved rubric or save the draft rubric before running bulk matching.");
       return;
@@ -1847,6 +1929,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       return;
     }
     const queue = batchFiles.filter((row) => {
+      if (!row.file) return false;
       if (onlyIds?.length) return onlyIds.includes(row.id) && ["queued", "failed"].includes(row.status);
       return retryOnly ? row.status === "failed" : row.status === "queued";
     });
@@ -1971,7 +2054,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const workspaceProgressState = { jdText, jdResult, rubric, applicants: [...savedApplicants, ...savedApplicantRows(batchFiles)], candidateCard };
   const batchQueuedCount = batchFiles.filter((row) => row.status === "queued").length;
   const batchFailedCount = batchFiles.filter((row) => row.status === "failed").length;
-  const batchTerminalCount = batchFiles.filter((row) => ["complete", "rules_only", "manual", "failed"].includes(row.status)).length;
+  const batchTerminalCount = batchFiles.filter((row) => ["complete", "rules_only", "manual", "failed", "file_missing"].includes(row.status)).length;
   const calibrationEvidence = [
     ...[...savedApplicants, ...savedApplicantRows(batchFiles)].flatMap((applicant) => (applicant.result?.evidence || []).map((item) => ({ item, applicant: applicant.fileName || "Applicant" }))),
     ...(candidateCard?.evidence || []).map((item) => ({ item, applicant: "Individual applicant" })),
@@ -2027,9 +2110,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               <input value={calibrationReviewerName} onChange={(event) => setCalibrationReviewerName(event.target.value)} placeholder="Reviewer name" className={fieldClass} maxLength={80} />
             </Field>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={secondaryButton} onClick={createWorkspace}>New workspace</button>
-              <button type="button" className={primaryButton} onClick={saveWorkspace}>Save workspace</button>
-              <button type="button" className={secondaryButton} onClick={syncWorkspaceToTeam} disabled={!token || teamWorkspaceBusy} title="Share this saved workspace with authenticated members of your organization">{teamWorkspaceBusy ? "Syncing…" : "Sync with team"}</button>
+              <button type="button" className={secondaryButton} onClick={createWorkspace} disabled={!batchQueueHydrated}>New workspace</button>
+              <button type="button" className={primaryButton} onClick={() => { void saveWorkspace(); }} disabled={!batchQueueHydrated}>Save workspace</button>
+              <button type="button" className={secondaryButton} onClick={syncWorkspaceToTeam} disabled={!token || teamWorkspaceBusy || !batchQueueHydrated} title="Share this saved workspace with authenticated members of your organization">{teamWorkspaceBusy ? "Syncing…" : "Sync with team"}</button>
               <button type="button" className={secondaryButton} onClick={loadTeamWorkspaces} disabled={!token || teamWorkspaceBusy}>{teamWorkspaceBusy ? "Loading…" : "Load team workspaces"}</button>
               <button type="button" className={secondaryButton} onClick={downloadWorkspaceReport} disabled={!activeWorkspaceId} title="Export a standalone HTML report you can print or save as PDF">Export summary</button>
               <button type="button" className={secondaryButton} onClick={deleteWorkspace} disabled={!activeWorkspaceId}>Delete</button>
@@ -2349,7 +2432,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 <SectionHeading
                   eyebrow="Step 05"
                   title="Bulk resume comparison"
-                  detail={`Match up to ${MAX_BULK_RESUMES} resumes against the selected saved rubric. Processing runs one resume at a time; failures do not discard successful results.`}
+                  detail={`Match up to ${MAX_BULK_RESUMES} resumes against the selected saved rubric. Files and progress are recoverable on this browser after a refresh; processing uses bounded parallelism and failures do not discard successful results.`}
                   action={<button type="button" className={secondaryButton} onClick={downloadBulkCsv} disabled={!batchFiles.length}>Export CSV</button>}
                 />
                 <div className="rounded-lg border border-ink-100 bg-white p-4">
@@ -2360,22 +2443,25 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                         type="file"
                         accept=".pdf,.docx,.txt,.md"
                         multiple
-                        disabled={batchRunning || batchFiles.length >= MAX_BULK_RESUMES}
+                        disabled={batchRunning || !batchQueueHydrated || batchFiles.length >= MAX_BULK_RESUMES}
                         onChange={handleBatchFileSelection}
                       />
                     </Field>
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" className={primaryButton} onClick={() => runBatchMatches(false)} disabled={batchRunning || connection !== "connected" || !selectedRubricId || !batchQueuedCount}>
+                      <button type="button" className={primaryButton} onClick={() => runBatchMatches(false)} disabled={batchRunning || !batchQueueHydrated || connection !== "connected" || !selectedRubricId || !batchQueuedCount}>
                         {batchRunning ? "Matching…" : `Run queued (${batchQueuedCount})`}
                       </button>
-                      <button type="button" className={secondaryButton} onClick={() => runBatchMatches(true)} disabled={batchRunning || connection !== "connected" || !selectedRubricId || !batchFailedCount}>
+                      <button type="button" className={secondaryButton} onClick={() => runBatchMatches(true)} disabled={batchRunning || !batchQueueHydrated || connection !== "connected" || !selectedRubricId || !batchFailedCount}>
                         Retry failed ({batchFailedCount})
                       </button>
-                      <button type="button" className={secondaryButton} onClick={clearBatchQueue} disabled={batchRunning || !batchFiles.length}>Clear</button>
+                      <button type="button" className={secondaryButton} onClick={clearBatchQueue} disabled={batchRunning || !batchQueueHydrated || !batchFiles.length}>Clear</button>
                     </div>
                   </div>
                   {!selectedRubricId && <p className="mt-3 text-xs leading-5 text-amber-800">Choose a saved rubric above or save the reviewed draft before starting a batch.</p>}
+                  <p className="mt-2 text-[11px] leading-5 text-ink-500">Files and queue progress are stored in this browser only, not synced to other devices. Original resume files are retained only while queued, processing or failed; completed assessment summaries remain for review. Use Clear to remove the local queue and remaining resume files.</p>
                   <p className="mt-2 text-[11px] leading-5 text-ink-500">If the shared AI service reports insufficient credits, rate limiting, or an API outage, new files stop being claimed. Completed results are kept and unstarted resumes remain queued for when service is restored.</p>
+                  {!batchQueueHydrated && <p className="mt-2 text-xs text-ink-500" role="status">Restoring this workspace’s saved bulk queue…</p>}
+                  {batchQueueMessage && <p className="mt-2 rounded-md border border-ink-100 bg-[#fafaf8] px-3 py-2 text-xs leading-5 text-ink-600" role="status">{batchQueueMessage}</p>}
                   {batchError && <ErrorNotice>{batchError}</ErrorNotice>}
                   {batchRunning && (
                     <div className="mt-4" aria-live="polite">
@@ -2427,14 +2513,15 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                             rules_only: "Rules-only review",
                             manual: "Manual review",
                             failed: "Failed",
+                            file_missing: "File unavailable",
                           }[row.status] || row.status;
-                          const tone = row.status === "complete" ? "good" : row.status === "rules_only" || row.status === "manual" || row.status === "failed" ? "warn" : "neutral";
+                          const tone = row.status === "complete" ? "good" : row.status === "rules_only" || row.status === "manual" || row.status === "failed" || row.status === "file_missing" ? "warn" : "neutral";
                           const gaps = (result?.gaps || []).filter((gap) => gap.importance === "must" || gap.status !== "met");
                           return (
                             <tr id={`follow-up-${reportAnchor(row.id)}`} key={row.id} className="border-t border-ink-100 align-top">
                               <td className="max-w-[240px] px-3 py-3">
-                                <p className="break-all text-xs font-semibold text-ink-800">{row.file.name}</p>
-                                <p className="mt-1 text-[11px] text-ink-500">{(row.file.size / 1024).toFixed(0)} KB</p>
+                                <p className="break-all text-xs font-semibold text-ink-800">{row.file?.name || row.fileName || "Resume file unavailable"}</p>
+                                <p className="mt-1 text-[11px] text-ink-500">{(Number(row.file?.size ?? row.fileSize ?? 0) / 1024).toFixed(0)} KB</p>
                               </td>
                               <td className="px-3 py-3">
                                 <Pill tone={tone}>{statusLabel}</Pill>
