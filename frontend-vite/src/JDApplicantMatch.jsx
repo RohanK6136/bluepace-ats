@@ -600,6 +600,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
   async function saveWorkspace() {
+    if (!batchQueueHydrated) {
+      setBatchQueueMessage("Wait for the current workspace's saved queue to finish restoring before saving or switching workspaces.");
+      return null;
+    }
     const existingRows = readWorkspaces();
     const existing = existingRows.find((workspace) => workspace.id === activeWorkspaceId);
     const id = existing?.id || newWorkspaceId();
@@ -654,6 +658,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setTeamWorkspaceBusy(true);
     try {
       const workspace = await saveWorkspace();
+      if (!workspace) return;
       await request("put", `/ai-hiring/workspaces/${encodeURIComponent(workspace.id)}`, { workspace });
       setNotice(`Workspace “${workspace.title}” synced with your organization.`);
     } catch (error) {
@@ -695,7 +700,14 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
   async function createWorkspace() {
-    if (activeWorkspaceId || jdText.trim() || jdResult || rubric || candidateCard || batchFiles.length || workspaceNotes.trim()) await saveWorkspace();
+    if (!batchQueueHydrated) {
+      setNotice("Wait for the current workspace's saved queue to finish restoring before creating another workspace.");
+      return;
+    }
+    if (activeWorkspaceId || jdText.trim() || jdResult || rubric || candidateCard || batchFiles.length || workspaceNotes.trim()) {
+      const saved = await saveWorkspace();
+      if (!saved) return;
+    }
     const now = new Date().toISOString();
     const workspace = {
       id: newWorkspaceId(),
@@ -1812,7 +1824,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
   function clearBatchQueue() {
-    if (batchRunning) return;
+    if (batchRunning || !batchQueueHydrated) return;
+    if (!window.confirm("Remove all bulk queue entries and locally stored resume files for this workspace? Saved assessment summaries in the workspace will remain available.")) return;
     const scope = activeWorkspaceId || UNSAVED_BULK_QUEUE_ID;
     setBatchFiles([]);
     setBatchCurrentName("");
@@ -2097,9 +2110,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               <input value={calibrationReviewerName} onChange={(event) => setCalibrationReviewerName(event.target.value)} placeholder="Reviewer name" className={fieldClass} maxLength={80} />
             </Field>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={secondaryButton} onClick={createWorkspace}>New workspace</button>
-              <button type="button" className={primaryButton} onClick={() => { void saveWorkspace(); }}>Save workspace</button>
-              <button type="button" className={secondaryButton} onClick={syncWorkspaceToTeam} disabled={!token || teamWorkspaceBusy} title="Share this saved workspace with authenticated members of your organization">{teamWorkspaceBusy ? "Syncing…" : "Sync with team"}</button>
+              <button type="button" className={secondaryButton} onClick={createWorkspace} disabled={!batchQueueHydrated}>New workspace</button>
+              <button type="button" className={primaryButton} onClick={() => { void saveWorkspace(); }} disabled={!batchQueueHydrated}>Save workspace</button>
+              <button type="button" className={secondaryButton} onClick={syncWorkspaceToTeam} disabled={!token || teamWorkspaceBusy || !batchQueueHydrated} title="Share this saved workspace with authenticated members of your organization">{teamWorkspaceBusy ? "Syncing…" : "Sync with team"}</button>
               <button type="button" className={secondaryButton} onClick={loadTeamWorkspaces} disabled={!token || teamWorkspaceBusy}>{teamWorkspaceBusy ? "Loading…" : "Load team workspaces"}</button>
               <button type="button" className={secondaryButton} onClick={downloadWorkspaceReport} disabled={!activeWorkspaceId} title="Export a standalone HTML report you can print or save as PDF">Export summary</button>
               <button type="button" className={secondaryButton} onClick={deleteWorkspace} disabled={!activeWorkspaceId}>Delete</button>
@@ -2445,6 +2458,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     </div>
                   </div>
                   {!selectedRubricId && <p className="mt-3 text-xs leading-5 text-amber-800">Choose a saved rubric above or save the reviewed draft before starting a batch.</p>}
+                  <p className="mt-2 text-[11px] leading-5 text-ink-500">Files and queue progress are stored in this browser only, not synced to other devices. Original resume files are retained only while queued, processing or failed; completed assessment summaries remain for review. Use Clear to remove the local queue and remaining resume files.</p>
                   <p className="mt-2 text-[11px] leading-5 text-ink-500">If the shared AI service reports insufficient credits, rate limiting, or an API outage, new files stop being claimed. Completed results are kept and unstarted resumes remain queued for when service is restored.</p>
                   {!batchQueueHydrated && <p className="mt-2 text-xs text-ink-500" role="status">Restoring this workspace’s saved bulk queue…</p>}
                   {batchQueueMessage && <p className="mt-2 rounded-md border border-ink-100 bg-[#fafaf8] px-3 py-2 text-xs leading-5 text-ink-600" role="status">{batchQueueMessage}</p>}
