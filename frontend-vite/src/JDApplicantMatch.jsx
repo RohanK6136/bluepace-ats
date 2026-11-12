@@ -1903,6 +1903,10 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   }
 
   async function runBatchMatches(retryOnly = false, onlyIds = null) {
+    if (!batchQueueHydrated) {
+      setBatchError("The saved bulk queue is still being restored. Retry once local storage finishes loading.");
+      return;
+    }
     if (!selectedRubricId) {
       setBatchError("Select a saved rubric or save the draft rubric before running bulk matching.");
       return;
@@ -2426,22 +2430,23 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                         type="file"
                         accept=".pdf,.docx,.txt,.md"
                         multiple
-                        disabled={batchRunning || batchFiles.length >= MAX_BULK_RESUMES}
+                        disabled={batchRunning || !batchQueueHydrated || batchFiles.length >= MAX_BULK_RESUMES}
                         onChange={handleBatchFileSelection}
                       />
                     </Field>
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" className={primaryButton} onClick={() => runBatchMatches(false)} disabled={batchRunning || connection !== "connected" || !selectedRubricId || !batchQueuedCount}>
+                      <button type="button" className={primaryButton} onClick={() => runBatchMatches(false)} disabled={batchRunning || !batchQueueHydrated || connection !== "connected" || !selectedRubricId || !batchQueuedCount}>
                         {batchRunning ? "Matching…" : `Run queued (${batchQueuedCount})`}
                       </button>
-                      <button type="button" className={secondaryButton} onClick={() => runBatchMatches(true)} disabled={batchRunning || connection !== "connected" || !selectedRubricId || !batchFailedCount}>
+                      <button type="button" className={secondaryButton} onClick={() => runBatchMatches(true)} disabled={batchRunning || !batchQueueHydrated || connection !== "connected" || !selectedRubricId || !batchFailedCount}>
                         Retry failed ({batchFailedCount})
                       </button>
-                      <button type="button" className={secondaryButton} onClick={clearBatchQueue} disabled={batchRunning || !batchFiles.length}>Clear</button>
+                      <button type="button" className={secondaryButton} onClick={clearBatchQueue} disabled={batchRunning || !batchQueueHydrated || !batchFiles.length}>Clear</button>
                     </div>
                   </div>
                   {!selectedRubricId && <p className="mt-3 text-xs leading-5 text-amber-800">Choose a saved rubric above or save the reviewed draft before starting a batch.</p>}
                   <p className="mt-2 text-[11px] leading-5 text-ink-500">If the shared AI service reports insufficient credits, rate limiting, or an API outage, new files stop being claimed. Completed results are kept and unstarted resumes remain queued for when service is restored.</p>
+                  {!batchQueueHydrated && <p className="mt-2 text-xs text-ink-500" role="status">Restoring this workspace’s saved bulk queue…</p>}
                   {batchQueueMessage && <p className="mt-2 rounded-md border border-ink-100 bg-[#fafaf8] px-3 py-2 text-xs leading-5 text-ink-600" role="status">{batchQueueMessage}</p>}
                   {batchError && <ErrorNotice>{batchError}</ErrorNotice>}
                   {batchRunning && (
