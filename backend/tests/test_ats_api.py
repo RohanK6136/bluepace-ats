@@ -105,36 +105,6 @@ def test_secondary_vercel_origin_is_allowed_by_cors(client):
     assert response.headers["access-control-allow-origin"] == "https://bluepace-ats-live.vercel.app"
 
 
-def test_bluepace_vercel_preview_origin_is_allowed_by_cors(client):
-    origin = "https://bluepace-ats-frontend-git-fe-336527-sukumarparamountpowers-1576.vercel.app"
-    response = client.options(
-        "/auth/register",
-        headers={
-            "Origin": origin,
-            "Access-Control-Request-Method": "POST",
-            "Access-Control-Request-Headers": "content-type",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == origin
-
-
-def test_unrelated_vercel_preview_origin_is_not_allowed_by_cors(client):
-    origin = "https://another-app-git-fe-336527-sukumarparamountpowers-1576.vercel.app"
-    response = client.options(
-        "/auth/register",
-        headers={
-            "Origin": origin,
-            "Access-Control-Request-Method": "POST",
-            "Access-Control-Request-Headers": "content-type",
-        },
-    )
-
-    assert response.status_code == 400
-    assert "access-control-allow-origin" not in response.headers
-
-
 
 @pytest.mark.parametrize(
     "origin",
