@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { buildBulkMatchCsv, getBulkMatchConcurrency, getBulkBatchStopReason, getBulkResultStopReason, MAX_BULK_RESUMES, runWithConcurrency, validateBulkResume } from "./bulkMatchUtils.mjs";
+import { deleteBulkQueue, loadBulkQueue, moveBulkQueue, saveBulkQueue } from "./bulkQueueStorage.mjs";
 import { extractJdTextFromResult, getJdUploadError, normalizeJdText, normalizeJdPublicationGate, getUnsupportedJdOptionFields, formatJdValidationErrors, removeUnsupportedRubricMetadata, getUnsupportedFormFields } from "./jdUploadUtils.mjs";
 import { getLoopbackNetworkPermission, localAiPermissionHelp, localAiServiceHelp } from "./localNetworkAccess.mjs";
 import { readSavedRubrics, writeSavedRubrics } from "./savedRubricStorage.mjs";
@@ -20,6 +21,7 @@ const REVIEW_STAGES = [
 ];
 const WORKSPACE_STORAGE_KEY = "bluepace_jd_match_workspaces_v1";
 const ACTIVE_WORKSPACE_KEY = "bluepace_jd_match_active_workspace_v1";
+const UNSAVED_BULK_QUEUE_ID = "__unsaved_workspace__";
 const LOCAL_AI_API_STORAGE_KEY = "bluepace_jd_match_local_ai_api_v1";
 const DEFAULT_LOCAL_AI_API_URL = "http://127.0.0.1:8000";
 
@@ -447,11 +449,61 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [sampleAssessmentLoading, setSampleAssessmentLoading] = useState(false);
   const [matchError, setMatchError] = useState("");
   const [batchFiles, setBatchFiles] = useState([]);
+  const [batchQueueHydrated, setBatchQueueHydrated] = useState(false);
+  const [batchQueueMessage, setBatchQueueMessage] = useState("");
+  const batchQueueScopeRef = useRef({ scope: "", ready: false });
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchCurrentName, setBatchCurrentName] = useState("");
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
   const [batchError, setBatchError] = useState("");
   const [notice, setNotice] = useState("");
+
+  // Bulk resume binaries and queue state are kept in IndexedDB per workspace.
+  // An unsaved workspace uses a separate local-device queue key until it is saved.
+  useEffect(() => {
+    const scope = activeWorkspaceId || UNSAVED_BULK_QUEUE_ID;
+    let active = true;
+    batchQueueScopeRef.current = { scope, ready: false };
+    setBatchQueueHydrated(false);
+    loadBulkQueue(scope).then(({ rows, interrupted }) => {
+      if (!active || batchQueueScopeRef.current.scope !== scope) return;
+      setBatchFiles(rows);
+      batchQueueScopeRef.current = { scope, ready: true };
+      setBatchQueueHydrated(true);
+      if (interrupted) {
+        setBatchQueueMessage(`${interrupted} resume(s) were in progress when the previous session ended. They have been returned to the queue; rerun them to verify completion.`);
+      } else if (rows.length) {
+        setBatchQueueMessage(`Restored ${rows.length} queued resume(s) and their saved results from this browser. Files are stored on this device only.`);
+      } else {
+        setBatchQueueMessage("");
+      }
+    }).catch((error) => {
+      if (!active || batchQueueScopeRef.current.scope !== scope) return;
+      batchQueueScopeRef.current = { scope, ready: true };
+      setBatchQueueHydrated(true);
+      setBatchQueueMessage(`Local queue recovery is unavailable: ${String(error?.message || error)}. The current queue will remain in memory only.`);
+    });
+    return () => { active = false; };
+  }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    const scope = activeWorkspaceId || UNSAVED_BULK_QUEUE_ID;
+    if (!batchQueueHydrated || !batchQueueScopeRef.current.ready || batchQueueScopeRef.current.scope !== scope) return;
+    const timer = window.setTimeout(() => {
+      saveBulkQueue(scope, batchFiles).then(() => {
+        if (batchQueueScopeRef.current.scope !== scope) return;
+        setBatchQueueMessage((current) => current.startsWith("Local queue recovery is unavailable") || current.startsWith("Could not persist")
+          ? current
+          : batchFiles.length
+            ? `Queue recovery is on. ${batchFiles.length} file(s) and progress are saved in this browser only.`
+            : "");
+      }).catch((error) => {
+        if (batchQueueScopeRef.current.scope !== scope) return;
+        setBatchQueueMessage(`Could not persist the bulk queue: ${String(error?.message || error)}. Keep this tab open until the batch finishes or export your results.`);
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [activeWorkspaceId, batchFiles, batchQueueHydrated]);
 
   useEffect(() => {
     if (!jdSourceJobId) return;
