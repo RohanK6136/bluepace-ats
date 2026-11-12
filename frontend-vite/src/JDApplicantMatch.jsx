@@ -1813,10 +1813,14 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
 
   function clearBatchQueue() {
     if (batchRunning) return;
+    const scope = activeWorkspaceId || UNSAVED_BULK_QUEUE_ID;
     setBatchFiles([]);
     setBatchCurrentName("");
     setBatchProgress({ done: 0, total: 0 });
     setBatchError("");
+    void deleteBulkQueue(scope).then(() => setBatchQueueMessage("")).catch((error) => {
+      setBatchQueueMessage(`Could not remove the saved local queue: ${String(error?.message || error)}`);
+    });
   }
 
   function downloadBulkCsv() {
@@ -2497,8 +2501,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                           return (
                             <tr id={`follow-up-${reportAnchor(row.id)}`} key={row.id} className="border-t border-ink-100 align-top">
                               <td className="max-w-[240px] px-3 py-3">
-                                <p className="break-all text-xs font-semibold text-ink-800">{row.file.name}</p>
-                                <p className="mt-1 text-[11px] text-ink-500">{(row.file.size / 1024).toFixed(0)} KB</p>
+                                <p className="break-all text-xs font-semibold text-ink-800">{row.file?.name || row.fileName || "Resume file unavailable"}</p>
+                                <p className="mt-1 text-[11px] text-ink-500">{(Number(row.file?.size ?? row.fileSize ?? 0) / 1024).toFixed(0)} KB</p>
                               </td>
                               <td className="px-3 py-3">
                                 <Pill tone={tone}>{statusLabel}</Pill>
