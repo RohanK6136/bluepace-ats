@@ -1908,6 +1908,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
       return;
     }
     const queue = batchFiles.filter((row) => {
+      if (!row.file) return false;
       if (onlyIds?.length) return onlyIds.includes(row.id) && ["queued", "failed"].includes(row.status);
       return retryOnly ? row.status === "failed" : row.status === "queued";
     });
@@ -2032,7 +2033,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const workspaceProgressState = { jdText, jdResult, rubric, applicants: [...savedApplicants, ...savedApplicantRows(batchFiles)], candidateCard };
   const batchQueuedCount = batchFiles.filter((row) => row.status === "queued").length;
   const batchFailedCount = batchFiles.filter((row) => row.status === "failed").length;
-  const batchTerminalCount = batchFiles.filter((row) => ["complete", "rules_only", "manual", "failed"].includes(row.status)).length;
+  const batchTerminalCount = batchFiles.filter((row) => ["complete", "rules_only", "manual", "failed", "file_missing"].includes(row.status)).length;
   const calibrationEvidence = [
     ...[...savedApplicants, ...savedApplicantRows(batchFiles)].flatMap((applicant) => (applicant.result?.evidence || []).map((item) => ({ item, applicant: applicant.fileName || "Applicant" }))),
     ...(candidateCard?.evidence || []).map((item) => ({ item, applicant: "Individual applicant" })),
@@ -2410,7 +2411,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                 <SectionHeading
                   eyebrow="Step 05"
                   title="Bulk resume comparison"
-                  detail={`Match up to ${MAX_BULK_RESUMES} resumes against the selected saved rubric. Processing runs one resume at a time; failures do not discard successful results.`}
+                  detail={`Match up to ${MAX_BULK_RESUMES} resumes against the selected saved rubric. Files and progress are recoverable on this browser after a refresh; processing uses bounded parallelism and failures do not discard successful results.`}
                   action={<button type="button" className={secondaryButton} onClick={downloadBulkCsv} disabled={!batchFiles.length}>Export CSV</button>}
                 />
                 <div className="rounded-lg border border-ink-100 bg-white p-4">
@@ -2437,6 +2438,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                   </div>
                   {!selectedRubricId && <p className="mt-3 text-xs leading-5 text-amber-800">Choose a saved rubric above or save the reviewed draft before starting a batch.</p>}
                   <p className="mt-2 text-[11px] leading-5 text-ink-500">If the shared AI service reports insufficient credits, rate limiting, or an API outage, new files stop being claimed. Completed results are kept and unstarted resumes remain queued for when service is restored.</p>
+                  {batchQueueMessage && <p className="mt-2 rounded-md border border-ink-100 bg-[#fafaf8] px-3 py-2 text-xs leading-5 text-ink-600" role="status">{batchQueueMessage}</p>}
                   {batchError && <ErrorNotice>{batchError}</ErrorNotice>}
                   {batchRunning && (
                     <div className="mt-4" aria-live="polite">
@@ -2488,8 +2490,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                             rules_only: "Rules-only review",
                             manual: "Manual review",
                             failed: "Failed",
+                            file_missing: "File unavailable",
                           }[row.status] || row.status;
-                          const tone = row.status === "complete" ? "good" : row.status === "rules_only" || row.status === "manual" || row.status === "failed" ? "warn" : "neutral";
+                          const tone = row.status === "complete" ? "good" : row.status === "rules_only" || row.status === "manual" || row.status === "failed" || row.status === "file_missing" ? "warn" : "neutral";
                           const gaps = (result?.gaps || []).filter((gap) => gap.importance === "must" || gap.status !== "met");
                           return (
                             <tr id={`follow-up-${reportAnchor(row.id)}`} key={row.id} className="border-t border-ink-100 align-top">
