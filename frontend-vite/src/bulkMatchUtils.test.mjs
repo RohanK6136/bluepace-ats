@@ -5,6 +5,7 @@ import {
   BULK_MATCH_CONCURRENCY,
   getBulkMatchConcurrency,
   getBulkBatchStopReason,
+  getBulkResultStopReason,
   runWithConcurrency,
   MAX_BULK_RESUMES,
   MAX_RESUME_BYTES,
@@ -132,6 +133,22 @@ test("uses one bulk worker for local Ollama and bounded parallelism for hosted m
   assert.equal(getBulkMatchConcurrency("local-ollama"), 1);
   assert.equal(getBulkMatchConcurrency("openrouter"), BULK_MATCH_CONCURRENCY);
   assert.equal(getBulkMatchConcurrency(""), BULK_MATCH_CONCURRENCY);
+});
+
+test("stops remaining bulk work when the backend returns a rules-only AI-unavailable fallback", () => {
+  const reason = getBulkResultStopReason({
+    flags: ["rules_only_assessment", "ai_profile_unavailable", "experience_not_assessed"],
+    versions: { assessment_mode: "rules_only" },
+  });
+  assert.match(reason, /provider is unavailable/i);
+  assert.match(reason, /avoid repeating unavailable AI calls/i);
+});
+
+test("does not stop bulk work for an intentional rules-only assessment", () => {
+  assert.equal(getBulkResultStopReason({
+    flags: ["rules_only_assessment"],
+    versions: { profile: "rules" },
+  }), "");
 });
 
 test("stops remaining bulk work when the provider has no credits", () => {
