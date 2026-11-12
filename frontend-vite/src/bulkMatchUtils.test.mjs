@@ -133,6 +133,30 @@ test("uses one bulk worker for local Ollama and bounded parallelism for hosted m
   assert.equal(getBulkMatchConcurrency(""), BULK_MATCH_CONCURRENCY);
 });
 
+test("stops remaining bulk work when the provider has no credits", () => {
+  const reason = getBulkBatchStopReason({ response: { status: 402 } });
+  assert.match(reason, /insufficient credits/i);
+  assert.match(reason, /avoid repeating/i);
+});
+
+test("stops remaining bulk work when the provider rate-limits requests", () => {
+  const reason = getBulkBatchStopReason({ response: { status: 429 } });
+  assert.match(reason, /rate-limiting/i);
+  assert.match(reason, /before resuming/i);
+});
+
+test("stops remaining bulk work on shared authentication, route and service failures", () => {
+  for (const status of [401, 403, 404, 502, 503, 504]) {
+    assert.notEqual(getBulkBatchStopReason({ response: { status } }), "", String(status));
+  }
+});
+
+test("does not stop a batch for a resume-specific validation failure", () => {
+  for (const status of [400, 413, 422]) {
+    assert.equal(getBulkBatchStopReason({ response: { status } }), "", String(status));
+  }
+});
+
 
 test("unwraps the local Python API rubric draft before saving", () => {
   const draft = { rubric_id: null, items: [{ id: "R01", label: "Python" }] };
