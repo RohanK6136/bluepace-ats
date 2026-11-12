@@ -4,6 +4,7 @@ import {
   buildBulkMatchCsv,
   BULK_MATCH_CONCURRENCY,
   getBulkMatchConcurrency,
+  getBulkBatchStopReason,
   runWithConcurrency,
   MAX_BULK_RESUMES,
   MAX_RESUME_BYTES,
