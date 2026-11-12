@@ -50,7 +50,7 @@ export default function CandidatePortalQuestions({ token, apiRequest, applicatio
 
   const openCount = questions.filter((question) => question.status === "open").length;
 
-  return <section className="mt-5 rounded-xl border border-blue-100 bg-blue-50/30 p-4 sm:p-5" aria-labelledby="candidate-questions-heading">
+  return <section id="candidate-questions" className="mt-5 rounded-xl border border-blue-100 bg-blue-50/30 p-4 sm:p-5" aria-labelledby="candidate-questions-heading">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Candidate portal</p><h4 id="candidate-questions-heading" className="mt-1 font-semibold text-ink-950">Candidate questions</h4><p className="mt-1 text-xs leading-5 text-ink-600">Replies you publish here appear in the candidate’s secure portal. They are not emailed.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-900">{openCount} open</span></div>
     {loading ? <p className="mt-4 rounded-lg border border-ink-100 bg-white p-3 text-sm text-ink-500">Loading portal questions…</p>
       : questions.length ? <div className="mt-4 grid gap-3">{questions.map((question) => <article key={question.id} className="rounded-lg border border-ink-100 bg-white p-4">
