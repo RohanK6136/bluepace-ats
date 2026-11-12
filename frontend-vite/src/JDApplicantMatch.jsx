@@ -599,11 +599,19 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     try { localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspace.id); } catch { /* Workspace can still be used in memory. */ }
   }
 
-  function saveWorkspace() {
+  async function saveWorkspace() {
     const existingRows = readWorkspaces();
     const existing = existingRows.find((workspace) => workspace.id === activeWorkspaceId);
     const id = existing?.id || newWorkspaceId();
     const title = workspaceName.trim() || jdTitle || "Untitled workspace";
+    if (!activeWorkspaceId && id !== UNSAVED_BULK_QUEUE_ID) {
+      try {
+        await moveBulkQueue(UNSAVED_BULK_QUEUE_ID, id);
+      } catch (error) {
+        setBatchQueueMessage(`Workspace was saved, but the unsaved queue could not be moved: ${String(error?.message || error)}. Keep this workspace open to avoid losing the current queue.`);
+        return existing || { id, title };
+      }
+    }
     const applicantsById = new Map();
     for (const applicant of [...savedApplicants, ...savedApplicantRows(batchFiles)]) applicantsById.set(applicant.id, applicant);
     const workspace = {
@@ -645,7 +653,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
     setTeamWorkspaceBusy(true);
     try {
-      const workspace = saveWorkspace();
+      const workspace = await saveWorkspace();
       await request("put", `/ai-hiring/workspaces/${encodeURIComponent(workspace.id)}`, { workspace });
       setNotice(`Workspace “${workspace.title}” synced with your organization.`);
     } catch (error) {
@@ -686,8 +694,8 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
 
-  function createWorkspace() {
-    if (activeWorkspaceId || jdText.trim() || jdResult || rubric || candidateCard || batchFiles.length || workspaceNotes.trim()) saveWorkspace();
+  async function createWorkspace() {
+    if (activeWorkspaceId || jdText.trim() || jdResult || rubric || candidateCard || batchFiles.length || workspaceNotes.trim()) await saveWorkspace();
     const now = new Date().toISOString();
     const workspace = {
       id: newWorkspaceId(),
@@ -719,6 +727,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     const current = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
     if (!window.confirm(`Delete “${current?.title || "Untitled workspace"}” and its saved review data from this device?`)) return;
     const next = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId);
+    void deleteBulkQueue(activeWorkspaceId).catch((error) => setBatchQueueMessage(`Could not delete the saved local queue: ${String(error?.message || error)}`));
     const saved = writeWorkspaces(next);
     setWorkspaces(next);
     if (next.length) activateWorkspace(next[0]);
@@ -2080,7 +2089,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
             </Field>
             <div className="flex flex-wrap gap-2">
               <button type="button" className={secondaryButton} onClick={createWorkspace}>New workspace</button>
-              <button type="button" className={primaryButton} onClick={saveWorkspace}>Save workspace</button>
+              <button type="button" className={primaryButton} onClick={() => { void saveWorkspace(); }}>Save workspace</button>
               <button type="button" className={secondaryButton} onClick={syncWorkspaceToTeam} disabled={!token || teamWorkspaceBusy} title="Share this saved workspace with authenticated members of your organization">{teamWorkspaceBusy ? "Syncing…" : "Sync with team"}</button>
               <button type="button" className={secondaryButton} onClick={loadTeamWorkspaces} disabled={!token || teamWorkspaceBusy}>{teamWorkspaceBusy ? "Loading…" : "Load team workspaces"}</button>
               <button type="button" className={secondaryButton} onClick={downloadWorkspaceReport} disabled={!activeWorkspaceId} title="Export a standalone HTML report you can print or save as PDF">Export summary</button>
