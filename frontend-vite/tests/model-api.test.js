@@ -4,6 +4,7 @@ import { test } from "node:test";
 import handler, { extractPdfText } from "../api/v1/[...path].js";
 import explicitTestHandler from "../api/v1/test.js";
 import explicitRubricsHandler from "../api/v1/match/rubrics.js";
+import explicitJDGenerateUploadHandler from "../api/v1/jd/generate/upload.js";
 import { deflateSync } from "node:zlib";
 import { onRequest as pagesFunction } from "../functions/v1/[[path]].js";
 
@@ -54,6 +55,37 @@ function invokeHandler(targetHandler, headers = {}, method = "GET", url = "/api/
   }));
 }
 
+
+test("explicit Vercel JD generate/upload route handles multipart uploads without relying on catch-all registration", async () => {
+  const boundary = "jd-upload-route-boundary";
+  const jd = [
+    "Senior Software Engineer",
+    "Responsibilities:",
+    "- Build and maintain REST APIs using Python",
+    "- Work with SQL databases and cloud infrastructure",
+    "Requirements:",
+    "- 5 years of experience with Python and SQL",
+    "- Experience with AWS",
+  ].join("\n");
+  const multipart = [
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"role.txt\"\r\nContent-Type: text/plain\r\n\r\n" + jd + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"options\"\r\n\r\n" + JSON.stringify({ profile: "rules", mode: "light", detail: "concise" }) + "\r\n",
+    "--" + boundary + "\r\nContent-Disposition: form-data; name=\"overrides\"\r\n\r\n{}\r\n",
+    "--" + boundary + "--\r\n",
+  ].join("");
+  const response = await invokeHandler(
+    explicitJDGenerateUploadHandler,
+    { host: "ats.vercel.app", "content-type": "multipart/form-data; boundary=" + boundary },
+    "POST",
+    "/api/v1/jd/generate/upload",
+    {},
+    multipart,
+  );
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  assert.ok(Array.isArray(response.body.sections));
+  assert.ok(response.body.sections.some((section) => section.id === "requirements" && section.items.length));
+  assert.equal(response.body.meta.profile, "rules");
+});
 
 test("model registry reports hosted profiles as disabled without session keys", async () => {
   const response = await invoke({ host: "ats.vercel.app" });
