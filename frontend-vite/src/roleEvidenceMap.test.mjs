@@ -46,3 +46,14 @@ test("does not invent an education criterion when the job has none", () => {
   });
   assert.equal(result.education, null);
 });
+
+test("does not interpret an empty work-history section as zero years of experience", () => {
+  const result = buildRoleEvidenceMap({
+    experience_years: 0,
+    required_experience_years: 4,
+    match_evidence: { experience: { parsed_years: 0, required_years: 4, resume_fields: [] } },
+  });
+  assert.equal(result.experience.parsedYears, null);
+  assert.equal(result.experience.status, "verify");
+  assert.match(result.experience.explanation, /could not be reliably summarised/i);
+});
