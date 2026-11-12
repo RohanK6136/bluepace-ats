@@ -906,6 +906,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     }
   }
   function useHostedAiApi() {
+    const hadLocalAiConnection = Boolean(localAiApiUrl);
     try { localStorage.removeItem(LOCAL_AI_API_STORAGE_KEY); } catch { /* Ignore unavailable storage. */ }
     setLocalAiApiUrl("");
     setLocalAiApiDraft("");
@@ -914,8 +915,9 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setSelectedProfile("");
     setConnection("checking");
     setConnectionMessage("Switching JD & Applicant Match back to the hosted AI API…");
-    // Refresh immediately too, including when no local URL had been connected yet.
-    void refreshConnection();
+    // A connected local URL change triggers the effect. If local mode was never
+    // active, refresh explicitly because the URL state itself did not change.
+    if (!hadLocalAiConnection) void refreshConnection();
   }
 
   const refreshSavedRubrics = useCallback(async () => {
