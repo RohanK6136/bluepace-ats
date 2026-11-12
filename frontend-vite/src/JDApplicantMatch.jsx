@@ -21,6 +21,7 @@ const REVIEW_STAGES = [
 const WORKSPACE_STORAGE_KEY = "bluepace_jd_match_workspaces_v1";
 const ACTIVE_WORKSPACE_KEY = "bluepace_jd_match_active_workspace_v1";
 const LOCAL_AI_API_STORAGE_KEY = "bluepace_jd_match_local_ai_api_v1";
+const DEFAULT_LOCAL_AI_API_URL = "http://127.0.0.1:8000";
 
 function normalizeLocalAiApiUrl(value) {
   let parsed;
@@ -409,7 +410,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
   const [openRouterKeyDraft, setOpenRouterKeyDraft] = useState(() => sessionProviderKey("openrouter"));
   const [inferenceTest, setInferenceTest] = useState({ status: "", message: "" });
   const [localAiApiUrl, setLocalAiApiUrl] = useState(readSavedLocalAiApiUrl);
-  const [localAiApiDraft, setLocalAiApiDraft] = useState(readSavedLocalAiApiUrl);
+  const [localAiApiDraft, setLocalAiApiDraft] = useState(() => readSavedLocalAiApiUrl() || DEFAULT_LOCAL_AI_API_URL);
   const [localAiApiTest, setLocalAiApiTest] = useState({ status: "", message: "" });
   const [localAiApiVerified, setLocalAiApiVerified] = useState(false);
   const [models, setModels] = useState([]);
@@ -2051,13 +2052,18 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
               <option value="">Backend default</option>
               {models.some((model) => model.free_endpoint) && (
                 <optgroup label="Free OpenRouter models">
-                  {models.filter((model) => model.free_endpoint).map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : " · add OpenRouter key"}</option>)}
+                  {models.filter((model) => model.free_endpoint).map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : ` · ${model.disabled_reason || "setup required"}`}</option>)}
                 </optgroup>
               )}
               <optgroup label="Other models">
-                {models.filter((model) => !model.free_endpoint).map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : " · unavailable"}</option>)}
+                {models.filter((model) => !model.free_endpoint).map((model) => <option key={model.id} value={model.id} disabled={!model.enabled}>{model.label}{model.enabled ? "" : ` · ${model.disabled_reason || "setup required"}`}</option>)}
               </optgroup>
             </select>
+            {connection === "connected" && models.length > 0 && !models.some((model) => model.enabled && model.id !== "rules") && (
+              <p role="status" className="basis-full max-w-[620px] text-right text-[11px] leading-4 text-amber-800">
+                Only the Built-in Rules Engine is enabled right now. To use Qwen3 locally without hosted credits, connect Local Ollama below. Hosted models become selectable after their provider API key is configured and the model list is refreshed.
+              </p>
+            )}
             {models.some((model) => model.id === selectedProfile && model.free_endpoint) && (
               <p role="note" className="basis-full max-w-[620px] text-right text-[11px] leading-4 text-amber-800">
                 Free shared inference is rate-limited and provider data policies vary. Use synthetic or anonymised demo data only; do not send identifiable candidate resumes or confidential hiring data unless your organisation has approved that provider.
