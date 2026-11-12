@@ -54,7 +54,8 @@ export function buildRoleEvidenceMap(analysis) {
   const experienceEvidence = evidence.experience || {};
   const parsedYearsValue = experienceEvidence.parsed_years ?? analysis.experience_years ?? analysis.experience_years_estimate;
   const requiredYearsValue = experienceEvidence.required_years ?? analysis.required_experience_years;
-  const parsedYears = parsedYearsValue !== null && parsedYearsValue !== undefined && Number.isFinite(Number(parsedYearsValue)) ? Number(parsedYearsValue) : null;
+  const hasExperienceRecord = asList(experienceEvidence.resume_fields).includes("experience");
+  const parsedYears = parsedYearsValue !== null && parsedYearsValue !== undefined && Number.isFinite(Number(parsedYearsValue)) && (hasExperienceRecord || Number(parsedYearsValue) !== 0) ? Number(parsedYearsValue) : null;
   const requiredYears = requiredYearsValue !== null && requiredYearsValue !== undefined && Number.isFinite(Number(requiredYearsValue)) ? Number(requiredYearsValue) : null;
   const experience = parsedYears === null && requiredYears === null
     ? null
@@ -70,7 +71,7 @@ export function buildRoleEvidenceMap(analysis) {
   const educationEvidence = evidence.education || {};
   const hasEducation = asList(educationEvidence.resume_fields).includes("education")
     || Boolean(clean(analysis.highest_education))
-    || asList(analysis.extracted_education ?? analysis.education).length > 0;
+    || Boolean(clean(analysis.extracted_education ?? analysis.education));
   const educationRequirement = clean(educationEvidence.required);
   const education = educationRequirement
     ? {
