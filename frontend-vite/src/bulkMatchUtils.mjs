@@ -5,6 +5,31 @@ export const RESUME_ACCEPT = ".pdf,.docx,.txt,.md";
 
 const SUPPORTED_RESUME_NAME = /\.(pdf|docx|txt|md)$/i;
 
+/**
+ * Classify failures that are shared across the batch rather than specific to
+ * one resume. Stop claiming more files after these responses so a provider
+ * outage, exhausted credit balance, or rate limit is not repeated 50 times.
+ */
+export function getBulkBatchStopReason(error) {
+  const status = Number(error?.response?.status);
+  if (status === 402) {
+    return "The AI provider reports insufficient credits (HTTP 402). The batch stopped to avoid repeating the same provider failure.";
+  }
+  if (status === 429) {
+    return "The AI service is rate-limiting requests (HTTP 429). The batch stopped; wait for the limit to reset before resuming.";
+  }
+  if (status === 401 || status === 403) {
+    return "The AI API rejected authentication or access (HTTP " + status + "). Restore access before resuming the batch.";
+  }
+  if (status === 404) {
+    return "The Applicant Match API route is unavailable (HTTP 404). Restore the deployed route before resuming the batch.";
+  }
+  if ([502, 503, 504].includes(status)) {
+    return "The shared AI service is unavailable or timing out (HTTP " + status + "). The batch stopped to preserve the remaining queue.";
+  }
+  return "";
+}
+
 function unwrapFile(item) {
   return item?.file || item;
 }
