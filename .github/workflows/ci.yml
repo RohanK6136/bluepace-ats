@@ -96,6 +96,10 @@ jobs:
         working-directory: frontend-vite
         run: npm run test:rubric-fallback
 
+      - name: Test Role Evidence Map evidence handling
+        working-directory: frontend-vite
+        run: npm run test:role-evidence
+
       - name: Test local loopback permission diagnostics
         working-directory: frontend-vite
         run: npm run test:local-network
