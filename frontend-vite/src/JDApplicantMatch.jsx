@@ -1926,7 +1926,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
     setNotice(`Bulk match finished: ${complete} complete, ${rulesOnly} rules-only, ${manual} requiring manual review, ${failed} failed. ${processed} of ${queue.length} queued resumes processed with up to ${concurrency} running at once. Rules-only results use direct text evidence and do not assess experience dates or fuzzy criteria. Review every result before making a recruiting decision.`);
     if (fatalMessage) {
       const unstarted = queue.length - processed;
-      setBatchError(`${fatalMessage} ${unstarted} unstarted resume(s) remain in the queue. Restore the API connection, then run the batch again.`);
+      setBatchError(`${fatalMessage} ${unstarted} unstarted resume(s) remain queued. Resolve the shared provider/API issue, then use Run queued to continue.`);
     }
   }
 
