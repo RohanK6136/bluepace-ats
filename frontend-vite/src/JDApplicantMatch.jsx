@@ -2492,11 +2492,11 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                       <div><p className="text-ink-500">Resume extraction</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.resume_extraction_ms ?? 0).toLocaleString()} ms</p></div>
                       <div><p className="text-ink-500">Preprocessing</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.preprocessing_ms ?? 0).toLocaleString()} ms</p></div>
                       <div><p className="text-ink-500">Provider round trip</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.provider_round_trip_ms ?? 0).toLocaleString()} ms</p></div>
-                      <div><p className="text-ink-500">Model inference</p><p className="mt-0.5 font-semibold text-ink-900">{candidateCard.performance.model_inference_ms == null ? "Not run" : `${Number(candidateCard.performance.model_inference_ms).toLocaleString()} ms`}</p></div>
+                      <div><p className="text-ink-500">Sum of model calls</p><p className="mt-0.5 font-semibold text-ink-900">{candidateCard.performance.model_call_time_ms == null ? "Not run" : `${Number(candidateCard.performance.model_call_time_ms).toLocaleString()} ms`}</p></div>
                       <div><p className="text-ink-500">Server total</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.total_ms ?? 0).toLocaleString()} ms</p></div>
                       <div><p className="text-ink-500">Browser round trip</p><p className="mt-0.5 font-semibold text-ink-900">{Number(candidateCard.performance.client_round_trip_ms ?? 0).toLocaleString()} ms</p></div>
                     </div>
-                    <p className="mt-2 text-[11px] text-ink-500">Server timings exclude file upload transfer. Provider round trip includes network and response handling; it is not a measure of the model's internal compute time.</p>
+                    <p className="mt-2 text-[11px] text-ink-500">Server timings exclude file upload transfer. Provider round trip is wall-clock time for the parallel model stage. Sum of model calls adds individual request durations and can exceed wall-clock time; neither value measures provider-internal compute time.</p>
                   </div>}
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"><strong>Recruiter review required.</strong> This assessment is based on resume-derived evidence; verify any important claim directly and apply the same criteria consistently across applicants.</div>
                   <div className="rounded-lg border border-ink-200 bg-white p-4 sm:p-5">
