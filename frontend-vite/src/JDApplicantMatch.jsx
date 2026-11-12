@@ -2266,7 +2266,7 @@ export default function JDApplicantMatch({ token, apiRequest, jobs = [], applica
                     <button type="button" className={secondaryButton} onClick={compileRubric} disabled={rubricLoading || !jdText.trim()}>{rubricLoading ? "Building…" : "Build rubric from current JD"}</button>
                     <button type="button" className={secondaryButton} onClick={refreshSavedRubrics} disabled={connection !== "connected" || rubricLoading}>Refresh saved rubrics</button>
                   </div>
-                  <p className="text-[11px] leading-5 text-ink-500">The source-grounded rubric is created and saved first so you can review it immediately. Concise JD standardization runs in parallel; the rubric request sends only the current JD text and does not wait for a model call.</p>
+                  <p className="text-[11px] leading-5 text-ink-500">Build a source-grounded draft instantly from the current JD without a model call. Review the requirements and weights before saving an immutable version. Auto setup saves the version in one API request while JD standardization runs separately.</p>
                   <ErrorNotice>{rubricError}</ErrorNotice>
                   {rubricNotes.length > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Compiler notes</p><ul className="mt-2 space-y-1 text-sm text-amber-950">{rubricNotes.map((note, index) => <li key={index}>{typeof note === "string" ? note : note.message || note.code}</li>)}</ul></div>}
                   {rubric && (
