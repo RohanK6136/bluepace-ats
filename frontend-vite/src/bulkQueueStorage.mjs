@@ -38,9 +38,13 @@ function fileMetadata(file, fallback = {}) {
 
 function serializeRow(row) {
   const meta = fileMetadata(row?.file, row?.fileMeta || row || {});
+  // Retain the binary only while work may need to be sent or retried.
+  // Completed/manual/rules-only results remain as review data with metadata,
+  // avoiding unnecessary long-term retention of the original resume file.
+  const needsFile = ["queued", "failed", "processing"].includes(row?.status);
   return {
     ...row,
-    file: row?.file || null,
+    file: needsFile ? row?.file || null : null,
     fileMeta: meta,
   };
 }
