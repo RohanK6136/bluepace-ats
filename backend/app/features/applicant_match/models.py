@@ -199,6 +199,18 @@ class Summary(Model):
     reason: str | None = None
 
 
+class Performance(Model):
+    """Measured server-side timings; model request time is the sum across calls."""
+
+    resume_extraction_ms: int = Field(default=0, ge=0)
+    preprocessing_ms: int = Field(default=0, ge=0)
+    provider_round_trip_ms: int = Field(default=0, ge=0)
+    model_call_time_ms: int = Field(default=0, ge=0)
+    total_ms: int = Field(default=0, ge=0)
+    assessment_mode: Literal["model", "rules_only", "partial_model", "manual"] = "model"
+    input_mode: Literal["uploaded_file", "pasted_text"] = "pasted_text"
+
+
 class Card(Model):
     request_id: str
     applicant_id: str
@@ -215,3 +227,4 @@ class Card(Model):
     as_of: str
     versions: dict[str, Any]
     usage: dict[str, Any]
+    performance: Performance = Field(default_factory=Performance)
