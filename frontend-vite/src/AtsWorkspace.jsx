@@ -6,6 +6,7 @@ const ResumeLab = lazy(() => import("./App.jsx"));
 const CandidatePortal = lazy(() => import("./CandidatePortal.jsx"));
 const ScorecardPanel = lazy(() => import("./ScorecardPanel.jsx"));
 const CandidateRoleRediscovery = lazy(() => import("./CandidateRoleRediscovery.jsx"));
+const RoleEvidenceMap = lazy(() => import("./RoleEvidenceMap.jsx"));
 const ApplicationEnhancements = lazy(() => import("./ApplicationEnhancements.jsx"));
 const RecruiterToolsPanel = lazy(() => import("./RecruiterToolsPanel.jsx"));
 const InterviewPanel = lazy(() => import("./InterviewPanel.jsx"));
@@ -2424,6 +2425,7 @@ export default function AtsWorkspace() {
                           </div>
                         </div>
                       </div>
+                      <RoleEvidenceMap analysis={fitAnalysis} onNotice={setNotice} />
                       <div className="mt-5 grid gap-4 lg:grid-cols-3">
                       <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 lg:col-span-1">
                         <p className="text-xs font-semibold uppercase text-blue-700">Screening evidence</p>
